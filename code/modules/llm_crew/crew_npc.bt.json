@@ -1,0 +1,116 @@
+{
+	"dm_type": "/datum/ai_controller/crew_npc",
+	"type": "selector",
+	"children": [
+		{
+			"type": "decorator",
+			"decorator": "/datum/bt_node/decorator/bb_key_set",
+			"vars": {
+				"observer_abort": "BT_ABORT_BOTH",
+				"key": "BB_crew_npc_walk_target"
+			},
+			"child": {
+				"type": "leaf",
+				"behavior": "/datum/bt_node/ai_behavior/move_to_target/crew_npc_walk",
+				"vars": {
+					"target_key": "BB_crew_npc_walk_target",
+					"required_dist": 1
+				}
+			}
+		},
+		{
+			"type": "decorator",
+			"decorator": "/datum/bt_node/decorator/bb_key_set",
+			"vars": {
+				"observer_abort": "BT_ABORT_BOTH",
+				"key": "BB_crew_npc_errand_target"
+			},
+			"child": {
+				"type": "selector",
+				"children": [
+					{
+						"type": "sequence",
+						"children": [
+							{
+								"type": "leaf",
+								"behavior": "/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach",
+								"vars": {
+									"target_key": "BB_crew_npc_errand_target",
+									"required_dist": 1,
+									"time_limit": "3 MINUTES",
+									"update_movement_for_moving_target": true
+								}
+							},
+							{
+								"type": "leaf",
+								"behavior": "/datum/bt_node/ai_behavior/crew_npc_do_errand",
+								"vars": {
+									"target_key": "BB_crew_npc_errand_target"
+								}
+							}
+						]
+					},
+					{
+						"type": "leaf",
+						"behavior": "/datum/bt_node/ai_behavior/crew_npc_fail_errand"
+					}
+				]
+			}
+		},
+		{
+			"type": "decorator",
+			"decorator": "/datum/bt_node/decorator/bb_key_set",
+			"vars": {
+				"observer_abort": "BT_ABORT_BOTH",
+				"key": "BB_crew_npc_storage_target"
+			},
+			"child": {
+				"type": "selector",
+				"children": [
+					{
+						"type": "sequence",
+						"children": [
+							{
+								"type": "leaf",
+								"behavior": "/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach",
+								"vars": {
+									"target_key": "BB_crew_npc_storage_target",
+									"required_dist": 1
+								}
+							},
+							{
+								"type": "leaf",
+								"behavior": "/datum/bt_node/ai_behavior/crew_npc_look_inside",
+								"vars": {
+									"target_key": "BB_crew_npc_storage_target"
+								}
+							}
+						]
+					},
+					{
+						"type": "leaf",
+						"behavior": "/datum/bt_node/ai_behavior/crew_npc_skip_storage",
+						"vars": {
+							"target_key": "BB_crew_npc_storage_target"
+						}
+					}
+				]
+			}
+		},
+		{
+			"type": "subplan",
+			"success_policy": "BT_SUBPLAN_LOOP_ON_SUCCESS",
+			"failure_policy": "BT_SUBPLAN_FAIL_ON_FAILURE",
+			"loop_delay": "IDLE_BEHAVIOR_RATE",
+			"children": [
+				{
+					"type": "leaf",
+					"behavior": "/datum/bt_node/ai_behavior/idle_random_walk/crew_npc",
+					"vars": {
+						"walk_chance": 50
+					}
+				}
+			]
+		}
+	]
+}
