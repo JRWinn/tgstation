@@ -115,13 +115,22 @@
 			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 	// For a walk to a room, standing in the room close to the remembered spot is arrival enough;
 	// the spot itself may have someone or something on it.
-	else if(isturf(target) && get_dist(controller.pawn, target) <= 2 && get_area(controller.pawn) == get_area(target))
+	// Not for stepping aside, though. That is a walk of a tile or two, so close to the spot is
+	// where it began, and the body was told it had stepped aside without having moved.
+	else if(isturf(target) && crew_controller.walk_tool != CREW_TOOL_STEP_ASIDE && get_dist(controller.pawn, target) <= 2 && get_area(controller.pawn) == get_area(target))
 		// Hauling something, it is the load that has to be in the room, and well clear of the way
 		// in. The load trails a step behind, so a body that stops the moment it is through the door
 		// leaves it in the doorway, where nobody else can get past it.
 		var/mob/living/hauler = controller.pawn
 		var/hauling = CREW_NPC_HAULS(crew_controller.walk_tool)
-		if(!hauling || (hauler.pulling && get_area(hauler.pulling) == get_area(target) && crew_npc_clear_of_doors(hauler.pulling)))
+		if(hauling)
+			if(hauler.pulling && get_area(hauler.pulling) == get_area(target) && crew_npc_clear_of_doors(hauler.pulling))
+				return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
+		// Not hauling, it does not stop short in a doorway either. Two tiles short of a spot that
+		// is clear of the doors is as often as not right beside one, and a body left there is
+		// walked into by everyone who comes through. Where the spot itself is by a door, a closet
+		// or the counter of a post, there is no better place to stop, and close is close enough.
+		else if(!crew_npc_clear_of_doors(target) || crew_npc_clear_of_doors(hauler))
 			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 	if(movement_failed)
 		fail_reason = "there is no way through"

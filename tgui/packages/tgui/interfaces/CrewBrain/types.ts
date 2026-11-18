@@ -46,6 +46,8 @@ export type PersonInView = {
   job: string;
   /** The room this person is standing in. Seeing someone does not put them in the room with you: there are windows. */
   place?: string;
+  /** How many tiles off they are standing. */
+  distance?: number;
   /** For an observer with a post: TRUE if this person is standing inside it. */
   in_post?: BooleanLike;
   /** For an observer with a post: TRUE if a door into it opens for this person, so they have a right to be in it. */
@@ -191,6 +193,8 @@ export type Npc = {
   door_keepers?: string[];
   /** The room whose door it is standing at, wanting through, or null. */
   at_door_of: string | null;
+  /** TRUE if it is standing in a doorway or right beside a door, where it is in the way of anyone coming through. */
+  in_doorway?: BooleanLike;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
   grenade_messes: number;
   /** What the body is in the middle of, in words, or null if it is free. */
@@ -446,6 +450,12 @@ export type Plan = {
   sayIf?: () => boolean;
   /** If not ready: TRUE if the thing to do meanwhile is stay put, not wander off and pass the time. */
   wait?: boolean;
+  /**
+   * If it is waiting: TRUE if it should not do so in a doorway. A body standing in one is moved
+   * by everyone who comes through, and is in and out of the room with each of them. Not every
+   * wait is like that: someone waiting to be let through a door stands at it on purpose.
+   */
+  inside?: boolean;
 };
 
 /** How an NPC feels about one person it has met. */
@@ -553,6 +563,16 @@ export type NpcBrain = {
   doorOutTo: string | null;
   /** The room it was in before the one it is in now, or null. The way back out. */
   cameFrom: string | null;
+  /** The room it was last in before this one, and when it left it (this window's clock): see stillIn in tasks.ts. */
+  leftPlace: { place: string; at: number } | null;
+  /** TRUE if it is standing in a doorway or right beside a door. */
+  inDoorway: boolean;
+  /**
+   * The walk it last made that the server said had got there, how many times running it has made
+   * that same one, and when (this window's clock). A walk that keeps arriving and keeps being
+   * asked for again is getting it nowhere: see noteResult in driver.ts.
+   */
+  repeats: { key: string; count: number; at: number } | null;
   /** Name of whoever let it into the room it is in, through a door it cannot open, or null. */
   letInBy: string | null;
   /** TRUE from when it finds it cannot get out by itself until it is back where it was last out. */
@@ -821,6 +841,11 @@ export type NpcBrain = {
     answered: boolean;
     /** Server time it got to the room, or null. */
     arrivedAt: number | null;
+    /** Server time the server last told it that its walk to the room had got there, or null. */
+    toldArrivedAt: number | null;
+    /** How many times it has walked up to its head in the room, and the server time it last did. */
+    walkUps: number;
+    walkedUpAt: number | null;
     /** Server time its head was last seen there, or null. */
     headSeenAt: number | null;
     /** Server time its head called on it, by name, for its report, or null. */
@@ -831,6 +856,8 @@ export type NpcBrain = {
     tries: number;
     /** TRUE once it has found it cannot get into the room. It sends its report by PDA instead. */
     shutOut?: boolean;
+    /** TRUE once its walk to the room has kept arriving and kept leaving it outside. It stays where it stands, and takes that for being there. */
+    fromHere?: boolean;
     /** TRUE once its head has sent word that the meeting went ahead without it. It sends its report by PDA instead. */
     missed?: boolean;
     /** TRUE once its head has said the meeting is over. */
@@ -864,6 +891,8 @@ export type NpcBrain = {
     reports: Record<string, { counts: Record<string, number>; need: boolean }>;
     /** Server time it said the meeting was over, or null. */
     closedAt: number | null;
+    /** TRUE once its walk to the room has kept arriving and kept leaving it outside. It holds the meeting from where it stands. */
+    fromHere?: boolean;
     /** Who ordered it held, if it was not called of its own accord. */
     orderedBy: string | null;
   } | null;

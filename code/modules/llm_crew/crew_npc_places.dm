@@ -32,8 +32,38 @@ GLOBAL_LIST_EMPTY(crew_npc_station_places)
 /datum/ai_controller/crew_npc/proc/place_spot(place)
 	var/list/spot = visited_places[place]
 	if(spot)
-		return locate(spot[1], spot[2], spot[3])
+		var/turf/known = locate(spot[1], spot[2], spot[3])
+		// Its post is the one spot it stands at on purpose, counter window and all.
+		if(place == post_place)
+			return known
+		// Anywhere else, a spot it noted while standing in a doorway is no place to go and stand.
+		return spot_inside(known) || known
 	var/area/station/room = crew_npc_station_places()[place]
 	if(isnull(room))
 		return null
 	return safe_spot_in(room, get_turf(pawn))
+
+/**
+ * Returns the nearest spot to this one, in the same room, that is safe to stand on and clear of
+ * its doors. Null if this spot is clear of them already, or there is no such spot within a few steps.
+ *
+ * A body standing in a doorway is walked into by everyone who comes through, and people who walk
+ * into each other change places. So it is out of the room with one of them and back in with the
+ * next, and whatever it was waiting for in that room never finds it there.
+ */
+/datum/ai_controller/crew_npc/proc/spot_inside(turf/here)
+	if(isnull(here) || crew_npc_clear_of_doors(here))
+		return null
+	var/area/room = get_area(here)
+	var/turf/best
+	var/best_distance = INFINITY
+	for(var/turf/candidate as anything in RANGE_TURFS(CREW_NPC_ASIDE_REACH, here))
+		if(candidate == here || get_area(candidate) != room)
+			continue
+		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate))
+			continue
+		var/distance = get_dist(candidate, here)
+		if(distance < best_distance)
+			best_distance = distance
+			best = candidate
+	return best

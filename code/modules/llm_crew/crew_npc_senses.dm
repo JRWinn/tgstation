@@ -96,7 +96,7 @@
 	for(var/mob/living/carbon/human/person in in_sight)
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
 		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person)))
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person)))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)
@@ -159,13 +159,18 @@
 		// Through the door it was waiting at, it is waiting at it no longer.
 		if(wanted_door && (place == wanted_door_place) != wanted_door_leaving)
 			wanted_door = null
+		// The first tile it stands on in a room is as often as not the doorway. The spot it keeps to
+		// walk back to is the nearest one clear of the door, if there is one.
 		if(isnull(visited_places[place]))
-			visited_places[place] = list(here.x, here.y, here.z)
+			var/turf/inside = spot_inside(here) || here
+			visited_places[place] = list(inside.x, inside.y, inside.z)
 		return
 	looks_in_place++
-	// A few seconds in, the body is properly inside the room, not standing in its doorway.
-	// The spot kept for the body's post is the one it works at, so that one stays as it is.
-	if(looks_in_place == 4 && place != post_place)
+	// A few seconds in, the body is likely to be properly inside the room, and where it stands is a
+	// better spot to come back to. Not if it is still by a door, though.
+	// The spot kept for the body's post is the one it works at, so that one stays as it is. So does
+	// the one a head holds its meetings at, which was picked for being well inside the room.
+	if(looks_in_place == 4 && place != post_place && place != meeting_place && crew_npc_clear_of_doors(here))
 		visited_places[place] = list(here.x, here.y, here.z)
 
 /**

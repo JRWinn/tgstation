@@ -123,6 +123,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"door_keepers" = npc.door_keepers(),
 			// The room whose door it is standing at, wanting through, or null.
 			"at_door_of" = npc.at_door_of(),
+			// It is standing in a doorway or right beside a door, in the way of anyone coming through.
+			"in_doorway" = !crew_npc_clear_of_doors(body),
 			"grenade_messes" = npc.grenade_messes,
 			"doing" = npc.describe_doing(),
 			"post" = npc.post_place,

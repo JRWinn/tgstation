@@ -14,10 +14,16 @@
  * the same report by PDA. The report is written by code, numbers and all (see reports.ts): the
  * LLM only adds a remark of its own to it.
  *
+ * Being there is not a matter of which side of a line its feet are on. A body standing near the
+ * door is pushed a tile out by everyone who comes through. So it walks up to its head once it
+ * is in the room, it never waits in a doorway, a push out of the room is not leaving it, and
+ * told it has arrived with its head in view it is at the meeting. A walk that keeps arriving
+ * and keeps leaving it outside is given up after three goes: it stays where it stands.
+ *
  * What a job needs is the job's to say (see Job.needs). How it is asked for is the same for all.
  */
 import { answersTo, departmentHeadedBy } from '../hierarchy';
-import { addTask, finishTask, placeNamedIn } from '../tasks';
+import { addTask, finishTask, placeNamedIn, stillIn } from '../tasks';
 import type {
   Action,
   NpcBrain,
@@ -45,6 +51,11 @@ const SUMMONS_STANDS_DS = 4200;
 const WALK_TRIES = 2;
 /** How long (deciseconds) after giving its report it stays in a room its head has left, the end of the meeting unheard. */
 const HEAD_GONE_DS = 450;
+/** How far off (tiles) its head has to be standing before it walks up to them. */
+const WALK_UP_BEYOND = 2;
+/** How many times it walks up to its head at one meeting, and how long (deciseconds) between. */
+const WALK_UPS_MAX = 2;
+const WALK_UP_AGAIN_DS = 150;
 /** How long (deciseconds) after telling its head what it needs before it tells them again. */
 const TELL_AGAIN_DS = 4800;
 /** How the server words what a body is doing while it has hold of a crate. That is finished before it goes to a meeting. */
@@ -113,19 +124,60 @@ export function isMeetingOrder(brain: NpcBrain, heard: string): boolean {
 }
 
 /**
- * TRUE while an NPC is at a staff meeting that is under way: it is in the room with the head who
+ * TRUE if it has got to the meeting it was called to. It is in the room, or was until a moment
+ * ago. Or the server has told it that it arrived and its head is in view: it can hear and be
+ * heard from there, whichever side of the doorway its feet are. Or it has given up walking in.
+ */
+function atMeeting(
+  brain: NpcBrain,
+  summons: NonNullable<NpcBrain['summons']>,
+): boolean {
+  return (
+    stillIn(brain, summons.room) ||
+    !!summons.fromHere ||
+    (summons.toldArrivedAt !== null &&
+      brain.peopleInView.some((person) => person.name === summons.by))
+  );
+}
+
+/**
+ * TRUE while an NPC is at a staff meeting that is under way: it is there with the head who
  * called it, or it is that head. Talk there is kept to the meeting: one at a time, and to the point.
  */
 export function inMeeting(brain: NpcBrain): boolean {
   const summons = brain.summons;
+  // Called on for its report, it is in the meeting as far as talk goes, even if it is still
+  // coming in at the door: what it says next is its report, not a hello to whoever called on it.
+  if (summons && summons.askedAt !== null && !summons.said) {
+    return true;
+  }
   if (
     summons &&
-    brain.location === summons.room &&
+    atMeeting(brain, summons) &&
     brain.peopleInView.some((person) => person.name === summons.by)
   ) {
     return true;
   }
-  return !!brain.meeting && brain.location === brain.meeting.room;
+  return (
+    !!brain.meeting &&
+    (stillIn(brain, brain.meeting.room) || !!brain.meeting.fromHere)
+  );
+}
+
+/**
+ * What the LLM should know about a meeting it has been called to, so that what it says is true:
+ * it is on its way, or it is standing there waiting, and either way it is not at its other work.
+ */
+export function meetingCues(brain: NpcBrain): string[] {
+  const summons = brain.summons;
+  if (!summons || summons.shutOut || summons.missed) {
+    return [];
+  }
+  return [
+    atMeeting(brain, summons)
+      ? `You are at ${summons.by}'s staff meeting in the ${summons.room}. You are standing still and waiting, not working: you are not cleaning, tidying or carrying anything just now, and your other work waits until the meeting is over.`
+      : `${summons.by} has called a staff meeting in the ${summons.room}, and you are going to it. Your other work waits until the meeting is over.`,
+  ];
 }
 
 /**
@@ -187,6 +239,9 @@ function called(
     at,
     answered: false,
     arrivedAt: null,
+    toldArrivedAt: null,
+    walkUps: 0,
+    walkedUpAt: null,
     headSeenAt: null,
     askedAt: null,
     said: false,
@@ -239,7 +294,7 @@ export function readSummons(
 export function syncMeetings(brain: NpcBrain): void {
   const summons = brain.summons;
   if (summons) {
-    const there = brain.location === summons.room;
+    const there = atMeeting(brain, summons);
     if (there) {
       summons.arrivedAt ??= brain.now;
       if (brain.peopleInView.some((person) => person.name === summons.by)) {
@@ -337,7 +392,7 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       },
     };
   }
-  if (brain.location !== room) {
+  if (!atMeeting(brain, summons)) {
     // A crate let go of halfway is a crate left in a hallway. It is set down where it is going first.
     if (brain.doing && HAULING.test(brain.doing)) {
       return {
@@ -355,26 +410,47 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: false,
       wait: true,
+      // Only once it is in the room: stepping clear of the door on the far side of it is stepping away.
+      inside: brain.location === room,
       step: `You have given ${by} your report, and are staying at the staff meeting until ${by} says it is over.`,
     };
   }
   // One at a time: it speaks when its head calls on it by name, and not before. Called on, it
   // answers whether or not it can pick its head out: a voice is known even when a face is hidden.
-  if (summons.askedAt === null) {
+  if (summons.askedAt !== null) {
+    const line = spokenReport(brain, summons);
     return {
-      ready: false,
-      wait: true,
-      step: brain.peopleInView.some((person) => person.name === by)
-        ? `You are at the staff meeting in the ${room}, waiting for ${by} to call on you for your report. Until then you say nothing.`
-        : `You are in the ${room} for the staff meeting, waiting for ${by}.`,
+      ready: true,
+      step: `${by} has called on you for your report. Your body is giving it now, in these words: "${line}"`,
+      say: line,
+      exact: true,
     };
   }
-  const line = spokenReport(brain, summons);
+  // People at a meeting stand round whoever called it, not strung out from the door. Its head
+  // has a place to stand that is well inside the room, so walking up to them ends there too.
+  const head = brain.peopleInView.find((person) => person.name === by);
+  if (
+    head &&
+    head.place === room &&
+    (head.distance ?? 0) > WALK_UP_BEYOND &&
+    summons.walkUps < WALK_UPS_MAX &&
+    (summons.walkedUpAt === null ||
+      brain.now - summons.walkedUpAt > WALK_UP_AGAIN_DS)
+  ) {
+    return {
+      ready: true,
+      step: `You are at the staff meeting in the ${room}, and ${by} is here. You are walking up to ${by}, to stand with the others.`,
+      act: { tool: 'approach', person: head.handle },
+    };
+  }
   return {
-    ready: true,
-    step: `${by} has called on you for your report. Your body is giving it now, in these words: "${line}"`,
-    say: line,
-    exact: true,
+    ready: false,
+    wait: true,
+    // Only once it is in the room: stepping clear of the door on the far side of it is stepping away.
+    inside: brain.location === room,
+    step: head
+      ? `You are at the staff meeting in the ${room}, waiting for ${by} to call on you for your report. Until then you say nothing.`
+      : `You are in the ${room} for the staff meeting, waiting for ${by}.`,
   };
 }
 
@@ -390,11 +466,9 @@ export function describeMeetings(task: Task): string | null {
 /** Follows what its head says at a meeting: being called on by name, and being told the meeting is over. */
 export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   const summons = brain.summons;
-  if (
-    !summons ||
-    event.details.speaker !== summons.by ||
-    brain.location !== summons.room
-  ) {
+  // Whatever it hears its head say about the meeting counts, wherever it is standing when it
+  // hears it: called on while still coming through the door, it has still been called on.
+  if (!summons || event.details.speaker !== summons.by) {
     return;
   }
   const heard = String(event.details.message ?? '');
@@ -435,7 +509,7 @@ export function meetingsAfterSaying(
     summons &&
     !summons.said &&
     summons.askedAt !== null &&
-    brain.location === summons.room &&
+    atMeeting(brain, summons) &&
     called.startsWith(`${firstName(summons.by)}, `) &&
     readReport(called)
   ) {
@@ -451,9 +525,24 @@ export function meetingsAfterActing(
   brain: NpcBrain,
   act: Action,
   ok: boolean,
+  looped = false,
 ): void {
   const summons = brain.summons;
   const text = act.tool === 'message' ? String(act.text ?? '') : '';
+  // The server says the walk to the meeting got there. That stands, even if the body is found a
+  // tile outside the room a moment later. And if that walk has now arrived three times running,
+  // walking is not what is wrong: it stays where it stands and takes that for being there.
+  if (summons && ok && act.tool === 'go_to' && act.place === summons.room) {
+    summons.toldArrivedAt = brain.now;
+    if (looped) {
+      summons.fromHere = true;
+    }
+  }
+  // It walks up to its head a time or two, and that is all, however that went.
+  if (summons && act.tool === 'approach') {
+    summons.walkUps++;
+    summons.walkedUpAt = brain.now;
+  }
   // The walk to the meeting came to nothing. Shut in where it stands, that says nothing about the
   // room it was going to. Otherwise it is tried once more before the room is taken to be shut to it.
   if (

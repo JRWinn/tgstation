@@ -259,6 +259,9 @@ export function ingest(npcs: Npc[], now: number): void {
         doorHeldOut: false,
         doorOutTo: null,
         cameFrom: null,
+        leftPlace: null,
+        inDoorway: false,
+        repeats: null,
         letInBy: null,
         wantsOut: false,
         wayOutTo: null,
@@ -370,8 +373,13 @@ export function ingest(npcs: Npc[], now: number): void {
       brain.inPlaceSince = now;
       brain.outAsks = null;
       brain.cameFrom = brain.location || brain.cameFrom;
+      // Where it was a moment ago, and when it left. Someone pushed a tile out of a room has not left it.
+      if (brain.location) {
+        brain.leftPlace = { place: brain.location, at: Date.now() };
+      }
     }
     brain.location = npc.location;
+    brain.inDoorway = !!npc.in_doorway;
     brain.peopleInView = npc.people_in_view ?? [];
     // Kept by name, so that someone a door now hides can still be pointed at.
     for (const person of brain.peopleInView) {

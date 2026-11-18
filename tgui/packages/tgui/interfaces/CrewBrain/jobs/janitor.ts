@@ -231,7 +231,9 @@ function cues(brain: NpcBrain): string[] {
     );
   }
   const messes = brain.thingsInView.filter((thing) => thing.kind === 'mess');
-  if (messes.length === 0) {
+  // Called to a staff meeting, a mess in front of it is not what it is about: told that the mess
+  // is its to clean, it says it is scrubbing while it stands and waits.
+  if (messes.length === 0 || brain.summons) {
     return lines;
   }
   if (brain.cleanableMesses.length > 0 && brain.cleaningTool) {

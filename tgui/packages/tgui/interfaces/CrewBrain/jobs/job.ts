@@ -91,13 +91,15 @@ export type Job = {
   agrees?: (brain: NpcBrain, action: Action, heard: string) => boolean;
   /**
    * Called when the body has heard how something it was told to do for a task went, to note what
-   * that means for its work. `ok` says whether it went through.
+   * that means for its work. `ok` says whether it went through. `looped` is TRUE if it was a walk
+   * that got there, for the third time running: it is getting the body nowhere.
    */
   afterActing?: (
     brain: NpcBrain,
     act: Action,
     task: Task | undefined,
     ok: boolean,
+    looped?: boolean,
   ) => void;
   /** Reads a PDA message the NPC has been sent, to note what it means for its work. No LLM is asked. */
   readsMessage?: (

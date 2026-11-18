@@ -270,6 +270,23 @@ export function workInWords(
   return null;
 }
 
+/** How long (milliseconds) a body that was in a room still counts as in it after it is found outside. */
+const NUDGED_OUT_MS = 10000;
+
+/**
+ * TRUE if the NPC is in this room, or was until a moment ago. People walk into each other, and a
+ * body standing near a door is pushed a tile out of the room and is back in it the next second.
+ * That is not leaving: whoever is waiting there stays where it is, and does not set off for the
+ * room all over again.
+ */
+export function stillIn(brain: NpcBrain, place: string): boolean {
+  return (
+    brain.location === place ||
+    (brain.leftPlace?.place === place &&
+      Date.now() - brain.leftPlace.at < NUDGED_OUT_MS)
+  );
+}
+
 /** The room the NPC knows that these words name, if they name one. The words must be in lower case. */
 export function placeNamedIn(brain: NpcBrain, heard: string): string | undefined {
   // Longest names first, so "Medbay Central" is not taken for "Medbay".

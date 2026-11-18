@@ -65,7 +65,9 @@
 			var/area/station/room = GLOB.areas_by_type[room_type]
 			if(isnull(room) || !length(room.get_turfs_by_zlevel(here.z)) || crew_npc_room_is_closed(room, here.z))
 				continue
-			meeting_place = learn_place(room_type)
+			// It stands in the middle of the room, and its staff come and stand round it. Just inside
+			// the door, which is the nearest spot, they would all be in the doorway.
+			meeting_place = learn_place(room_type, well_inside = TRUE)
 			if(meeting_place)
 				known += meeting_place
 				break
@@ -265,12 +267,17 @@
 	var/obj/item/label/note = new(null, words)
 	note.stick_to_atom(crate)
 
-/// Records a spot in the room of this type as somewhere the body knows the way to. Returns the room's name, or null.
-/datum/ai_controller/crew_npc/proc/learn_place(area_type)
+/**
+ * Records a spot in the room of this type as somewhere the body knows the way to. Returns the room's name, or null.
+ *
+ * The spot is the nearest safe one, unless `well_inside` is set: then it is as near the middle of
+ * the room as there is, well clear of the doors. That is for a room others are called to.
+ */
+/datum/ai_controller/crew_npc/proc/learn_place(area_type, well_inside = FALSE)
 	for(var/area/station/place in GLOB.areas)
 		if(place.type != area_type)
 			continue
-		var/turf/spot = safe_spot_in(place, get_turf(pawn))
+		var/turf/spot = (well_inside ? middle_of(area_type) : null) || safe_spot_in(place, get_turf(pawn))
 		if(isnull(spot))
 			continue
 		var/place_name = format_text(place.name)

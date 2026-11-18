@@ -31,7 +31,13 @@
  */
 import { answersTo, departmentHeadedBy } from '../hierarchy';
 import { CARGO_LOBBY, knowsPlace } from '../memory';
-import { addTask, findTask, finishTask, placeNamedIn } from '../tasks';
+import {
+  addTask,
+  findTask,
+  finishTask,
+  placeNamedIn,
+  stillIn,
+} from '../tasks';
 import type { NpcBrain, Plan, Task } from '../types';
 import { isCargo } from './cargo';
 import { isJanitor } from './janitor';
@@ -272,14 +278,25 @@ function sendFor(brain: NpcBrain, number: number, kind?: string): void {
   });
 }
 
-/** Those of its staff who are in the meeting room with it. Someone seen through a window is not. */
+/** TRUE if the head is where it holds this meeting: in the room, or pushed out of it a moment ago, or as near as it could get. */
+function inPlace(brain: NpcBrain, meeting: Meeting): boolean {
+  return stillIn(brain, meeting.room) || !!meeting.fromHere;
+}
+
+/**
+ * Those of its staff who are at the meeting with it: in the room, or in its sight having sent
+ * word that they were coming. Someone standing in the doorway is at the meeting, whichever side
+ * of the line their feet are. Someone seen through a window who never said they would come is not.
+ */
 function present(brain: NpcBrain, meeting: Meeting): string[] {
   return staff(brain)
     .filter((person) =>
       brain.peopleInView.some(
         (seen) =>
           seen.name === person.name &&
-          (seen.place === undefined || seen.place === meeting.room),
+          (seen.place === undefined ||
+            seen.place === meeting.room ||
+            meeting.answers[person.name] === 'coming'),
       ),
     )
     .map((person) => person.name);
@@ -475,7 +492,7 @@ function syncTasks(brain: NpcBrain): void {
     );
     const waited = brain.now - meeting.calledAt > GATHER_MAX_DS;
     if (meeting.startedAt === null && everyoneCalled) {
-      const inRoom = brain.location === meeting.room;
+      const inRoom = inPlace(brain, meeting);
       // Everyone it is still counting on is there, or it has waited as long as it will.
       const gathered =
         waited || expected.every((person) => here.includes(person.name));
@@ -609,7 +626,9 @@ function meetStep(brain: NpcBrain): Plan {
       },
     };
   }
-  if (brain.location !== room) {
+  // A push out of the room is not leaving it, and a walk there that keeps arriving and keeps
+  // leaving it outside is not made a fourth time: the meeting is held from where it stands.
+  if (!inPlace(brain, meeting)) {
     return {
       ready: true,
       step: `You have called your staff to a meeting in the ${room}, and are going there.`,
@@ -624,6 +643,8 @@ function meetStep(brain: NpcBrain): Plan {
     return {
       ready: false,
       wait: true,
+      // Only once it is in the room: stepping clear of the door on the far side of it is stepping away.
+      inside: brain.location === room,
       step: `You are in the ${room}, waiting for your staff to come to the meeting${coming.length > 0 ? `: ${listed(coming)} ${coming.length === 1 ? 'is' : 'are'} not here yet` : ''}. You do not begin until they are all here, or you have waited long enough.`,
     };
   }
@@ -631,6 +652,8 @@ function meetStep(brain: NpcBrain): Plan {
     return {
       ready: false,
       wait: true,
+      // Only once it is in the room: stepping clear of the door on the far side of it is stepping away.
+      inside: brain.location === room,
       step: `You have called on ${meeting.turns.at(-1)?.who} for their report, and are listening to it.`,
     };
   }
@@ -750,7 +773,7 @@ function cues(brain: NpcBrain): string[] {
   if (meeting) {
     lines.push(
       meeting.startedAt === null
-        ? `You have called a staff meeting in the ${meeting.room}, and it has not begun yet.`
+        ? `You have called a staff meeting in the ${meeting.room}, and it has not begun yet. Any of your staff who are here came because you called them, and are waiting for you: you do not tell them to get back to work.`
         : `You are holding a staff meeting in the ${meeting.room}. Your staff speak one at a time, when you call on them by name.`,
     );
   }
@@ -808,8 +831,7 @@ export const HEAD_OF_PERSONNEL: Job = {
     }
     // At the meeting: a report from one of its staff is noted, whoever's turn it is.
     const meeting = brain.meeting;
-    const report =
-      meeting && brain.location === meeting.room ? readReport(heard) : null;
+    const report = meeting ? readReport(heard) : null;
     if (
       meeting &&
       report &&
@@ -958,9 +980,17 @@ export const HEAD_OF_PERSONNEL: Job = {
     }
   },
   // Each of its staff is sent the call to the meeting once, and the Captain word of it once.
-  afterActing: (brain, act) => {
+  afterActing: (brain, act, _task, ok, looped) => {
     const meeting = brain.meeting;
-    if (!meeting || act.tool !== 'message') {
+    if (!meeting) {
+      return;
+    }
+    // Its walk to the meeting room has arrived three times running, and it is still being sent.
+    // Walking is not what is wrong. It holds the meeting from where it stands.
+    if (ok && looped && act.tool === 'go_to' && act.place === meeting.room) {
+      meeting.fromHere = true;
+    }
+    if (act.tool !== 'message') {
       return;
     }
     const text = String(act.text ?? '');

@@ -159,8 +159,9 @@
 	if(QDELETED(person) || !recently_saw(person))
 		action_result(CREW_TOOL_WALK_TO, FALSE, "You cannot see that person.")
 		return
-	// Already there: nothing to do and nothing worth reporting.
+	// Already there: nothing to do. The brain is still told, or it waits to hear how the walk went.
 	if(get_dist(body, person) <= 1)
+		action_result(CREW_TOOL_WALK_TO, TRUE, "You are already next to [person.name].", list("handle" = handle))
 		return
 
 	start_walk(person, CREW_TOOL_WALK_TO, person.name, CREW_NPC_WALK_TIMEOUT)
@@ -171,8 +172,18 @@
 	if(isnull(known_place))
 		action_result(CREW_TOOL_GO_TO, FALSE, "You do not know of anywhere aboard by that name.")
 		return
-	if(known_place == current_place)
-		action_result(CREW_TOOL_GO_TO, TRUE, "You are already in [known_place].", list("place" = known_place))
+	// Where the body stands this instant, not the room it last noted being in: pushed out of a room
+	// since its last look, it is not in it, and telling it that it is sends it nowhere.
+	var/turf/here = get_turf(pawn)
+	if(known_place == get_area_name(here, TRUE))
+		// In the room, but in its doorway: in the way of everyone who comes through, and one push
+		// from being out of the room again. It goes in properly. Not at its own post, though: the
+		// counter it works at has a window in it, and that is where it is meant to stand.
+		var/turf/inside = known_place == post_place ? null : spot_inside(here)
+		if(isnull(inside))
+			action_result(CREW_TOOL_GO_TO, TRUE, "You are already in [known_place].", list("place" = known_place))
+			return
+		start_walk(inside, CREW_TOOL_GO_TO, known_place, CREW_NPC_WALK_TIMEOUT)
 		return
 
 	// It walks to the spot it knows the room by, if it has stood in it, and otherwise to somewhere
@@ -297,11 +308,19 @@
 				nearest = place
 	return nearest
 
-/// Returns a turf in this area that is safe to stand on, as near the given turf as a quick search finds, or null.
+/**
+ * Returns a turf in this area that is safe to stand on, as near the given turf as a quick search finds, or null.
+ *
+ * The nearest part of a room is its doorway, and a body left standing there is walked into by
+ * everyone who comes through. So a spot clear of the doors is taken if the search finds one, and
+ * one beside a door only if it does not: a closet may have no other.
+ */
 /datum/ai_controller/crew_npc/proc/safe_spot_in(area/station/place, turf/here)
 	var/list/place_turfs = place.get_turfs_by_zlevel(here.z)
 	var/turf/best
 	var/best_distance = INFINITY
+	var/turf/best_clear
+	var/best_clear_distance = INFINITY
 	for(var/sample in 1 to min(length(place_turfs), 40))
 		var/turf/candidate = pick(place_turfs)
 		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf())
@@ -313,7 +332,10 @@
 		if(distance < best_distance)
 			best_distance = distance
 			best = candidate
-	return best
+		if(distance < best_clear_distance && crew_npc_clear_of_doors(candidate))
+			best_clear_distance = distance
+			best_clear = candidate
+	return best_clear || best
 
 /// Tool: settle down where the body is and take a break. It stops wandering until it is next told to go somewhere.
 /datum/ai_controller/crew_npc/proc/tool_rest()
@@ -409,6 +431,13 @@
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
 		if(tool == CREW_TOOL_GO_TO && goal)
 			blocked_places[goal] = world.time
+		// The spot a head holds its meetings at is picked from a map, not walked to. If there turns
+		// out to be no way to it, it takes another in the same room, the way anyone else would.
+		if(tool == CREW_TOOL_GO_TO && goal && goal == meeting_place && reason == "there is no way through")
+			var/area/station/meeting_room = crew_npc_station_places()[goal]
+			var/turf/other_spot = meeting_room ? safe_spot_in(meeting_room, get_turf(pawn)) : null
+			if(other_spot)
+				visited_places[goal] = list(other_spot.x, other_spot.y, other_spot.z)
 		// Somewhere new that turned out not to be reachable after all is not tried again.
 		if(tool == CREW_TOOL_EXPLORE && isturf(target))
 			unreachable_places[get_area_name(target, TRUE)] = TRUE

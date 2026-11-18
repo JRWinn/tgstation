@@ -85,6 +85,14 @@ const RESET_AGAIN_MS = 300000;
 const TELL_KEPT_MS = 120000;
 /** Names the step of deciding between jobs. */
 const CHOOSE_KEY = 'choose';
+/** Names the step of moving out of a doorway it would otherwise be waiting in. */
+const STEP_INSIDE_KEY = 'step-inside';
+/**
+ * How many times running the same walk may be said to have got there before it is taken to be
+ * getting the body nowhere, and how close together (milliseconds) those have to come to count.
+ */
+const LOOP_AFTER = 3;
+const LOOP_WINDOW_MS = 120000;
 
 /** One thing for the body to do next. */
 export type Step = {
@@ -444,6 +452,21 @@ export function nextStep(brain: NpcBrain): Step | null {
     // The same goes for an order it is in the middle of: sent to look at a room, it looks.
     if (!plan.ready && plan.wait && task.urgency !== 'routine') {
       if (ready.length === 0) {
+        // Not in a doorway, though, where that is no place to wait: everyone who comes through
+        // walks into it, and it is in and out of the room with each of them. It steps clear first.
+        if (
+          plan.inside &&
+          brain.inDoorway &&
+          !brain.shutIn &&
+          !inBackoff(brain, STEP_INSIDE_KEY)
+        ) {
+          return {
+            key: STEP_INSIDE_KEY,
+            text: `${plan.step} You are standing in a doorway, in the way of anyone coming through, and are stepping clear of it to wait.`,
+            act: { tool: 'step_aside' },
+            task: task.id,
+          };
+        }
         return null;
       }
       break;
@@ -807,25 +830,44 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
   if (!last || event.kind !== 'action_result' || event.details.tool !== last.tool) {
     return;
   }
+  // A walk to a room that the server says got there, asked for again, and again: the body is
+  // told it has arrived and each time is found not to have. Whatever the cause, a fourth walk
+  // will not mend it. Whoever asked for the walk is told, and it is left alone a while.
+  const now = Date.now();
+  const again =
+    brain.repeats?.key === last.key &&
+    now - brain.repeats.at < LOOP_WINDOW_MS;
+  brain.repeats =
+    event.details.ok && last.act.tool === 'go_to'
+      ? {
+          key: last.key,
+          count: again ? (brain.repeats?.count ?? 0) + 1 : 1,
+          at: now,
+        }
+      : null;
+  const looped = (brain.repeats?.count ?? 0) >= LOOP_AFTER;
   jobFor(brain.job).afterActing?.(
     brain,
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
+    looped,
   );
   ordersAfterActing(
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
   );
-  meetingsAfterActing(brain, last.act, !!event.details.ok);
+  meetingsAfterActing(brain, last.act, !!event.details.ok, looped);
   pickupsAfterActing(
     brain,
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
   );
-  if (event.details.ok) {
+  if (event.details.ok && looped) {
+    fail(brain, last.key);
+  } else if (event.details.ok) {
     brain.failures.delete(last.key);
     // The alarm is reset and the fire doors are opening: whatever it gave up on because of them
     // is worth trying again at once.
