@@ -20,12 +20,15 @@ import {
   standingChoice,
   type Work,
 } from './choice';
+import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
 import {
   describeShutIn,
   SHUT_IN_KEY,
   whoToAskForTheDoor,
 } from './situation';
+import { ASIDE_HOLD_MS, ASIDE_STEP_KEY, asideStep } from './jobs/aside';
+import { barred, leavingStep } from './jobs/guarding';
 import { meetingsAfterActing } from './jobs/meetings';
 import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
@@ -68,6 +71,12 @@ const CHOICE_GAP_MS = 20000;
 /** Names the steps of knocking at the door it is shut in by, and sending word to whoever let it in. */
 const KNOCK_OUT_KEY = 'knock-out';
 const WORD_OUT_KEY = 'word-out';
+/** Names the step of sending word further afield when nobody has come: the name written to follows it. */
+const WRITE_OUT_KEY = 'write-out';
+/** How long (milliseconds) it waits for someone to come to the door before it sends word to the next person. */
+const NOBODY_CAME_MS = 60000;
+/** The most people whose ID opens the door that it writes to, besides whoever let it in, before it writes to its head. */
+const KEEPERS_WRITTEN_TO = 1;
 /** How long (milliseconds) fire doors that stopped it are worth acting on. After that it has to meet them again. */
 const FIRE_DOORS_SEEN_MS = 60000;
 /** One NPC resets the fire alarm of the same room no more often than this. */
@@ -98,6 +107,8 @@ export type Step = {
   idle?: boolean;
   /** If the step is asking to be let out: who is being asked, so that they are not asked twice. */
   asks?: string;
+  /** If the step is sending word that it is shut in, to someone further afield: who, so that they are written to once. */
+  writes?: string;
   /** If the step is telling someone something it meant to: the line, so that it is told once. */
   tells?: string;
   /**
@@ -113,6 +124,41 @@ function keyOf(task: Task | null, act: Action | undefined, say?: string): string
 
 /** How many walks out may fail with a door standing open before the door is taken to be no way out. */
 const OPEN_DOOR_TRIES = 2;
+
+/**
+ * Who a shut-in NPC sends word to next, when it has knocked and sent word to whoever let it in
+ * and nobody has come: someone else whose own ID opens the door, and after them its own head.
+ * Null if it is not yet time, or there is nobody left it has not written to.
+ */
+function nextToWrite(brain: NpcBrain): { name: string; head: boolean } | null {
+  const asks = brain.outAsks;
+  if (
+    !asks?.knocked ||
+    !brain.hasPda ||
+    // Whoever let it in is written to first, where there is such a person.
+    (!!brain.letInBy && !asks.messaged) ||
+    Date.now() - asks.wroteAt < NOBODY_CAME_MS
+  ) {
+    return null;
+  }
+  const written = (name: string) =>
+    name === brain.letInBy || asks.wrote.includes(name);
+  const keepers = brain.doorKeepers.filter((name) => name !== brain.name);
+  const keeper = keepers.find((name) => !written(name));
+  if (
+    keeper &&
+    keepers.filter((name) => asks.wrote.includes(name)).length < KEEPERS_WRITTEN_TO
+  ) {
+    return { name: keeper, head: false };
+  }
+  const headJob = headOf(brain.job);
+  const head = headJob
+    ? brain.pdaPeople.find((person) =>
+        person.job.toLowerCase().includes(headJob.toLowerCase()),
+      )
+    : undefined;
+  return head && !written(head.name) ? { name: head.name, head: true } : null;
+}
 
 /**
  * TRUE if the NPC is shut in and can see a door standing open that may yet be a way out. One it
@@ -175,6 +221,19 @@ export function nextStep(brain: NpcBrain): Step | null {
     }
   }
 
+  // Asked to step aside by someone it is in the way of. It moves, there and then.
+  const aside = asideStep(brain);
+  if (aside && !inBackoff(brain, aside.key)) {
+    return aside;
+  }
+
+  // Told to leave the room by someone it answers to. It says that it is going before anything
+  // else, and then goes: by the door it came in by, if it has to be let out.
+  const leave = leavingStep(brain);
+  if (leave?.say && !inBackoff(brain, leave.key)) {
+    return leave;
+  }
+
   // Someone is holding the door to let it out. It goes, now, back the way it came if it knows the
   // way: the door will not be held for long, and standing there finishing a thought wastes it.
   if (brain.doorHeldOut) {
@@ -218,11 +277,19 @@ export function nextStep(brain: NpcBrain): Step | null {
   // asked once, one at a time. It asks again only when someone new turns up.
   const stuck = brain.shutIn && !wayOutOpen(brain);
   const helper = stuck ? whoToAskForTheDoor(brain) : null;
+  // Where it is trying to get back to, said in the asking, so that whoever opens the door can see
+  // it the whole way and not only through the next door.
+  const outTo =
+    brain.wayOutTo && brain.wayOutTo !== brain.location
+      ? ` to the ${brain.wayOutTo}`
+      : '';
   if (helper && !inBackoff(brain, SHUT_IN_KEY)) {
     return {
       key: SHUT_IN_KEY,
       text: describeShutIn(brain),
-      say: `${helper.split(' ')[0]}, could you open the door for me, please? I cannot get out of here.`,
+      say: outTo
+        ? `${helper.split(' ')[0]}, could you let me out${outTo}, please? I cannot get out of here by myself.`
+        : `${helper.split(' ')[0]}, could you open the door for me, please? I cannot get out of here.`,
       // Whoever it is asked of has to hear their own name in it, or the wrong person is asked.
       needs: new RegExp(`\\b${helper.split(' ')[0]}\\b`, 'i'),
       asks: helper,
@@ -251,10 +318,55 @@ export function nextStep(brain: NpcBrain): Step | null {
         act: {
           tool: 'message',
           person: brain.letInBy,
-          text: `I am done in the ${brain.location} and am at the door. Could you let me out, please?`,
+          text: `I am done in the ${brain.location} and am at the door. Could you let me out${outTo}, please?`,
         },
       };
     }
+    // Still nobody. Word goes further afield, to one person at a time and once each, with a wait
+    // between: someone else whose own ID opens the door, and after them its own head.
+    const next = nextToWrite(brain);
+    if (next && !inBackoff(brain, `${WRITE_OUT_KEY}:${next.name}`)) {
+      return {
+        key: `${WRITE_OUT_KEY}:${next.name}`,
+        text: `Nobody has come to let you out of ${brain.location}. You are sending ${next.name}${next.head ? ', the head of your department,' : ', who can open the door,'} a PDA message about it.`,
+        act: {
+          tool: 'message',
+          person: next.name,
+          text: next.head
+            ? `I am shut in the ${brain.location} and nobody has come to the door. Could you send someone to let me out${outTo}, please?`
+            : `I am shut in the ${brain.location} and am at the door. Could you let me out${outTo}, please?`,
+        },
+        writes: next.name,
+      };
+    }
+  }
+
+  // It means to get out and is not shut in where it stands: it has only just come through a door
+  // on the way, or has not tried this room yet. It walks for where it was last out. If the way is
+  // open, a wall blown through or a door left standing, it simply leaves. If not, that walk coming
+  // to nothing is what tells it so, and it goes to the door it came in by and asks.
+  if (
+    brain.wantsOut &&
+    !brain.shutIn &&
+    brain.wayOutTo &&
+    brain.wayOutTo !== brain.location &&
+    !brain.doorHeld
+  ) {
+    const act = { tool: 'go_to', place: brain.wayOutTo };
+    const key = keyOf(null, act);
+    if (!inBackoff(brain, key)) {
+      return {
+        key,
+        text: `You are on your way back out to the ${brain.wayOutTo}, where you came in from.`,
+        act,
+      };
+    }
+  }
+
+  // Told to leave, and not shut in where it stands: it walks out. If the way is shut, that walk
+  // coming to nothing is what sets it asking for the door.
+  if (leave?.act && !brain.shutIn && !inBackoff(brain, leave.key)) {
+    return leave;
   }
 
   // Something it means to tell someone: said when they are in view, or sent by PDA if it is that
@@ -323,6 +435,10 @@ export function nextStep(brain: NpcBrain): Step | null {
   // The work it could get on with this moment, most pressing first.
   const ready: (Work & { key: string })[] = [];
   for (const { task, plan } of work) {
+    // A room it has been told to leave, or was walked out of, is one it does no work in for now.
+    if (task.place && barred(brain, task.place)) {
+      continue;
+    }
     // Waiting on something for someone who asked, at a door say, it stays and waits. Going off
     // to routine work elsewhere would only bring it straight back again.
     // The same goes for an order it is in the middle of: sent to look at a room, it looks.
@@ -476,9 +592,15 @@ export function drive(
   // In the middle of something, it carries on, unless someone it answers to has ordered otherwise.
   const busy = brain.walking || !!brain.doing || !!brain.lastAct;
   const dropFor = busy ? orderToDrop(brain) : null;
+  // Told to leave the room by someone it answers to, it stops what it is in the middle of for
+  // that as well: once to say that it is going, and once to go.
+  const leaving = brain.toldToLeave;
+  const dropToLeave = busy && !!leaving && !leaving.dropped;
+  // Likewise asked to step aside: scrubbing on at the spot it was asked to move from is no answer.
+  const dropToMove = busy && !!brain.asideAsked && !brain.asideAsked.done;
   if (
     !brain.awake ||
-    (busy && !dropFor) ||
+    (busy && !dropFor && !dropToLeave && !dropToMove) ||
     // Someone has it by the arm. It goes where it is taken.
     brain.inHand ||
     // It has something to say first, and is still finding the words.
@@ -552,6 +674,10 @@ export function drive(
   if (!step.act) {
     return null;
   }
+  // What it dropped its work to do, having been told to leave, it drops it for once.
+  if (dropToLeave && leaving) {
+    leaving.dropped = true;
+  }
   const serverTool = issue(step.act);
   if (!serverTool) {
     fail(brain, step.key);
@@ -575,25 +701,43 @@ export function drive(
  * it has knocked or sent word, and what it has now told someone. Each of these is done once.
  */
 function noteDone(brain: NpcBrain, step: Step): void {
-  if (step.asks || step.key === KNOCK_OUT_KEY || step.key === WORD_OUT_KEY) {
+  if (
+    step.asks ||
+    step.writes ||
+    step.key === KNOCK_OUT_KEY ||
+    step.key === WORD_OUT_KEY
+  ) {
     brain.outAsks ??= {
       room: brain.location,
       asked: [],
       knocked: false,
       messaged: false,
+      wrote: [],
+      wroteAt: 0,
     };
     if (step.asks) {
       brain.outAsks.asked.push(step.asks);
     }
     if (step.key === KNOCK_OUT_KEY) {
       brain.outAsks.knocked = true;
+      // The wait for someone to come runs from the knock, and again from each word sent after it.
+      brain.outAsks.wroteAt = Date.now();
     }
     if (step.key === WORD_OUT_KEY) {
       brain.outAsks.messaged = true;
+      brain.outAsks.wroteAt = Date.now();
+    }
+    if (step.writes) {
+      brain.outAsks.wrote.push(step.writes);
+      brain.outAsks.wroteAt = Date.now();
     }
   }
   if (step.tells) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
+  }
+  // It steps aside once for one asking, whether or not it found anywhere to step to.
+  if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
+    brain.asideAsked.done = true;
   }
 }
 
@@ -689,6 +833,11 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
       brain.alarmResets[last.act.place] = Date.now();
       brain.fireDoors = null;
       brain.failures.clear();
+    }
+    // Having stepped out of someone's way, it stays there a little while. Going straight back to
+    // what it was doing would put it straight back in the way.
+    if (last.act.tool === 'step_aside') {
+      brain.driveAfter = Math.max(brain.driveAfter, Date.now() + ASIDE_HOLD_MS);
     }
     // It has been told it is at the door. That stands until the server says which door it is at.
     if (last.act.tool === 'go_to_door') {

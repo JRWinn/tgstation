@@ -97,7 +97,9 @@ const HANDOVER = 'handover';
 const CHECK = 'check_held';
 /** A reminder owed to someone whose crates are still waiting. The task's item is their name. */
 const REMIND = 'remind';
-const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND]);
+/** Word owed to someone that a crate of theirs has been lost. The task's item is their name. */
+const LOST = 'lost_crate';
+const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND, LOST]);
 /** How long (deciseconds) someone's asking for a crate at the counter stands. */
 const PICKUP_ASK_DS = 1200;
 /** Someone who is to be let through the door of the post. The task's item is their name. */
@@ -268,6 +270,31 @@ function syncHeld(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
+
+  // Whoever ordered a crate that has been lost is told so, once. The body has already said it
+  // aloud at the post: this is the word that reaches whoever is not there to hear.
+  const lost = brain.hasPda
+    ? brain.notices.filter((notice) => notice.kind === 'lost')
+    : [];
+  for (const notice of lost) {
+    if (!findTask(brain, LOST, { item: notice.to })) {
+      addTask(brain, {
+        kind: LOST,
+        item: notice.to,
+        urgency: 'asked',
+        source: 'own',
+      });
+    }
+  }
+  for (const task of brain.tasks) {
+    if (
+      task.kind === LOST &&
+      task.state !== 'done' &&
+      !lost.some((notice) => notice.to === task.item)
+    ) {
+      finishTask(brain, task);
+    }
+  }
 }
 
 /** What one of the tasks about held crates comes down to right now, or null if the task is not one. */
@@ -295,6 +322,26 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       ready: true,
       step: 'Crates that came in on orders are still waiting in the bay to be collected, and it is your turn to look them over. You are saying so, and going to see which are still there.',
       act: { tool: 'check_held' },
+    };
+  }
+  if (task.kind === LOST) {
+    const notice = brain.notices.find(
+      (owed) => owed.kind === 'lost' && owed.to === task.item,
+    );
+    if (!notice) {
+      return { ready: false, step: 'There is nobody left to tell.' };
+    }
+    const written = cratesWritten(notice.numbers);
+    const why = notice.why ?? 'it cannot be found';
+    return {
+      ready: true,
+      step: `${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost: ${why}. Nobody can be handed ${notice.numbers.length === 1 ? 'it' : 'them'} now. You are sending ${notice.to} a PDA message to say so.`,
+      act: {
+        tool: 'message',
+        person: notice.to,
+        // What cannot be done without comes first: a PDA message that runs long is cut off at the end.
+        text: `Lost at cargo: ${written}${notice.what ? ` (${notice.what})` : ''} from your order. ${why[0].toUpperCase()}${why.slice(1)}. It will have to be ordered again, and nobody need come for it.`,
+      },
     };
   }
   if (task.kind === REMIND) {
@@ -325,6 +372,9 @@ function describeHeld(task: Task): string | null {
   }
   if (task.kind === CHECK) {
     return 'see which crates are still waiting to be collected';
+  }
+  if (task.kind === LOST) {
+    return `tell ${task.item} that a crate of theirs has been lost`;
   }
   return task.kind === REMIND
     ? `remind ${task.item} that their crates are waiting`
@@ -379,9 +429,13 @@ function syncTasks(brain: NpcBrain): void {
       continue;
     }
     const call = brain.janitorCalls[task.place];
+    // A call stands for a good while. One that was answered with "I cannot shift it" does not:
+    // someone else is sent for straight away.
     blockTask(
       task,
-      call && brain.now - call.at < CALL_AGAIN_DS
+      call &&
+        brain.now - call.at < CALL_AGAIN_DS &&
+        !(call.declined ?? []).includes(call.to)
         ? `you have sent ${call.to}, a janitor, a PDA message about it`
         : null,
     );
@@ -414,13 +468,15 @@ function syncTasks(brain: NpcBrain): void {
   const wants = doorWanted(brain);
   const asked = brain.doorAsked;
   if (wants && !findTask(brain, DOOR, { item: wants.name, place: wants.room })) {
+    // Which way they are going through it is kept with the task: someone standing in the post
+    // may be asking to be let into a room that lies inside it.
     addTask(brain, {
       kind: DOOR,
       item: wants.name,
       place: wants.room,
       urgency: 'asked',
       source: 'own',
-    });
+    }).out = wants.out;
     // Asked by PDA, by someone a door hides, the answer goes back the same way, by name.
     if (asked?.byPda && asked.name === wants.name) {
       brain.toTell.push({
@@ -468,7 +524,8 @@ function syncTasks(brain: NpcBrain): void {
       !freightInHand(brain) &&
       !heldInHand(brain) &&
       !tidyingInHand(brain) &&
-      !wants,
+      !wants &&
+      !visitorToMind(brain),
   );
 
   // Away from its post with nothing to see through, it goes back.
@@ -567,8 +624,11 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   return { ready: false, step: 'There is nothing to do on it yet.' };
 }
 
-/** Someone a door of the department is to be opened for: who, which room, and whether it is to let them out. */
-type DoorWant = { name: string; room: string; out: boolean };
+/**
+ * Someone a door of the department is to be opened for: who, which room, and whether it is to let
+ * them out. `beyond` is the room further in that they were sent for to, if this one is only on the way.
+ */
+type DoorWant = { name: string; room: string; out: boolean; beyond?: string };
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -583,6 +643,70 @@ function ownRooms(brain: NpcBrain): string[] {
       ...brain.closedRooms,
     ]),
   ];
+}
+
+/**
+ * A janitor who is inside the department's locked rooms right now, by name: one it can see in
+ * there, or one that was let in and has not been let out. Undefined if there is none.
+ */
+function janitorWithin(brain: NpcBrain): string | undefined {
+  const post = brain.post;
+  if (!post) {
+    return undefined;
+  }
+  const seen = brain.peopleInView.find(
+    (person) => isJanitor(person.job) && !!seenInside(brain, person),
+  );
+  return (
+    seen?.name ??
+    ownRooms(brain).flatMap((room) => stillInside(post, room, brain.now))[0]?.name
+  );
+}
+
+/**
+ * TRUE while someone who does not work in the department is inside one of its locked rooms and
+ * there is no workmate at the post to see to them. Whoever let them in sees them out again, so it
+ * does not go off on its rounds and leave them behind a door they cannot open.
+ */
+function visitorToMind(brain: NpcBrain): boolean {
+  const post = brain.post;
+  if (!post) {
+    return false;
+  }
+  const inside =
+    brain.peopleInView.some((person) => !!seenInside(brain, person)) ||
+    ownRooms(brain).some((room) => stillInside(post, room, brain.now).length > 0);
+  const workmateAtPost = brain.peopleInView.some(
+    (person) => person.in_post && isCargo(person.job),
+  );
+  return inside && !workmateAtPost;
+}
+
+/**
+ * A room of the department with a mess in it that this person was sent for to, and that can only
+ * be got into through this room: a locked room inside a locked room. Whoever is bound for it has
+ * to be let through this one first. Undefined if there is none.
+ */
+function boundBeyond(
+  brain: NpcBrain,
+  name: string,
+  room: string,
+): string | undefined {
+  const post = brain.post;
+  if (!post) {
+    return undefined;
+  }
+  return Object.keys(brain.roomsThrough).find((inner) => {
+    if (!brain.areaMesses[inner] || !expectedCall(post, name, brain.now, inner)) {
+      return false;
+    }
+    // Followed outwards from the inner room, until it comes to this one or runs out.
+    let outer: string | undefined = brain.roomsThrough[inner];
+    for (let depth = 0; outer && outer !== room && depth < 4; depth++) {
+      outer = brain.roomsThrough[outer];
+    }
+    return outer === room;
+  });
 }
 
 /**
@@ -638,20 +762,33 @@ function mayPass(
       return { name, room: inside.room, out: true };
     }
   }
-  if (out || person?.in_post || (person && seenInside(brain, person))) {
-    return null;
-  }
-  if (inside && !person) {
-    return null;
-  }
   const wanted = room ?? post;
-  if (!brain.areaMesses[wanted]) {
+  // Standing in the room they ask to be let into, there is nothing to open. Standing in another
+  // of its rooms is no bar: a room inside the post is got to from the post.
+  const already =
+    !!person &&
+    (wanted === post ? !!person.in_post : seenInside(brain, person) === wanted);
+  if (out || already || (inside && !person && inside.room === wanted)) {
     return null;
   }
-  const sentFor = !!expectedCall(post, name, brain.now, wanted);
+  // Sent for to a room further in, which has no way to it but through this one.
+  const beyond = boundBeyond(brain, name, wanted);
+  if (!brain.areaMesses[wanted] && !beyond) {
+    return null;
+  }
+  const sentFor =
+    !!brain.areaMesses[wanted] && !!expectedCall(post, name, brain.now, wanted);
   const cameAbout =
-    wanted === post && !!person && isJanitor(person.job) && !person.in_post;
-  return sentFor || cameAbout ? { name, room: wanted, out: false } : null;
+    !!brain.areaMesses[wanted] &&
+    wanted === post &&
+    !!person &&
+    isJanitor(person.job) &&
+    !person.in_post;
+  return sentFor || cameAbout
+    ? { name, room: wanted, out: false }
+    : beyond
+      ? { name, room: wanted, out: false, beyond }
+      : null;
 }
 
 /**
@@ -708,6 +845,25 @@ function doorWanted(brain: NpcBrain): DoorWant | null {
       if (due && brain.areaMesses[knock.room]) {
         return { name: due.name, room: knock.room, out: false };
       }
+      // Or someone sent for to a room that lies inside this one, who has to come through it. Not
+      // someone who is through it already: the knock is not theirs.
+      const inThere = stillInside(post, knock.room, brain.now);
+      for (const inner of Object.keys(brain.roomsThrough)) {
+        const bound = expectedAt(post, inner, brain.now).find(
+          (entry) =>
+            mine(entry.by) &&
+            !inThere.some((there) => there.name === entry.name) &&
+            boundBeyond(brain, entry.name, knock.room) === inner,
+        );
+        if (bound) {
+          return {
+            name: bound.name,
+            room: knock.room,
+            out: false,
+            beyond: inner,
+          };
+        }
+      }
     }
   }
   // Someone it let into a room where the mess is now gone has nothing left to do in there, and
@@ -728,7 +884,9 @@ function doorWanted(brain: NpcBrain): DoorWant | null {
 function doorCue(want: DoorWant): string {
   return want.out
     ? `${want.name} is inside the ${want.room} and cannot get out by themselves: the door is locked to them.`
-    : `${want.name} was sent for to clean up the mess in the ${want.room}, and the door is locked to them.`;
+    : want.beyond
+      ? `${want.name} was sent for to clean up the mess in the ${want.beyond}, which is reached through the ${want.room}, and the door is locked to them.`
+      : `${want.name} was sent for to clean up the mess in the ${want.room}, and the door is locked to them.`;
 }
 
 /** Writes a short list the way it is said: "oil", "oil and ashes", "oil, ashes and dirt". */
@@ -781,23 +939,62 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
       step: `There is a mess in the ${place}. If no janitor comes by soon, you will call one.`,
     };
   }
-  // If the last call came to nothing, the next goes to another janitor.
-  // A janitor who is standing at the counter is the one to call: they are nearest, and can be
-  // let in at once.
-  const calls = brain.janitorCalls[place]?.count ?? 0;
+  // While the supply shuttle is in, crates are being hauled through the bay. A janitor let in to
+  // scrub the floor there would only be in the way of them, so that call waits.
+  if (inPost && brain.freight?.shuttleDocked) {
+    return {
+      ready: false,
+      step: `There is a mess in the ${place}. You will send for a janitor once the supply shuttle has been seen to and sent back.`,
+    };
+  }
+  const call = brain.janitorCalls[place];
+  const declined = call?.declined ?? [];
+  // Whoever it last called to this mess is in the department now. They know of it, and nobody
+  // else is sent for on top of them.
+  const within = janitorWithin(brain);
+  if (call && !declined.includes(call.to) && within === call.to) {
+    return {
+      ready: false,
+      step: `${call.to}, the janitor you sent for, is in the department now and knows of the mess in the ${place}.`,
+    };
+  }
+  // A janitor who has sent word that they cannot shift it is not called to it again for a while.
+  const willing = brain.janitorsOnPda.filter((name) => !declined.includes(name));
+  if (willing.length === 0) {
+    if (call?.declinedAt !== undefined && brain.now - call.declinedAt > CALL_AGAIN_DS) {
+      call.declined = [];
+    }
+    return {
+      ready: false,
+      step: `Every janitor you can call has sent word that they cannot shift the mess in the ${place}. You will try them again later.`,
+    };
+  }
+  // A janitor who is in the department already is the one to tell: sending for a second on top
+  // of them puts two people behind the locked doors where one will do. Failing that, one who is
+  // standing at the counter: they are nearest, and can be let in at once. Failing that, if the
+  // last call came to nothing, the next goes to another janitor.
+  const calls = call?.count ?? 0;
   const janitor =
+    (within && willing.includes(within) ? within : undefined) ??
     brain.peopleInView.find(
-      (person) =>
-        isJanitor(person.job) && brain.janitorsOnPda.includes(person.name),
-    )?.name ?? brain.janitorsOnPda[calls % brain.janitorsOnPda.length];
+      (person) => isJanitor(person.job) && willing.includes(person.name),
+    )?.name ??
+    willing[calls % willing.length];
   const what = listed(brain.areaMesses[place] ?? []);
+  // A room that lies inside the post has no door of its own to come to from outside: the way to
+  // it is through the post, by the lobby.
+  let outermost = place;
+  for (let depth = 0; brain.roomsThrough[outermost] && depth < 4; depth++) {
+    outermost = brain.roomsThrough[outermost];
+  }
+  const byLobby = place === brain.post || outermost === brain.post;
   return {
     ready: true,
     step: `There is a mess in the ${place}, which is yours to keep fit to work in, and you are sending ${janitor}, a janitor, a PDA message asking them to come and clean it.`,
     act: {
       tool: 'message',
       person: janitor,
-      text: `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${place === brain.post ? ' Come to the Cargo Lobby and I will let you in.' : lockedAway ? ' Come to its door and knock, and I will let you in.' : ''}`,
+      text: `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${byLobby ? ' Come to the Cargo Lobby and I will let you in.' : lockedAway ? ' Come to its door and knock, and I will let you in.' : ''}`,
     },
   };
 }
@@ -846,7 +1043,35 @@ function cues(brain: NpcBrain): string[] {
   const waiting = brain.heldCrates.filter((crate) => !crate.takenBy);
   if (waiting.length > 0) {
     lines.push(
-      `You are holding ${cratesWritten(waiting.map((crate) => crate.number))} for collection. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body.`,
+      `You are holding ${cratesWritten(waiting.map((crate) => crate.number))} for collection. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body. A crate is never kept back from anyone for any other reason: not until a floor is clean, and not until someone has left.`,
+    );
+  }
+  // A crate that has been lost, so that nobody is promised it.
+  for (const notice of brain.notices) {
+    if (notice.kind === 'lost') {
+      lines.push(
+        `${cratesWritten(notice.numbers)}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost: ${notice.why ?? 'it cannot be found'}. Nobody can be handed ${notice.numbers.length === 1 ? 'it' : 'them'}, and you say so if asked.`,
+      );
+    }
+  }
+  // Someone who does not work here is inside one of its rooms. They are not being kept in, and
+  // nothing is being held up until they have finished: what it says of them has to be that.
+  const post = brain.post;
+  const visitors = post
+    ? [
+        ...new Set([
+          ...brain.peopleInView
+            .filter((person) => !!seenInside(brain, person))
+            .map((person) => person.name),
+          ...ownRooms(brain).flatMap((room) =>
+            stillInside(post, room, brain.now).map((entry) => entry.name),
+          ),
+        ]),
+      ]
+    : [];
+  if (visitors.length > 0) {
+    lines.push(
+      `${listed(visitors)} ${visitors.length === 1 ? 'is' : 'are'} inside your department's locked rooms because someone who works here let them in. Nobody is keeping them in: your body opens the door the moment they ask to be let out, whether or not they have finished, and your own work does not wait on them.`,
     );
   }
   const came = brain.pickupAsked;
@@ -1013,13 +1238,21 @@ export const CARGO: Job = {
         const person = brain.peopleInView.find(
           (seen) => seen.name === task.item,
         );
+        // Which way the door was opened for them, if the task says. Standing in the post is not
+        // being let out of it when the door was that of a room inside the post.
         const wasInside =
-          !!person?.in_post ||
-          stillInside(brain.post, task.place, brain.now).some(
-            (entry) => entry.name === task.item,
-          );
+          task.out ??
+          (!!person?.in_post ||
+            stillInside(brain.post, task.place, brain.now).some(
+              (entry) => entry.name === task.item,
+            ));
         if (wasInside) {
+          // Out of a room that lies inside another, they are still in the outer one.
+          const outer = brain.roomsThrough[task.place];
           noteLetOut(brain.post, task.item);
+          if (outer) {
+            noteLetIn(brain.post, task.item, outer, brain.name, brain.now);
+          }
         } else {
           noteLetIn(brain.post, task.item, task.place, brain.name, brain.now);
         }
@@ -1030,10 +1263,14 @@ export const CARGO: Job = {
       }
     }
     if (ok && task?.kind === TIDY && task.place && act.tool === 'message') {
+      const before = brain.janitorCalls[task.place];
       brain.janitorCalls[task.place] = {
         to: String(act.person),
         at: brain.now,
-        count: (brain.janitorCalls[task.place]?.count ?? 0) + 1,
+        count: (before?.count ?? 0) + 1,
+        // Who has already said they cannot shift it is kept, so that they are not called again at once.
+        declined: before?.declined,
+        declinedAt: before?.declinedAt,
       };
       // A janitor it has called is one it sent for, whichever room the mess is in. The call goes
       // on the department's list, so that a workmate knows to let them in as well.
@@ -1139,13 +1376,33 @@ export const CARGO: Job = {
   },
   // Someone a door hides sends word that they are at it. The room is the one they name.
   readsMessage: (brain, from, text, at) => {
+    // A janitor it called sends word that what they have will not shift the mess. That call is
+    // done with, and someone else can be sent for.
+    const beyond = text.match(/cannot shift the mess in the (.+?) with\b/i)?.[1];
+    if (from && beyond) {
+      const room = Object.keys(brain.janitorCalls).find(
+        (place) => place.toLowerCase() === beyond.toLowerCase(),
+      );
+      const call = room ? brain.janitorCalls[room] : undefined;
+      if (call) {
+        call.declined = [...new Set([...(call.declined ?? []), from])];
+        call.declinedAt = at;
+      }
+      return;
+    }
     if (!from || !DOOR_WORDS.test(text)) {
       return;
     }
     const said = text.toLowerCase();
+    // The room they are at the door of is the one they name first. A message may name another
+    // after it: where someone who is shut in is trying to get out to.
     const room = ownRooms(brain)
-      .sort((a, b) => b.length - a.length)
-      .find((own) => said.includes(own.toLowerCase()));
+      .filter((own) => said.includes(own.toLowerCase()))
+      .sort(
+        (a, b) =>
+          said.indexOf(a.toLowerCase()) - said.indexOf(b.toLowerCase()) ||
+          b.length - a.length,
+      )[0];
     brain.doorAsked = {
       name: from,
       at,

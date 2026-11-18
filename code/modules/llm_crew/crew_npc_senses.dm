@@ -141,6 +141,7 @@
 	if(isnull(place))
 		return
 	if(place != current_place)
+		var/came_from = current_place
 		current_place = place
 		looks_in_place = 0
 		// Whether it has any right of its own to be in here: worked out once, on the way in.
@@ -149,6 +150,8 @@
 		ways_out_failed = 0
 		shut_in = FALSE
 		let_out_until = 0
+		// How it came is kept, room by room, for when it wants out again.
+		follow_trail(came_from, place)
 		if(let_into_place && place != let_into_place)
 			let_into_place = null
 			let_in_by = null

@@ -56,6 +56,21 @@
 /datum/ai_movement/navmap_astar/crew_npc
 	maximum_length = CREW_NPC_MAX_PATH_LENGTH
 
+/datum/ai_movement/navmap_astar/crew_npc/start_moving_towards(datum/ai_controller/controller, atom/current_movement_target, min_distance, delay_override)
+	var/datum/move_loop/loop = ..()
+	// How long a route was planned, if any was. A walk that fails is logged with it, so that a round's
+	// log tells a way that was shut from a way the planner thought was open and the body could not walk.
+	if(loop)
+		RegisterSignal(loop, COMSIG_MOVELOOP_NAVMAP_FINISHED_PATHING, PROC_REF(route_planned), override = TRUE)
+	return loop
+
+/// Notes on the body's controller how many steps the route just planned for it runs to. None at all means no way was found.
+/datum/ai_movement/navmap_astar/crew_npc/proc/route_planned(datum/move_loop/has_target/navmap_astar/source, list/path)
+	SIGNAL_HANDLER
+	var/datum/ai_controller/crew_npc/crew_controller = source.extra_info
+	if(istype(crew_controller))
+		crew_controller.last_route_steps = length(path)
+
 /// Walks the body to the person or spot held in the walk target key, then reports how it went to the controller.
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk
 	update_movement_for_moving_target = TRUE

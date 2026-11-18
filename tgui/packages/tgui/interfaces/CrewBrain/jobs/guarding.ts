@@ -16,9 +16,17 @@
  * The server knows who has a right to be in the room and who outranks whom. The LLM puts each line
  * in the NPC's own voice. Who is asked what, and what comes of the answer, is decided here.
  */
-import { expectedCall } from '../expected';
+import { expectedCall, forgetExpected, takeOrder } from '../expected';
+import { knownPlaces } from '../memory';
 import { addTask, finishTask } from '../tasks';
-import type { NpcBrain, Plan, SenseEvent, Stranger, Task } from '../types';
+import type {
+  Action,
+  NpcBrain,
+  Plan,
+  SenseEvent,
+  Stranger,
+  Task,
+} from '../types';
 import { jobFor } from './index';
 
 /** Someone in the post who has to account for being there. The task's item is their name. */
@@ -59,6 +67,20 @@ const GONE_DS = 600;
 const SENT_FOR_DS = 12000;
 /** How long (deciseconds) a question put to the NPC stands. */
 const QUESTION_STANDS_DS = 600;
+/** How long (deciseconds) someone whose welcome is over is given to go before they are seen out. */
+const WELCOME_GRACE_DS = 600;
+/** The words by which someone the NPC answers to tells it to leave the room it is in. */
+const LEAVE_WORDS =
+  /\b(leave|get out|go away|clear off|clear out|out of here|out you go|off you go|not authori[sz]ed|unauthori[sz]ed)\b/;
+/** The words by which someone the NPC answers to tells it to put someone out of its post. */
+const PUT_OUT_WORDS =
+  /\b(toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b.*\bout\b|\bremove\b|\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
+/** How long (milliseconds) it keeps out of a room it was told to leave, and does no work there. */
+const KEPT_OUT_MS = 600000;
+/** How long (milliseconds) being told to leave stands, if it cannot get out. */
+const TOLD_TO_LEAVE_MS = 300000;
+/** Names the steps of answering that it is going, and of going. */
+const LEAVING_KEY = 'told-to-leave';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -128,6 +150,114 @@ function sentFor(brain: NpcBrain, name: string): boolean {
   }
   // A workmate's call is on the department's list, for all who work there to go by.
   return !!brain.post && !!expectedCall(brain.post, name, brain.now);
+}
+
+/**
+ * TRUE while what this person was sent for is still there to be done: a mess in a room of the
+ * department that they are expected at. Sent for to several rooms, they are welcome until the
+ * last of them is seen to.
+ */
+function welcomeStands(brain: NpcBrain, name: string): boolean {
+  const post = brain.post;
+  return (
+    !!post &&
+    Object.keys(brain.areaMesses).some(
+      (room) => !!expectedCall(post, name, brain.now, room),
+    )
+  );
+}
+
+/** How someone the NPC answers to is spoken to: the Captain by rank, anyone else by first name. */
+function titleOf(brain: NpcBrain, name: string): string {
+  const job = brain.peopleInView.find((seen) => seen.name === name)?.job ?? '';
+  return /captain/i.test(job) ? 'Captain' : firstName(name);
+}
+
+/**
+ * Whoever in the post an order to put someone out means: someone named, failing that someone
+ * spoken of by their job ("this janitor"), and failing that the only person in there who does not
+ * belong. Null if it is not clear who is meant.
+ */
+function strangerMeant(brain: NpcBrain, heard: string): string | null {
+  const named = strangerNamedIn(brain, heard);
+  if (named) {
+    return named;
+  }
+  const inPost = brain.peopleInView.filter(
+    (person) => person.in_post && !person.belongs,
+  );
+  const byJob = inPost.filter((person) =>
+    person.job
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .some((word) => word.length > 3 && new RegExp(`\\b${word}s?\\b`).test(heard)),
+  );
+  if (byJob.length === 1) {
+    return byJob[0].name;
+  }
+  return inPost.length === 1 ? inPost[0].name : null;
+}
+
+/** TRUE if this is a room the NPC has been told to leave, or is keeping out of since: it does no work there. */
+export function barred(brain: NpcBrain, place: string): boolean {
+  return (
+    brain.toldToLeave?.room === place ||
+    (brain.keptOut[place] ?? 0) > Date.now()
+  );
+}
+
+/** The plain words in which it answers that it is going. */
+function leavingLine(brain: NpcBrain): string {
+  const told = brain.toldToLeave;
+  return told ? `Yes, ${titleOf(brain, told.by)}. I am going.` : '';
+}
+
+/**
+ * What having been told to leave a room comes down to right now: saying that it is going, and
+ * going. Null if it has not been told to, or is out. If the room is locked to it, the walk out
+ * comes to nothing, and that is what sets it asking for the door it came in by.
+ */
+export function leavingStep(
+  brain: NpcBrain,
+): { key: string; text: string; say?: string; needs?: RegExp; act?: Action } | null {
+  const told = brain.toldToLeave;
+  if (!told) {
+    return null;
+  }
+  if (
+    brain.location !== told.room ||
+    Date.now() - told.at > TOLD_TO_LEAVE_MS
+  ) {
+    brain.toldToLeave = null;
+    return null;
+  }
+  const title = titleOf(brain, told.by);
+  if (!told.said) {
+    return {
+      key: `${LEAVING_KEY}:say`,
+      text: `${told.by}, whom you answer to, has told you to leave the ${told.room}. You are going, whatever you were doing there. In "say", tell ${told.by} so, beginning with "Yes, ${title}".`,
+      say: leavingLine(brain),
+      needs: has('yes'),
+    };
+  }
+  // Back where it came in from, if it remembers; failing that, anywhere else it knows.
+  const others = knownPlaces(brain).filter(
+    (place) => place !== told.room && !barred(brain, place),
+  );
+  const out =
+    brain.wayOutTo && brain.wayOutTo !== told.room
+      ? brain.wayOutTo
+      : brain.cameFrom && others.includes(brain.cameFrom)
+        ? brain.cameFrom
+        : others[0];
+  if (!out) {
+    return null;
+  }
+  return {
+    key: `${LEAVING_KEY}:go`,
+    text: `${told.by} has told you to leave the ${told.room}, and you are leaving it for the ${out}.`,
+    act: { tool: 'go_to', place: out },
+  };
 }
 
 /** TRUE while a workmate is seeing to this stranger, so the NPC leaves it to them. */
@@ -234,6 +364,21 @@ export function syncGuarding(brain: NpcBrain): void {
     if (stranger.verdict === 'go' && seen?.command) {
       stranger.verdict = 'stay';
     }
+    // Sent for, they may stay for as long as what they were sent for lasts. Once the mess is
+    // gone, with nothing further in left for them, their welcome is over. They are given a
+    // little while to go, and anyone who is already asking for the door is on their way.
+    if (stranger.verdict === 'stay' && stranger.sent) {
+      if (welcomeStands(brain, name)) {
+        stranger.overAt = undefined;
+      } else {
+        stranger.overAt ??= brain.now;
+        const leaving = brain.doorAsked?.name === name && !!brain.doorAsked.out;
+        if (!leaving && brain.now - stranger.overAt > WELCOME_GRACE_DS) {
+          stranger.seenOut = true;
+          settle(brain, name, stranger, 'go');
+        }
+      }
+    }
     if (stranger.verdict) {
       continue;
     }
@@ -241,6 +386,7 @@ export function syncGuarding(brain: NpcBrain): void {
       asks >= ASKS && since !== undefined && brain.now - since > ANSWER_WAIT_DS;
     if (sentFor(brain, name)) {
       stranger.verdict = 'stay';
+      stranger.sent = true;
     } else if (seen?.command && stranger.asks >= 1) {
       // Its betters are asked, out of duty. What they answer is their own affair.
       stranger.verdict = 'stay';
@@ -374,17 +520,38 @@ export function planGuarding(brain: NpcBrain, task: Task): Plan | null {
   const first = firstName(name);
   const room = `the ${brain.post}`;
   if (stranger.verdict === 'go') {
+    const out = `${SEEING_OUT[0].toUpperCase()}${SEEING_OUT.slice(1)}`;
     if (stranger.toldOutAt === undefined) {
+      // Ordered out by someone the NPC answers to: that is the whole of the reason.
+      if (stranger.orderedBy) {
+        return {
+          ready: true,
+          step: `${stranger.orderedBy}, whom you answer to, has ordered ${name} put out of ${room}. In "say", tell ${name} they have to leave, and that you are walking them out.`,
+          say: `${first}, ${titleOf(brain, stranger.orderedBy) === 'Captain' ? 'the Captain' : firstName(stranger.orderedBy)} wants you out of here. ${out}.`,
+          needs: has(eitherName(name)),
+        };
+      }
+      // What they were sent for is done with, and they have not gone: seen out, not turned out.
+      if (stranger.seenOut) {
+        return {
+          ready: true,
+          step: `${name} was sent for, and what they were sent for is done with. They are still in ${room}, which is locked to them. In "say", thank ${name}, and tell them you are seeing them out.`,
+          say: `Thank you, ${first}, that is all that was wanted in here. ${out}: I will see you to the door.`,
+          needs: has(eitherName(name)),
+        };
+      }
       return {
         ready: true,
         step: `${name} has no good reason to be in ${room}${stranger.voucher ? `: ${stranger.voucher} did not send for them` : ''}. In "say", tell ${name} they have to leave, and that you are walking them out.`,
-        say: `You have no business in here, ${first}. ${SEEING_OUT[0].toUpperCase()}${SEEING_OUT.slice(1)}.`,
+        say: `You have no business in here, ${first}. ${out}.`,
         needs: has(eitherName(name)),
       };
     }
     return {
       ready: true,
-      step: `${name} has no business in ${room}. You are taking them by the arm and walking them out.`,
+      step: stranger.seenOut
+        ? `${name} has nothing left to do in ${room}. You are taking them by the arm and seeing them out.`
+        : `${name} has no business in ${room}. You are taking them by the arm and walking them out.`,
       act: { tool: 'throw_out', person: person.handle },
     };
   }
@@ -462,7 +629,11 @@ export function guardCues(brain: NpcBrain): string[] {
       );
     } else if (stranger.verdict === 'go') {
       lines.push(
-        `${name} has no business in the ${brain.post}, and you are walking them out of it.`,
+        stranger.orderedBy
+          ? `${stranger.orderedBy}, whom you answer to, has ordered ${name} out of the ${brain.post}, and you are walking them out of it. You do not argue the order.`
+          : stranger.seenOut
+            ? `What ${name} was sent for in the ${brain.post} is done with, and you are seeing them out of it.`
+            : `${name} has no business in the ${brain.post}, and you are walking them out of it.`,
       );
     } else if (standingBack(brain, stranger)) {
       lines.push(
@@ -476,6 +647,11 @@ export function guardCues(brain: NpcBrain): string[] {
   }
   if (brain.inHand) {
     lines.push('Someone has you by the arm and is walking you out of the room. You go along with it.');
+  }
+  if (brain.toldToLeave) {
+    lines.push(
+      `${brain.toldToLeave.by}, whom you answer to, has told you to leave the ${brain.toldToLeave.room}. You are going: you do not argue it, and you do not stay to finish anything.`,
+    );
   }
   return lines;
 }
@@ -502,9 +678,80 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
     brain.challenged = { by: speaker, at: brain.now };
   }
 
+  // Told to leave by someone it answers to: the Captain, or the head of its own department. It
+  // goes, and keeps out a while. Whether it was sent for makes no difference, and nobody is told
+  // to leave their own post this way.
+  const superior = !!brain.peopleInView.find(
+    (person) => person.name === speaker,
+  )?.superior;
+  if (
+    superior &&
+    LEAVE_WORDS.test(heard) &&
+    (event.details.said_to === 'me' || namesPerson(heard, brain.name)) &&
+    brain.location !== brain.post
+  ) {
+    brain.toldToLeave = {
+      by: speaker,
+      room: brain.location,
+      at: Date.now(),
+      said: false,
+    };
+    brain.keptOut[brain.location] = Date.now() + KEPT_OUT_MS;
+  }
+
   // The rest is for those with a post to keep.
   if (!brain.post) {
     return;
+  }
+
+  // Told by someone it answers to to put someone out of its post. That settles it, sent for or
+  // not: the call that brought them is struck off. One of those at the post takes it, and the
+  // rest stand back. Nobody lays a hand on the Captain or a head of staff, whoever orders it.
+  if (
+    superior &&
+    event.details.said_to !== 'other' &&
+    PUT_OUT_WORDS.test(heard)
+  ) {
+    const target = strangerMeant(brain, heard);
+    if (target) {
+      const record = recordOf(brain, target);
+      if (
+        takeOrder(
+          brain.post,
+          `${speaker}, to put ${target} out`,
+          brain.name,
+          brain.now,
+        )
+      ) {
+        record.orderedBy = speaker;
+        record.toldOutAt = undefined;
+        record.seenOut = false;
+        record.verdict = undefined;
+        settle(brain, target, record, 'go');
+        forgetExpected(brain.post, target);
+        delete brain.sentFor[target];
+        // Nor are they sent for again to whatever they were called to: the next call goes to someone else.
+        for (const call of Object.values(brain.janitorCalls)) {
+          if (call.to === target) {
+            call.declined = [...new Set([...(call.declined ?? []), target])];
+            call.declinedAt = brain.now;
+          }
+        }
+        if (record.verdict === 'go') {
+          brain.toTell.push({
+            to: speaker,
+            line: `Yes, ${titleOf(brain, speaker)}. I am putting ${firstName(target)} out.`,
+            why: `${speaker}, whom you answer to, has ordered ${target} put out of the ${brain.post}. You are saying that you will, and then doing it.`,
+            needs: has('yes'),
+            at: Date.now(),
+          });
+        }
+      } else {
+        // A workmate has taken it. This one stands back and lets them.
+        record.handledBy = 'Your workmate';
+        record.handledAt = brain.now;
+      }
+    }
   }
 
   // A stranger answers the NPC's question. Naming someone who works here is a reason, to be
@@ -615,6 +862,9 @@ export function guardAfterSaying(brain: NpcBrain, called: string | null): void {
     } else if (said.includes(SEEING_OUT)) {
       stranger.toldOutAt = brain.now;
     }
+  }
+  if (brain.toldToLeave && called === leavingLine(brain)) {
+    brain.toldToLeave.said = true;
   }
   if (brain.challenged && called === explainStep(brain).say) {
     brain.challenged = null;

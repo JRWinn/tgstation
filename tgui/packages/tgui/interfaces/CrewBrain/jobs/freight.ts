@@ -22,8 +22,10 @@ const DELIVER = 'deliver';
 const RECYCLE = 'recycle';
 /** A shuttle with nothing left to come off it, to be sent back. */
 const SEND = 'send';
+/** A crate left within a tile of a door, to be hauled clear of it. */
+const STOW = 'stow';
 
-const KINDS = new Set([UNLOAD, MAIL, DELIVER, RECYCLE, SEND]);
+const KINDS = new Set([UNLOAD, MAIL, DELIVER, RECYCLE, SEND, STOW]);
 
 /** TRUE if the task is one of these. */
 export function isFreight(task: Task): boolean {
@@ -52,6 +54,15 @@ export function syncFreight(brain: NpcBrain): void {
   keep(brain, UNLOAD, docked && (freight?.toUnload ?? 0) > 0);
   keep(brain, MAIL, !!freight?.mailCrate);
   keep(brain, RECYCLE, docked && (freight?.emptyCrates ?? 0) > 0);
+  // A crate is never left by a door. One that is there, dropped on the way somewhere or put down
+  // by anyone, is in the way of whoever comes through, and moving it comes before the routine.
+  const misplaced = (freight?.misplaced ?? 0) > 0;
+  const stow = findTask(brain, STOW);
+  if (misplaced && !stow) {
+    addTask(brain, { kind: STOW, urgency: 'asked', source: 'own' });
+  } else if (!misplaced && stow) {
+    finishTask(brain, stow);
+  }
   // The shuttle goes back once there is nothing left to come off it or go on it.
   keep(
     brain,
@@ -115,6 +126,12 @@ export function planFreight(brain: NpcBrain, task: Task): Plan | null {
         step: 'There is an empty crate here, and the supply shuttle is in. You are putting the crate aboard to go back.',
         act: { tool: 'recycle' },
       };
+    case STOW:
+      return {
+        ready: true,
+        step: 'A crate has been left right by a door, where it is in the way of anyone coming through. You are hauling it to a clear spot a little way off.',
+        act: { tool: 'stow_crate' },
+      };
     case SEND: {
       const empties = freight?.emptiesAboard ?? 0;
       return {
@@ -161,6 +178,8 @@ export function describeFreight(task: Task): string | null {
       return 'put the empty crates aboard the supply shuttle';
     case SEND:
       return 'send the supply shuttle back';
+    case STOW:
+      return 'move a crate that has been left by a door';
     default:
       return null;
   }

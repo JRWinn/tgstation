@@ -120,6 +120,19 @@
 		look_in_rooms |= place_name
 		if(crew_npc_room_is_closed(place, body.z))
 			closed_rooms |= place_name
+	// Which of them lie inside another: every door of the room opens from a room of the department
+	// that is locked to the crew as well. Someone sent for to a room like that has to be let through
+	// the outer one first, and out through it afterwards. The post is the outer one if it is among them.
+	for(var/place_name in closed_rooms)
+		var/area/station/place = place_name == post_place ? post_area : places[place_name]
+		var/list/doors = crew_npc_doors_of(place, body.z)
+		var/list/beyond = list()
+		for(var/obj/machinery/door/airlock/door as anything in doors)
+			var/list/sides = doors[door]
+			beyond |= get_area_name(sides[2], TRUE)
+		if(!length(beyond) || length(beyond - closed_rooms))
+			continue
+		reached_through[place_name] = (post_place in beyond) ? post_place : beyond[1]
 
 /// TRUE if a room has doors and every one of them asks for access, so the crew at large cannot walk in.
 /proc/crew_npc_room_is_closed(area/room, z_level)

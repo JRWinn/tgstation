@@ -143,7 +143,7 @@
 			return look_over_held(target)
 		if(CREW_TOOL_TAKE_BACK)
 			return haul_crate_back(target)
-		if(CREW_TOOL_UNLOAD, CREW_TOOL_RECYCLE)
+		if(CREW_TOOL_UNLOAD, CREW_TOOL_RECYCLE, CREW_TOOL_STOW)
 			return haul_freight(target)
 		if(CREW_TOOL_MAIL)
 			return take_mail(target)
@@ -307,6 +307,11 @@
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
+	// A crate being held for collection that nobody can get to is, after a try or two, not one cargo can hand over.
+	if(istype(target, /obj/structure/closet/crate) && (crew_controller.errand_tool == CREW_TOOL_CHECK_HELD || crew_controller.errand_tool == CREW_TOOL_RELEASE || crew_controller.errand_tool == CREW_TOOL_STOW))
+		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)
+		if(entry)
+			entry.unreachable++
 	crew_controller.finish_errand(list(FALSE, "You could not get to it."))
 	return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 
@@ -348,6 +353,10 @@
 				return "hauling a crate off the supply shuttle"
 			if(CREW_TOOL_RECYCLE)
 				return "hauling an empty crate aboard the supply shuttle"
+			if(CREW_TOOL_STOW)
+				return "hauling a crate clear of a door"
+			if(CREW_TOOL_STEP_ASIDE)
+				return "stepping out of someone's way"
 			if(CREW_TOOL_TO_DOOR)
 				return "walking to [walk_goal]"
 			if(CREW_TOOL_EVICT)

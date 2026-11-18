@@ -67,6 +67,24 @@ const ASK_AGAIN_AFTER_DS = 600;
 /** What a mess task is waiting on when nobody came to let the body in. */
 const NOT_LET_IN =
   'nobody let you in, and you will ask again when someone who works there turns up';
+/**
+ * The room whose door it asks at to get to this one. Usually the room itself. A locked room
+ * inside a locked room is got to through the outer one, so until it is standing in that one, the
+ * outer one's door is the door it asks at.
+ */
+function doorFor(brain: NpcBrain, place: string): string {
+  let door = place;
+  // Followed outwards, room by room. No station nests them more than a few deep.
+  for (let depth = 0; depth < 4; depth++) {
+    const outer = brain.reachedThrough[door];
+    if (!outer || outer === brain.location) {
+      break;
+    }
+    door = outer;
+  }
+  return door;
+}
+
 /** The words of a message that says no to letting it in. */
 const REFUSED_WORDS = /cannot let you in|can't let you in|nobody (here )?sent for you/i;
 /** What a mess task is waiting on when the body could not get into the room. */
@@ -278,6 +296,26 @@ function syncTasks(brain: NpcBrain): void {
       !!brain.cleaningTool &&
       messy.has(task.place) &&
       !workable.has(task.place);
+    // Called to a mess that what it holds will not shift, it sends word to whoever called it,
+    // once. They are waiting on it, and someone with soap or a mop can be sent for instead.
+    // Only from in the room, where it has tried: a room it cannot get into is another matter.
+    if (
+      beyondIt &&
+      task.place === brain.location &&
+      task.askedBy &&
+      task.source === 'told' &&
+      !task.toldBeyond &&
+      brain.hasPda
+    ) {
+      task.toldBeyond = true;
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}. It needs soap or a wet mop.`,
+        why: `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
     // A room it could not get into is left alone until the body is ready to try the way again.
     // A door being held open for it is a way in, whatever it found a moment ago.
     const noWayIn =
@@ -289,7 +327,7 @@ function syncTasks(brain: NpcBrain): void {
     if (task.via && task.place !== task.via && task.place !== brain.location) {
       // It asks once: a knock, word to whoever called it, and a word to anyone in sight. There is
       // no asking again on a timer. Someone who works there turning up is what starts it again.
-      const asks = brain.letInAsks[task.place];
+      const asks = brain.letInAsks[doorFor(brain, task.place)];
       const givenUp =
         !!asks &&
         hasAsked(brain, task, asks) &&
@@ -387,42 +425,47 @@ function letInStep(
   place: string,
   via: string,
 ): Plan {
-  // A door held open for it is the way in, if it is the door into this room: not the door of
+  // The door it asks at: this room's, or that of the locked room this one lies inside, if it is
+  // not through that one yet. What it says there names both, so whoever opens it knows why.
+  const door = doorFor(brain, place);
+  const within = door === place ? '' : `, which is reached through the ${door}`;
+  // A door held open for it is the way in, if it is the door it was waiting at: not the door of
   // some other room, and not one being held to let it out of the room it is in.
-  if (brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === place) {
+  if (brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door) {
     return {
       ready: true,
-      step: `The door into the ${place} is being held open for you, and you are going through to clean up the mess there.`,
-      act: { tool: 'go_to', place },
+      step: `The door into the ${door} is being held open for you, and you are going through${within ? ` on your way to the mess in the ${place}` : ' to clean up the mess there'}.`,
+      act: { tool: 'go_to', place: door },
     };
   }
   // It goes and stands at the door it wants through, so that whoever opens it knows which one.
-  if (brain.atDoorOf !== place) {
+  if (brain.atDoorOf !== door) {
     return {
       ready: true,
-      step: `${task.askedBy ?? 'Someone'} called you to a mess in the ${place}, which is locked to you. You are going to stand at its door to be let in.`,
-      act: { tool: 'go_to_door', place },
+      step: `${task.askedBy ?? 'Someone'} called you to a mess in the ${place}${within}, which is locked to you. You are going to stand at ${within ? `the door of the ${door}` : 'its door'} to be let in.`,
+      act: { tool: 'go_to_door', place: door },
     };
   }
   // A voice does not carry through a shut door, and whoever is inside may not be in sight. So it
   // knocks, sends word to whoever called it, and says so to anyone it can see who works there:
   // each of those once.
-  const asks = brain.letInAsks[place];
+  const asks = brain.letInAsks[door];
   if (!asks?.knocked) {
     return {
       ready: true,
-      step: `You are at the door of the ${place}, which is locked to you. You are knocking, for whoever is inside.`,
+      step: `You are at the door of the ${door}, which is locked to you. You are knocking, for whoever is inside.`,
       act: { tool: 'knock' },
     };
   }
   if (!asks.messaged && task.askedBy && brain.hasPda) {
     return {
       ready: true,
-      step: `You have knocked at the door of the ${place}. You are sending ${task.askedBy}, who called you, a PDA message to say you are there.`,
+      step: `You have knocked at the door of the ${door}. You are sending ${task.askedBy}, who called you, a PDA message to say you are there.`,
       act: {
         tool: 'message',
         person: task.askedBy,
-        text: `I am at the door of the ${place} about the mess. C${ASKING_IN.slice(1)}, please?`,
+        // The door it is at is named first: that is the one whoever reads it goes to.
+        text: `I am at the door of the ${door} about the mess${within ? ` in the ${place}` : ''}. C${ASKING_IN.slice(1)}, please?`,
       },
     };
   }
@@ -432,8 +475,8 @@ function letInStep(
   if (!asks.said && caller) {
     return {
       ready: true,
-      step: `${caller.name} called you to clean up a mess in the ${place}, which is locked to you. You are standing at its door, and ${caller.name} is in sight: in "say", ask ${caller.name} outright to let you in.`,
-      say: `${caller.name.split(' ')[0]}, I am at the door about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
+      step: `${caller.name} called you to clean up a mess in the ${place}${within}, which is locked to you. You are standing at the door of the ${door}, and ${caller.name} is in sight: in "say", ask ${caller.name} outright to let you in.`,
+      say: `${caller.name.split(' ')[0]}, I am at the door${within ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
       needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
       // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
       // for it would only get it opened a second time.
@@ -444,12 +487,12 @@ function letInStep(
     return {
       ready: false,
       wait: true,
-      step: `You have knocked and asked to be let into the ${place}, and are waiting by the door.`,
+      step: `You have knocked and asked to be let into the ${door}, and are waiting by the door.`,
     };
   }
   return {
     ready: false,
-    step: `Nobody has let you into the ${place}. You will ask again when someone who works there turns up.`,
+    step: `Nobody has let you into the ${door}. You will ask again when someone who works there turns up.`,
   };
 }
 
@@ -566,8 +609,15 @@ export const JANITOR: Job = {
         }
         if (REFUSED_WORDS.test(text)) {
           // Told no. That mess is not its to get to, and it does not stand at the door for it.
+          // Nor any mess further in that it was asking at this door on the way to.
           brain.tasks = brain.tasks.filter(
-            (task) => !(task.kind === CLEAN && task.place === place && !!task.via),
+            (task) =>
+              !(
+                task.kind === CLEAN &&
+                !!task.place &&
+                !!task.via &&
+                (task.place === place || doorFor(brain, task.place) === place)
+              ),
           );
           delete brain.letInAsks[place];
         } else {
@@ -598,12 +648,15 @@ export const JANITOR: Job = {
     if (task?.kind !== CLEAN || !task.place || !task.via) {
       return;
     }
+    // What it has asked is kept by the door it asked at, which for a room inside another is the
+    // outer one's until it is through it.
+    const door = doorFor(brain, task.place);
     // A knock that did not land is not a knock. It is tried again once it is back at the door.
     if (act.tool === 'knock' && ok) {
-      noteAsked(brain, task.place, 'knocked');
+      noteAsked(brain, door, 'knocked');
     }
     if (act.tool === 'message') {
-      noteAsked(brain, task.place, 'messaged');
+      noteAsked(brain, door, 'messaged');
     }
   },
   // Whoever told it of a mess hears that the mess is gone, which is true whoever cleaned it.
@@ -618,10 +671,10 @@ export const JANITOR: Job = {
         if (
           task.kind === CLEAN &&
           task.state !== 'done' &&
-          brain.atDoorOf === task.place &&
-          task.place
+          task.place &&
+          brain.atDoorOf === doorFor(brain, task.place)
         ) {
-          noteAsked(brain, task.place, 'said');
+          noteAsked(brain, doorFor(brain, task.place), 'said');
         }
       }
     }

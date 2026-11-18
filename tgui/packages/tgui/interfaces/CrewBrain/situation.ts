@@ -4,6 +4,7 @@
  * The person layer says what is true for anyone. The NPC's job adds what matters about its work.
  */
 import { describeChoice } from './choice';
+import { asideCues } from './jobs/aside';
 import { guardCues } from './jobs/guarding';
 import { isJanitor, jobFor } from './jobs';
 import { recentlyToldOfMess, withKind } from './memory';
@@ -88,7 +89,12 @@ export function whoToAskForTheDoor(brain: NpcBrain): string | null {
  */
 export function describeShutIn(brain: NpcBrain): string {
   const helper = whoToAskForTheDoor(brain);
-  return `You are shut in ${brain.location}: you have tried to leave and cannot find a way out.${helper ? ` ${helper} is here: in "say", ask ${helper} outright to open the door for you.` : ' There is nobody here to ask.'}`;
+  // Where it came in from, if it remembers: that is where it is trying to get back to.
+  const outTo =
+    brain.wayOutTo && brain.wayOutTo !== brain.location
+      ? ` You came in from the ${brain.wayOutTo} and are trying to get back out to it.`
+      : '';
+  return `You are shut in ${brain.location}: you have tried to leave and cannot find a way out.${outTo}${helper ? ` ${helper} is here: in "say", ask ${helper} outright to ${outTo ? `let you out to the ${brain.wayOutTo}` : 'open the door for you'}.` : ' There is nobody here to ask.'}`;
 }
 
 /**
@@ -104,8 +110,13 @@ export function describeSituation(brain: NpcBrain): string[] {
   }
   lines.push(...job.cues(brain));
   lines.push(...guardCues(brain));
+  lines.push(...asideCues(brain));
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
+  } else if (brain.wantsOut && brain.wayOutTo) {
+    lines.push(
+      `You are in rooms that are locked to you and are on your way back out to the ${brain.wayOutTo}, where you came in from. Nobody is keeping you in: you are let out when you ask.`,
+    );
   }
   // Fire doors in its way, and what it has done about them, so that it can say why it is held up.
   const fire = brain.fireDoors;

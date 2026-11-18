@@ -6,6 +6,8 @@
 import { saidTo } from './addressing';
 import { buildChoice, readChoice } from './choice';
 import { clearExpected } from './expected';
+import { clearRounds, roundsAfterSaying } from './jobs/rounds';
+import { asideOverhears } from './jobs/aside';
 import { guardAfterSaying, guardOverhears } from './jobs/guarding';
 import {
   inMeeting,
@@ -15,7 +17,11 @@ import {
   readSummons,
 } from './jobs/meetings';
 import { ordersAfterSaying } from './jobs/orders';
-import { pickupsAfterSaying, readPickup } from './jobs/pickups';
+import {
+  pickupsAfterSaying,
+  pickupsOverhear,
+  readPickup,
+} from './jobs/pickups';
 import { withRemark } from './jobs/reports';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
@@ -96,6 +102,8 @@ const ALARM_CAME_BACK_MS = 60000;
 const SAME_LINE_DS = 20;
 /** How long a body that has reported reaching a door is taken to be standing at it, the server not having said so. */
 const DOOR_REACHED_MS = 30000;
+/** How long (milliseconds) an NPC keeps out of a room it was walked out of by the arm. */
+const PUT_OUT_KEEPS_MS = 600000;
 /** How many lines of talk, heard and said, an NPC keeps. */
 const TALK_LOG_KEPT = 16;
 /** How many remarks an NPC passes of its own accord before it waits for someone to say something back. */
@@ -187,6 +195,7 @@ export function stopSession(): void {
   choiceQueue.length = 0;
   brains.clear();
   clearExpected();
+  clearRounds();
   running = false;
 }
 
@@ -251,14 +260,22 @@ export function ingest(npcs: Npc[], now: number): void {
         doorOutTo: null,
         cameFrom: null,
         letInBy: null,
+        wantsOut: false,
+        wayOutTo: null,
+        doorKeepers: [],
         atDoorOf: null,
         doorReached: null,
         lookInRooms: [],
+        roomsThrough: {},
+        reachedThrough: {},
         closedRooms: [],
         lookedIn: {},
         lastArrivalAt: 0,
         inTheWay: null,
         doorAsked: null,
+        toldToLeave: null,
+        keptOut: {},
+        asideAsked: null,
         knockAt: null,
         handles: {},
         inTalkWith: null,
@@ -396,6 +413,9 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     brain.doorHeldOut = !!npc.door_held_out;
     brain.letInBy = npc.let_in_by ?? null;
+    brain.wantsOut = !!npc.wants_out;
+    brain.wayOutTo = npc.way_out_to ?? null;
+    brain.doorKeepers = npc.door_keepers ?? [];
     // The server says which door it is standing at. If it has just reported reaching one and the
     // server does not yet say so, the report is taken at its word for a little while: sent back to
     // the same door, it would be told it had arrived, over and over, and never get round to asking.
@@ -411,6 +431,7 @@ export function ingest(npcs: Npc[], now: number): void {
       npc.at_door_of ?? (stillThere && reached ? reached.place : null);
     brain.lookInRooms = npc.look_in_rooms ?? [];
     brain.closedRooms = npc.closed_rooms ?? [];
+    brain.roomsThrough = npc.rooms_through ?? {};
     brain.grenadeMesses = npc.grenade_messes ?? 0;
     brain.doing = npc.doing ?? null;
     brain.dryMop = !!npc.dry_mop;
@@ -438,6 +459,7 @@ export function ingest(npcs: Npc[], now: number): void {
           mailCrate: !!npc.freight.mail_crate,
           mailFor: npc.freight.mail_for ?? [],
           emptyCrates: npc.freight.empty_crates ?? 0,
+          misplaced: npc.freight.misplaced ?? 0,
         }
       : null;
     brain.areaMesses = npc.work_area_messes ?? {};
@@ -551,6 +573,8 @@ export function ingest(npcs: Npc[], now: number): void {
       if (event.kind === 'speech_heard' && event.details.source === 'person') {
         jobFor(brain.job).overhears?.(brain, event);
         guardOverhears(brain, event);
+        asideOverhears(brain, event);
+        pickupsOverhear(brain, event);
         meetingsOverhear(brain, event);
         logTalk(
           brain,
@@ -577,6 +601,20 @@ export function ingest(npcs: Npc[], now: number): void {
           lettingOut && typeof event.details.out_to === 'string'
             ? event.details.out_to
             : null;
+      }
+      // The door it wanted opens from a room that is locked to it as well: a locked room inside a
+      // locked room. It remembers which, and asks to be let into that one first.
+      if (
+        typeof event.details.door_of === 'string' &&
+        typeof event.details.door_through === 'string'
+      ) {
+        brain.reachedThrough[event.details.door_of] = event.details.door_through;
+      }
+      // Walked out of a room by the arm: it was not wanted in there, and keeps out of it a while
+      // whatever work it still has there.
+      if (typeof event.details.put_out_of === 'string') {
+        brain.keptOut[event.details.put_out_of] = Date.now() + PUT_OUT_KEEPS_MS;
+        brain.toldToLeave = null;
       }
       if (event.details.in_the_way) {
         brain.inTheWay = {
@@ -1242,7 +1280,9 @@ async function think(brain: NpcBrain): Promise<void> {
               .reverse()
               .find((line) => job.agrees?.(brain, action, line) !== false)
           : (heardLines.at(-1) ?? '');
-        if (calledFor === undefined) {
+        // Speaking is not agreeing to anything. A line its work calls for is said whether or not
+        // anyone has just spoken: with nothing heard lately there is no line to have called for it.
+        if (calledFor === undefined && action.tool !== 'say') {
           decision.calls.push(
             `${formatAction(action)} [nothing said called for it: not done]`,
           );
@@ -1250,7 +1290,7 @@ async function think(brain: NpcBrain): Promise<void> {
         }
         // An order is for whoever asked for it: whoever said the line that called for it. The
         // body would otherwise take it to be for whoever it last heard, who may be someone else.
-        if (action.tool === 'order') {
+        if (action.tool === 'order' && calledFor !== undefined) {
           const saidBy = calledFor.match(/\(person (\w+)/)?.[1];
           const asker =
             brain.peopleInView.find((seen) => seen.handle === saidBy) ??
@@ -1304,6 +1344,7 @@ async function think(brain: NpcBrain): Promise<void> {
       guardAfterSaying(brain, mustSay);
       meetingsAfterSaying(brain, mustSay);
       ordersAfterSaying(brain, mustSay);
+      roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
       // Anyone in view who was waiting to hear that a task was done has now been told.
       afterSaying(brain);
@@ -1367,6 +1408,7 @@ async function think(brain: NpcBrain): Promise<void> {
       guardAfterSaying(brain, mustSay);
       meetingsAfterSaying(brain, mustSay);
       ordersAfterSaying(brain, mustSay);
+      roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
       afterSaying(brain);
     }

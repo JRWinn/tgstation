@@ -32,9 +32,39 @@
 	var/out = FALSE
 	/// Name of whoever is hauling it away, or null.
 	var/collected_by
+	/// How many times someone has gone to it and found they could not get there.
+	var/unreachable = 0
+	/// Why it can no longer be handed over, in words, once it cannot: it is lost.
+	var/lost
+	/// Name of whoever at the post has written it off and is sending word, or null if nobody has yet.
+	var/written_off_by
 
 /// The crates being held for collection, as /datum/crew_npc_held_crate. Read it through crew_npc_held_crates().
 GLOBAL_LIST_EMPTY(crew_npc_held_crates)
+/// Crates that were being held and are lost, as /datum/crew_npc_held_crate, until whoever ordered them has been told.
+GLOBAL_LIST_EMPTY(crew_npc_lost_crates)
+
+/**
+ * Says why a crate that was being held can no longer be handed to whoever comes for it, or null
+ * if it still can. Destroyed, off the station or emptied, it is lost for certain. One that cargo
+ * has gone to more than once and could not get to is taken to be. A crate that has only waited a
+ * long time, or lies somewhere awkward, is not lost.
+ */
+/proc/crew_npc_crate_lost(datum/crew_npc_held_crate/entry)
+	var/obj/structure/closet/crate/crate = entry.crate_ref?.resolve()
+	if(QDELETED(crate))
+		return "it has been destroyed"
+	// Still aboard the supply shuttle on its way in, it has not been lost. It has not arrived.
+	if(!entry.held_since)
+		return null
+	var/turf/where = get_turf(crate)
+	if(isnull(where) || !is_station_level(where.z) || isspaceturf(where))
+		return "it is no longer aboard the station"
+	if(isnull(entry.collected_by) && crew_npc_crate_spent(crate))
+		return "it has been emptied"
+	if(entry.unreachable >= CREW_NPC_LOST_AFTER)
+		return "nobody can get to it"
+	return null
 /// world.time someone at each cargo post last said it was going to look over the crates waiting there, by the post's name.
 GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 
@@ -42,13 +72,36 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /proc/crew_npc_held_crates()
 	for(var/datum/crew_npc_held_crate/entry as anything in GLOB.crew_npc_held_crates)
 		var/obj/structure/closet/crate/crate = entry.crate_ref?.resolve()
-		if(QDELETED(crate))
-			GLOB.crew_npc_held_crates -= entry
-			continue
 		// Whoever hauled it off the shuttle, it has been waiting since it left it.
-		if(!entry.held_since && !istype(get_area(crate), /area/shuttle))
+		if(!QDELETED(crate) && !entry.held_since && !istype(get_area(crate), /area/shuttle))
 			entry.held_since = world.time
+		// One that can no longer be handed over is not held any more. It is kept apart until
+		// someone at the post has written it off and whoever ordered it has been told.
+		var/why = crew_npc_crate_lost(entry)
+		if(why)
+			entry.lost = why
+			GLOB.crew_npc_held_crates -= entry
+			GLOB.crew_npc_lost_crates += entry
 	return GLOB.crew_npc_held_crates
+
+/**
+ * Writes off any crate of the body's post that has been lost and that nobody has written off yet:
+ * says so aloud, in plain words, so that everyone at the post knows, and notes that whoever
+ * ordered it is owed word by PDA. One of those at the post does this for any one crate.
+ */
+/datum/ai_controller/crew_npc/proc/write_off_lost_crates()
+	if(!works_in_cargo() || isnull(post_turf) || !can_sense())
+		return
+	var/mob/living/carbon/human/body = pawn
+	for(var/datum/crew_npc_held_crate/entry as anything in GLOB.crew_npc_lost_crates)
+		if(entry.post != post_place || entry.written_off_by)
+			continue
+		entry.written_off_by = body.real_name
+		GLOB.crew_npc_lost_crates -= entry
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote off held crate #[entry.number] for [entry.for_name || "nobody"]: [entry.lost].")
+		speak_plainly("Crate [entry.number][entry.for_name ? " for [entry.for_name]" : ""] is lost: [entry.lost]. I will send word.")
+		if(entry.for_name)
+			notices_owed += list(list("to" = entry.for_name, "kind" = CREW_NOTICE_LOST, "numbers" = list(entry.number), "what" = entry.what, "why" = entry.lost))
 
 /// Returns the held crate with this manifest number, or null. The number may come as text.
 /proc/crew_npc_held_by_number(number)
@@ -97,6 +150,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /datum/ai_controller/crew_npc/proc/held_state()
 	var/list/held = list()
 	var/cargo = works_in_cargo()
+	// Looking over what is held is when one that has been lost is found to be.
+	crew_npc_held_crates()
+	write_off_lost_crates()
 	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
 		if(!cargo && !entry.out)
 			continue

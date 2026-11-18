@@ -182,8 +182,20 @@
 #define CREW_NPC_EVICT_HOLD (40 SECONDS)
 /// How long one PDA message to a janitor from a post stands as that post's call for one.
 #define CREW_NPC_CALL_STANDS (10 MINUTES)
+/// Tool name: haul a crate that has been left by a door to a spot where it is in nobody's way. Cargo staff only.
+#define CREW_TOOL_STOW "stow_crate"
+/// How long a crew NPC setting off for a crate keeps its workmates off that crate. Once it has hold of it, that is what keeps them off.
+#define CREW_NPC_CRATE_CLAIM (45 SECONDS)
+/// Tool name: get out of the way of someone who has asked the body to move.
+#define CREW_TOOL_STEP_ASIDE "step_aside"
+/// How far, in tiles, a body looks for somewhere to step aside to.
+#define CREW_NPC_ASIDE_REACH 3
+/// What a PDA message from cargo is about: a crate that was being held and can no longer be handed over.
+#define CREW_NOTICE_LOST "lost"
+/// How many times cargo staff have to find they cannot get to a held crate before it is written off.
+#define CREW_NPC_LOST_AFTER 2
 /// TRUE if a walk started by this tool has the body hauling something, or someone, behind it.
-#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_RELEASE || tool == CREW_TOOL_COLLECT || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK)
+#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_RELEASE || tool == CREW_TOOL_COLLECT || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK || tool == CREW_TOOL_STOW)
 /// Tool name: send someone a PDA message.
 #define CREW_TOOL_MESSAGE "message"
 /// Tool name: throw a cleaner grenade into a thick patch of mess.

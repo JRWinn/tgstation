@@ -13,7 +13,7 @@
 import { answersTo } from '../hierarchy';
 import { CARGO_LOBBY, knowsPlace } from '../memory';
 import { addTask, blockTask, finishTask, placeNamedIn } from '../tasks';
-import type { Action, NpcBrain, Plan, Task } from '../types';
+import type { Action, NpcBrain, Plan, SenseEvent, Task } from '../types';
 import { isCargo } from './cargo';
 
 /** A crate to collect from cargo. The task's item is its manifest number, and its place the room it is to go to. */
@@ -214,6 +214,51 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
     // The words take a few seconds to find. If the crate has been put out meanwhile, it is not asked for again.
     sayIf: () => !crateOf(brain, task)?.out,
   };
+}
+
+/** The words by which cargo says there is no crate to be had by the number it was asked for. */
+const NO_SUCH_CRATE = /not holding a crate|(has|have) been lost|is lost\b/i;
+
+/**
+ * Hears cargo say, at the counter, that there is no crate by the number it asked for: the crate
+ * has been lost, or the number is wrong. That is the end of the errand. It does not stand at the
+ * counter asking for something that is not there: it tells whoever sent it, and gets on.
+ */
+export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
+  const speaker = String(event.details.speaker ?? '');
+  const heard = String(event.details.message ?? '');
+  const theirJob =
+    brain.peopleInView.find((person) => person.name === speaker)?.job ?? '';
+  if (
+    !isCargo(theirJob) ||
+    event.details.said_to === 'other' ||
+    !NO_SUCH_CRATE.test(heard)
+  ) {
+    return;
+  }
+  for (const task of brain.tasks) {
+    // Only one it has asked for, and not long since: the answer is to that asking.
+    if (
+      task.kind !== COLLECT ||
+      task.state === 'done' ||
+      task.unpacked ||
+      task.askedAt === undefined ||
+      brain.now - task.askedAt > BROUGHT_OUT_WAIT_DS
+    ) {
+      continue;
+    }
+    task.reported = true;
+    finishTask(brain, task);
+    if (task.askedBy && brain.hasPda) {
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `Cargo says there is no crate #${task.item} to collect: it has been lost, or the number is wrong. I have not got it.`,
+        why: `${speaker}, at the cargo counter, has told you there is no crate #${task.item} to be had. You are sending ${task.askedBy}, who sent you for it, a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+  }
 }
 
 /** Says the task of collecting a crate in a few words, or null if the task is not that. */

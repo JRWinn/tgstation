@@ -18,6 +18,11 @@
 //   bun run sim.ts quiet waiting   a head orders a crate and nobody comes for it: the technicians take turns to look and remind, and hand it over when asked for by number
 //   bun run sim.ts quiet captain   the Captain tells the head to find out how its section is doing: a second staff meeting is called there and then
 //   bun run sim.ts quiet mixed     a head orders two kinds of crate in one breath: one order is placed for both, and each crate is told apart when it comes
+//   bun run sim.ts quiet evict     the Captain, in the bay, orders the technician to put out a janitor it sent for (leave: tells the janitor to go)
+//   bun run sim.ts quiet aside     a janitor scrubbing the bay is asked to step aside: it moves, and stays clear a while
+//   bun run sim.ts quiet bydoor    a crate has been left right by a door: the technician hauls it clear
+//   bun run sim.ts quiet lost      a crate being held for collection is destroyed: it is written off aloud and whoever ordered it is told
+//   bun run sim.ts quiet nested    a mess in a locked room that lies inside the locked bay: the janitor is let through both doors, and back out through both
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
 // The folder is given one spelling, or the same module is loaded twice under two names.
@@ -97,7 +102,7 @@ const memoryModule = await import(ROOT + 'memory');
 
 // ---- the station
 type Mess = { id: number; name: string; scrub: boolean };
-type Box = { name: string; contents: string[]; openedBy: Set<string>; mail?: string[]; crate?: boolean };
+type Box = { name: string; contents: string[]; openedBy: Set<string>; mail?: string[]; crate?: boolean; byDoor?: boolean };
 type Room = { kind: 'hallway' | 'room'; messes: Mess[]; items: string[]; boxes: Box[]; sink: boolean; floor?: { name: string; rubbish?: boolean }[] };
 let messId = 0;
 const mess = (name: string, scrub = false): Mess => ({ id: ++messId, name, scrub });
@@ -130,7 +135,8 @@ type Body = {
   busyUntil: number; busyText: string | null; walking: boolean; onDone: (() => void) | null;
   events: any[]; seq: number; handles: Map<string, string>; seen: Set<string>;
   explored: boolean; hasLocator: boolean; post: string | null; waysOut: number;
-  orderPending: boolean; notices: { to: string; kind: 'arrived' | 'waiting'; numbers: number[]; what?: string | null; kinds?: string[] }[]; dockAt: number; orderFor: string | null; orderCount: number; orderItems: { crate: string; count: number }[]; cleaned: number; tidied: number; cleanedTold: number; crateToReturn: Box | null; heldCheckAt: number; heldClaimSeen: number; office: string | null; mail: string[]; stillUntil: number; lastSaidAt: number; setOffTooSoon: number; saidWalking: number; doorHeldUntil: number; letOutUntil: number; inHandUntil: number; letInto: string | null; letInBy: string | null; atDoorOf: string | null; bayFails: number;
+  orderPending: boolean; notices: { to: string; kind: 'arrived' | 'waiting' | 'lost'; numbers: number[]; what?: string | null; kinds?: string[]; why?: string }[]; dockAt: number; orderFor: string | null; orderCount: number; orderItems: { crate: string; count: number }[]; cleaned: number; tidied: number; cleanedTold: number; crateToReturn: Box | null; heldCheckAt: number; heldClaimSeen: number; office: string | null; mail: string[]; stillUntil: number; lastSaidAt: number; setOffTooSoon: number; saidWalking: number; doorHeldUntil: number; letOutUntil: number; inHandUntil: number; letInto: string | null; letInBy: string | null; atDoorOf: string | null; bayFails: number;
+  trail: { place: string; from: string; by: string | null }[]; wantsOut: boolean;
   log: string[]; said: string[];
 };
 const bodies: Body[] = [];
@@ -140,6 +146,12 @@ const COUNTER = ['Cargo Bay', 'Cargo Lobby'];
 const players: { name: string; job: string; room: string }[] = [];
 // The rooms only cargo staff can open the doors of, and when each door stands open and for whom.
 const LOCKED = ['Cargo Bay', 'Delivery Office'];
+// Where the door of each of them opens from. In one scenario the delivery office lies inside the
+// bay, as it does aboard the real station: a locked room inside a locked room.
+const NESTED = process.argv[3] === 'nested';
+const OUTER: Record<string, string> = { 'Cargo Bay': 'Cargo Lobby', 'Delivery Office': NESTED ? 'Cargo Bay' : 'Cargo Lobby' };
+// The locked doors between a room and the open station, innermost first.
+const doorsOut = (room: string): string[] => (LOCKED.includes(room) ? [room, ...doorsOut(OUTER[room])] : []);
 const doorState: Record<string, { from: number; until: number; for: string | null }> = Object.fromEntries(LOCKED.map((room) => [room, { from: Infinity, until: -Infinity, for: null }]));
 const doorOpen = (room: string) => !!doorState[room] && clock >= doorState[room].from && clock <= doorState[room].until;
 const bayDoorOpen = () => doorOpen('Cargo Bay');
@@ -153,7 +165,41 @@ const knocks: string[] = [];
 const fireStops = (body: Body, place: string | null) => !!fireAlarm && ((body.room === fireAlarm) !== (place === fireAlarm));
 // Only cargo staff can open the bay door. Anyone else in there is shut in until someone opens it.
 // A body knows it is shut in after two ways out have failed, or one if it was let into the room.
-const isShutIn = (body: Body) => body.waysOut >= 2 || (body.waysOut >= 1 && body.letInto === body.room);
+const isShutIn = (body: Body) => body.waysOut >= 2 || (body.waysOut >= 1 && (body.letInto === body.room || body.trail.length > 0));
+// The first locked door on the way from where a body stands to another room that is not standing
+// open for it, and whether it is one on the way out or one on the way in. Null if the way is clear.
+function shutDoor(body: Body, to: string): { door: string; leaving: boolean } | null {
+  if (body.post) return null;
+  const out = doorsOut(body.room);
+  const into = doorsOut(to);
+  // A door both rooms are behind is not one that is gone through.
+  while (out.length && into.length && out.at(-1) === into.at(-1)) { out.pop(); into.pop(); }
+  for (const door of out) if (!doorOpen(door)) return { door, leaving: true };
+  for (const door of into.reverse()) if (!doorOpen(door)) return { door, leaving: false };
+  return null;
+}
+// Keeps a body's trail true to a step from one room into another, the way the server does: the
+// locked rooms it has come through since it was last somewhere it could leave by itself.
+function followTrail(body: Body, from: string, place: string) {
+  const forget = () => { body.trail = []; body.wantsOut = false; };
+  if (body.trail.length && body.trail[0].from === place) return forget();
+  const at = body.trail.findIndex((entry) => entry.place === place);
+  if (at >= 0) { body.trail.length = at + 1; return; }
+  if (!LOCKED.includes(place) || body.post) return forget();
+  body.trail.push({ place, from, by: body.letInto === place ? body.letInBy : null });
+}
+// Puts a body in another room, however it got there.
+function moveTo(body: Body, place: string) {
+  if (body.room === place) return;
+  const from = body.room;
+  body.room = place;
+  followTrail(body, from, place);
+}
+// A walk out that came to nothing. A body that came in through a door it cannot open means to get out from then on.
+function wayOutFailed(body: Body) {
+  body.waysOut++;
+  if (body.trail.length) body.wantsOut = true;
+}
 // What takes a body off across the room or out of it, as against what it does where it stands.
 const LEAVES = new Set(['throw_out', 'go_to', 'go_to_door', 'explore', 'release', 'collect_crate', 'check_held', 'unload', 'recycle', 'send_shuttle', 'order', 'take_back', 'pick_up', 'hand_mail', 'collect_mail', 'open_door']);
 const shutInBay = (body: Body) => LOCKED.includes(body.room) && !body.post && !doorOpen(body.room);
@@ -176,6 +222,9 @@ const tooSoonSteps: string[] = [];
 const handed: string[] = [];
 const opened: string[] = [];
 const putAway: string[] = [];
+// Crates hauled clear of a door they were left by, and each time someone stepped out of someone's way.
+const stowed: string[] = [];
+const steppedAside: { who: string; at: number }[] = [];
 const HOP_OFFICE = "Head of Personnel's Office";
 // What was ordered and for whom; where each crate was unpacked and by whom; how many came back; who was at the meeting when the room was asked.
 const ordersPlaced: string[] = [];
@@ -199,7 +248,7 @@ const tippedOut: string[] = [];
 const unpackedBy: string[] = [];
 let cratesTakenBack = 0;
 // Crates cargo is holding for collection, as the server keeps them: known by the number on the manifest.
-type Held = { box: Box; number: number; for: string | null; what: string; heldSince: number; reminders: number; out: boolean; takenBy: string | null };
+type Held = { box: Box; number: number; for: string | null; what: string; heldSince: number; reminders: number; out: boolean; takenBy: string | null; lost?: string };
 let held: Held[] = [];
 let nextOrderNumber = 4521;
 // Which crates were brought out to the lobby and for whom, and each time someone said they were going to look over what is waiting.
@@ -214,8 +263,23 @@ const HELD_CLAIM = 'I am going to check to see what crates are still here.';
 // The crates still held, with those that have come off the shuttle noted as waiting since then.
 function heldCrates(): Held[] {
   for (const entry of held) if (!entry.heldSince && !shuttle.aboard.includes(entry.box)) entry.heldSince = clock;
+  // One that can no longer be handed over is not held any more: it is kept apart until someone at the post has written it off.
+  for (const entry of held.filter((it) => it.lost)) { held = held.filter((it) => it !== entry); lostCrates.push(entry); }
   return held;
 }
+// Crates that were being held and are lost, until one of those at the post writes each off: says so aloud, and owes whoever ordered it word.
+let lostCrates: Held[] = [];
+function writeOffLost(body: Body) {
+  if (!body.post) return;
+  heldCrates();
+  for (const entry of lostCrates) {
+    bodySays(body, `Crate ${entry.number}${entry.for ? ` for ${entry.for}` : ''} is lost: ${entry.lost}. I will send word.`);
+    if (entry.for) body.notices.push({ to: entry.for, kind: 'lost', numbers: [entry.number], what: entry.what, why: entry.lost });
+    writtenOff.push(`${entry.number} by ${body.name}`);
+  }
+  lostCrates = [];
+}
+const writtenOff: string[] = [];
 const heldWaiting = () => heldCrates().filter((entry) => entry.heldSince && !entry.takenBy && entry.reminders < HELD_REMINDERS);
 const heldOverdue = () => heldWaiting().filter((entry) => clock - entry.heldSince >= HELD_OVERDUE);
 const heldWait = () => HELD_CHECK_EVERY + (Math.random() * 2 - 1) * HELD_CHECK_SPREAD;
@@ -241,7 +305,7 @@ const atMeeting = new Set<string>();
 const staffRoomTries: string[] = [];
 const near = (a: Body, b: Body) => a.room === b.room || (COUNTER.includes(a.room) && COUNTER.includes(b.room));
 function spawn(name: string, job: string): Body {
-  const body: Body = { id: `npc${bodies.length + 1}`, name, job, room: 'Arrival Shuttle Hallway', holding: [], mopWet: false, visited: new Set(), known: new Set(['Cargo Lobby']), blocked: new Map(), seenMesses: new Map(), stubborn: new Set(), busyUntil: 0, busyText: null, walking: false, onDone: null, events: [], seq: 0, handles: new Map(), seen: new Set(), explored: false, waysOut: 0, hasLocator: job === 'Janitor', post: job === 'Cargo Technician' ? 'Cargo Bay' : null, orderPending: false, notices: [], dockAt: 0, orderFor: null, orderCount: 1, orderItems: [], cleaned: 0, tidied: 0, cleanedTold: 0, crateToReturn: null, heldCheckAt: 0, heldClaimSeen: 0, office: job === 'Head of Personnel' ? HOP_OFFICE : null, mail: [], stillUntil: 0, lastSaidAt: -Infinity, setOffTooSoon: 0, saidWalking: 0, doorHeldUntil: 0, letOutUntil: 0, inHandUntil: 0, letInto: null, letInBy: null, atDoorOf: null, bayFails: 0, log: [], said: [] };
+  const body: Body = { id: `npc${bodies.length + 1}`, name, job, room: 'Arrival Shuttle Hallway', holding: [], mopWet: false, visited: new Set(), known: new Set(['Cargo Lobby']), blocked: new Map(), seenMesses: new Map(), stubborn: new Set(), busyUntil: 0, busyText: null, walking: false, onDone: null, events: [], seq: 0, handles: new Map(), seen: new Set(), explored: false, waysOut: 0, hasLocator: job === 'Janitor', post: job === 'Cargo Technician' ? 'Cargo Bay' : null, orderPending: false, notices: [], dockAt: 0, orderFor: null, orderCount: 1, orderItems: [], cleaned: 0, tidied: 0, cleanedTold: 0, crateToReturn: null, heldCheckAt: 0, heldClaimSeen: 0, office: job === 'Head of Personnel' ? HOP_OFFICE : null, mail: [], stillUntil: 0, lastSaidAt: -Infinity, setOffTooSoon: 0, saidWalking: 0, doorHeldUntil: 0, letOutUntil: 0, inHandUntil: 0, letInto: null, letInBy: null, atDoorOf: null, bayFails: 0, trail: [], wantsOut: false, log: [], said: [] };
   if (body.post) body.known.add(body.post);
   // A head starts the shift in its office.
   if (body.office) { body.room = body.office; body.known.add(body.office); }
@@ -278,7 +342,7 @@ function busy(body: Body, seconds: number, text: string, walking: boolean, done:
   body.busyUntil = clock + seconds * 1000; body.busyText = text; body.walking = walking; body.onDone = done;
 }
 function arrive(body: Body, place: string, tool: string) {
-  body.room = place; body.waysOut = 0; body.letOutUntil = 0; if (body.letInto !== place) { body.letInto = null; body.letInBy = null; } body.visited.add(place); body.known.add(place);
+  moveTo(body, place); body.waysOut = 0; body.letOutUntil = 0; if (body.letInto !== place) { body.letInto = null; body.letInBy = null; } body.visited.add(place); body.known.add(place);
   body.atDoorOf = null;
   // The door is shut behind whoever it was opened for, the moment they are through.
   for (const state of Object.values(doorState)) if (state.for === body.name) { state.for = null; state.until = clock; }
@@ -321,24 +385,26 @@ function toolCall(body: Body, tool: string, args: any) {
     case 'go_to':
       if (!(args.place in rooms)) return result(body, 'go_to', false, 'You do not know of anywhere aboard by that name.');
       if (args.place === body.room) return result(body, 'go_to', true, `You are already in ${args.place}.`, { place: args.place });
-      if (shutInBay(body)) return busy(body, 3, `walking to ${args.place}`, true, () => { body.waysOut++; result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
+      // Only cargo staff can open the doors of the bay and the delivery office. Anyone else behind
+      // one that is not standing open finds no way through. A walk to a room that is locked to it
+      // as well says nothing about getting out, and does not count towards being shut in.
+      const shut = shutDoor(body, args.place);
+      if (shut?.leaving) return busy(body, 3, `walking to ${args.place}`, true, () => { if (!LOCKED.includes(args.place)) wayOutFailed(body); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
       // Fire doors shut by an alarm stop anyone walking into or out of the room they seal.
       if (fireStops(body, args.place)) { const sealed = fireAlarm!; return busy(body, 3, `walking to ${args.place}`, true, () => result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. The fire doors are shut in ${sealed}. You are in ${body.room}.`, { fire_doors: sealed, alarm_pulled: 1 })); }
       // The staff room opens to a head and nobody else.
       if (args.place === 'Staff Room' && !body.office) return busy(body, 3, `walking to ${args.place}`, true, () => { body.blocked.set(args.place, clock); staffRoomTries.push(body.name); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
-      // The delivery office is locked to everyone but cargo staff, like the bay.
-      if (args.place === 'Delivery Office' && !body.post && !doorOpen('Delivery Office')) return busy(body, 3, `walking to ${args.place}`, true, () => { body.blocked.set(args.place, clock); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through.`); });
-      // Only cargo staff have the access to get into the bay. Anyone else finds no way through.
-      if (args.place === 'Cargo Bay' && !body.post && !bayDoorOpen()) {
+      // A locked room it is not in: the delivery office, or the bay.
+      if (shut) {
         return busy(body, 3, `walking to ${args.place}`, true, () => {
-          body.blocked.set(args.place, clock); body.bayFails++;
+          body.blocked.set(args.place, clock); if (args.place === 'Cargo Bay') body.bayFails++;
           result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through.`);
         });
       }
       return busy(body, 6, `walking to ${args.place}`, true, () => arrive(body, args.place, 'go_to'));
     case 'explore': {
       if (fireAlarm && body.room === fireAlarm) return result(body, 'explore', false, `You stop on the way to somewhere new: there is no way through. The fire doors are shut in ${fireAlarm}. You are in ${body.room}.`, { fire_doors: fireAlarm, alarm_pulled: 1 });
-      if (shutInBay(body)) { body.waysOut++; return result(body, 'explore', false, 'You look for a way to somewhere new but find none from here.'); }
+      if (shutInBay(body)) { wayOutFailed(body); return result(body, 'explore', false, 'You look for a way to somewhere new but find none from here.'); }
       const next = EXPLORE_ORDER.find((place) => !body.visited.has(place));
       if (!next) { body.explored = true; return result(body, 'explore', false, 'There is nowhere new that you can reach.'); }
       return busy(body, 6, 'walking off to explore', true, () => arrive(body, next, 'explore'));
@@ -479,11 +545,13 @@ function toolCall(body: Body, tool: string, args: any) {
       const place: string | undefined = args.place;
       if (place && !(place in rooms)) return result(body, 'go_to_door', false, 'You do not know of anywhere aboard by that name.');
       if (place && body.room === place) return result(body, 'go_to_door', true, `You are already in ${place}.`, { place });
-      const outside = place && LOCKED.includes(place) ? 'Cargo Lobby' : body.room;
+      const outside = place && LOCKED.includes(place) ? OUTER[place] : body.room;
+      // A locked room inside a locked room: its door opens from a room that is locked to the body as well. It is told which.
+      if (place && body.room !== outside && LOCKED.includes(outside) && !body.post) return result(body, 'go_to_door', false, `You cannot get to the door into ${place}: it opens from ${outside}, which is locked to you as well.`, { place: body.room, door_of: place, door_through: outside });
       // Shut in a room it cannot open the door of, it cannot walk to the door of some other room: it has to be let out first.
       if (place && body.room !== outside && shutInBay(body)) return busy(body, 3, `walking to the door into ${place}`, true, () => { body.waysOut++; result(body, 'go_to_door', false, `You could not get to the door into ${place}: there is no way through. You are in ${body.room}.`, { place: body.room }); });
       return busy(body, place && body.room !== outside ? 6 : 2, `walking to the door ${place ? 'into ' + place : 'out of ' + body.room}`, true, () => {
-        if (place && body.room !== outside) { body.room = outside; body.visited.add(outside); body.waysOut = 0; }
+        if (place && body.room !== outside) { moveTo(body, outside); body.visited.add(outside); body.waysOut = 0; }
         body.atDoorOf = place ?? body.room;
         result(body, 'go_to_door', true, `You are at the door ${place ? 'into ' + place : 'out of ' + body.room}.`, { place: body.room });
       });
@@ -497,14 +565,16 @@ function toolCall(body: Body, tool: string, args: any) {
       // Someone at the door, or shut inside, need not be in sight: the door hides them.
       const atTheDoor = (them as Body).atDoorOf === room;
       if (!inSight(body, them.room) && !inside && !atTheDoor) return result(body, 'open_door', false, 'You cannot see that person.');
-      if (!inside && !(them.job === 'Janitor' && rooms[room].messes.length > 0)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
+      // A mess in the room, or in a locked room that can only be got into through it.
+      const messBeyond = rooms[room].messes.length > 0 || LOCKED.some((inner) => inner !== room && doorsOut(inner).includes(room) && rooms[inner].messes.length > 0);
+      if (!inside && !(them.job === 'Janitor' && messBeyond)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
       return busy(body, 3, 'going to open the door for someone', false, () => {
         doorState[room] = { from: clock, until: clock + 15000, for: them.name }; opened.push(`${inside ? 'out' : 'in'}:${them.name}${room === body.post ? '' : '@' + room}`);
         const their = bodies.find((other) => other.name === name);
         if (their) {
           their.blocked.clear(); their.waysOut = 0; their.doorHeldUntil = clock + 15000; their.known.add(room);
           if (!inside) { their.letInto = room; their.letInBy = body.name; } else { their.letOutUntil = clock + 15000; }
-          emit(their, 'knowledge', `${body.name} opens the door ${inside ? 'out of' : 'into'} ${room} and holds it for you.`, { places: [{ place: room, things: [] }], door_held: 1, ...(inside ? { out_to: 'Cargo Lobby' } : {}) });
+          emit(their, 'knowledge', `${body.name} opens the door ${inside ? 'out of' : 'into'} ${room} and holds it for you.`, { places: [{ place: room, things: [] }], door_held: 1, ...(inside ? { out_to: OUTER[room] } : {}) });
         }
         result(body, 'open_door', true, `You open the door for ${them.name} and hold it.`);
       });
@@ -537,7 +607,7 @@ function toolCall(body: Body, tool: string, args: any) {
       return busy(body, 6, `walking someone out of ${body.post}`, true, () => {
         them.room = 'Cargo Lobby'; putOut.push(them.name);
         if (their) {
-          their.inHandUntil = 0; their.waysOut = 0; their.atDoorOf = null; their.letInto = null; their.letInBy = null; their.blocked.set(body.post!, clock);
+          their.inHandUntil = 0; their.waysOut = 0; their.atDoorOf = null; their.letInto = null; their.letInBy = null; their.trail = []; their.wantsOut = false; their.blocked.set(body.post!, clock);
           emit(their, 'knowledge', `${body.name} has walked you out of ${body.post} and let go of you. You had no business in there.`, { put_out_of: body.post });
         }
         result(body, 'throw_out', true, `You walk ${them.name} out of ${body.post} and let go of them.`);
@@ -581,6 +651,21 @@ function toolCall(body: Body, tool: string, args: any) {
         result(body, 'recycle', true, `You put the empty ${crate.name} aboard the supply shuttle to go back.`);
       });
     }
+    case 'stow_crate': {
+      // A crate left within a tile of a door is hauled to a clear spot nearby. Cargo staff only.
+      const crate = cargoCrates().find((box) => box.byDoor);
+      if (!body.post || !crate) return result(body, 'stow_crate', false, 'There is no crate lying by a door.');
+      return busy(body, 5, 'hauling a crate clear of a door', true, () => {
+        // A workmate may have moved it first.
+        if (!crate.byDoor) return result(body, 'stow_crate', false, 'There is no crate lying by a door.');
+        crate.byDoor = false; stowed.push(`${crate.name} by ${body.name}`);
+        result(body, 'stow_crate', true, `You haul the ${crate.name} clear of the door, where it is in nobody's way.`);
+      });
+    }
+    case 'step_aside':
+      // Asked to get out of the way, it steps to a clear spot nearby, whatever it was in the middle of.
+      body.busyText = null; body.walking = false; body.onDone = null;
+      return busy(body, 2, "stepping out of someone's way", true, () => { steppedAside.push({ who: body.name, at: clock }); result(body, 'step_aside', true, 'You step aside, out of the way.'); });
     case 'tidy': {
       const where = ['Cargo Bay', 'Cargo Lobby'].find((name) => rooms[name].floor?.length);
       if (!body.post || !where) return result(body, 'tidy', false, 'There is nothing lying about that you have anywhere to put.');
@@ -619,6 +704,7 @@ brainModule.setAct((action: string, payload: any) => {
 // ---- what the server tells the window about each body, once a second
 function uiData(body: Body) {
   const room = rooms[body.room];
+  writeOffLost(body);
   body.visited.add(body.room); body.known.add(body.room);
   for (const m of room.messes) body.seenMesses.set(m.id, body.room);
   // Across the counter, a body in the lobby can see the bay's floor.
@@ -645,7 +731,9 @@ function uiData(body: Body) {
     cleanable_messes: cleaningTool(body) ? [...new Set(room.messes.filter((m) => canShift(body, m)).map((m) => m.name))] : [],
     mess_places: [...new Set(remembered.map((x) => x.place))],
     workable_mess_places: [...new Set(remembered.filter((x) => canShift(body, x.m!) && !shut(x.place)).map((x) => x.place))],
-    mop_needs_water: body.holding.includes('mop') && !toolOf(body) && !body.mopWet ? 1 : 0, sink_in_view: room.sink ? 1 : 0, shut_in: isShutIn(body) ? 1 : 0, door_open: isShutIn(body) && doorOpen(body.room) ? 1 : 0, door_held: clock < body.doorHeldUntil ? 1 : 0, door_held_out: clock < body.letOutUntil ? 1 : 0, let_in_by: body.letInBy, at_door_of: body.atDoorOf,
+    mop_needs_water: body.holding.includes('mop') && !toolOf(body) && !body.mopWet ? 1 : 0, sink_in_view: room.sink ? 1 : 0, shut_in: isShutIn(body) ? 1 : 0, door_open: isShutIn(body) && doorOpen(body.room) ? 1 : 0, door_held: clock < body.doorHeldUntil ? 1 : 0, door_held_out: clock < body.letOutUntil ? 1 : 0, let_in_by: body.trail.find((entry) => entry.place === body.room)?.by ?? body.letInBy, at_door_of: body.atDoorOf,
+    // It means to get out, and where to: the room it was in before it first went through a door it could not open. And who else can open the door, once it is shut in.
+    wants_out: body.wantsOut ? 1 : 0, way_out_to: body.trail[0]?.from ?? null, door_keepers: isShutIn(body) ? bodies.filter((other) => other.post).map((other) => other.name) : [],
     dry_mop: body.holding.includes('mop') && !toolOf(body) && !body.mopWet && !room.sink ? 1 : 0,
     grenade_messes: 0, doing: body.busyText, post: body.post, orderable: body.post ? Object.keys(CRATES) : [],
     order_pending: body.orderPending ? 1 : 0, has_pda: 1, notices: body.notices,
@@ -665,9 +753,12 @@ function uiData(body: Body) {
       mail_crate: rooms['Cargo Bay'].boxes.some((box) => box.mail?.length) ? 1 : 0,
       mail_for: [...new Set(body.mail)],
       empty_crates: cargoCrates().filter(spent).length,
+      misplaced: cargoCrates().filter((box) => box.byDoor).length,
     } : null,
     // The lobby is the technician's to keep fit to be in. Its PDA lists every janitor aboard.
     look_in_rooms: body.post ? ['Delivery Office'] : [], closed_rooms: body.post ? [body.post, 'Delivery Office'] : [],
+    // Which of those lie inside another of them.
+    rooms_through: body.post && NESTED ? { 'Delivery Office': 'Cargo Bay' } : {},
     work_area_messes: body.post ? Object.fromEntries(['Cargo Lobby', body.post, 'Delivery Office'].filter((place) => remembered.some((x) => x.place === place)).map((place) => [place, [...new Set(remembered.filter((x) => x.place === place).map((x) => x.m!.name))].slice(0, 3)])) : {},
     workmate_called: body.post && janitorCall && janitorCall.by !== body.name && clock - janitorCall.at < 600_000 ? 1 : 0,
     in_hand: clock < body.inHandUntil ? 1 : 0,
@@ -699,6 +790,32 @@ function spawnOrders() {
   players.push({ name: 'Ada Stone', job: 'Captain', room: 'Cargo Lobby' }, { name: 'Hal Pott', job: 'Head of Personnel', room: 'Cargo Lobby' });
   return crew;
 }
+// A technician and a janitor, with the delivery office inside the bay and nothing to clean in the
+// bay itself: the janitor is let into the bay only because the way to the delivery office is through it.
+function spawnNested() {
+  const crew = [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')];
+  rooms['Cargo Bay'].messes = [];
+  return crew;
+}
+// A technician, a janitor let into the bay to clean a good deal of mess, and the Captain standing
+// in the bay, who gives an order about it: to the technician to put the janitor out, or to the
+// janitor to leave.
+function spawnCaptainInBay() {
+  const crew = [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')];
+  for (let i = 0; i < 8; i++) rooms['Cargo Bay'].messes.push(mess('dirt'));
+  players.push({ name: 'Ada Stone', job: 'Captain', room: 'Cargo Bay' });
+  return crew;
+}
+let captainSpokeAt = 0;
+// A technician alone, with a loaded crate that someone has left right by the lobby door.
+function spawnByDoor() {
+  const crew = [spawn('Cora Tech', 'Cargo Technician')];
+  rooms['Cargo Lobby'].boxes.push({ name: 'supply crate', contents: ['wrench'], openedBy: new Set(), crate: true, byDoor: true });
+  return crew;
+}
+// When the crate a head ordered, and never came for, is destroyed where it stands in the bay.
+const CRATE_LOST_AT = 120;
+let crateLostAt = 0;
 // Two technicians, and a head who orders at the counter and does not send anyone for what comes.
 function spawnWaiting() {
   const crew = [spawn('Cora Tech', 'Cargo Technician'), spawn('Vik Hale', 'Cargo Technician')];
@@ -733,11 +850,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = VARIANT === 'waiting' ? 1380 : VARIANT === 'office' ? 900 : FULL || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 const PAT_COMES_AT = 420;
@@ -769,6 +886,12 @@ for (let second = 0; second < SECONDS; second++) {
   if ((VARIANT === 'alarm' || VARIANT === 'alarmagain') && second >= ALARM_PULLED_AT && !alarmPulled && !bodies[0].walking) { fireAlarm = bodies[0].room; alarmPulled = true; }
   // Pulled again as soon as it is reset: a real problem, or someone who will not leave it alone.
   if (clock >= repullAt) { fireAlarm = bodies[0].room; repullAt = Infinity; }
+  // The Captain gives its order once the janitor has been let into the bay and has started on the mess there.
+  if ((VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside') && !captainSpokeAt && bodies[1].room === 'Cargo Bay' && bodies[1].busyText?.startsWith('cleaning')) { captainSpokeAt = clock; playerSays('Ada Stone', VARIANT === 'evict' ? 'Cora, throw this janitor out.' : VARIANT === 'leave' ? 'Jan, leave.' : 'Jan, could you step aside, please? I need to get past you.'); }
+  // A head orders a crate and does not come for it. Once it is off the shuttle and held in the bay, it is destroyed. Later the head asks for it.
+  if (VARIANT === 'lost' && second === 20) playerSays('Hal Pott', 'Cora, I need to order a crate of janitorial supplies, please.');
+  if (VARIANT === 'lost' && second >= CRATE_LOST_AT && held[0]?.heldSince && !held[0].lost) { const gone = held[0]; gone.lost = 'it has been destroyed'; rooms['Cargo Bay'].boxes = rooms['Cargo Bay'].boxes.filter((box) => box !== gone.box); crateLostAt = clock; }
+  if (VARIANT === 'lost' && crateLostAt && clock - crateLostAt === 90_000) playerSays('Hal Pott', 'Cora, I am here to collect crate 4521, please.');
   if (VARIANT === 'orders' && second === HOP_ORDERS_AT) playerSays('Hal Pott', 'Cora, go and look at the Custodial Closet and report back to me.');
   if (VARIANT === 'orders' && second === CAPTAIN_ORDERS_AT) playerSays('Ada Stone', 'Cora, go and look at the Bar and report back to me.');
   // A head orders a crate at the counter and then leaves it sitting there. Much later it asks for it: first by a number that is no crate's, then by the right one.
@@ -799,7 +922,7 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed') check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost') check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
 check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
 const bayTries = janitors.map((body) => body.bayFails);
@@ -823,7 +946,55 @@ if (VARIANT === 'orders') {
   const report = cora.said.find((line) => /about the Bar/i.test(line));
   check('it comes back and reports what it found to the Captain', !!report && cora.log.slice(went).some((line) => line.includes('go_to {"place":"Cargo Bay"}')), report ?? 'no report');
   check('it does not take the same order from a head of another department', !cora.log.some((line) => line.includes('go_to {"place":"Custodial Closet"}')));
-  check('nobody asks the Captain or a head their business', !crew.some((body) => body.said.some((line) => /why are you in here|out you go/i.test(line))));
+  check('nobody asks the Captain or a head their business', !crew.some((body) => body.said.some((line) => /Ada|Hal/.test(line) && /why are you in here|out you go/i.test(line))));
+}
+// A crate left by a door is hauled clear of it, once, and the technician goes back to its post.
+if (VARIANT === 'bydoor') {
+  const cora = crew[0];
+  check('a crate left right by a door is hauled to a clear spot, once', stowed.length === 1 && stowed[0].startsWith('supply crate') && cora.log.filter((line) => / stow_crate/.test(line)).length === 1, stowed.join(', ') || 'it was left where it lay');
+  check('it is not sent back on the shuttle or emptied: it is only moved', rooms['Cargo Lobby'].boxes.some((box) => box.name === 'supply crate' && box.contents.length === 1 && !box.byDoor));
+}
+// Asked to step aside, a janitor moves there and then, and does not go straight back to the spot.
+if (VARIANT === 'aside') {
+  const jan = crew[1];
+  const moved = steppedAside.find((step) => step.who === jan.name);
+  const stamped = (at: number) => new Date(at).toISOString().slice(11, 19);
+  check('the janitor is asked while it is in the middle of scrubbing the bay', captainSpokeAt > 0);
+  check('asked to step aside, it does, within a few seconds, dropping what it was at', !!moved && moved.at - captainSpokeAt <= 6000, moved ? `${(moved.at - captainSpokeAt) / 1000}s after being asked` : 'it never moved');
+  const backAt = jan.log.find((line) => moved && line.slice(0, 8) > stamped(moved.at) && / clean/.test(line))?.slice(0, 8);
+  check('it stays out of the way a little while before it takes up its work again', !!moved && !!backAt && backAt >= stamped(moved.at + 12000), backAt ? `back at it at ${backAt}, having moved at ${moved ? stamped(moved.at) : '?'}` : 'it never went back to its work');
+  check('it steps aside once for one asking', steppedAside.filter((step) => step.who === jan.name).length === 1, `${steppedAside.length} time(s)`);
+  check('and the bay is still cleaned in the end', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
+}
+// A crate that was being held is destroyed: one technician writes it off aloud, whoever ordered it is told, and nobody is chased about it or handed anything.
+if (VARIANT === 'lost') {
+  const techLog = crew.flatMap((body) => body.log);
+  const said = crew.flatMap((body) => body.said);
+  check('the crate is held in the bay, and is then lost', crateLostAt > 0);
+  check('one of the technicians writes it off, saying so aloud with the number and why', writtenOff.length === 1 && said.filter((line) => /^Crate 4521 for Hal Pott is lost: it has been destroyed/.test(line)).length === 1, writtenOff.join(', ') || 'nobody wrote it off');
+  const word = techLog.filter((line) => / message /.test(line) && /Lost at cargo: crate #4521/.test(line) && line.includes('"person":"Hal Pott"'));
+  check('whoever ordered it is told by PDA, once, that it is lost and why', word.length === 1 && /destroyed/.test(word[0]), `${word.length} message(s)`);
+  check('nobody goes on reminding them that it is waiting', !techLog.some((line) => /Still waiting at cargo/.test(line)) && claims.length === 0, `${claims.length} look(s)`);
+  check('asked for at the counter afterwards, cargo says it has no such crate and brings nothing out', released.length === 0 && said.some((line) => /not holding a crate by that number/i.test(line)), said.filter((line) => /4521|not holding/i.test(line)).join(' | ') || 'nothing said');
+}
+// The Captain's word about someone in a locked room is carried out, not argued with.
+if (VARIANT === 'evict' || VARIANT === 'leave') {
+  const cora = crew[0];
+  const jan = crew[1];
+  const since = (line: string) => line.slice(0, 8) >= new Date(captainSpokeAt).toISOString().slice(11, 19);
+  const cleanedAfter = jan.log.filter((line) => since(line) && /Cargo Bay +clean/.test(line)).length;
+  const backIn = jan.log.filter((line) => since(line) && (line.includes('go_to {"place":"Cargo Bay"}') || line.includes('go_to_door {"place":"Cargo Bay"}'))).length;
+  check('the Captain gets to give the order: the janitor was let into the bay and started on the mess', captainSpokeAt > 0, captainSpokeAt ? '' : 'the janitor never got into the bay');
+  if (VARIANT === 'evict') {
+    check('ordered by the Captain to put the janitor out, the technician says it will', cora.said.some((line) => /^Yes, Captain\b.*putting Jan out/i.test(line)), cora.said.filter((line) => /captain/i.test(line)).join(' | ') || 'nothing said to the Captain');
+    check('it tells the janitor so, and walks them out by the arm, though it sent for them itself', cora.said.some((line) => /Jan\b.*the Captain wants you out of here/i.test(line)) && putOut.filter((name) => name === jan.name).length === 1, `walked out: ${putOut.join(', ') || 'nobody'}`);
+  } else {
+    check('told by the Captain to leave, the janitor says it is going', jan.said.some((line) => /^Yes, Captain\b/i.test(line)), jan.said.join(' | ') || 'nothing said');
+    check('it goes: it asks to be let out to where it came in from, and is', jan.said.some((line) => /let me out to the Cargo Lobby/i.test(line)) && (opened.includes(`out:${jan.name}`) || putOut.includes(jan.name)), `${opened.join(', ')}${putOut.length ? `; walked out: ${putOut.join(', ')}` : ''}`);
+  }
+  check('the janitor does no more cleaning in there once the order is given', cleanedAfter === 0, `${cleanedAfter} time(s)`);
+  check('and does not go straight back in', backIn === 0 && jan.room !== 'Cargo Bay', `${backIn} tr${backIn === 1 ? 'y' : 'ies'}; ends in ${jan.room}`);
+  check('nobody lays a hand on the Captain, or asks them their business', !putOut.includes('Ada Stone') && !crew.some((body) => body.said.some((line) => /Ada\b.*why are you in here/i.test(line))));
 }
 if (VARIANT === 'vouch') {
   const techs = crew.filter((body) => body.job === 'Cargo Technician');
@@ -864,8 +1035,23 @@ if (tech) {
     check('the mess in there is cleaned', rooms['Delivery Office'].messes.length === 0, `left: ${rooms['Delivery Office'].messes.length}`);
     check('and the janitor is let out again, not left shut in', lets.some((entry) => entry.startsWith('out:')) && jan.room !== 'Delivery Office', `${lets.join(', ')}; ends in ${jan.room}`);
   }
+  if (VARIANT === 'nested') {
+    const jan = crew.find((body) => body.job === 'Janitor')!;
+    const lets = opened.filter((entry) => entry.includes(jan.name));
+    check('finding a mess in the delivery office, the technician sends for a janitor', tech.log.some((line) => / message /.test(line) && /mess in the Delivery Office/.test(line)));
+    check('the janitor, told the office is inside the bay, asks at the bay door first', jan.log.some((line) => line.includes('go_to_door {"place":"Cargo Bay"}')) && knocks.includes(`${jan.name}@Cargo Bay`), knocks.join(', ') || 'no knock');
+    check('it is let through the bay, which has no mess of its own, and then into the delivery office', lets.indexOf(`in:${jan.name}`) >= 0 && lets.indexOf(`in:${jan.name}@Delivery Office`) > lets.indexOf(`in:${jan.name}`), lets.join(', ') || 'the doors were never opened');
+    check('the mess in there is cleaned', rooms['Delivery Office'].messes.length === 0, `left: ${rooms['Delivery Office'].messes.length}`);
+    const outOffice = lets.indexOf(`out:${jan.name}@Delivery Office`);
+    const outBay = lets.lastIndexOf(`out:${jan.name}`);
+    check('it is let out the way it came: out of the delivery office, then out of the bay', outOffice >= 0 && outBay > outOffice, lets.join(', '));
+    check('and ends up out of cargo, not left behind either door', !LOCKED.includes(jan.room) && jan.trail.length === 0 && !jan.wantsOut, `ends in ${jan.room}`);
+    const asked = [...jan.said, ...jan.log.filter((line) => / message /.test(line))].filter((line) => /let me out/i.test(line));
+    check('each time it asks to be let out it says where it is trying to get to', asked.length >= 1 && asked.every((line) => /out to the Cargo Lobby/.test(line)), asked.map((line) => line.match(/"text":"([^"]*)"/)?.[1] ?? line).join(' | ') || 'it never asked');
+    check('it does not nag: each door is knocked at or asked for a few times at most', knocks.filter((entry) => entry.startsWith(jan.name)).length <= 6 && asked.length <= 6, `${knocks.length} knock(s), ${asked.length} ask(s)`);
+  }
   const orders = techLog.filter((line) => /^\S+ .{24} order( |$)/.test(line)).length;
-  const ordered = janitors.length > 2 || VARIANT === 'waiting' || VARIANT === 'mixed';
+  const ordered = janitors.length > 2 || VARIANT === 'waiting' || VARIANT === 'mixed' || VARIANT === 'lost';
   check(ordered ? 'exactly one order was placed, by one technician' : 'no order was needed', ordered ? orders === 1 : orders === 0, `orders: ${orders}`);
   check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay'), techs.map((body) => `${body.name} in ${body.room}`).join('; '));
   check('nobody is still owed a PDA message about their crates', techs.every((body) => body.notices.length === 0), techs.map((body) => `${body.name}: ${body.notices.length}`).join('; '));

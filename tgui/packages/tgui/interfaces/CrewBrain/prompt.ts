@@ -125,6 +125,9 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   hand_mail: 'hand_mail',
   recycle: 'recycle',
   send_shuttle: 'send_shuttle',
+  // Hauling a crate clear of a door it was left by, and getting out of someone's way when asked.
+  stow_crate: 'stow_crate',
+  step_aside: 'step_aside',
   // Stopping to talk, and opening a door for someone: also only ever asked for by code.
   hold: 'hold',
   open_door: 'open_door',

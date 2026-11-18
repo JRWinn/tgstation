@@ -109,6 +109,15 @@ export function noteLetOut(post: string, name: string): void {
   );
 }
 
+/**
+ * Strikes someone off the department's list altogether: every call that had them expected, and
+ * any note of their being inside. Someone ordered out by a superior is not let back in on the
+ * strength of the call that brought them.
+ */
+export function forgetExpected(post: string, name: string): void {
+  list = list.filter((it) => !(it.post === post && it.name === name));
+}
+
 /** The people this department has let into this room who are still in there, as far as it knows. */
 export function stillInside(post: string, room: string, now: number): Expected[] {
   return current(now).filter(

@@ -79,6 +79,14 @@ export type Stranger = {
   /** The workmate who is seeing to them, and when that was last heard. */
   handledBy?: string;
   handledAt?: number;
+  /** TRUE if they may stay because the department sent for them, which lasts only as long as what they were sent for. */
+  sent?: boolean;
+  /** When what they were sent for was first seen to be done with, if it is: their welcome is over from then. */
+  overAt?: number;
+  /** TRUE if they are being seen out because their welcome is over, not turned out for having no business there. */
+  seenOut?: boolean;
+  /** Whoever the NPC answers to who ordered them put out, if anyone did. That settles it, sent for or not. */
+  orderedBy?: string;
 };
 
 /** A kind of thing the body can see right now, grouped by name. */
@@ -175,6 +183,12 @@ export type Npc = {
   door_held_out: BooleanLike;
   /** Name of whoever let it into the room it is in, through a door it cannot open, or null. */
   let_in_by: string | null;
+  /** TRUE from when the body finds it cannot get out by itself until it is back where it was last out. */
+  wants_out?: BooleanLike;
+  /** The room it was last out in, which it is trying to get back to, or null if it came in by no way it remembers. */
+  way_out_to?: string | null;
+  /** Those on its PDA whose own ID opens the door it came in by. Empty unless it is shut in. */
+  door_keepers?: string[];
   /** The room whose door it is standing at, wanting through, or null. */
   at_door_of: string | null;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
@@ -220,6 +234,8 @@ export type Npc = {
     mail_crate: BooleanLike;
     mail_for: string[];
     empty_crates: number;
+    /** Crates left within a tile of a door, where they are in the way. */
+    misplaced?: number;
   } | null;
   /** Messes it remembers in the rooms that are its to keep fit to work in: room name -> what they are. */
   work_area_messes: Record<string, string[]> | null;
@@ -237,6 +253,8 @@ export type Npc = {
   look_in_rooms?: string[] | null;
   /** Those of its rooms, its post among them, that every door into is locked to the crew at large. */
   closed_rooms?: string[] | null;
+  /** Those of its rooms that lie inside another of them, each with the room it is got into through. */
+  rooms_through?: Record<string, string> | null;
   /** TRUE if someone else at its post has lately sent for a janitor. */
   workmate_called?: BooleanLike;
   /** TRUE while someone has it by the arm and is walking it out of a room. */
@@ -254,14 +272,16 @@ export type Npc = {
 export type Notice = {
   /** Who it goes to: whoever ordered them. */
   to: string;
-  /** The order has come in, or crates of it are still waiting to be collected. */
-  kind: 'arrived' | 'waiting';
+  /** The order has come in, crates of it are still waiting to be collected, or a crate of it has been lost. */
+  kind: 'arrived' | 'waiting' | 'lost';
   /** The manifest numbers of the crates it is about. */
   numbers: number[];
   /** For an order that has come in: what was ordered, if it was all one kind of crate. */
   what?: string | null;
   /** For an order that has come in: what kind each crate is, in the same order as the numbers. */
   kinds?: string[] | null;
+  /** For a crate that has been lost: why it can no longer be handed over, in words. */
+  why?: string | null;
 };
 
 /** One crate cargo is holding for collection. */
@@ -371,6 +391,12 @@ export type Task = {
   unpacked?: boolean;
   /** For a crate to collect: TRUE once whoever sent it has been told the crate is unpacked. */
   toldUnpacked?: boolean;
+  /** For a door to be opened for someone: TRUE if it is to let them out of the room, not into it. */
+  out?: boolean;
+  /** For a mess it was called to: TRUE once whoever called has been told that what it holds will not shift it. */
+  toldBeyond?: boolean;
+  /** For a look round: TRUE once it has said aloud, to whoever shares its post, where it is off to. */
+  announced?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -387,6 +413,8 @@ export type Freight = {
   mailFor: string[];
   /** Crates in cargo's rooms with nothing left in them. */
   emptyCrates: number;
+  /** Crates in cargo's rooms left within a tile of a door, where they are in the way. */
+  misplaced: number;
 };
 
 /** What doing a task comes down to right now. */
@@ -527,6 +555,12 @@ export type NpcBrain = {
   cameFrom: string | null;
   /** Name of whoever let it into the room it is in, through a door it cannot open, or null. */
   letInBy: string | null;
+  /** TRUE from when it finds it cannot get out by itself until it is back where it was last out. */
+  wantsOut: boolean;
+  /** The room it was last out in, which it is trying to get back to, or null. */
+  wayOutTo: string | null;
+  /** Those on its PDA whose own ID opens the door it came in by. Empty unless it is shut in. */
+  doorKeepers: string[];
   /** The room whose door it is standing at, wanting through, or null. */
   atDoorOf: string | null;
   /**
@@ -537,6 +571,13 @@ export type NpcBrain = {
   doorReached: { place: string; from: string; at: number } | null;
   /** The rooms of its department, beyond its post, that it looks in on when it has nothing to do. */
   lookInRooms: string[];
+  /** Those of its own rooms that lie inside another of them, each with the room it is got into through. */
+  roomsThrough: Record<string, string>;
+  /**
+   * Rooms it has found it cannot even get to the door of, each with the room that door opens from,
+   * which is locked to it as well. It asks to be let into that one first.
+   */
+  reachedThrough: Record<string, string>;
   /** Those of its rooms that are behind doors the crew at large cannot open. */
   closedRooms: string[];
   /** When someone last came into its view, in this window's clock (milliseconds). */
@@ -558,6 +599,25 @@ export type NpcBrain = {
     /** TRUE once they have been told no. */
     refused?: boolean;
   } | null;
+  /**
+   * Someone it answers to has told it to leave the room it was in: who, which room, when (this
+   * window's clock), and whether it has said it is going. It goes, whatever it was doing there.
+   */
+  toldToLeave: {
+    by: string;
+    room: string;
+    at: number;
+    said: boolean;
+    /** TRUE once it has dropped what it was in the middle of to go. It does that once. */
+    dropped?: boolean;
+  } | null;
+  /** Rooms it has been told to leave, and until when (this window's clock) it keeps out of each and does no work there. */
+  keptOut: Record<string, number>;
+  /**
+   * Someone has asked it to step aside: who, the handle the server knows them by, when (this
+   * window's clock), and whether it has. It gets out of their way before anything else.
+   */
+  asideAsked: { by: string; handle: string; at: number; done: boolean } | null;
   /** The door of one of its rooms that someone has knocked at, and when (server time). A knock does not say who. */
   knockAt: { room: string; at: number; inside: boolean } | null;
   /** The handle the server knows each person it has seen by, by name: a door hides someone it must still point at. */
@@ -584,8 +644,17 @@ export type NpcBrain = {
   /**
    * What it has done about being shut in the room it is in: who it has asked, and whether it has
    * knocked and sent word. It asks each person once, and again only when someone new turns up.
+   * If nobody comes, it sends word further afield, once each: to someone else whose ID opens the
+   * door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
    */
-  outAsks: { room: string; asked: string[]; knocked: boolean; messaged: boolean } | null;
+  outAsks: {
+    room: string;
+    asked: string[];
+    knocked: boolean;
+    messaged: boolean;
+    wrote: string[];
+    wroteAt: number;
+  } | null;
   /** Fire doors that stopped it: the room whose alarm shut them, whether that alarm was only pulled, and when (this window's clock). */
   fireDoors: { place: string; pulled: boolean; at: number } | null;
   /** When it last reset the fire alarm of each room (this window's clock). */
@@ -829,7 +898,15 @@ export type NpcBrain = {
   /** The janitor it last called to each room, when (server time), and how many times it has called. */
   janitorCalls: Record<
     string,
-    { to: string; at: number; count: number; letIn?: boolean }
+    {
+      to: string;
+      at: number;
+      count: number;
+      letIn?: boolean;
+      /** The janitors who have sent word that they cannot shift it, and when the last of them did (server time). */
+      declined?: string[];
+      declinedAt?: number;
+    }
   >;
   /** TRUE once this NPC has gone to the Cargo Lobby and asked for supplies, until they come. */
   askedCargo: boolean;

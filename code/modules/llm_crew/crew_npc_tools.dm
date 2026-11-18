@@ -10,7 +10,7 @@
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
 	if(!tool_call_allowed())
 		return
-	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK)))
+	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK, CREW_TOOL_STOW, CREW_TOOL_STEP_ASIDE)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
 		return
 	if(!can_sense())
@@ -63,6 +63,10 @@
 			tool_hand_mail(arguments["person"])
 		if(CREW_TOOL_RECYCLE)
 			tool_recycle()
+		if(CREW_TOOL_STOW)
+			tool_stow()
+		if(CREW_TOOL_STEP_ASIDE)
+			tool_step_aside(arguments["person"])
 		if(CREW_TOOL_SEND)
 			tool_send_shuttle()
 		if(CREW_TOOL_HOLD)
@@ -320,6 +324,7 @@
 	walk_tool = tool
 	walk_goal = goal
 	walk_timeout = timeout
+	last_route_steps = null
 	resting = FALSE
 	// Being sent somewhere ends any search or errand the body was on.
 	cancel_search()
@@ -335,6 +340,8 @@
 	var/tool = walk_tool
 	var/goal = walk_goal
 	var/why = reason || "you were interrupted"
+	if(!succeeded)
+		log_walk_failed(target, tool, goal, why)
 
 	if(tool == CREW_TOOL_RELEASE)
 		crate_released(succeeded, reason)
@@ -342,8 +349,12 @@
 	if(tool == CREW_TOOL_COLLECT)
 		crate_collected(succeeded, reason)
 		return
-	if(tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE)
+	if(tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_STOW)
 		freight_hauled(tool, succeeded, reason)
+		return
+	// Getting out of someone's way is over when the body is standing clear, wherever that is.
+	if(tool == CREW_TOOL_STEP_ASIDE)
+		action_result(tool, succeeded, succeeded ? "You step aside, out of the way." : "You could not get out of the way: [why].")
 		return
 	if(tool == CREW_TOOL_TAKE_BACK)
 		crate_taken_back(succeeded, reason)
@@ -356,6 +367,10 @@
 		var/at_it = succeeded || !isnull(at_door_of())
 		var/list/door_details = list("place" = get_area_name(pawn, TRUE))
 		var/fire_doors = at_it ? "" : fire_door_report(door_details)
+		// The door of another room that it cannot even get to, from inside rooms it was let into:
+		// the door it came in by is what stands between it and there.
+		if(!at_it && !wanted_door_leaving && reason == "there is no way through" && !length(fire_doors) && length(trail))
+			shut_in = TRUE
 		action_result(tool, at_it, at_it ? "You are at [goal]." : "You could not get to [goal]: [why].[fire_doors]", door_details)
 		return
 	// The body went back to its spot of its own accord. There is nothing to tell the brain.
@@ -401,7 +416,22 @@
 		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
 		var/list/stop_details = list("place" = arrived_in)
 		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
-		// Each way to a room it knows that comes to nothing adds up to being shut in.
-		if(reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)))
+		// Each way to a room it knows that comes to nothing adds up to being shut in. A room that is
+		// locked to it does not count: failing to get into one says nothing about getting out of here.
+		var/area/goal_room = isturf(target) ? get_area(target) : null
+		if(reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room)))
 			note_way_out_failed()
 		action_result(tool, FALSE, "You stop on the way to [goal]: [why].[fire_doors] You are in [arrived_in].", stop_details)
+
+/**
+ * Writes a walk that came to nothing to the round's game log: where the body stopped, where it
+ * was heading, and whether a route was ever planned. "No way through" with a route planned means
+ * the planner took something for open that the body could not walk through.
+ */
+/datum/ai_controller/crew_npc/proc/log_walk_failed(atom/target, tool, goal, why)
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body))
+		return
+	var/route = isnull(last_route_steps) ? "no route had been planned yet" : (last_route_steps ? "the last route planned was [last_route_steps] steps" : "no route could be found")
+	var/heading = QDELETED(target) ? "something that is gone" : "[target] at [AREACOORD(target)]"
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) walk failed ([tool], to [goal]): [why]. Stopped at [AREACOORD(body)], heading for [heading]; [route].")

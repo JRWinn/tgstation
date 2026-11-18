@@ -68,12 +68,33 @@
 			return TRUE
 	return FALSE
 
+/// The crates crew NPCs have set off for, by REF: who (a weak reference to the controller), and when.
+GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
+
+/// Marks a crate as the one this body is going for. Its workmates leave it alone meanwhile: two who take hold of one crate pull it out of each other's hands.
+/datum/ai_controller/crew_npc/proc/claim_crate(obj/structure/closet/crate/crate)
+	GLOB.crew_npc_crate_claims[REF(crate)] = list(WEAKREF(src), world.time)
+
+/// TRUE if someone else has this crate in hand: they are hauling it, or a workmate set off for it a moment ago.
+/datum/ai_controller/crew_npc/proc/crate_taken(obj/structure/closet/crate/crate)
+	if(crate.pulledby && crate.pulledby != pawn)
+		return TRUE
+	var/list/claim = GLOB.crew_npc_crate_claims[REF(crate)]
+	if(isnull(claim))
+		return FALSE
+	var/datum/weakref/claimant_ref = claim[1]
+	var/datum/ai_controller/crew_npc/claimant = claimant_ref.resolve()
+	if(QDELETED(claimant) || claimant == src || world.time - claim[2] > CREW_NPC_CRATE_CLAIM)
+		GLOB.crew_npc_crate_claims -= REF(crate)
+		return FALSE
+	return TRUE
+
 /// Returns the nearest crate aboard the docked shuttle that still has something in it. One that came on an order is hauled off like any other, and held in the bay.
 /datum/ai_controller/crew_npc/proc/crate_to_unload()
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		if(crate.anchored || crew_npc_crate_spent(crate))
+		if(crate.anchored || crew_npc_crate_spent(crate) || crate_taken(crate))
 			continue
 		var/distance = get_dist(pawn, crate)
 		if(distance < nearest_distance)
@@ -81,13 +102,29 @@
 			nearest = crate
 	return nearest
 
-/// Returns the crates in cargo's rooms, off the shuttle, that are not fixed in place.
+/// Returns the crates in cargo's rooms, off the shuttle, that are not fixed in place and that nobody else has in hand.
 /datum/ai_controller/crew_npc/proc/crates_in_hand()
 	var/list/crates = list()
 	for(var/area/room as anything in freight_rooms())
 		for(var/obj/structure/closet/crate/crate in room)
-			if(!crate.anchored && isturf(crate.loc))
+			if(!crate.anchored && isturf(crate.loc) && !crate_taken(crate))
 				crates += crate
+	return crates
+
+/**
+ * Returns the crates in cargo's rooms that have been left where they are in the way: within a tile
+ * of a door. A crate is never left there. One that was dropped on the way somewhere, or put down
+ * there by anyone, is hauled clear. One that someone is taking away is theirs to see to.
+ */
+/datum/ai_controller/crew_npc/proc/misplaced_crates()
+	var/list/crates = list()
+	for(var/obj/structure/closet/crate/crate as anything in crates_in_hand())
+		if(crew_npc_clear_of_doors(crate))
+			continue
+		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(crate)
+		if(entry?.collected_by)
+			continue
+		crates += crate
 	return crates
 
 /// Returns the nearest mail crate in cargo's rooms that still has addressed mail in it, or null.
@@ -132,7 +169,8 @@
 			continue
 		if(crew_npc_crate_spent(crate))
 			empties_aboard++
-		else
+		// One a workmate is already hauling off is not this body's to unload.
+		else if(!crate_taken(crate))
 			to_unload++
 	var/list/mail_for = list()
 	for(var/obj/item/mail/letter as anything in mail_carried())
@@ -146,6 +184,8 @@
 		"mail_crate" = !isnull(mail_crate()),
 		"mail_for" = mail_for,
 		"empty_crates" = length(spent_crates()),
+		// Crates left within a tile of a door, where they are in the way.
+		"misplaced" = length(misplaced_crates()),
 	)
 	freight_cached_at = world.time
 	return freight_cache
@@ -159,9 +199,11 @@
  * of doors, conveyors and the body's own post. A crate left there is in nobody's way, and two left
  * that way never end up side by side.
  */
-/datum/ai_controller/crew_npc/proc/storage_spot()
-	var/area/bay = get_area(post_turf)
-	var/turf/here = get_turf(pawn)
+/datum/ai_controller/crew_npc/proc/storage_spot(area/bay, turf/here)
+	// The bay, and near the body, unless told otherwise: a crate being moved out of a doorway goes
+	// to the nearest such spot to where it lies, in whichever of cargo's rooms that is.
+	bay ||= get_area(post_turf)
+	here ||= get_turf(pawn)
 	var/turf/best
 	var/turf/fallback
 	var/best_distance = INFINITY
@@ -225,7 +267,30 @@
 	if(isnull(crate))
 		action_result(CREW_TOOL_UNLOAD, FALSE, "There is nothing left aboard the supply shuttle to unload.")
 		return
+	claim_crate(crate)
 	start_errand(crate, CREW_TOOL_UNLOAD, format_text(crate.name))
+
+/**
+ * Tool: haul a crate that has been left within a tile of a door to the nearest spot where it is
+ * in nobody's way. Cargo staff only. It does not matter how the crate came to be there: dropped
+ * by this body on the way somewhere, or by a workmate, or put down by anyone at all.
+ */
+/datum/ai_controller/crew_npc/proc/tool_stow()
+	if(!works_in_cargo() || isnull(post_turf))
+		action_result(CREW_TOOL_STOW, FALSE, "Keeping crates out of the doorways is cargo's job.")
+		return
+	var/obj/structure/closet/crate/crate
+	var/nearest_distance = INFINITY
+	for(var/obj/structure/closet/crate/candidate as anything in misplaced_crates())
+		var/distance = get_dist(pawn, candidate)
+		if(distance < nearest_distance)
+			nearest_distance = distance
+			crate = candidate
+	if(isnull(crate))
+		action_result(CREW_TOOL_STOW, FALSE, "There is no crate lying by a door.")
+		return
+	claim_crate(crate)
+	start_errand(crate, CREW_TOOL_STOW, format_text(crate.name))
 
 /// Tool: haul a crate with nothing left in it aboard the supply shuttle, to be sent back. Cargo staff only.
 /datum/ai_controller/crew_npc/proc/tool_recycle()
@@ -246,6 +311,7 @@
 		if(distance < nearest_distance)
 			nearest_distance = distance
 			crate = candidate
+	claim_crate(crate)
 	start_errand(crate, CREW_TOOL_RECYCLE, format_text(crate.name))
 
 /// Takes hold of the crate the body is standing by and sets off with it: into the bay, or aboard the shuttle.
@@ -253,9 +319,20 @@
 	var/mob/living/carbon/human/body = pawn
 	var/tool = errand_tool
 	var/crate_name = format_text(crate.name)
-	var/turf/destination = tool == CREW_TOOL_UNLOAD ? storage_spot() : shuttle_spot()
+	// A workmate got to it first. Taking hold of it now would pull it out of their hands.
+	if(crate.pulledby && crate.pulledby != body)
+		return list(FALSE, "[crate.pulledby.name] already has hold of the [crate_name].")
+	var/turf/destination
+	switch(tool)
+		if(CREW_TOOL_UNLOAD)
+			destination = storage_spot()
+		if(CREW_TOOL_STOW)
+			// The nearest clear spot to where it lies, in the room it is in.
+			destination = storage_spot(get_area(crate), get_turf(crate))
+		else
+			destination = shuttle_spot()
 	if(isnull(destination))
-		return list(FALSE, tool == CREW_TOOL_UNLOAD ? "There is no room in the bay to put the [crate_name]." : "There is no room aboard the supply shuttle for the [crate_name].")
+		return list(FALSE, tool == CREW_TOOL_RECYCLE ? "There is no room aboard the supply shuttle for the [crate_name]." : "There is no room to put the [crate_name].")
 	// A crate goes back shut, with whatever worthless thing spilled out of it back inside.
 	if(tool == CREW_TOOL_RECYCLE && crate.opened)
 		crate.close(body)
@@ -277,11 +354,18 @@
 	var/place = get_area_name(body, TRUE)
 	if(!succeeded || isnull(hauled))
 		var/list/details = list("place" = place)
-		var/blocker = in_the_way_report(hauled_ref?.resolve(), details)
+		var/obj/structure/closet/crate/dropped = hauled_ref?.resolve()
+		// Someone taking it out of the body's hands is not someone standing in its way.
+		if(!QDELETED(dropped) && dropped.pulledby && dropped.pulledby != body)
+			action_result(tool, FALSE, "[dropped.pulledby.name] has taken the [hauled_name] from you. You are in [place].", details)
+			return
+		var/blocker = in_the_way_report(dropped, details)
 		action_result(tool, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
 		return
 	if(tool == CREW_TOOL_UNLOAD)
 		action_result(tool, TRUE, "You haul the [hauled_name] off the supply shuttle and leave it in [place].", list("place" = place))
+	else if(tool == CREW_TOOL_STOW)
+		action_result(tool, TRUE, "You haul the [hauled_name] clear of the door and leave it in [place], where it is in nobody's way.", list("place" = place))
 	else
 		action_result(tool, TRUE, "You put the empty [hauled_name] aboard the supply shuttle to go back.", list("place" = place))
 

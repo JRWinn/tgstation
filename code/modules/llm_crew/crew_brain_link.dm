@@ -115,7 +115,12 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"door_held" = world.time < npc.door_held_until,
 			// It is being let out of the room it is in.
 			"door_held_out" = world.time < npc.let_out_until,
-			"let_in_by" = npc.let_in_by,
+			"let_in_by" = npc.who_let_in(),
+			// It has found it cannot get out by itself, and means to until it is back where it was last out: that room, by name.
+			"wants_out" = npc.wants_out,
+			"way_out_to" = npc.way_out_to(),
+			// Those on its PDA whose own ID opens the door it came in by, for when nobody comes to it.
+			"door_keepers" = npc.door_keepers(),
 			// The room whose door it is standing at, wanting through, or null.
 			"at_door_of" = npc.at_door_of(),
 			"grenade_messes" = npc.grenade_messes,
@@ -144,6 +149,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// The other rooms of its department, to look in on when it is quiet, and which of its rooms are locked to the crew.
 			"look_in_rooms" = npc.look_in_rooms,
 			"closed_rooms" = npc.closed_rooms,
+			// Those of its rooms that lie inside another of them: each with the room it is got into through.
+			"rooms_through" = npc.reached_through,
 			"pda_janitors" = npc.janitors_on_pda(),
 			// Someone else at its post has lately sent for a janitor.
 			"workmate_called" = npc.workmate_called_janitor(),

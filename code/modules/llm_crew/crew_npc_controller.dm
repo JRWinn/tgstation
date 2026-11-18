@@ -113,11 +113,23 @@
 	var/door_held_until = 0
 	/// world.time until which a door is being held open for the body to leave the room it is in.
 	var/let_out_until = 0
-	/// The room the body was let into through a door it cannot open itself, and the name of whoever let it in.
+	/// The room a door is being held open for the body to go into, and the name of whoever is holding it. Kept while it is in that room.
 	var/let_into_place
 	var/let_in_by
-	/// The door the body was let in by, as a weak reference. It is the one it goes back to when it wants out.
+	/// That door, as a weak reference.
 	var/datum/weakref/let_in_door
+	/**
+	 * The way the body came, since it was last somewhere it could leave by itself: each room that is
+	 * locked to it, in the order it went into them. Each is a list with place (the room), from (the
+	 * room it came into it from), door (the door between the two, as a weak reference, if someone
+	 * opened one for it) and by (the name of whoever opened it). The first one's "from" is where it
+	 * was last out, and getting back there is what getting out means.
+	 */
+	var/list/trail = list()
+	/// TRUE from the moment the body finds it cannot get out by itself until it is back where its trail began.
+	var/wants_out = FALSE
+	/// How many steps the last route planned for the walk in progress runs to: 0 if no way was found, null if none has been planned.
+	var/last_route_steps
 	/// The door the body has gone to stand at because it wants through, as a weak reference.
 	var/datum/weakref/wanted_door
 	/// The room that door is the way into, or out of, and which of the two it is.
@@ -156,6 +168,8 @@
 	var/list/look_in_rooms = list()
 	/// Names of those of its rooms, its post among them, that every door into is locked to the crew at large.
 	var/list/closed_rooms = list()
+	/// Those of its rooms that can only be got into through another of them, as room name -> the room every door of it opens from. A locked room inside a locked room.
+	var/list/reached_through = list()
 	/// Messes the body has scrubbed at without success, keyed by REF, so it does not keep trying them.
 	var/list/stubborn_messes = list()
 	/// Names of the messes in view that the body could clean with what it holds.

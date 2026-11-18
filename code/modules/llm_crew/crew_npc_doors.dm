@@ -41,12 +41,122 @@
 /// Notes that the body tried to leave the room it is in and found no way out, and looks into whether it is shut in.
 /datum/ai_controller/crew_npc/proc/note_way_out_failed()
 	ways_out_failed++
-	// A body that was let into a room knows the door shut behind it. It needs no second try to be sure.
-	if(let_into_place && let_into_place == current_place)
+	// A body that came in through a door it cannot open knows that door is shut behind it. One walk
+	// that came to nothing is enough: it goes back the way it came, and means to until it is out.
+	if(length(trail))
 		shut_in = TRUE
+		wants_out = TRUE
 		return
 	if(ways_out_failed >= CREW_NPC_SHUT_IN_AFTER && !shut_in)
 		INVOKE_ASYNC(src, PROC_REF(check_shut_in))
+
+/**
+ * Keeps the trail true to a step from one room into another. Called once, as the body arrives.
+ *
+ * Nothing here takes a room to be locked for good: a wall may be blown open, a door left standing.
+ * The trail is only what the body remembers of how it came, to fall back on when it cannot walk out.
+ */
+/datum/ai_controller/crew_npc/proc/follow_trail(came_from, place)
+	// Back where the trail began: it is out.
+	if(length(trail) && trail[1]["from"] == place)
+		forget_trail()
+		return
+	// Back in a room it came through: the way out from here is the way it first came into it.
+	for(var/index in 1 to length(trail))
+		var/list/entry = trail[index]
+		if(entry["place"] == place)
+			trail.Cut(index + 1)
+			return
+	// Somewhere its own ID lets it out of, however it got there: it is out.
+	if(!out_of_bounds)
+		forget_trail()
+		return
+	// It has not walked in from anywhere: the round has only just begun, or it was put here.
+	if(isnull(came_from))
+		return
+	var/held_for_it = let_into_place == place
+	trail += list(list(
+		"place" = place,
+		"from" = came_from,
+		"door" = held_for_it ? let_in_door : null,
+		"by" = held_for_it ? let_in_by : null,
+	))
+
+/// Drops the trail: the body is out, and how it came no longer matters.
+/datum/ai_controller/crew_npc/proc/forget_trail()
+	trail = list()
+	wants_out = FALSE
+
+/// Returns what the trail says of the room the body is in, or null if it did not come into it by a way it remembers.
+/datum/ai_controller/crew_npc/proc/trail_entry()
+	for(var/list/entry as anything in trail)
+		if(entry["place"] == current_place)
+			return entry
+	return null
+
+/// Returns the name of the room the body is trying to get back out to: where it was last out. Null if it has no trail.
+/datum/ai_controller/crew_npc/proc/way_out_to()
+	if(!length(trail))
+		return null
+	var/list/first = trail[1]
+	return first["from"]
+
+/**
+ * Returns the door the body came into this room by, or null if it does not know of one. If
+ * nobody held one for it, it is the nearest door that leads back to the room it came from.
+ */
+/datum/ai_controller/crew_npc/proc/trail_door()
+	var/list/entry = trail_entry()
+	if(isnull(entry))
+		return null
+	var/datum/weakref/door_ref = entry["door"]
+	var/obj/machinery/door/airlock/held = door_ref?.resolve()
+	if(!QDELETED(held))
+		return held
+	var/mob/living/carbon/human/body = pawn
+	var/list/doors = crew_npc_doors_of(get_area(body), body.z)
+	var/obj/machinery/door/airlock/nearest
+	var/nearest_distance = INFINITY
+	for(var/obj/machinery/door/airlock/door as anything in doors)
+		var/list/sides = doors[door]
+		if(get_area_name(sides[2], TRUE) != entry["from"])
+			continue
+		var/distance = get_dist(body, door)
+		if(distance < nearest_distance)
+			nearest_distance = distance
+			nearest = door
+	return nearest
+
+/**
+ * Returns the names of those on the body's PDA whose own ID opens the door it came in by: who it
+ * can send word to when nobody comes to let it out. Empty unless it is shut in and knows the door.
+ */
+/datum/ai_controller/crew_npc/proc/door_keepers()
+	var/list/names = list()
+	if(!shut_in)
+		return names
+	var/obj/machinery/door/airlock/door = trail_door()
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(isnull(door) || isnull(own_messenger))
+		return names
+	for(var/messenger_ref in GLOB.pda_messengers)
+		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
+		if(candidate == own_messenger || isnull(candidate.computer) || !candidate.computer.saved_identification)
+			continue
+		var/turf/where = get_turf(candidate.computer)
+		if(isnull(where) || !is_station_level(where.z))
+			continue
+		var/obj/item/card/id/card = candidate.computer.stored_id
+		if(card && door.check_access(card))
+			names += candidate.computer.saved_identification
+	return names
+
+/// Returns the name of whoever let the body into the room it is in, or null if nobody did.
+/datum/ai_controller/crew_npc/proc/who_let_in()
+	var/list/entry = trail_entry()
+	if(entry && entry["by"])
+		return entry["by"]
+	return let_into_place == current_place ? let_in_by : null
 
 /**
  * Works out whether the body really cannot get out of the room it is in, by looking for a way to
@@ -70,6 +180,8 @@
 			spots[there] = get_dist(here, there)
 	var/way_out = FALSE
 	var/tries_left = CREW_NPC_SHUT_IN_ROUTES
+	// What the test found, for the round's log: where it found a way to, and how long a way.
+	var/found
 	while(length(spots) && tries_left > 0 && !way_out)
 		tries_left--
 		var/turf/nearest
@@ -82,7 +194,9 @@
 			return
 		if(length(route))
 			way_out = TRUE
+			found = "a way of [length(route)] steps to [AREACOORD(nearest)]"
 	checking_shut_in = FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) tested whether it is shut in [room] at [AREACOORD(here)]: found [found || "no way out"].")
 	// It may have got out, or been let out, while the routes were being tested.
 	if(current_place != room)
 		return
@@ -150,13 +264,15 @@
 		action_result(CREW_TOOL_TO_DOOR, TRUE, "You are already in [room_name].", list("place" = room_name))
 		return
 	var/list/doors = crew_npc_doors_of(room, body.z)
+	var/obj/machinery/door/airlock/came_in_by = leaving ? trail_door() : null
 	var/obj/machinery/door/airlock/best
 	var/turf/best_spot
 	var/best_score = INFINITY
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		var/list/sides = doors[door]
 		var/turf/spot = leaving ? sides[1] : sides[2]
-		if(!crew_npc_safe_turf(spot))
+		// Nobody waits at a door where the air is bad, on this side of it or the other.
+		if(!crew_npc_safe_turf(spot) || (leaving && !crew_npc_safe_turf(sides[2])))
 			continue
 		var/area/beyond = get_area(sides[2])
 		var/score = get_dist(body, spot)
@@ -166,8 +282,12 @@
 			score += 50
 		else if(!istype(beyond, /area/station/hallway) && !findtext(beyond.name, "lobby"))
 			score += 25
-		// The door it was let in by is the one it goes back to.
-		if(leaving && let_in_door?.resolve() == door)
+		// A door that opens from a room it cannot get into either is the last one to make for: it
+		// would have to be let into that room first. Any door it can walk up to comes before it.
+		if(!leaving && beyond != get_area(body) && locked_out_of(beyond))
+			score += 200
+		// The door it came in by is the one it goes back to: that is the way it knows leads out.
+		if(leaving && came_in_by == door)
 			score -= 100
 		if(score < best_score)
 			best_score = score
@@ -177,6 +297,15 @@
 	if(isnull(best))
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find [goal].")
 		return
+	// A locked room inside a locked room: the door it wants opens from a room it cannot get into
+	// either. It is told which, so that it goes and asks at that one first.
+	if(!leaving)
+		var/list/best_sides = doors[best]
+		var/area/outer = get_area(best_sides[2])
+		if(outer != get_area(body) && locked_out_of(outer))
+			var/outer_name = format_text(outer.name)
+			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
+			return
 	wanted_door = WEAKREF(best)
 	wanted_door_place = room_name
 	wanted_door_leaving = leaving
@@ -273,7 +402,19 @@
 	if(!recently_saw(person) && !inside && !at_the_door)
 		action_result(CREW_TOOL_DOOR, FALSE, "You cannot see that person, and they are not at the door of [room_name].")
 		return
-	if(!inside && !(findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor") && remembers_mess_in(room_name)))
+	// A mess in this room, or in a room of the department that can only be got into through it.
+	var/mess_beyond = remembers_mess_in(room_name)
+	for(var/inner in reached_through)
+		if(mess_beyond)
+			break
+		var/through = inner
+		// Followed outwards, room by room, until it comes to this one or runs out.
+		for(var/step in 1 to length(reached_through))
+			through = reached_through[through]
+			if(isnull(through) || through == room_name)
+				break
+		mess_beyond = through == room_name && remembers_mess_in(inner)
+	if(!inside && !(findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor") && mess_beyond))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].")
 		return
 	if(isnull(door))
@@ -528,10 +669,49 @@
 		var/distance = get_dist(person, pawn)
 		if(!in_doorway && !beside_load && distance > 1)
 			continue
+		// It is the load that caught, not the body, which steps past people. Whoever is nearest
+		// the load is the one it caught on: nearer the body is only whoever happened to be beside it.
+		if(!QDELETED(load))
+			distance = get_dist(person, load)
 		if(distance < nearest_distance)
 			nearest_distance = distance
 			nearest = person
 	return nearest
+
+/**
+ * Tool: get out of the way of someone who has asked the body to move. It steps to the nearest
+ * spot in the room that is clear of doors, as far as it can easily get from whoever asked and
+ * from what they are hauling. Walking off across the station would be no answer to "excuse me".
+ */
+/datum/ai_controller/crew_npc/proc/tool_step_aside(handle)
+	var/mob/living/carbon/human/body = pawn
+	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
+	var/mob/living/carbon/human/asker = person_ref?.resolve()
+	var/atom/movable/load = asker?.pulling
+	var/turf/here = get_turf(body)
+	var/turf/best
+	var/best_score = -INFINITY
+	for(var/turf/candidate as anything in RANGE_TURFS(CREW_NPC_ASIDE_REACH, here))
+		if(candidate == here || get_area(candidate) != get_area(here))
+			continue
+		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
+			continue
+		// Out of the doorway it may be standing in, and not into another.
+		if(!crew_npc_clear_of_doors(candidate))
+			continue
+		// The further from them and their load the better, up to a point, and the nearer to hand the better.
+		var/score = -get_dist(candidate, here) * 0.5
+		if(!QDELETED(asker))
+			score += min(get_dist(candidate, asker), CREW_NPC_ASIDE_REACH)
+		if(!QDELETED(load))
+			score += min(get_dist(candidate, load), CREW_NPC_ASIDE_REACH)
+		if(score > best_score)
+			best_score = score
+			best = candidate
+	if(isnull(best))
+		action_result(CREW_TOOL_STEP_ASIDE, FALSE, "There is nowhere here to step aside to.")
+		return
+	start_walk(best, CREW_TOOL_STEP_ASIDE, "out of the way", CREW_NPC_WALK_TIMEOUT)
 
 /// Says who, if anyone, was in the way of what the body was hauling: words for the brain, and who it was.
 /datum/ai_controller/crew_npc/proc/in_the_way_report(atom/movable/load, list/details)
