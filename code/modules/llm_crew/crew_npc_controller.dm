@@ -208,6 +208,8 @@
 	/// How many crates the body has hauled in off the supply shuttle this shift, and how many it has sent out: brought out to whoever came for one, or put aboard the shuttle to go back.
 	var/work_crates_in = 0
 	var/work_crates_out = 0
+	/// How many machines the body has set this shift: a pump turned on, a canister connected, an emitter switched. Engineering staff.
+	var/work_machines_set = 0
 	/// Goes up each time an errand starts or is abandoned, so a finished step can tell whether it is still the current one.
 	var/errand_serial = 0
 	/// TRUE if the body can see a sink, where a dry mop can be wetted.

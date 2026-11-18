@@ -57,6 +57,9 @@
 			work_area += post_place
 			learn_department(post_area)
 			sentences += "You are the station's [job_title()]. Your post is the [post_place], at the counter, and you know the way there. The supply console you order at is in the same room."
+	// Engineering staff know Engineering and the engine room, and the Chief Engineer its office.
+	else if(works_in_engineering())
+		sentences += learn_engineering_places(known)
 	// A head has an office, and goes back to it between errands.
 	if(findtext(job_title(), "Head of Personnel"))
 		office_place = learn_place(/area/station/command/heads_quarters/hop)
@@ -79,7 +82,7 @@
 	var/lobby = learn_place(/area/station/cargo/lobby)
 	if(lobby)
 		known += lobby
-		if(post_place)
+		if(post_place && works_in_cargo())
 			// The lobby is where it serves the crew, so it is as much its to keep fit to be in as its post.
 			work_area += lobby
 			look_in_rooms -= lobby

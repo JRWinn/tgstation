@@ -16,6 +16,80 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 11:00: a Chief Engineer and a station engineer who light the engine (the commit that added this entry)
+
+**Tested:** type check, server compile (0 errors, 0 warnings), the table of cases in `tools/llm_crew/engine.ts` (86 cases), simulator (the five new scenarios, each in quiet, chatty and dead modes: all 15 runs pass; of the 32 older scenarios, run once each in quiet mode, the first nine had passed when this was committed and the rest were still running). **Not played in a round. No model tests.** The simulator runs none of the server code and its crystal is a toy. Every click on a real machine in this entry is compile-checked only. Treat all of the server side as unproven until a round shows it.
+
+**Plan:** `LLM_CREW_PLAN_ENGINEERING.md`. Its six questions were settled by the owner on 2026-11-18, all as suggested. This is its stage 1.
+
+**Why:** nothing on MetaStation makes power at round start, the batteries last about nine minutes at full draw, and rounds go dark at about fifteen. No crew NPC ran the engine.
+
+### What the crew does now
+
+The engineering staff:
+
+- **The test crew has a Chief Engineer and one station engineer.** Nine bodies now. `spawn_test_crew` in `crew_npc_spawn.dm`; both are in the "Spawn Crew NPC" list too.
+- The engineer's post is Engineering. The Chief Engineer has its office, and knows Engineering as where its staff work. Both know the way to the engine room. `learn_engineering_places` in `crew_npc_engineering.dm`.
+- Neither looks in on the engine room or the chamber on a quiet round of its department. It is no place to stand about once the engine is lit.
+- The engineer's tools count as tools of its trade, so a full hand does not drop its wrench. `trade_tool_types` in `crew_npc_inventory.dm`.
+
+The meeting and the order:
+
+- **The Chief Engineer holds a staff meeting in Engineering, called aloud, thirty seconds in and every ten minutes after.** It is one more `MeetingWay`, like the Quartermaster's. `ENGINE_WAY` in `jobs/chiefengineer.ts`.
+- **At the first one it gives the engineer the engine, to its face, word for word:** "Sam, the engine is yours. Light it now, please." The engineer answers "The engine, right away." With no answer in a minute the order is given again. `lightStep` in `jobs/chiefengineer.ts`; `takeWord` in `jobs/engineer.ts`; the words are in `jobs/engineering.ts`.
+- **With no word from anyone two minutes in, the engineer starts by itself.** `syncTasks` in `jobs/engineer.ts`.
+
+Lighting the engine:
+
+- **The engineer works down a list of 21 steps on 16 machines, the three emitters last.** The list is data, for MetaStation's engine room only: `METASTATION` in `jobs/engine.ts`. It was traced from the map's pipes. The wiki's steps leave the loop broken on this map, at the filter with nothing set and at Mix Bypass.
+- **An emitter is never the next step while any other step is undone**, whatever order a list is written in. `nextLightingStep` in `jobs/engine.ts`.
+- A step that does not take is tried once more. Then the job stops, the emitters are not touched, and the Chief Engineer is told which step: "Ada, I cannot light the engine: the nitrogen canister will not connect." The Chief Engineer tells the Captain by PDA.
+- An engine room whose machines do not match a list is not lit: "I do not know this engine."
+- When it is lit the engineer tells the Chief Engineer and goes back to its post.
+
+Working a machine (`crew_npc_machines.dm`, all new):
+
+- **One new tool, `work_machine`.** The body walks to the machine, stands next to it, and does what a player does. `tool_work_machine`, `work_machine`.
+- A pump or filter is turned on or off by the ctrl-click, and a pump set to full by the alt-click. An emitter is switched by a click with an empty hand. `click_as_body`, `turn_machine`, `set_pump_full`, `switch_emitter`.
+- **A canister is wrenched onto its connector with the body's own wrench.** The wrench comes out of the belt by a click, is used by a click, and goes back by a click. `connect_canister`.
+- Each of them looks first, and does nothing to a machine that is already as asked.
+- Each machine set is counted. The engineer reports the count at its staff meeting: "Ada, that is 21 machines set. I need nothing." `work_machines_set`; the new tally in `jobs/reports.ts`.
+- Engineering staff are told the engine room's machines by name, and how each is set only while it is in view. `crew_npc_engine_machines`, `engineering_state`.
+
+The batteries and the watch:
+
+- **The Chief Engineer sets the three batteries itself**, straight after the first meeting: input to full, output to 190 kW. It works nothing in the engine room. `charge_battery`; the `BATTERIES` task in `jobs/chiefengineer.ts`.
+- **It knows the engine only from the engine monitor on its PDA**, and that needs the station's network. `engine_reading` in `crew_npc_engineering.dm`.
+- **Integrity under 95 percent: "Sam, the engine is losing integrity. Emitters off, now."** Said to the engineer's face if it is in sight, sent by PDA if not. It is an emergency task: the engineer drops what it is doing. The Captain is told by PDA when the order is given and again when the emitters are off. The engine is not lit again unless someone the Chief Engineer answers to says "light the engine".
+- A sound crystal with no energy in it, two minutes or more after it was lit, means the emitters have stopped. The engineer is sent to switch them on again, at most once in five minutes.
+- **Said is not told.** What the engineer tells the Chief Engineer is not passed on until it hears "Sam, I have that." After 25 seconds it walks up and says it again. After two tries, or twenty seconds at its post with the Chief Engineer not in sight, it goes by PDA. `tellChief` in `jobs/engineer.ts`.
+- Each meeting closes with the engine's state and reading, and the Captain is sent the same.
+
+### Short of the no-cheats rule
+
+- **The batteries and the engine air alarm are set through the machine's own handler, not through a window.** The game will not open a window for a body with no player. The body stands at the machine and the reach, power and lock checks are made first. The owner decided this on 2026-11-18: "Send what the window would send." `work_window` in `crew_npc_machines.dm`.
+
+### Known and not fixed
+
+- **None of the server side has been seen in the game.** In particular:
+  - that a body with no player can make the ctrl-click and alt-click;
+  - that the walk finds a place to stand for "Gas to Chamber" and "Gas to Filter", which can only be reached from one tile between the two chamber doors;
+  - that a click takes the wrench out of the belt and a click puts it back;
+  - that the window stand-in is accepted by the battery's and the air alarm's handlers;
+  - that the PDA gives a reading at all. If it never does, the Chief Engineer never orders the emitters off;
+  - that the emitters' beams reach the crystal. That is worked out from the map's reflectors, not seen.
+- **Radiation.** The engineer goes in as dressed, before the engine is lit, and stays out after. The emitters-off order sends it back into a lit engine room. The owner decided this for stage 1. Look for radiation in the round's log.
+- **The engineer now has a post behind locked doors, so the locked-room rules apply to Engineering.** It may question, or put out, someone with no engineering access that it finds there, and that could take it off the engine in the first minutes. Not tried in the simulator.
+- With no engineer aboard nothing lights the engine. The Chief Engineer does not do it itself.
+- The Chief Engineer does not go to the engine room to see for itself. With the power gone it has no reading and knows nothing.
+- 95 percent, "no energy" and the two-minute wait are my numbers. What a healthy lit crystal reads on this code has not been looked at.
+- Only MetaStation has a list. On any other map the engineer says it does not know the engine.
+- The list is tied to the names on the map. A pump renamed there breaks it, and the engineer then says it does not know the engine.
+- The new lines have no cases in `tools/llm_crew/voice.ts`.
+- The engineer does not knock at the Chief Engineer's office door. It sends word by PDA.
+
+---
+
 ## 2026-11-18, 09:40: the mail chute again, a janitor left shut in, and a door nobody could reach (the commit that added this entry)
 
 **Tested:** type check, server compile (0 errors, 0 warnings), simulator (all 32 scenarios; `aside` failed once on "steps aside within a few seconds" and passed five times out of five when run again; it failed one run in five on the code before this change). **Not played in a round.** Built at 09:37, after the round that was running had ended. The simulator runs none of the server code. Three of the five fixes here are server code and mend fixes of mine that compiled and passed the simulator last time and did not work in the game. Treat them as unproven until a round shows them.

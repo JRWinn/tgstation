@@ -89,6 +89,20 @@
 		/obj/item/storage/bag/mail,
 		/obj/item/universal_scanner,
 	))
+	var/static/list/engineering_tools = typecacheof(list(
+		/obj/item/analyzer,
+		/obj/item/construction/rcd,
+		/obj/item/crowbar,
+		/obj/item/extinguisher,
+		/obj/item/multitool,
+		/obj/item/screwdriver,
+		/obj/item/stack/cable_coil,
+		/obj/item/storage/belt/utility,
+		/obj/item/t_scanner,
+		/obj/item/weldingtool,
+		/obj/item/wirecutters,
+		/obj/item/wrench,
+	))
 	var/static/list/command_tools = typecacheof(list(
 		/obj/item/assembly/flash,
 		/obj/item/clipboard,
@@ -107,6 +121,8 @@
 		trade_tools += list(janitor_tools, janitor_only)
 	if(works_in_cargo())
 		trade_tools += list(cargo_tools)
+	if(works_in_engineering())
+		trade_tools += list(engineering_tools)
 	if(crew_npc_is_command(pawn))
 		trade_tools += list(command_tools)
 	return trade_tools

@@ -150,6 +150,8 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   word_passed: 'word_passed',
   // The Quartermaster opening a crate of its own that has come in.
   open_own_crate: 'open_own_crate',
+  // Engineering staff working a machine: a pump, a canister, an emitter, a battery.
+  work_machine: 'work_machine',
 };
 
 /** How "my body" and "your body" are put right when they turn up in something said out loud. */

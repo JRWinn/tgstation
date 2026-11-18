@@ -35,6 +35,8 @@ const TALLIES: Tally[] = [
   // whoever came for one or back aboard the shuttle.
   { key: 'crates_in', one: 'crate', many: 'crates', did: 'brought in' },
   { key: 'crates_out', one: 'crate', many: 'crates', did: 'sent out' },
+  // What an engineer counts: each machine it has set.
+  { key: 'machines_set', one: 'machine', many: 'machines', did: 'set' },
 ];
 
 /** How many ways there are of wording the work done. Each NPC keeps to one for the length of a meeting. */

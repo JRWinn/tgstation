@@ -168,6 +168,8 @@ export type Npc = {
     /** Crates hauled in off the supply shuttle, and crates sent out: to whoever came for one, or back aboard the shuttle. */
     crates_in?: number;
     crates_out?: number;
+    /** Machines an engineer has set: a pump turned on, a canister connected, an emitter switched. */
+    machines_set?: number;
   } | null;
   /** TRUE if the body carries a PDA with the custodial locator. */
   has_locator: BooleanLike;
@@ -286,9 +288,127 @@ export type Npc = {
   staff_post?: string | null;
   /** The office of the head this body answers to, if that head has one: where to knock for them. */
   head_office?: string | null;
+  /**
+   * For engineering staff: the machines of the engine room and the station's batteries, and what
+   * its PDA's engine monitor reads. Null for everyone else.
+   */
+  engineering?: {
+    machines: EngineMachine[];
+    reading: EngineReading | null;
+  } | null;
   /** Highest event number this window has already told the server it dealt with. */
   acked_seq: number;
   events: SenseEvent[];
+};
+
+/**
+ * One machine engineering staff work: a pump, filter, canister, air alarm or emitter of the engine
+ * room, or one of the station's batteries. They arrive knowing each by name, as the crew know
+ * every room by name. How it is set they know only by looking.
+ */
+export type EngineMachine = {
+  /** What the server knows it by, for telling the body to work it. */
+  id: string;
+  /** Its name, as it is labelled aboard: "Gas to Chamber", "emitter". */
+  name: string;
+  kind: 'pump' | 'filter' | 'canister' | 'alarm' | 'emitter' | 'battery';
+  /** Which one it is of those with the same name, counted from 1 in a fixed order. */
+  nth: number;
+  /** The room it is in. */
+  place: string;
+  /**
+   * How it is set, while the body can see it, and null while it cannot. `on` is whatever the
+   * machine has for on: a pump or filter running, a canister connected, an emitter firing, the
+   * air alarm drawing everything out, a battery set to charge. `full` is a pump at full pressure.
+   */
+  seen?: { on: BooleanLike; full?: BooleanLike } | null;
+};
+
+/** What the engine monitor on a PDA reads of the engine. */
+export type EngineReading = {
+  /** How whole the crystal is, from 100 down. */
+  integrity: number;
+  /** The energy in it. Nothing, with the emitters off for a while. */
+  energy: number;
+};
+
+/** One thing an engineer has to tell the Chief Engineer, and how far it has got with telling it. */
+export type EngineWord = {
+  /** What it is word of: the engine lit, a step that would not take, the emitters off, or on again. */
+  what: 'lit' | 'stuck' | 'off' | 'on';
+  /** The line it is told in, word for word. */
+  line: string;
+  /** Server time it said the line and began waiting to hear that it was heard. */
+  toldAt?: number;
+  /** How many times it has said the line and had no word back. */
+  unheard: number;
+  /** TRUE once it has walked up to the Chief Engineer to say it again. */
+  walkedUp?: boolean;
+  /** Server time it got to its post looking for the Chief Engineer, and did not find them. */
+  soughtAt?: number;
+  /** TRUE once it has given up telling them to their face, and sends it by PDA. */
+  byPda?: boolean;
+};
+
+/** For an engineer: where it has got to with the engine. See jobs/engineer.ts. */
+export type EngineWork = {
+  /** TRUE once the engine is its to light: it was told so, or nobody told it anything. */
+  told: boolean;
+  /** Who told it, or null if it started by itself. */
+  by: string | null;
+  /** The steps of lighting it that it has seen done, each as "machine id:how". */
+  done: string[];
+  /** How many times each step has not taken. */
+  tries: Record<string, number>;
+  /** What stopped it, in the words it is reported in, or null. */
+  stuck: string | null;
+  /** TRUE once every step is done and the emitters are on. */
+  lit: boolean;
+  /** TRUE while it has been told to switch the emitters off, and has not finished. */
+  shutting: boolean;
+  /** TRUE once the emitters were switched off on the Chief Engineer's order. The engine is not lit again unasked. */
+  shut: boolean;
+  /** TRUE while it has been told to switch the emitters on again, and has not finished. */
+  relighting: boolean;
+  /** The emitters it has switched off, or on again, in the order it is about now. */
+  switched: string[];
+  /** What it has yet to tell the Chief Engineer. */
+  words: EngineWord[];
+};
+
+/** For a Chief Engineer: what it knows of the engine and its staff. See jobs/chiefengineer.ts. */
+export type ChiefWork = {
+  /** Server time it gave the order to light the engine, or null. */
+  lightGivenAt: number | null;
+  /** TRUE once the engineer has said it has that order. */
+  lightTaken: boolean;
+  /** Server time it heard the engine was lit, or null. */
+  litAt: number | null;
+  /** What the engineer said stopped it, or null. */
+  stuck: string | null;
+  /** The batteries it has set to charge, by machine id, and how many times each has not taken. */
+  batteries: string[];
+  batteryTries: Record<string, number>;
+  /**
+   * An order it has for the engineer outside a meeting: light the engine again, emitters off,
+   * emitters on again. Null if it has none.
+   */
+  order: {
+    what: 'light' | 'shut' | 'relight';
+    /** Server time it was last said or sent, or null if it has not been yet. */
+    givenAt: number | null;
+    /** TRUE once it has gone by PDA as well. */
+    sent: boolean;
+    walkedUp?: boolean;
+  } | null;
+  /** TRUE once it has ordered the emitters off. Nothing is lit again unless the Captain says so. */
+  shut: boolean;
+  /** Server time it last gave the order for the emitters to go off, or null. */
+  shutGivenAt: number | null;
+  /** TRUE once the engineer has said the emitters are off. */
+  emittersOff: boolean;
+  /** Server time it last ordered the emitters on again, or 0. */
+  relitAt: number;
 };
 
 /** A PDA message cargo owes someone about their crates. */
@@ -997,6 +1117,14 @@ export type NpcBrain = {
   staffPost: string | null;
   /** The office of the head it answers to, if that head has one. */
   headOffice: string | null;
+  /** For engineering staff: the machines they work, by name, with how each is set while it is in view. */
+  machines: EngineMachine[];
+  /** For engineering staff: what the engine monitor on its PDA reads, or null if it has no reading. */
+  engineReading: EngineReading | null;
+  /** For an engineer: where it has got to with the engine: see jobs/engineer.ts. */
+  engine: EngineWork | null;
+  /** For a Chief Engineer: what it knows of the engine and its staff: see jobs/chiefengineer.ts. */
+  chief: ChiefWork | null;
   /** For a Quartermaster: every order it has taken, and how far each has got: see jobs/quartermaster.ts. */
   ledger: Ledger | null;
   /**

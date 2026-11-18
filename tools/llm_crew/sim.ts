@@ -30,7 +30,12 @@
 //   bun run sim.ts quiet qmpaper   no paper anywhere to be found: the Quartermaster orders some like anything else, and opens that crate itself
 //   bun run sim.ts quiet qmlost    a crate a head ordered is destroyed in the bay: the technician tells the Quartermaster to its face, who tells the head and has it ordered again
 //   bun run sim.ts quiet qmstuck   a technician gives a crate up after it got away too often: it tells the Quartermaster where it left it, and the Quartermaster sends the other technician to see to it
-//   bun run sim.ts quiet qmwait    a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
+//   bun run sim.ts quiet engine    a Chief Engineer and one engineer: the engine is given at the first meeting and lit, emitters last; the batteries are set
+//   bun run sim.ts quiet enginestuck  a canister will not connect: the job stops, the emitters are never touched, and the Chief Engineer is told which step
+//   bun run sim.ts quiet enginehot    the lit engine starts to come apart: the emitters are ordered off, and the Captain is told
+//   bun run sim.ts quiet engalone     a Chief Engineer who never speaks: the engineer starts by itself two minutes in
+//   bun run sim.ts quiet enginedim    the emitters stop on a sound engine: the engineer is sent to switch them on again
+//   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
 // The folder is given one spelling, or the same module is loaded twice under two names.
@@ -129,6 +134,10 @@ const rooms: Record<string, Room> = {
   'Delivery Office': { kind: 'room', messes: [mess('dirt')], items: [], boxes: [], sink: false },
   // Opens off the bay, to the Quartermaster and nobody else. A technician with word for it knocks.
   "Quartermaster's Office": { kind: 'room', messes: [], items: [], boxes: [], sink: false },
+  // Where the engineers work from, with the station's batteries; the engine room; and the Chief Engineer's office.
+  Engineering: { kind: 'room', messes: [], items: [], boxes: [], sink: false },
+  'Supermatter Engine Room': { kind: 'room', messes: [], items: [], boxes: [], sink: false },
+  "Chief Engineer's Office": { kind: 'room', messes: [], items: [], boxes: [], sink: false },
 };
 const QM_OFFICE = "Quartermaster's Office";
 // Where there is paper to be had: a bin of it, with a pen.
@@ -228,9 +237,9 @@ const shutInBay = (body: Body) => LOCKED.includes(body.room) && !hasKeys(body) &
 const inSight = (body: Body, room: string) => body.room === room || (COUNTER.includes(body.room) && COUNTER.includes(room));
 // Who the bay door opens for: cargo staff, and those whose rank lets them in anywhere. And who nobody lays a hand on.
 const belongsInBay = (who: { job: string }) => /Cargo|Quartermaster|Head of|Captain/.test(who.job);
-const isCommand = (who: { job: string }) => /Head of|Captain|Quartermaster/.test(who.job);
+const isCommand = (who: { job: string }) => /Head of|Captain|Quartermaster|Chief Engineer/.test(who.job);
 // Who answers to whom: everyone to the Captain, the janitors to the Head of Personnel, and the technicians to the Quartermaster.
-const answersTo = (body: { job: string }, who: { job: string }) => who.job === 'Captain' || (who.job === 'Head of Personnel' && body.job === 'Janitor') || (who.job === 'Quartermaster' && body.job === 'Cargo Technician');
+const answersTo = (body: { job: string }, who: { job: string }) => who.job === 'Captain' || (who.job === 'Head of Personnel' && body.job === 'Janitor') || (who.job === 'Quartermaster' && body.job === 'Cargo Technician') || (who.job === 'Chief Engineer' && body.job === 'Station Engineer');
 // Whose own ID opens cargo's doors: the technicians, whose post it is, and the Quartermaster.
 const hasKeys = (body: { job: string; post?: string | null }) => !!body.post || body.job === 'Quartermaster';
 // The Quartermaster aboard, NPC or not, by name. With one aboard, cargo's budget is counted.
@@ -264,6 +273,47 @@ const stowed: string[] = [];
 // The technician whose first haul off the shuttle came to nothing, in the scenario about that.
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
+// ---- the engine: its room's machines as the server names them to engineering staff, how each is set, and the crystal.
+const ENGINE = ['engine', 'enginestuck', 'enginehot', 'engalone', 'enginedim'].includes(process.argv[3]);
+const CE_OFFICE = "Chief Engineer's Office";
+const ENGINE_ROOM = 'Supermatter Engine Room';
+type Machine = { id: string; name: string; kind: string; nth: number; place: string; on: boolean; full: boolean };
+const machineList: Machine[] = [];
+function putMachine(kind: string, name: string, count = 1, on = false, place = ENGINE_ROOM) {
+  for (let nth = 1; nth <= count; nth++) machineList.push({ id: 'm' + (machineList.length + 1), name, kind, nth, place, on, full: false });
+}
+putMachine('canister', 'nitrogen canister', 2);
+putMachine('canister', 'canister', 2);
+putMachine('pump', 'External Gas to Loop', 2);
+// As the map has them at round start: three pumps running, the rest off, and nothing at full.
+for (const [name, on] of [['Engine Coolant Bypass', true], ['Gas to Chamber', false], ['Gas to Filter', false], ['Cooling Loop Bypass', false], ['Atmos to Loop', false], ['Gas to Cold Loop', true], ['Cold Loop to Gas', true], ['Mix Bypass', false], ['Mix to Gas', false], ['Gas to Mix', false]] as [string, boolean][]) putMachine('pump', name, 1, on);
+putMachine('filter', 'filter', 2);
+putMachine('alarm', 'engine air alarm');
+putMachine('emitter', 'emitter', 3);
+putMachine('battery', 'battery', 3, false, 'Engineering');
+const machineNamed = (name: string, nth = 1) => machineList.find((machine) => machine.name === name && machine.nth === nth)!;
+const emitters = () => machineList.filter((machine) => machine.kind === 'emitter');
+// The gas is going round and through the chamber: the canisters are on, the bypass is shut, and every pump and filter on the way is running at full.
+const loopRunning = () => [1, 2].every((nth) => machineNamed('nitrogen canister', nth).on && machineNamed('External Gas to Loop', nth).on && machineNamed('filter', nth).on)
+  && !machineNamed('Engine Coolant Bypass').on && ['Gas to Chamber', 'Gas to Filter', 'Mix Bypass'].every((name) => machineNamed(name).on && machineNamed(name).full)
+  && machineNamed('Gas to Cold Loop').full && machineNamed('Cold Loop to Gas').full && machineNamed('engine air alarm').on;
+// The crystal: how whole it is, the energy in it, and when in the run it was lit, began to come apart, fell low, had its emitters off, or had them stop.
+const crystal = { integrity: 100, energy: 0, litAt: 0, faultAt: 0, dimAt: 0, lowAt: 0, offAt: 0 };
+// Every time a machine was worked: when, by whom, which, how, whether it took, and whether the gas was going round at the time.
+const machineWork: { at: number; who: string; name: string; kind: string; how: string; ok: boolean; changed: boolean; loop: boolean }[] = [];
+const machinesSet = new Map<string, number>();
+// Each second: emitters firing put energy into the crystal, and it bleeds away without them. Hit with no gas going round, or once a fault has set in, it comes apart.
+function engineTick() {
+  const firing = emitters().filter((machine) => machine.on).length;
+  crystal.energy = firing ? Math.min(900, crystal.energy + firing * 40) : Math.max(0, crystal.energy - 150);
+  if (firing === 3 && !crystal.litAt) crystal.litAt = clock;
+  if (process.argv[3] === 'enginehot' && crystal.litAt && !crystal.faultAt && clock - crystal.litAt >= 60_000) crystal.faultAt = clock;
+  if (firing && (!loopRunning() || crystal.faultAt)) crystal.integrity = Math.max(0, crystal.integrity - 0.5);
+  if (crystal.integrity < 95 && !crystal.lowAt) crystal.lowAt = clock;
+  if (crystal.lowAt && !firing && !crystal.offAt) crystal.offAt = clock;
+  // The emitters stop by themselves, well after the engine was lit, with nothing wrong with the crystal.
+  if (process.argv[3] === 'enginedim' && crystal.litAt && !crystal.dimAt && clock - crystal.litAt >= 150_000) { crystal.dimAt = clock; for (const machine of emitters()) machine.on = false; }
+}
 const HOP_OFFICE = "Head of Personnel's Office";
 // What was ordered and for whom; where each crate was unpacked and by whom; how many came back; who was at the meeting when the room was asked.
 const ordersPlaced: string[] = [];
@@ -835,6 +885,24 @@ function toolCall(body: Body, tool: string, args: any) {
         shuttle.sentWith = shuttle.aboard.length; shuttle.docked = false; shuttle.aboard = []; body.room = 'Cargo Bay';
         result(body, 'send_shuttle', true, 'You send the supply shuttle back.');
       });
+    case 'work_machine': {
+      // Engineering staff go to a machine and work it one way. One that is already as asked is left alone.
+      const machine = machineList.find((it) => it.id === args.machine);
+      if (!/Engineer/.test(body.job)) return result(body, 'work_machine', false, "Working the engine's machines is engineering's job.");
+      if (!machine) return result(body, 'work_machine', false, 'You know of no such machine.');
+      const how = String(args.how);
+      return busy(body, body.room === machine.place ? 3 : 7, 'going to work a machine', true, () => {
+        moveTo(body, machine.place); body.visited.add(machine.place); body.known.add(machine.place); body.nextTo = null; body.doorwayOf = null;
+        // In one scenario the nitrogen canisters will not go onto their connectors, however often they are tried.
+        const takes = !(VARIANT === 'enginestuck' && how === 'connect');
+        const before = String(machine.on) + String(machine.full);
+        if (takes) { if (how === 'full') machine.full = true; else machine.on = !['off', 'switch_off'].includes(how); }
+        const changed = before !== String(machine.on) + String(machine.full);
+        machineWork.push({ at: clock, who: body.name, name: machine.name, kind: machine.kind, how, ok: takes, changed, loop: loopRunning() });
+        if (changed) machinesSet.set(body.name, (machinesSet.get(body.name) ?? 0) + 1);
+        result(body, 'work_machine', takes, takes ? (changed ? 'You work the ' + machine.name + ': ' + how + '.' : 'The ' + machine.name + ' is so already.') : 'The ' + machine.name + ' will not connect.');
+      });
+    }
     default:
       return result(body, tool, false, 'Your body does not know how to do that.');
   }
@@ -877,7 +945,7 @@ function uiData(body: Body) {
     things_in_view: [...[...counts].map(([name, count]) => ({ name, count, kind: 'mess' })), ...room.items.map((name) => ({ name, count: 1, kind: 'item' })), ...(room.sink ? [{ name: 'sink', count: 1, kind: 'structure' }] : [])],
     holding: body.holding, cleaning_tool: cleaningTool(body), has_locator: body.hasLocator ? 1 : 0,
     // All it has to clean with is a rag. And the server's count of its work so far.
-    poor_tool: cleaningTool(body) === RAG ? 1 : 0, work_done: { cleaned: body.cleaned, put_away: body.tidied, crates_in: body.cratesIn, crates_out: body.cratesOut },
+    poor_tool: cleaningTool(body) === RAG ? 1 : 0, work_done: { cleaned: body.cleaned, put_away: body.tidied, crates_in: body.cratesIn, crates_out: body.cratesOut, machines_set: machinesSet.get(body.name) ?? 0 },
     cleanable_messes: cleaningTool(body) ? [...new Set(room.messes.filter((m) => canShift(body, m)).map((m) => m.name))] : [],
     mess_places: [...new Set(remembered.map((x) => x.place))],
     workable_mess_places: [...new Set(remembered.filter((x) => canShift(body, x.m!) && !shut(x.place)).map((x) => x.place))],
@@ -885,10 +953,10 @@ function uiData(body: Body) {
     // It means to get out, and where to: the room it was in before it first went through a door it could not open. And who else can open the door, once it is shut in.
     wants_out: body.wantsOut ? 1 : 0, way_out_to: body.trail[0]?.from ?? null, door_keepers: isShutIn(body) ? bodies.filter((other) => other.post).map((other) => other.name) : [],
     dry_mop: body.holding.includes('mop') && !toolOf(body) && !body.mopWet && !room.sink ? 1 : 0,
-    grenade_messes: 0, doing: body.busyText, post: body.post, orderable: body.post || body.job === 'Quartermaster' ? Object.keys(CRATES) : [],
+    grenade_messes: 0, doing: body.busyText, post: body.post ?? (body.job === 'Station Engineer' ? 'Engineering' : null), orderable: body.post || body.job === 'Quartermaster' ? Object.keys(CRATES) : [],
     // A Quartermaster's order book, the budget and what things cost. And where a head's staff work, and where a technician knocks for its head.
     book: body.job === 'Quartermaster' ? body.book : null, budget: body.job === 'Quartermaster' ? budget : null, crate_costs: body.job === 'Quartermaster' ? COSTS : null,
-    staff_post: body.job === 'Quartermaster' ? 'Cargo Bay' : null, head_office: body.post && quartermaster() ? QM_OFFICE : null,
+    staff_post: body.job === 'Quartermaster' ? 'Cargo Bay' : body.job === 'Chief Engineer' ? 'Engineering' : null, head_office: body.post && quartermaster() ? QM_OFFICE : null,
     order_pending: body.orderPending ? 1 : 0, has_pda: 1, notices: body.notices,
     // Cargo staff know of every crate being held. Everyone else knows only of those put out in the lobby.
     held_crates: heldCrates().filter((entry) => body.post || entry.out).map((entry) => ({ number: entry.number, for: entry.for, what: entry.what, place: entry.out ? 'Cargo Lobby' : 'Cargo Bay', out: entry.out ? 1 : 0, taken_by: entry.takenBy, waited: entry.heldSince ? (clock - entry.heldSince) / 100 : 0 })),
@@ -897,7 +965,9 @@ function uiData(body: Body) {
     // A head is told which room to call its staff together in.
     meeting_room: body.office ? (VARIANT === 'shutout' ? 'Staff Room' : 'Bar') : null,
     // Its PDA lists everyone else aboard who carries one, with their job.
-    pda_people: [...bodies.filter((other) => other !== body), ...players.filter((player) => player.job === 'Captain' || player.job === 'Quartermaster')].map((other) => ({ name: other.name, job: other.job })),
+    pda_people: [...bodies.filter((other) => other !== body), ...players.filter((player) => player.job === 'Captain' || player.job === 'Quartermaster' || player.job === 'Chief Engineer')].map((other) => ({ name: other.name, job: other.job })),
+    // For engineering staff: the machines they work, how those in the room with them are set, and what the PDA reads of the engine.
+    engineering: /Engineer/.test(body.job) ? { machines: machineList.map((machine) => ({ id: machine.id, name: machine.name, kind: machine.kind, nth: machine.nth, place: machine.place, seen: body.room === machine.place ? { on: machine.on ? 1 : 0, full: machine.full ? 1 : 0 } : null })), reading: { integrity: crystal.integrity, energy: crystal.energy } } : null,
     tidy: body.post ? { todo: (rooms['Cargo Bay'].floor?.length ?? 0) + (rooms['Cargo Lobby'].floor?.length ?? 0) } : null,
     freight: body.post ? {
       shuttle_docked: shuttle.docked ? 1 : 0,
@@ -1025,6 +1095,17 @@ const DESK = VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet' 
 // How many of the Quartermaster's questions the Captain has answered, in the scenarios where it answers.
 let captainAnswers = 0;
 let captainAnsweredAt = 0;
+// The engineering staff: a Chief Engineer in its office and one engineer at its post, with a Captain aboard to be told things.
+// In one scenario the Chief Engineer is not an NPC, and never says a word.
+function spawnEngine() {
+  const staff: Body[] = [];
+  if (VARIANT === 'engalone') players.push({ name: 'Ada Volt', job: 'Chief Engineer', room: CE_OFFICE });
+  else { const ada = spawn('Ada Volt', 'Chief Engineer'); ada.office = CE_OFFICE; ada.room = CE_OFFICE; staff.push(ada); }
+  const sam = spawn('Sam Rees', 'Station Engineer'); sam.room = 'Engineering'; staff.push(sam);
+  for (const body of staff) for (const place of ['Engineering', ENGINE_ROOM, CE_OFFICE]) body.known.add(place);
+  players.push({ name: 'Cap Tain', job: 'Captain', room: 'Bridge' });
+  return staff;
+}
 // The scenarios with a whole crew aboard: everything in them is done, the bay and the mail included.
 const FULL = !VARIANT || VARIANT === 'crew' || VARIANT === 'shutout' || VARIANT === 'qm' || VARIANT === 'qmgone';
 const HOP_ORDERS_AT = 90;
@@ -1032,11 +1113,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = ENGINE ? spawnEngine() : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 // With a Quartermaster who does not answer, the order, and the mail that comes with it, are three minutes later.
@@ -1098,6 +1179,7 @@ for (let second = 0; second < SECONDS; second++) {
   if (VARIANT === 'captain' && !captainAskedAt && second >= CAPTAIN_ASKS_AFTER && bodies[0].room === HOP_OFFICE && !bodies[0].busyText) { captainAskedAt = clock; playerSays(CAPTAIN, 'Hop, find out how your section is doing.'); }
   if (VARIANT === 'waiting' && second === WRONG_NUMBER_AT) playerSays('Hal Pott', 'Cora, I am here to collect crate 9999, please.');
   if (VARIANT === 'waiting' && second === RIGHT_NUMBER_AT) playerSays('Hal Pott', 'Cora, I am here to collect crate 4521, please.');
+  if (ENGINE) engineTick();
   runTimers();
   brainModule.ingest(bodies.map(uiData), serverNow);
   // Let anything the stand-in LLM was asked finish, as it would between two looks at the world.
@@ -1118,7 +1200,7 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
 check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
 const bayTries = janitors.map((body) => body.bayFails);
@@ -1527,6 +1609,72 @@ if (tech && janitors.length > 2) {
   check('whoever the mail is for is told once by PDA', told === 1, `${told} message(s)`);
   check('they are handed it when they come to the counter', handed.includes('Pat Rick') && techs.every((body) => body.mail.length === 0), handed.join(', ') || 'nothing handed over');
   check('the empty crates go back on the shuttle, and it is sent away', !shuttle.docked && shuttle.sentWith >= 2, `sent with ${shuttle.sentWith} crate(s) aboard`);
+}
+if (ENGINE) {
+  const began = clock - SECONDS * 1000;
+  const sam = crew.find((body) => body.job === 'Station Engineer')!;
+  const ada = crew.find((body) => body.job === 'Chief Engineer');
+  const byEngineer = machineWork.filter((work) => work.who === sam.name);
+  const byChief = machineWork.filter((work) => work.who === 'Ada Volt');
+  const firing = emitters().filter((machine) => machine.on).length;
+  const batteriesSet = machineList.filter((machine) => machine.kind === 'battery' && machine.on).length;
+  const saidBy = (who: string, words: RegExp) => spoken.filter((line) => line.who === who && words.test(line.text));
+  const sentTo = (body: Body | undefined, person: string, words: RegExp) => (body?.log ?? []).filter((line) => / message /.test(line) && line.includes('"person":"' + person + '"') && words.test(line));
+  const told = (body: Body | undefined, who: string, person: string, words: RegExp) => saidBy(who, words).length + sentTo(body, person, words).length;
+  const seconds = (at: number) => Math.round((at - began) / 1000) + ' s in';
+  if (VARIANT !== 'engalone') {
+    const call = saidBy('Ada Volt', /^Staff meeting in the Engineering now, please/)[0];
+    check('the Chief Engineer calls its staff together in Engineering, aloud, inside the first minute and a half', !!call && call.at - began <= 90_000, call ? seconds(call.at) : 'never called');
+    check('it gives its engineer the engine, to its face, word for word, once', saidBy('Ada Volt', /^Sam, the engine is yours\. Light it now, please\./).length === 1, saidBy('Ada Volt', /engine is yours/).length + ' time(s)');
+    check('the engineer says that it has it', saidBy('Sam Rees', /^The engine, right away\./).length === 1);
+    check('the Chief Engineer sets the three batteries itself', byChief.filter((work) => work.how === 'charge' && work.ok).length === 3 && batteriesSet === 3, batteriesSet + ' set');
+    check('and works nothing in the engine room', byChief.every((work) => work.kind === 'battery'), byChief.filter((work) => work.kind !== 'battery').map((work) => work.name).join(', '));
+    check('the Captain is told a meeting is being held, and sent the report of it', sentTo(ada, 'Cap Tain', /holding a staff meeting/).length >= 1 && sentTo(ada, 'Cap Tain', /Engineering staff meeting:/).length >= 1);
+  }
+  if (VARIANT !== 'enginestuck') {
+    const firstEmitter = byEngineer.findIndex((work) => work.kind === 'emitter');
+    const before = firstEmitter < 0 ? [] : byEngineer.slice(0, firstEmitter);
+    check('every one of the 18 steps before the emitters is done first, and takes', before.length === 18 && before.every((work) => work.ok && work.kind !== 'emitter'), before.length + ' step(s) before the first emitter');
+    check('the gas is going round before any emitter is switched on', byEngineer.filter((work) => work.how === 'switch_on').every((work) => work.loop) && firstEmitter >= 0);
+    check('the engine is lit inside nine minutes', !!crystal.litAt && crystal.litAt - began < 540_000, crystal.litAt ? seconds(crystal.litAt) : 'never lit');
+    check('the engineer tells the Chief Engineer it is lit', told(sam, 'Sam Rees', 'Ada Volt', /the engine is lit/) >= 1);
+  }
+  if (VARIANT === 'engine') {
+    check('lighting it takes 21 steps and no more', byEngineer.length === 21 && byEngineer.every((work) => work.ok), byEngineer.length + ' step(s)');
+    check('the crystal is whole and all three emitters are on at the end', crystal.integrity === 100 && firing === 3, crystal.integrity + ' percent, ' + firing + ' emitter(s) on');
+    check('the engineer ends at its post, not in the engine room', sam.room === 'Engineering', sam.room);
+    check("at the second meeting the engineer reports the machines it has set, from the server's count", machinesSet.get(sam.name) === 21 && saidBy('Sam Rees', /\b21 machines\b/).length === 1, saidBy('Sam Rees', /machines/).map((line) => line.text).join(' | '));
+    check('and the Chief Engineer closes it with the engine reading', saidBy('Ada Volt', /The engine is lit\. It is at 100 percent integrity\. The meeting is over/).length === 1);
+  }
+  if (VARIANT === 'enginestuck') {
+    check('a canister that will not connect is tried twice and no more', byEngineer.filter((work) => work.how === 'connect').length === 2, byEngineer.filter((work) => work.how === 'connect').length + ' time(s)');
+    check('the job stops there: nothing else is worked, and the emitters are never touched', byEngineer.length === 2 && firing === 0, byEngineer.length + ' step(s), ' + firing + ' emitter(s) on');
+    check('the engineer tells the Chief Engineer which step it was', told(sam, 'Sam Rees', 'Ada Volt', /I cannot light the engine: the nitrogen canister will not connect/) >= 1);
+    check('the Chief Engineer tells the Captain', sentTo(ada, 'Cap Tain', /"text":"The engine is not lit: the nitrogen canister will not connect/).length === 1);
+    check('the crystal is untouched', crystal.integrity === 100 && crystal.energy === 0);
+  }
+  if (VARIANT === 'enginehot') {
+    check('the engine starts to come apart after it is lit', !!crystal.faultAt && !!crystal.lowAt);
+    check('the Chief Engineer orders the emitters off', told(ada, 'Ada Volt', 'Sam Rees', /the engine is losing integrity\. Emitters off, now/) >= 1);
+    check('all three are off within a minute of integrity falling under 95', !!crystal.offAt && crystal.offAt - crystal.lowAt <= 60_000, crystal.offAt ? Math.round((crystal.offAt - crystal.lowAt) / 1000) + ' s' : 'never off');
+    check('they stay off: the engine is not lit again unasked', firing === 0 && !byEngineer.some((work) => work.how === 'switch_on' && work.at > crystal.offAt));
+    check('the engineer says the emitters are off', told(sam, 'Sam Rees', 'Ada Volt', /the emitters are off/) >= 1);
+    check('the Captain is told it is losing integrity, and then that the emitters are off', sentTo(ada, 'Cap Tain', /"text":"The engine is losing integrity:/).length === 1 && sentTo(ada, 'Cap Tain', /"text":"The emitters are off\./).length === 1);
+    check('the crystal is still mostly whole', crystal.integrity > 80, crystal.integrity + ' percent');
+  }
+  if (VARIANT === 'engalone') {
+    const first = byEngineer[0];
+    check('with no word from the Chief Engineer it starts by itself, two minutes in', !!first && first.at - began >= 120_000 && first.at - began <= 160_000, first ? seconds(first.at) : 'never started');
+    check('word that the engine is lit goes to the Chief Engineer by PDA', sentTo(sam, 'Ada Volt', /the engine is lit/).length === 1);
+    check('all three emitters are on at the end', firing === 3);
+  }
+  if (VARIANT === 'enginedim') {
+    check('the emitters stop on a sound engine', !!crystal.dimAt && crystal.integrity === 100);
+    check('the Chief Engineer sends the engineer to switch them on again', told(ada, 'Ada Volt', 'Sam Rees', /the emitters have stopped\. Switch them on again, please/) >= 1);
+    check('all three are on again at the end', firing === 3, firing + ' on');
+    check('the engineer says so', told(sam, 'Sam Rees', 'Ada Volt', /the emitters are on again/) >= 1);
+    check('nobody orders them off', told(ada, 'Ada Volt', 'Sam Rees', /Emitters off, now/) === 0);
+  }
 }
 const tooSoon = crew.reduce((total, body) => total + body.setOffTooSoon, 0);
 const overShoulder = crew.reduce((total, body) => total + body.saidWalking, 0);

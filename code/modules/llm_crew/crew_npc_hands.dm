@@ -167,6 +167,8 @@
 			return take_paper(target)
 		if(CREW_TOOL_OPEN_CRATE)
 			return open_own_crate(target)
+		if(CREW_TOOL_MACHINE)
+			return work_machine(target)
 		if(CREW_TOOL_RELEASE)
 			return haul_released(target)
 		if(CREW_TOOL_COLLECT)
@@ -422,6 +424,8 @@
 				return "going to find paper for your order book"
 			if(CREW_TOOL_OPEN_CRATE)
 				return "going to open a crate that came for you"
+			if(CREW_TOOL_MACHINE)
+				return "going to work a machine"
 			if(CREW_TOOL_RELEASE)
 				return "going to fetch a crate that someone has come to collect"
 			if(CREW_TOOL_COLLECT)

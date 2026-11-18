@@ -358,6 +358,10 @@ export function ingest(npcs: Npc[], now: number): void {
         crateCosts: {},
         staffPost: null,
         headOffice: null,
+        machines: [],
+        engineReading: null,
+        engine: null,
+        chief: null,
         ledger: null,
         givenOrder: null,
         qmSilent: null,
@@ -415,6 +419,7 @@ export function ingest(npcs: Npc[], now: number): void {
       put_away: npc.work_done?.put_away ?? 0,
       crates_in: npc.work_done?.crates_in ?? 0,
       crates_out: npc.work_done?.crates_out ?? 0,
+      machines_set: npc.work_done?.machines_set ?? 0,
     };
     brain.cleanableMesses = npc.cleanable_messes ?? [];
     brain.messPlaces = npc.mess_places ?? [];
@@ -509,6 +514,9 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.crateCosts = npc.crate_costs ?? {};
     brain.staffPost = npc.staff_post ?? null;
     brain.headOffice = npc.head_office ?? null;
+    // What engineering staff know of the machines they work, and what the PDA reads of the engine.
+    brain.machines = npc.engineering?.machines ?? [];
+    brain.engineReading = npc.engineering?.reading ?? null;
     // With something proper to clean with it is no longer waiting on supplies. A rag does not count.
     if (brain.cleaningTool && !brain.poorTool) {
       brain.askedCargo = false;
