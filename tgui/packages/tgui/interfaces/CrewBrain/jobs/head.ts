@@ -66,6 +66,7 @@ import {
   quartermasterAboard,
   REFUSED_WORDS,
 } from './supply';
+import { wantedAbsent, wantedMeetingStep, wantedSaid } from './wanted';
 
 export type Meeting = NonNullable<NpcBrain['meeting']>;
 type Requisition = NonNullable<NpcBrain['requisition']>;
@@ -173,6 +174,12 @@ export function staff(brain: NpcBrain): { name: string; job: string }[] {
   // The Quartermaster's staff, for now, are its technicians. The miners are its too, but not yet.
   if (isQuartermaster(brain.job)) {
     return brain.pdaPeople.filter((person) => isTechnician(person.job));
+  }
+  // The Head of Security's staff, for now, are its officers. Nobody in a cell answers to it.
+  if (/head of security/i.test(brain.job)) {
+    return brain.pdaPeople.filter((person) =>
+      /security officer/i.test(person.job),
+    );
   }
   return brain.pdaPeople.filter((person) =>
     department.jobs.some((job) =>
@@ -476,6 +483,13 @@ function endMeeting(brain: NpcBrain, way: MeetingWay): void {
       });
     }
   }
+  // Whoever was not there to hear who security is looking for is sent it, however the meeting was called.
+  wantedAbsent(
+    brain,
+    staff(brain)
+      .map((person) => person.name)
+      .filter((name) => !meeting.turns.some((turn) => turn.who === name)),
+  );
   const captain = captainName(brain);
   if (captain) {
     brain.toTell.push({
@@ -813,6 +827,11 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
       needs: new RegExp(`\\b${first}\\b.*\\breport\\b`, 'i'),
     };
   }
+  // Who security is looking for is read out at every head's meeting: see jobs/wanted.ts.
+  const wanted = wantedMeetingStep(brain, meeting.wantedSaid ?? 0);
+  if (wanted) {
+    return wanted;
+  }
   // Anything it has to tell them while they are all together comes before the end.
   const first = way.before?.(brain, meeting);
   if (first) {
@@ -1044,6 +1063,8 @@ export function meetingSaid(brain: NpcBrain, called: string): void {
       meeting.turns.push({ who, askedAt: brain.now, heard: false });
     }
   }
+  // Having read out who security is looking for, that is said.
+  meeting.wantedSaid = wantedSaid(brain, called, meeting.wantedSaid ?? 0);
   // Having said the meeting is over, it is.
   if (OVER_WORDS.test(called)) {
     meeting.closedAt = brain.now;

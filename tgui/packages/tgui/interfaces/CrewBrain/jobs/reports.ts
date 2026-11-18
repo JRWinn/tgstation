@@ -37,6 +37,8 @@ const TALLIES: Tally[] = [
   { key: 'crates_out', one: 'crate', many: 'crates', did: 'sent out' },
   // What an engineer counts: each machine it has set.
   { key: 'machines_set', one: 'machine', many: 'machines', did: 'set' },
+  // What a security officer counts: each arrest it has made.
+  { key: 'arrests', one: 'arrest', many: 'arrests', did: 'made' },
 ];
 
 /** How many ways there are of wording the work done. Each NPC keeps to one for the length of a meeting. */
@@ -196,8 +198,12 @@ export function addCounts(
   }
 }
 
-/** Lines said word for word that take no remark after them: an order given by number, and asking the Captain for a plain yes or no. */
-const BARE_LINES = /^\S+, order \d+: |\bis that a yes or a no to\b/i;
+/**
+ * Lines said word for word that take no remark after them: an order given by number, asking the
+ * Captain for a plain yes or no, and everything security says about a warrant (jobs/security.ts).
+ */
+const BARE_LINES =
+  /^\S+, order \d+: |\bis that a yes or a no to\b|\bwarrant\b|\bunder arrest\b|^Security\b|\bSecurity is\b|\bis to be let go\b|\bwas seen in\b|\bpardon|\bI lost\b|\bis free\b|\bminutes\b/i;
 
 /**
  * Puts the LLM's remark after a line that is said word for word. The remark is left off if it has

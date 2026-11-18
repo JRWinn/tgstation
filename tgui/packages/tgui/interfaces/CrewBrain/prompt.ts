@@ -152,6 +152,12 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   open_own_crate: 'open_own_crate',
   // Engineering staff working a machine: a pump, a canister, an emitter, a battery.
   work_machine: 'work_machine',
+  // Security staff: fetching a baton and cuffs, arresting someone, putting them in a cell, and
+  // letting them go. Only ever asked for by code.
+  get_kit: 'get_kit',
+  arrest: 'arrest',
+  jail: 'jail',
+  free: 'free',
 };
 
 /** How "my body" and "your body" are put right when they turn up in something said out loud. */

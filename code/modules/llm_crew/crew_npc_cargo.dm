@@ -60,6 +60,9 @@
 	// Engineering staff know Engineering and the engine room, and the Chief Engineer its office.
 	else if(works_in_engineering())
 		sentences += learn_engineering_places(known)
+	// Security staff know the Security Office and the brig, and the Head of Security its office.
+	else if(works_in_security())
+		sentences += learn_security_places(known)
 	// A head has an office, and goes back to it between errands.
 	if(findtext(job_title(), "Head of Personnel"))
 		office_place = learn_place(/area/station/command/heads_quarters/hop)
@@ -225,6 +228,9 @@
  */
 /datum/ai_controller/crew_npc/proc/return_to_post()
 	if(isnull(post_turf) || !COOLDOWN_FINISHED(src, post_return_cooldown))
+		return FALSE
+	// Under arrest, or in a brig cell, it goes nowhere of its own accord.
+	if(in_custody())
 		return FALSE
 	if(get_dist(pawn, post_turf) <= CREW_NPC_POST_LEASH || get_area(pawn) != get_area(post_turf))
 		return FALSE

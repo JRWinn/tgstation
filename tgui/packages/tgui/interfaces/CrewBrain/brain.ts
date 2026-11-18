@@ -22,6 +22,8 @@ import {
   pickupsOverhear,
   readPickup,
 } from './jobs/pickups';
+import { securityFeels } from './jobs/arrests';
+import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
@@ -368,6 +370,11 @@ export function ingest(npcs: Npc[], now: number): void {
         engineReading: null,
         engine: null,
         chief: null,
+        security: null,
+        custody: null,
+        wanted: newWanted(),
+        desk: null,
+        beat: null,
         ledger: null,
         givenOrder: null,
         qmSilent: null,
@@ -527,6 +534,9 @@ export function ingest(npcs: Npc[], now: number): void {
     // What engineering staff know of the machines they work, and what the PDA reads of the engine.
     brain.machines = npc.engineering?.machines ?? [];
     brain.engineReading = npc.engineering?.reading ?? null;
+    // What security staff are told of themselves and the brig, and the cell this body is held in, if it is.
+    brain.security = npc.security ?? null;
+    brain.custody = npc.custody ?? null;
     // With something proper to clean with it is no longer waiting on supplies. A rag does not count.
     if (brain.cleaningTool && !brain.poorTool) {
       brain.askedCargo = false;
@@ -560,7 +570,9 @@ export function ingest(npcs: Npc[], now: number): void {
         // So is being sent by its head to collect a crate from cargo.
         if (
           !readSummons(brain, from, text, event.at, theirJob) &&
-          !readPickup(brain, from, text, theirJob)
+          !readPickup(brain, from, text, theirJob) &&
+          // So is word of who security is looking for.
+          !readWanted(brain, from, text, theirJob)
         ) {
           jobFor(brain.job).readsMessage?.(
             brain,
@@ -634,6 +646,7 @@ export function ingest(npcs: Npc[], now: number): void {
         guardOverhears(brain, event);
         asideOverhears(brain, event);
         pickupsOverhear(brain, event);
+        wantedOverhears(brain, event);
         meetingsOverhear(brain, event);
         logTalk(
           brain,
@@ -696,6 +709,8 @@ export function ingest(npcs: Npc[], now: number): void {
           at: event.at,
         };
       }
+      // Someone has hit it, shoved it or taken hold of it. Only security staff are told, for now.
+      securityFeels(brain, event);
       noteResult(brain, event);
       const line = describeEvent(event, brain);
       brain.pending.push(line);

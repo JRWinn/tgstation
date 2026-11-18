@@ -13,12 +13,15 @@
 	// Something landing in its hand: its own doing as a rule, but not always. See on_item_in_hand.
 	RegisterSignal(body, COMSIG_MOB_EQUIPPED_ITEM, PROC_REF(on_item_in_hand))
 	start_pda_senses(body)
+	// Security staff notice who lays a hand on them: see crew_npc_security.dm.
+	start_security_senses(body)
 	look_timer = addtimer(CALLBACK(src, PROC_REF(look_around)), CREW_NPC_LOOK_INTERVAL, TIMER_LOOP | TIMER_STOPPABLE)
 
 /// Stops watching and listening. Called when the controller lets go of its body.
 /datum/ai_controller/crew_npc/proc/stop_senses(mob/living/carbon/human/body)
 	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_PRE_MOVE, COMSIG_MOB_EQUIPPED_ITEM))
 	stop_pda_senses()
+	stop_security_senses(body)
 	deltimer(look_timer)
 	look_timer = null
 
@@ -185,7 +188,7 @@
 	for(var/mob/living/carbon/human/person in in_sight)
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
 		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person)))
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person)))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)

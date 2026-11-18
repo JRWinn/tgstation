@@ -7,6 +7,7 @@ import { describeChoice } from './choice';
 import { asideCues } from './jobs/aside';
 import { guardCues } from './jobs/guarding';
 import { meetingCues } from './jobs/meetings';
+import { wantedCues } from './jobs/wanted';
 import { isJanitor, jobFor } from './jobs';
 import { recentlyToldOfMess, withKind } from './memory';
 import { describeFeeling } from './relationships';
@@ -113,6 +114,7 @@ export function describeSituation(brain: NpcBrain): string[] {
   lines.push(...guardCues(brain));
   lines.push(...asideCues(brain));
   lines.push(...meetingCues(brain));
+  lines.push(...wantedCues(brain));
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
   } else if (brain.wantsOut && brain.wayOutTo) {

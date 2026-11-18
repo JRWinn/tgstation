@@ -37,6 +37,7 @@ import {
   planPickups,
   syncPickups,
 } from './jobs/pickups';
+import { syncWanted } from './jobs/wanted';
 import { allPlaces, knowsPlace } from './memory';
 import type { NpcBrain, Plan, Task, Urgency } from './types';
 
@@ -142,6 +143,8 @@ export function syncTasks(brain: NpcBrain): void {
   syncMeetings(brain);
   // And collecting a crate from cargo that its head has sent it for.
   syncPickups(brain);
+  // And saying where someone security is looking for is, when it sees them.
+  syncWanted(brain);
   brain.tasks = brain.tasks.filter((task) => {
     if (task.state === 'done') {
       // A finished task is only kept while someone has yet to hear of it.

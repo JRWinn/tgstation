@@ -22,6 +22,9 @@
  * covers everyone who works there, and those whose rank lets them in anywhere.
  */
 /datum/ai_controller/crew_npc/proc/belongs_in_post(mob/living/carbon/human/person)
+	// Someone shut in a brig cell on a running timer was put there. Security do not question their own prisoners.
+	if(!isnull(crew_npc_cell_holding(person)))
+		return TRUE
 	var/any_door = FALSE
 	for(var/datum/weakref/door_ref as anything in post_doors())
 		var/obj/machinery/door/airlock/door = door_ref.resolve()

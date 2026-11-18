@@ -103,6 +103,13 @@
 		/obj/item/wirecutters,
 		/obj/item/wrench,
 	))
+	var/static/list/security_tools = typecacheof(list(
+		/obj/item/assembly/flash,
+		/obj/item/gun/energy,
+		/obj/item/melee/baton,
+		/obj/item/restraints/handcuffs,
+		/obj/item/storage/belt/security,
+	))
 	var/static/list/command_tools = typecacheof(list(
 		/obj/item/assembly/flash,
 		/obj/item/clipboard,
@@ -123,6 +130,8 @@
 		trade_tools += list(cargo_tools)
 	if(works_in_engineering())
 		trade_tools += list(engineering_tools)
+	if(works_in_security())
+		trade_tools += list(security_tools)
 	if(crew_npc_is_command(pawn))
 		trade_tools += list(command_tools)
 	return trade_tools

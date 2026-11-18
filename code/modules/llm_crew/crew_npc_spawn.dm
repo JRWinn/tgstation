@@ -39,6 +39,8 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 		"Quartermaster" = /datum/outfit/job/quartermaster,
 		"Chief Engineer" = /datum/outfit/job/ce,
 		"Station Engineer" = /datum/outfit/job/engineer,
+		"Head of Security" = /datum/outfit/job/hos,
+		"Security Officer" = /datum/outfit/job/security,
 	)
 	var/job = tgui_input_list(user, "Which job should the crew NPC have?", "Spawn Crew NPC", job_outfits)
 	if(isnull(job))
@@ -80,8 +82,9 @@ SUBSYSTEM_DEF(crew_npc)
 
 /**
  * Spawns the standing test crew and opens the brain window for whoever owns them: a Head of
- * Personnel, a Quartermaster, a Chief Engineer, two cargo technicians, a station engineer and
- * three janitors, each in the room their job starts the shift in. Every department that has
+ * Personnel, a Quartermaster, a Chief Engineer, a Head of Security, two cargo technicians, a
+ * station engineer, a security officer and three janitors, each in the room their job starts the
+ * shift in. Every department that has
  * staff aboard has its head aboard with them.
  *
  * With nobody named, the owner is the first admin connected who may spawn things.
@@ -104,6 +107,8 @@ SUBSYSTEM_DEF(crew_npc)
 		list(/datum/outfit/job/janitor, list(/area/station/service/janitor, /area/station/hallway), 3),
 		list(/datum/outfit/job/ce, list(/area/station/command/heads_quarters/ce, /area/station/engineering/main), 1),
 		list(/datum/outfit/job/engineer, list(/area/station/engineering/main, /area/station/engineering/break_room), 1),
+		list(/datum/outfit/job/hos, list(/area/station/command/heads_quarters/hos, /area/station/security/office), 1),
+		list(/datum/outfit/job/security, list(/area/station/security/office, /area/station/security/brig), 1),
 	)
 	var/spawned = 0
 	for(var/list/entry as anything in crew)
@@ -118,7 +123,7 @@ SUBSYSTEM_DEF(crew_npc)
 	get_crew_brain_link(owner.ckey).ui_interact(owner.mob)
 	return spawned
 
-ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, a Quartermaster, a Chief Engineer, two cargo technicians, a station engineer and three janitors.", ADMIN_CATEGORY_FUN)
+ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, a Quartermaster, a Chief Engineer, a Head of Security, two cargo technicians, a station engineer, a security officer and three janitors.", ADMIN_CATEGORY_FUN)
 	var/spawned = spawn_test_crew(user)
 	if(!spawned)
 		to_chat(user, span_warning("The test crew could not be spawned."))

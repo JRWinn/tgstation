@@ -16,6 +16,135 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 14:15: a Head of Security and a security officer, warrants, arrests and the brig (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), the table of cases in `tools/llm_crew/security.ts` (72 cases), simulator: the six new scenarios (`warrant`, `arresthead`, `pardon`, `fight`, `hurt`, `nohos`), each with a quiet, a chatty and a dead LLM, all 18 runs pass; the 37 older scenarios, run once each with a quiet LLM, 36 pass. The one that failed, `aside` ("asked to step aside ... 8s after being asked"), failed 1 run in 4 on this code and 2 in 4 on a clean copy of the last commit, so it is not from this work. **Not played in a round. No model tests.** A round was running while this was built, so the normal build was not run: **the game and the brain window have none of this until `BUILD.cmd` is run between rounds.** The simulator runs none of the server code. Every click with a baton, a pair of cuffs, a locker or a cell timer in this entry is compile-checked only. Treat all of the server side as unproven until a round shows it.
+
+**Plan:** `LLM_CREW_PLAN_SECURITY.md`. Its section 3.0 says who does what and where this build departs from the plan. The owner settled its seven questions as suggested ("just go with your gut") and said to add the head as well as the officer.
+
+**Why:** the owner wants a way, as Captain, to have someone arrested and put in the brig. The bar's monkey was the reason.
+
+### What the crew does now
+
+The security staff:
+
+- **The test crew has a Head of Security and one security officer.** Eleven bodies now. `spawn_test_crew` in `crew_npc_spawn.dm`; both are in the "Spawn Crew NPC" list too.
+- The officer's post is the Security Office. The Head of Security has its office, and knows the Security Office as where its staff work. Both know the way to the Brig. `learn_security_places` in `crew_npc_security.dm`.
+- A baton, cuffs, a flash and a gun count as tools of security's trade, so a full hand does not drop them. `trade_tool_types`.
+
+Declaring a warrant (`jobs/desk.ts`, words in `jobs/security.ts`):
+
+- **The Captain or a head of department declares a warrant to the Head of Security**, by PDA or to its face: "Warrant for Pun Pun, for wrecking the Custodial Closet." Also "arrest", "bring in", "lock up", "put a warrant out on". A time may be said: "ten minutes". Code reads the name, the reason and the time. `readWarrant`, `deskTakes`.
+- **It answers word for word:** "Captain, I have that: a warrant for Pun Pun, for wrecking the Custodial Closet. 5 minutes." With "I do not know that name yet" for a name on nobody's PDA and never seen.
+- Five minutes unless a time was said, and never more than fifteen.
+- **Who cannot:** anyone but the Captain or a head is told to take it to their head. Nobody declares one on the Captain or on security's own staff. Only the Captain declares one on a head. A second warrant on someone who has one is not taken.
+- A warrant a head declares is copied to the Captain by PDA.
+- A warrant names by every word of the name, in order. "Pun Pun" names "Pun Pun III" and not "Pun Punch". `sameName`.
+- **With no Head of Security aboard, the officer keeps the list itself**, in the same code. With one aboard, a warrant brought to the officer is sent on: "Captain, warrants go to Joan, the Head of Security." `jobs/officer.ts`.
+
+The notice and the meetings (`jobs/desk.ts`, `jobs/wanted.ts`, `jobs/head.ts`):
+
+- **Each time the list changes, every other head is sent the whole of it by PDA:** "Security notice. Wanted: Pun Pun, for wrecking the Custodial Closet. If you or your staff see them, send me where, at once." A long list goes out as several messages. `noticeLines`, the `NOTICE` task.
+- Each head answers "Security notice received." One that has not answered in a minute is sent it once more. After that the Captain is told which head it did not reach.
+- A head there is a warrant on is sent nothing while it stands.
+- **Every head reads the list out at its staff meeting**, after the reports and before its own business, word for word: "Security is looking for Pun Pun. If you see them, send security a PDA message saying where." At every meeting while anyone is wanted, and once, "Security is looking for nobody now", when nobody is. `wantedMeetingStep`, called from `meetStep` in `jobs/head.ts`.
+- Staff who hear it keep the list. Staff who were not called on at the meeting are sent it by PDA. `wantedOverhears`, `wantedAbsent`.
+
+Sightings (`jobs/wanted.ts`):
+
+- **Anyone who holds the list and sees someone on it sends security a PDA message:** "Security: Pun Pun is in the Bar." Once for each person and room in two minutes. Not while security is in sight, not about itself, and not about someone already in cuffs. It puts down no work for it. `syncWanted`.
+- The Captain, or anyone, can send the same in their own words: a message that names someone wanted and a room, with "is in", "saw", "seen" or the like.
+- **The Head of Security passes the newest sighting to its officer:** "Hale, Pun Pun was seen in the Bar."
+
+The officer (`jobs/officer.ts`, `jobs/arrests.ts`):
+
+- **Its first job is its kit.** It goes to a security locker, opens it with its own ID, and takes a stun baton out of the belt inside. `get_kit`; `tool_get_kit`, `kit_from_locker` in `crew_npc_security.dm`.
+- **The Head of Security gives it the warrant**, to its face or by PDA: "Hale, warrant: Pun Pun, for wrecking the Custodial Closet. Bring them in, 5 minutes." To its face, it answers "The warrant, right away."
+- It goes to where they were last seen and looks for twenty seconds. A sighting over five minutes old is not walked to. With none to follow it walks the rooms called "Primary Hallway", one after the other, and waits a minute and a half between walks.
+- **Seeing them, it walks up and says:** "Pun Pun, you are under arrest, for wrecking the Custodial Closet. Stand still." Then it puts the cuffs on, which takes four seconds.
+- **Someone who stays put for the cuffs is not hit.** A crew NPC always does: its body is held still the moment the arrest begins. `being_arrested`.
+- **Someone who will not stay put gets the baton on the next try:** twice, a third time if still standing, then the cuffs. `make_arrest`, `baton_hits`, `put_cuffs_on`.
+- Three tries that come to nothing and it leaves them be for two minutes, and says where it lost them. The warrant stands.
+- **With the cuffs on it takes them by the arm to the first empty cell**, sets the timer, walks them in, steps out and starts it. A crew NPC has the cuffs taken off first. Anyone else is left in them. `tool_jail`, `put_in_cell`.
+- **It tells the Head of Security:** "Joan, Pun Pun is in Cell 1 for 5 minutes." Said is not told: to its face it waits for "Hale, I have that". Out on the station it sends it by PDA. The Head of Security tells the Captain and whoever declared the warrant, and the heads are sent the new list.
+- The server counts arrests. The officer reports them at its staff meeting: "Joan, I have made 1 arrest. I need nothing." `work_arrests`; the new tally in `jobs/reports.ts`.
+
+Fighting back (`securityFeels`, `syncBeat` in `jobs/arrests.ts`; `on_struck`, `on_grabbed`, `on_kit_gone` in `crew_npc_security.dm`):
+
+- **Security staff are told who hits, shoves or takes hold of them, and who takes their baton.** Nobody else is.
+- **Someone under a warrant who does any of that gets the baton at once, and five minutes more:** "Captain, Pun Pun is in Cell 1 for 10 minutes, 5 of them for resisting arrest."
+- Someone with no warrant on them who does it is stopped with the baton and not arrested. The Captain is told who.
+- **Under half its health the officer breaks off:** "Joan, I could not take Pun Pun. I am hurt." It uses no force again until told to. Someone who stays put for the cuffs it still arrests.
+- **The Head of Security then serves the warrants itself:** it fetches a baton and goes after them. It tells the Captain. It does the same with no officer aboard. Otherwise it lays a hand on nobody.
+- The Captain saying "try again" to the Head of Security sets both making arrests again.
+- A prisoner in another's cuffs is left to whoever cuffed them. Found by the simulator: the hurt officer took hold of the Head of Security's prisoner.
+
+Being arrested, for a crew NPC (`crew_npc_security.dm`):
+
+- It stops, lets go of anything it is pulling, and stands still. It goes where it is taken. In the cell it can talk and do nothing else, until the cell's timer stops. It goes by the timer, not by a clock of its own. `custody_tick`.
+- Left in cuffs with nobody to take them off, it works them off the way a player does.
+- **Security do not question or put out anyone who is in a cell with its timer running.** `belongs_in_post` in `crew_npc_guarding.dm`.
+
+Pardons (`deskTakes`, `strike` in `jobs/desk.ts`):
+
+- **The Captain pardons:** "Pardon Pun Pun." Also "release", "free", "let go" with the name of someone there is something against. Only the Captain.
+- It ends a warrant not yet served, an arrest under way, or time in a cell. The officer is told "Hale, Pun Pun is to be let go: the Captain has pardoned them", lets go or stops the cell's timer, and says "Joan, Pun Pun is free." `tool_free`, `set_free`.
+- The Captain is answered "Captain, Pun Pun is pardoned." Whoever declared the warrant is told. The pardoned person is told if they are in sight.
+- A head can take back a warrant of its own: "Cancel the warrant on Pun Pun."
+
+Trespass (`wantedAfterActing`, `declareTrespass` in `jobs/wanted.ts`):
+
+- **A body that tries to put someone out of its room and cannot tells its head:** "Quin, I could not put Pun Pun out of the Cargo Bay."
+- **The head declares a warrant for trespass**, by PDA to security, in the words the Captain would use. Once in ten minutes for one person, and not while security is already looking for them.
+
+The Head of Security's meeting (`jobs/headofsecurity.ts`):
+
+- In the Security Office, called aloud, thirty seconds in and every ten minutes after, with every other head's steps. It closes with who is still wanted. The Captain is sent the same, and who is in the cells.
+- It calls none within two minutes of a new warrant or a sighting.
+
+### Short of the no-cheats rule
+
+- **The cell timer is set by sending it what its window would send**, as the body, standing at it. The owner decided this for machine windows on 2026-11-18. `work_timer`.
+- **Cuffs are taken off by taking the steps the strip window takes**, with its checks and its four seconds, since the game will not open that window for a body with no player. This is the same kind of stand-in. The owner has not been asked about this one. `take_cuffs_off`.
+- A crew NPC left in cuffs resists by the game's own resist call, which is what the Resist button does.
+- The few steps into a cell and out of it are taken a tile at a time by the body's own `Move`, not by the walk the rest of the crew code uses. `walk_steps`.
+
+### Not built
+
+- **Laws.** The reason on a warrant is whatever was said. The owner will write laws later.
+- **Reactions by personality.** Every crew NPC goes quietly. The owner wants this later.
+- A crew NPC that sees security lying still does not tell anyone.
+- Nothing answers a sighting, and nothing new gets the officer into a locked room.
+- The officer does not go back to a cell for its cuffs. It takes another pair from a locker.
+- The records console, security glasses, the radio, and Officer Beepsky: plan section 5.
+- The new lines have no cases in `tools/llm_crew/voice.ts`.
+
+### Known and not fixed
+
+- **None of the server side has been seen in the game.** In particular:
+  - that a click from a body with no player swings a baton, puts cuffs on, unlocks and opens a locker, and takes a baton out of a belt;
+  - that two baton hits hold a monkey still for the four seconds of the cuffs;
+  - **that the officer gets out of the cell and starts the timer before a prisoner who can still walk follows it out.** This is the step I trust least. If the prisoner is out when the door shuts, the timer is stopped again and the arrest is tried again;
+  - that the prisoner comes through the cell door behind the officer;
+  - that the timer and the strip steps accept the body as their user;
+  - that the cells are found: they are worked out from each timer's flasher, three tiles each on MetaStation, read from the map;
+  - that the game tells the body when it is bitten or shoved.
+- **Pun Pun will fight back, and may win.** Hit, it turns on whoever hit it 85 times in 100. It goes for a weapon, the officer's baton included, and it puts a downed target in a disposal unit. Nothing aboard heals security. Look for it in the first round.
+- **Do not set a crew NPC to "Arrest" at a records console.** Officer Beepsky will cuff it and leave it. It will work the cuffs off, slowly.
+- Staff learn of a warrant at their head's next meeting, up to ten minutes late, and learn it is over just as late. In the simulator two janitors sent word of the monkey after it had served its time. The Head of Security ignores word about someone not on its list.
+- Each spotter sends its own message. Two janitors in one room send two.
+- The Head of Security's first meeting is thirty seconds in. A warrant declared before that puts it off by two minutes.
+- With the PDA down nothing reaches security, and the notice reaches no head.
+- A sighting names the room. In a wide room the officer may look for twenty seconds and not see them.
+- The officer walks only rooms with "Primary Hallway" in the name.
+- A pardon said to the officer, with a Head of Security aboard, is sent on and not acted on.
+- The Head of Security cannot open a cell its officer shut unless it can see the prisoner in it. It tells the officer.
+- "free" and "release" are pardon words only with the name of someone wanted or held. "Pardon" always is.
+- Trespass warrants can only start with staff who put people out of their rooms: cargo, engineering and now security. Janitors do not.
+- The simulator's monkey is simple. It does not run from a baton or take one.
+
+---
+
 ## 2026-11-18, 13:30: faults from the 12:23 round, door names, and water carried in a bucket (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 36 scenarios with a quiet LLM passed, and `nested` and `qm` with a chatty and a dead LLM. Three of those four passed. `nested` with a dead LLM failed "the cargo technician ends at the post", the check the entry below lists as flaky on the committed code. **Not played in a round. No model tests. No new simulator scenarios.** The full build was run at 13:31, after the round had ended (0 errors, 0 warnings, the bundle rebuilt), so the next round has all of this. The simulator runs none of the server code and knows nothing of buckets, door names or crates in doorways, so everything in a `.dm` file below is compile-checked only, and on the brain side the new paths (a door named, a bucket fetched and filled, the next door opened unasked, an order given again to the same technician) have no scenario that walks them. Lint still reports the folder's old formatting findings, in files this work did not touch as well.

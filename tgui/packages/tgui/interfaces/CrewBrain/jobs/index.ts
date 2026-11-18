@@ -7,8 +7,10 @@ import { CARGO } from './cargo';
 import { CHIEF_ENGINEER } from './chiefengineer';
 import { ENGINEER } from './engineer';
 import { HEAD_OF_PERSONNEL } from './head';
+import { HEAD_OF_SECURITY } from './headofsecurity';
 import { JANITOR } from './janitor';
 import type { Job } from './job';
+import { OFFICER } from './officer';
 import { QUARTERMASTER } from './quartermaster';
 
 /**
@@ -23,6 +25,8 @@ const JOBS: Job[] = [
   HEAD_OF_PERSONNEL,
   CHIEF_ENGINEER,
   ENGINEER,
+  HEAD_OF_SECURITY,
+  OFFICER,
 ];
 
 /** Crew whose job has not been given duties of its own: a person, free to walk the station. */

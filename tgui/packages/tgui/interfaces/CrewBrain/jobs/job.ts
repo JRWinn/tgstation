@@ -97,7 +97,8 @@ export type Job = {
   /**
    * Called when the body has heard how something it was told to do for a task went, to note what
    * that means for its work. `ok` says whether it went through. `looped` is TRUE if it was a walk
-   * that got there, for the third time running: it is getting the body nowhere.
+   * that got there, for the third time running: it is getting the body nowhere. `details` is what
+   * the body said of how it went, for the jobs that go by more than whether it did.
    */
   afterActing?: (
     brain: NpcBrain,
@@ -105,6 +106,7 @@ export type Job = {
     task: Task | undefined,
     ok: boolean,
     looped?: boolean,
+    details?: SenseEvent['details'],
   ) => void;
   /** Reads a PDA message the NPC has been sent, to note what it means for its work. No LLM is asked. */
   readsMessage?: (

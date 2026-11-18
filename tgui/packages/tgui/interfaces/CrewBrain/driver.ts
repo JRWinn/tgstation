@@ -33,6 +33,7 @@ import { doorCalled } from './jobs/janitor';
 import { meetingsAfterActing } from './jobs/meetings';
 import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
+import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
 import { workInOrder, wordOwed } from './tasks';
 import type { Action, NpcBrain, SenseEvent, Task } from './types';
@@ -910,7 +911,9 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
     looped,
+    event.details,
   );
+  wantedAfterActing(brain, last.act, !!event.details.ok, event.text);
   ordersAfterActing(
     last.act,
     brain.tasks.find((task) => task.id === last.task),

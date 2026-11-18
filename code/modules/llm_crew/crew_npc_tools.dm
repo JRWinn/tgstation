@@ -10,7 +10,7 @@
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
 	if(!tool_call_allowed())
 		return
-	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK, CREW_TOOL_STOW, CREW_TOOL_STEP_ASIDE, CREW_TOOL_NOTE, CREW_TOOL_PAPER, CREW_TOOL_WORD_PASSED, CREW_TOOL_OPEN_CRATE, CREW_TOOL_MACHINE)))
+	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK, CREW_TOOL_STOW, CREW_TOOL_STEP_ASIDE, CREW_TOOL_NOTE, CREW_TOOL_PAPER, CREW_TOOL_WORD_PASSED, CREW_TOOL_OPEN_CRATE, CREW_TOOL_MACHINE, CREW_TOOL_GET_KIT, CREW_TOOL_ARREST, CREW_TOOL_JAIL, CREW_TOOL_FREE)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
 		return
 	if(!can_sense())
@@ -18,7 +18,8 @@
 		return
 	// Someone has it by the arm and is walking it out of a room. It can still speak, and that is all.
 	if(world.time < in_hand_until && tool != CREW_TOOL_SAY && tool != CREW_TOOL_HOLD)
-		action_result(tool, FALSE, "[in_hand_of] has you by the arm and is walking you out.")
+		// Or it is under arrest, or in a brig cell: see crew_npc_security.dm.
+		action_result(tool, FALSE, custody_words() || "[in_hand_of] has you by the arm and is walking you out.")
 		return
 	if(!islist(arguments))
 		arguments = list()
@@ -59,6 +60,14 @@
 			tool_open_own_crate(arguments["number"])
 		if(CREW_TOOL_MACHINE)
 			tool_work_machine(arguments["machine"], arguments["how"])
+		if(CREW_TOOL_GET_KIT)
+			tool_get_kit()
+		if(CREW_TOOL_ARREST)
+			tool_arrest(arguments["person"], arguments["how"])
+		if(CREW_TOOL_JAIL)
+			tool_jail(arguments["minutes"])
+		if(CREW_TOOL_FREE)
+			tool_free(arguments["person"])
 		if(CREW_TOOL_RELEASE)
 			tool_release(arguments["number"], arguments["person"])
 		if(CREW_TOOL_COLLECT)

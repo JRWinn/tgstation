@@ -158,10 +158,19 @@
 	// there is nothing to reach for.
 	if(errand_tool == CREW_TOOL_CLEAN && isturf(target))
 		return wet_mop(held_bucket())
+	// An arrest is of someone who may not stand and wait for it. It closes with them itself.
+	if(errand_tool == CREW_TOOL_ARREST && !QDELETED(target) && !QDELETED(body))
+		return make_arrest(target)
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
 		return list(FALSE, "You could not get to it.")
 	body.face_atom(target)
 	switch(errand_tool)
+		if(CREW_TOOL_GET_KIT)
+			return take_kit(target)
+		if(CREW_TOOL_JAIL)
+			return put_in_cell(target)
+		if(CREW_TOOL_FREE)
+			return set_free(target)
 		if(CREW_TOOL_PICK_UP)
 			if(istype(target, /obj/structure/closet))
 				return take_from_container(target)
@@ -298,7 +307,8 @@
 	if(tool == CREW_TOOL_TIDY && !outcome[1])
 		drop_tidy_item()
 	if(tool != CREW_TOOL_CLEAN)
-		action_result(tool, outcome[1], outcome[2])
+		// Security's errands say why they came to nothing, and what came of them: see crew_npc_security.dm.
+		action_result(tool, outcome[1], outcome[2], CREW_NPC_SECURITY_TOOL(tool) ? security_details(tool, outcome) : null)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
 		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(proper_tool()) && sink_in_view)
@@ -447,6 +457,14 @@
 				return "going to open a crate that came for you"
 			if(CREW_TOOL_MACHINE)
 				return "going to work a machine"
+			if(CREW_TOOL_GET_KIT)
+				return "going to get your baton and cuffs"
+			if(CREW_TOOL_ARREST)
+				return errand_item == CREW_ARREST_STOP ? "stopping someone who attacked you" : "arresting someone"
+			if(CREW_TOOL_JAIL)
+				return "taking someone you have arrested to a cell"
+			if(CREW_TOOL_FREE)
+				return "letting someone go"
 			if(CREW_TOOL_RELEASE)
 				return "going to fetch a crate that someone has come to collect"
 			if(CREW_TOOL_COLLECT)

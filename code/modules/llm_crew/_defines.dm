@@ -298,3 +298,17 @@
 #define CREW_NPC_NOTE_ROOM (CREW_NPC_NOTE_LINES * (CREW_NPC_NOTE_LINE_LENGTH + 2))
 /// How long after a round starts the standing test crew is spawned, so that whoever owns them has a body by then.
 #define CREW_NPC_AUTOSTART_DELAY (10 SECONDS)
+/// Tool name: see that the body has a stun baton and a pair of handcuffs on it, from the floor or from a security locker. Security staff only.
+#define CREW_TOOL_GET_KIT "get_kit"
+/// Tool name: go up to someone and arrest them: cuff them and take them by the arm. Security staff only.
+#define CREW_TOOL_ARREST "arrest"
+/// Tool name: walk whoever the body has arrested to a free brig cell, put them in it, and start its timer. Security staff only.
+#define CREW_TOOL_JAIL "jail"
+/// Tool name: let someone go: out of the body's hold, out of their cuffs, or out of a brig cell. Security staff only.
+#define CREW_TOOL_FREE "free"
+/// How an arrest is made: with the cuffs alone, with the baton first, or the baton alone to stop someone who is not being arrested.
+#define CREW_ARREST_QUIET "quiet"
+#define CREW_ARREST_FORCE "force"
+#define CREW_ARREST_STOP "stop"
+/// TRUE if this tool is one of security's, whose errands report why they failed.
+#define CREW_NPC_SECURITY_TOOL(tool) (tool == CREW_TOOL_GET_KIT || tool == CREW_TOOL_ARREST || tool == CREW_TOOL_JAIL || tool == CREW_TOOL_FREE)

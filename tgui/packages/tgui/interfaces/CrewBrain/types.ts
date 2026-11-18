@@ -57,6 +57,10 @@ export type PersonInView = {
   command?: BooleanLike;
   /** TRUE if the observer answers to this person: the Captain, or the head of its own department. */
   superior?: BooleanLike;
+  /** TRUE if this person is in handcuffs. */
+  cuffed?: BooleanLike;
+  /** TRUE if this person is lying on the floor and cannot get up: knocked down, or out cold. */
+  down?: BooleanLike;
 };
 
 /**
@@ -305,9 +309,192 @@ export type Npc = {
     machines: EngineMachine[];
     reading: EngineReading | null;
   } | null;
+  /** The brig cell this body is being held in, by name, or null. */
+  custody?: string | null;
+  /** For security staff: what they have on them, who they have by the arm, and the brig's cells. Null for everyone else. */
+  security?: SecurityState | null;
   /** Highest event number this window has already told the server it dealt with. */
   acked_seq: number;
   events: SenseEvent[];
+};
+
+/** One of the brig's cells. How it stands is known only while it is in view: null otherwise. */
+export type SecurityCell = {
+  name: string;
+  /** TRUE while its timer is running and its door is shut. */
+  running: BooleanLike | null;
+  /** Seconds left on its timer. */
+  left: number | null;
+  /** The names of whoever is inside. */
+  occupants: string[] | null;
+};
+
+/** What the server tells security staff of themselves and of the brig. */
+export type SecurityState = {
+  /** TRUE if it has a stun baton on it with charge for at least one hit. */
+  has_baton: BooleanLike;
+  has_cuffs: BooleanLike;
+  /** The name of whoever it has by the arm, or null. */
+  holding: string | null;
+  /** How well it is, as a percentage of full health. */
+  health: number;
+  /** A stun baton in view that is not on it: on the floor, or in someone's hand, and whose. */
+  baton_seen: { where: 'floor' | 'held'; by: string | null } | null;
+  cells: SecurityCell[];
+};
+
+/** Someone security is looking for, as anyone who holds the list knows them. */
+export type WantedEntry = {
+  name: string;
+  /** What for, if that was said. */
+  reason?: string;
+};
+
+/** How a warrant went, as whoever served it tells whoever keeps the list. */
+export type SecurityOutcome = {
+  what: 'jailed' | 'lost' | 'hurt' | 'baton' | 'attacked' | 'freed' | 'cannot';
+  /** Who it is about. For "attacked" and "baton", who did it. */
+  name: string;
+  cell?: string;
+  minutes?: number;
+  /** TRUE if they fought back, and time was added for it. */
+  resisted?: boolean;
+  /** Where they were lost. */
+  place?: string;
+  /** For "attacked": who was being arrested at the time. */
+  other?: string;
+  why?: string;
+};
+
+/** What every NPC keeps of who security is looking for: see jobs/wanted.ts. */
+export type WantedKnown = {
+  /** Everyone it has been told is wanted. A new notice takes the place of the old list. */
+  entries: WantedEntry[];
+  /** Server time it was last told. */
+  at: number;
+  /** When it last sent word of each sighting (this window's clock), by "name|room". */
+  told: Record<string, number>;
+  /** For a head: the names it last read out at a staff meeting. Null if it has read none out. */
+  readOut: string[] | null;
+  /** People it tried to put out of its room and could not, and whether word of it has gone up. */
+  couldNot: { name: string; place: string; at: number; done: boolean }[];
+  /** For a head: who it has declared a warrant on for trespass, and when (server time). */
+  declared: Record<string, number>;
+  /** Who is arresting it, and when (server time), or null. */
+  arrestedBy: { by: string; at: number } | null;
+};
+
+/** A warrant, as whoever keeps security's list keeps it: see jobs/desk.ts. Times are server time. */
+export type Warrant = {
+  name: string;
+  /** What for, as it was said. '' if nothing was. */
+  reason: string;
+  /** How long in a cell it earns. */
+  minutes: number;
+  /** Who declared it, and their job. */
+  by: string;
+  byJob: string;
+  at: number;
+  /** Whether its officer has it: not yet told, told and not answered, or has it. */
+  given: 'no' | 'said' | 'taken';
+  givenAt: number | null;
+  /** How many times it has been given with no word back. */
+  gives: number;
+  /** TRUE once giving it by PDA would not send, so that it is taken to the officer on foot. */
+  unsent?: boolean;
+  /** TRUE once it has walked up to its officer to give it. */
+  walkedUp?: boolean;
+  /** Where they were last seen, when, and who said so. */
+  lastSeen: { place: string; at: number; by: string } | null;
+  /** The sighting it last passed to its officer: the room and when. */
+  passed: { place: string; at: number } | null;
+};
+
+/** What whoever keeps security's list knows: see jobs/desk.ts. Times are server time. */
+export type DeskWork = {
+  warrants: Warrant[];
+  /** Goes up each time the list changes. A head that has an older one is sent the new one. */
+  serial: number;
+  /** Where each head stands with the notice: which list it was last sent, how much of it, when, and whether it answered. */
+  noticed: Record<
+    string,
+    {
+      serial: number;
+      lines: number;
+      sentAt: number;
+      tries: number;
+      acked: boolean;
+      failed?: boolean;
+    }
+  >;
+  /** Who is in a cell, which, and when their time is up. */
+  held: Record<string, { cell: string; until: number }>;
+  /** Why its officer is making no arrests, if it is not: "hurt". Null while it is. */
+  officerOut: string | null;
+  /** How many arrests have been made on its warrants. */
+  arrests: number;
+};
+
+/** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */
+export type BeatWarrant = {
+  name: string;
+  reason: string;
+  minutes: number;
+  /** Where they were last seen, and when. */
+  lastSeen: { place: string; at: number } | null;
+  /** When it last looked for them where they were last seen. */
+  lookedAt: number | null;
+  /** When it last told them they were under arrest. */
+  toldAt: number | null;
+  /** TRUE once it has walked up to them. */
+  walkedUp?: boolean;
+  /** How many tries at arresting them have come to nothing. */
+  tries: number;
+  /** TRUE once they would not stand still for the cuffs, or hit back: the baton comes first. */
+  force: boolean;
+  /** TRUE if they fought back. It adds to their time. */
+  resisted: boolean;
+  /** Left alone until then, after three tries that came to nothing. */
+  restUntil: number;
+  /** When putting them in a cell last came to nothing for want of an empty one. */
+  noCellAt?: number;
+  /** TRUE once it has put its own cuffs on them. Someone in cuffs it did not put on is another's prisoner. */
+  cuffedByMe?: boolean;
+};
+
+/** A word the officer has for the Head of Security, and how far it has got with passing it on. */
+export type BeatWord = {
+  outcome: SecurityOutcome;
+  line: string;
+  toldAt?: number;
+  unheard: number;
+  walkedUp?: boolean;
+  soughtAt?: number;
+  byPda?: boolean;
+};
+
+/** What whoever serves warrants knows of its own work: see jobs/arrests.ts. Times are server time. */
+export type BeatWork = {
+  warrants: BeatWarrant[];
+  /** How many times it has gone for its kit and come back short, and when it last went. */
+  kitTries: number;
+  kitAt: number;
+  /** TRUE once it has broken off hurt. It uses no force again until it is told to. */
+  hurt: boolean;
+  /** Someone with no warrant on them who has just attacked it. */
+  attacker: { name: string; handle: string; at: number; stopped?: boolean } | null;
+  /** Who it has put in a cell: which, when their time is up, and whether they still wear its cuffs. */
+  jailed: Record<string, { cell: string; until: number; cuffsLeft: boolean }>;
+  /** Who it has been told to let go. */
+  toFree: { name: string; pardoned: boolean; tries: number }[];
+  /** How its warrants have gone, for whoever keeps the list, until they are taken up. */
+  outcomes: SecurityOutcome[];
+  /** For an officer with a Head of Security over it: what it has yet to tell them. */
+  words: BeatWord[];
+  /** Its walk of the hallways: which it looked down last, and when. */
+  round: { next: number; at: number };
+  /** TRUE once it has told whoever keeps the list that someone has its baton. */
+  batonTold?: boolean;
 };
 
 /**
@@ -1112,6 +1299,8 @@ export type NpcBrain = {
     walkedTo?: string[];
     /** Who ordered it held, if it was not called of its own accord. */
     orderedBy: string | null;
+    /** How many lines of who security is looking for it has read out at this meeting: see jobs/wanted.ts. */
+    wantedSaid?: number;
   } | null;
   /** For a head: server time the next staff meeting is due, and whether it has held one yet. */
   nextMeetingAt: number;
@@ -1159,6 +1348,16 @@ export type NpcBrain = {
   engine: EngineWork | null;
   /** For a Chief Engineer: what it knows of the engine and its staff: see jobs/chiefengineer.ts. */
   chief: ChiefWork | null;
+  /** For security staff: what the server tells them of themselves and the brig. Null for everyone else. */
+  security: SecurityState | null;
+  /** The brig cell it is being held in, by name, or null. */
+  custody: string | null;
+  /** Who security is looking for, as far as it has been told: see jobs/wanted.ts. */
+  wanted: WantedKnown;
+  /** For whoever keeps security's list: the warrants, and who has been told of them: see jobs/desk.ts. */
+  desk: DeskWork | null;
+  /** For whoever serves warrants: where it has got to with each: see jobs/arrests.ts. */
+  beat: BeatWork | null;
   /** For a Quartermaster: every order it has taken, and how far each has got: see jobs/quartermaster.ts. */
   ledger: Ledger | null;
   /**
