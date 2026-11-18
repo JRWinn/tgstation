@@ -135,6 +135,10 @@
 			return hand_over(target)
 		if(CREW_TOOL_ORDER)
 			return place_order(target)
+		if(CREW_TOOL_PAPER)
+			return take_paper(target)
+		if(CREW_TOOL_OPEN_CRATE)
+			return open_own_crate(target)
 		if(CREW_TOOL_RELEASE)
 			return haul_released(target)
 		if(CREW_TOOL_COLLECT)
@@ -379,6 +383,10 @@
 				return "about to throw a cleaner grenade at a big mess"
 			if(CREW_TOOL_ORDER)
 				return "going to the supply console to place an order"
+			if(CREW_TOOL_PAPER)
+				return "going to find paper for your order book"
+			if(CREW_TOOL_OPEN_CRATE)
+				return "going to open a crate that came for you"
 			if(CREW_TOOL_RELEASE)
 				return "going to fetch a crate that someone has come to collect"
 			if(CREW_TOOL_COLLECT)

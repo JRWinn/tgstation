@@ -46,6 +46,11 @@ const GOING_TO_LOOK = 'I am going to look in on the';
 const turns: Record<string, { by: string; at: number }> = {};
 const looked: Record<string, Record<string, number>> = {};
 
+/** TRUE if the task is a look round. */
+export function isRounds(task: Task): boolean {
+  return task.kind === LOOK_IN;
+}
+
 /** Forgets whose turn it was and what has been looked in on. Called when the window closes. */
 export function clearRounds(): void {
   for (const post of Object.keys(turns)) {

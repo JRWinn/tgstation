@@ -5117,6 +5117,7 @@
 #include "code\modules\llm_crew\crew_npc_inventory.dm"
 #include "code\modules\llm_crew\crew_npc_motor.dm"
 #include "code\modules\llm_crew\crew_npc_places.dm"
+#include "code\modules\llm_crew\crew_npc_quartermaster.dm"
 #include "code\modules\llm_crew\crew_npc_senses.dm"
 #include "code\modules\llm_crew\crew_npc_spawn.dm"
 #include "code\modules\llm_crew\crew_npc_storage.dm"

@@ -7,9 +7,13 @@ import { CARGO } from './cargo';
 import { HEAD_OF_PERSONNEL } from './head';
 import { JANITOR } from './janitor';
 import type { Job } from './job';
+import { QUARTERMASTER } from './quartermaster';
 
-/** Every job with duties of its own. */
-const JOBS: Job[] = [JANITOR, CARGO, HEAD_OF_PERSONNEL];
+/**
+ * Every job with duties of its own. The Quartermaster comes before cargo: it is cargo staff as far
+ * as anyone asking "who works in cargo" is concerned, and its job is not a technician's.
+ */
+const JOBS: Job[] = [JANITOR, QUARTERMASTER, CARGO, HEAD_OF_PERSONNEL];
 
 /** Crew whose job has not been given duties of its own: a person, free to walk the station. */
 const CREW: Job = {

@@ -13,7 +13,8 @@ const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
 
 // A report read back gives the numbers it was written with, whichever way it is worded.
-for (const counts of [{ put_away: 14, cleaned: 9 }, { cleaned: 1 }, { put_away: 1 }, {}]) {
+// Crates brought in and crates sent out count the same thing, so the words for what was done to them are what tells them apart.
+for (const counts of [{ put_away: 14, cleaned: 9 }, { cleaned: 1 }, { put_away: 1 }, {}, { crates_in: 3, crates_out: 2 }, { crates_in: 1 }, { crates_out: 7 }]) {
   for (let wording = 0; wording < WORDINGS; wording++) {
     for (const need of ['something to clean with', 'something better than a rag to clean with', null]) {
       const line = `Walker, ${workWords(counts, wording)}. ${needWords(need)}`;

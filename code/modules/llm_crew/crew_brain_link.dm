@@ -99,7 +99,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// All it has to clean with is a rag, which shifts little.
 			"poor_tool" = npc.has_poor_tool(),
 			// How much of its work it has done so far this shift: messes cleaned up, and things put away.
-			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away),
+			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away, "crates_in" = npc.work_crates_in, "crates_out" = npc.work_crates_out),
 			"has_locator" = npc.has_custodial_locator(),
 			"cleanable_messes" = npc.cleanable_messes,
 			"mess_places" = npc.mess_places(),
@@ -162,6 +162,13 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"out_of_bounds" = npc.out_of_bounds,
 			// Rooms it lately found no way into.
 			"blocked_places" = npc.blocked_place_names(),
+			// For a Quartermaster: what is written in its order book, the money every order is paid from, and what each crate costs.
+			"book" = npc.order_book_lines(),
+			"budget" = npc.is_quartermaster() ? npc.cargo_budget() : null,
+			"crate_costs" = npc.is_quartermaster() ? npc.crate_costs() : null,
+			// Where a head's staff work from, and where a technician knocks for the head it answers to.
+			"staff_post" = npc.staff_post_place,
+			"head_office" = npc.head_office_place,
 			// Holding a mop that will not clean until it is wetted, with no sink in sight to wet it at.
 			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()) && !npc.sink_in_view,
 			"place_kind" = npc.place_kind(),

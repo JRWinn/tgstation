@@ -26,7 +26,7 @@
 	var/static/list/crates
 	if(isnull(crates))
 		crates = list()
-		for(var/pack_type in list(/datum/supply_pack/service/janitor, /datum/supply_pack/service/lightbulbs))
+		for(var/pack_type in list(/datum/supply_pack/service/janitor, /datum/supply_pack/service/lightbulbs, /datum/supply_pack/misc/paper))
 			var/datum/supply_pack/pack = SSshuttle.supply_packs[pack_type]
 			if(pack)
 				crates[pack.name] = pack_type
@@ -39,7 +39,12 @@
 /datum/ai_controller/crew_npc/proc/learn_starting_places()
 	var/list/known = list()
 	var/list/sentences = list()
-	if(works_in_cargo())
+	// The Quartermaster is cargo staff with no post at the counter: it has an office, and its staff to find.
+	if(is_quartermaster())
+		sentences += learn_quartermaster_places(known)
+	else if(works_in_cargo())
+		// A technician knocks at the Quartermaster's office door when it has word for it.
+		learn_head_office()
 		// The post is wherever the department's supply console is. Stations name that room differently.
 		var/obj/machinery/computer/cargo/console = supply_console()
 		var/area/post_area = console ? get_area(console) : null
@@ -304,9 +309,13 @@
  * asks for everything its staff need in one go. `items` is that list, each entry a kind and a count.
  * With no list, the order is for `count` crates of `crate_name`.
  */
-/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count, list/items)
+/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count, list/items, for_name, via, ref)
 	if(!works_in_cargo())
 		action_result(CREW_TOOL_ORDER, FALSE, "Ordering supplies is cargo's job. Ask the cargo technician.")
+		return
+	// The Quartermaster delegates. An order is placed by one of its technicians, on its word.
+	if(is_quartermaster())
+		action_result(CREW_TOOL_ORDER, FALSE, "You do not place orders at the console yourself. Give it to one of your technicians.")
 		return
 	var/list/known = orderable_crates()
 	var/list/wanted = list()
@@ -342,6 +351,15 @@
 	var/datum/weakref/asker_ref = istext(for_handle) ? handle_people[for_handle] : null
 	var/mob/living/carbon/human/asker = asker_ref?.resolve()
 	order_for = QDELETED(asker) ? last_heard_speaker : asker.name
+	// An order the Quartermaster gave is for whoever the Quartermaster said, and word that it has
+	// come goes back through the Quartermaster. Names only: nothing here is trusted beyond that.
+	var/static/regex/not_a_name = regex(@"[<>\[\]\r\n\t]+", "g")
+	order_via = null
+	order_ref = null
+	if(istext(via) && istext(for_name) && length(trim(for_name)))
+		order_for = trim(copytext_char(not_a_name.Replace(for_name, " "), 1, MAX_NAME_LEN + 1))
+		order_via = trim(copytext_char(not_a_name.Replace(via, " "), 1, MAX_NAME_LEN + 1))
+		order_ref = isnum(ref) ? clamp(round(ref), 1, 9999) : null
 	order_items = wanted
 	supply_held_up_since = 0
 	start_errand(nearest_console, CREW_TOOL_ORDER, order_in_words(wanted))
@@ -486,10 +504,14 @@
 		kinds += entry.what
 	ordered_kinds = list()
 	if(order_for)
-		notices_owed += list(list("to" = order_for, "kind" = CREW_NOTICE_ARRIVED, "numbers" = numbers, "what" = length(unique_list(kinds)) == 1 ? kinds[1] : null, "kinds" = kinds))
+		notices_owed += list(list("to" = order_for, "kind" = CREW_NOTICE_ARRIVED, "numbers" = numbers, "what" = length(unique_list(kinds)) == 1 ? kinds[1] : null, "kinds" = kinds, "via" = order_via, "ref" = order_ref))
 	freight_changed()
 	var/several = length(numbers) > 1
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[order_for ? " Send [order_for] a PDA message with the number[several ? "s" : ""]." : ""]", list("numbers" = numbers))
+	// Whoever gave the order is who hears that it has come: the Quartermaster, face to face, or whoever it is for, by PDA.
+	var/word = ""
+	if(order_for)
+		word = order_via ? " Tell [order_via], face to face, that it has come in." : " Send [order_for] a PDA message with the number[several ? "s" : ""]."
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[word]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)

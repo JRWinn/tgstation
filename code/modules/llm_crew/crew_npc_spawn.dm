@@ -36,6 +36,7 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 		"Janitor" = /datum/outfit/job/janitor,
 		"Cargo Technician" = /datum/outfit/job/cargo_tech,
 		"Head of Personnel" = /datum/outfit/job/hop,
+		"Quartermaster" = /datum/outfit/job/quartermaster,
 	)
 	var/job = tgui_input_list(user, "Which job should the crew NPC have?", "Spawn Crew NPC", job_outfits)
 	if(isnull(job))
@@ -77,7 +78,8 @@ SUBSYSTEM_DEF(crew_npc)
 
 /**
  * Spawns the standing test crew and opens the brain window for whoever owns them: a Head of
- * Personnel, two cargo technicians and three janitors, each in the room their job starts the shift in.
+ * Personnel, a Quartermaster, two cargo technicians and three janitors, each in the room their job
+ * starts the shift in. Every department that has staff aboard has its head aboard with them.
  *
  * With nobody named, the owner is the first admin connected who may spawn things.
  */
@@ -94,6 +96,7 @@ SUBSYSTEM_DEF(crew_npc)
 	// The outfit, the rooms to look for somewhere to stand in, and how many.
 	var/static/list/crew = list(
 		list(/datum/outfit/job/hop, list(/area/station/command/heads_quarters/hop, /area/station/hallway), 1),
+		list(/datum/outfit/job/quartermaster, list(/area/station/command/heads_quarters/qm, /area/station/cargo/storage, /area/station/cargo), 1),
 		list(/datum/outfit/job/cargo_tech, list(/area/station/cargo/storage, /area/station/cargo/lobby, /area/station/cargo), 2),
 		list(/datum/outfit/job/janitor, list(/area/station/service/janitor, /area/station/hallway), 3),
 	)
@@ -110,7 +113,7 @@ SUBSYSTEM_DEF(crew_npc)
 	get_crew_brain_link(owner.ckey).ui_interact(owner.mob)
 	return spawned
 
-ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, two cargo technicians and three janitors.", ADMIN_CATEGORY_FUN)
+ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, a Quartermaster, two cargo technicians and three janitors.", ADMIN_CATEGORY_FUN)
 	var/spawned = spawn_test_crew(user)
 	if(!spawned)
 		to_chat(user, span_warning("The test crew could not be spawned."))

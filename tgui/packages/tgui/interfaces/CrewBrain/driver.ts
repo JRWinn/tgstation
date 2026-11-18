@@ -61,7 +61,15 @@ const IN_THE_WAY_MS = 30000;
 /** The steps record under which asking someone to step aside is kept. */
 const ASIDE_KEY = 'step-aside';
 /** What the body does without going anywhere. Everything else takes it off across the room, or out of it. */
-const STAYS = new Set(['clean', 'message', 'search', 'find_supplies', 'grenade']);
+const STAYS = new Set([
+  'clean',
+  'message',
+  'search',
+  'find_supplies',
+  'grenade',
+  'note',
+  'word_passed',
+]);
 /** How long the driver waits to hear how a step went before it takes it to have come to nothing. */
 const LOST_ACT_MS = 12000;
 /** How long the body waits for the LLM to say which job comes first before the code's own order is taken. */

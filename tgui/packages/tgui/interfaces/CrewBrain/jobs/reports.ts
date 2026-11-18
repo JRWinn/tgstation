@@ -31,6 +31,10 @@ type Tally = {
 const TALLIES: Tally[] = [
   { key: 'put_away', one: 'item', many: 'items', did: 'cleaned up' },
   { key: 'cleaned', one: 'spot', many: 'spots', did: 'scrubbed' },
+  // What cargo staff count: crates hauled in off the supply shuttle, and crates sent out, to
+  // whoever came for one or back aboard the shuttle.
+  { key: 'crates_in', one: 'crate', many: 'crates', did: 'brought in' },
+  { key: 'crates_out', one: 'crate', many: 'crates', did: 'sent out' },
 ];
 
 /** How many ways there are of wording the work done. Each NPC keeps to one for the length of a meeting. */
@@ -60,10 +64,19 @@ export function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** How much of each kind of work an NPC has done since it last reported. Kinds it has done none of are left out. */
-export function workSince(brain: NpcBrain): Record<string, number> {
+/**
+ * How much of each kind of work an NPC has done since it last reported. Kinds it has done none of
+ * are left out. `only` is the kinds its job reports, if it does not report them all.
+ */
+export function workSince(
+  brain: NpcBrain,
+  only?: string[],
+): Record<string, number> {
   const since: Record<string, number> = {};
   for (const { key } of TALLIES) {
+    if (only && !only.includes(key)) {
+      continue;
+    }
     const done = (brain.workDone[key] ?? 0) - (brain.workReported[key] ?? 0);
     if (done > 0) {
       since[key] = done;
@@ -131,8 +144,9 @@ export function reportWords(
   brain: NpcBrain,
   need: string | null,
   wording: number,
+  only?: string[],
 ): string {
-  return `${capital(workWords(workSince(brain), wording))}. ${needWords(need)}`;
+  return `${capital(workWords(workSince(brain, only), wording))}. ${needWords(need)}`;
 }
 
 /**
@@ -145,12 +159,15 @@ export function readReport(
   const told = /\bI need\b/i.test(text);
   const counts: Record<string, number> = {};
   for (const tally of TALLIES) {
-    // The number always comes straight before what it counts, whichever way the sentence is worded.
+    // The number always comes straight before what it counts, and what was done to them comes
+    // straight before or after the two: "scrubbed 9 spots", "9 spots scrubbed". Two kinds of work
+    // may count the same thing, crates brought in and crates sent out, so it takes all three.
+    const what = `(\\d+)\\s+(?:${tally.many}|${tally.one})`;
     const found = text.match(
-      new RegExp(`\\b(\\d+)\\s+(?:${tally.many}|${tally.one})\\b`, 'i'),
+      new RegExp(`\\b(?:${tally.did}\\s+${what}|${what}\\s+${tally.did})\\b`, 'i'),
     );
     if (found) {
-      counts[tally.key] = Number(found[1]);
+      counts[tally.key] = Number(found[1] ?? found[2]);
     }
   }
   if (!told && Object.keys(counts).length === 0) {

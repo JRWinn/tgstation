@@ -17,6 +17,7 @@ import {
 } from '../tasks';
 import type { NpcBrain, Plan, Task } from '../types';
 import { isCargo } from './cargo';
+import { isTechnician } from './supply';
 import type { Job } from './job';
 import { needStep } from './meetings';
 
@@ -473,7 +474,8 @@ function letInStep(
   }
   const caller =
     brain.peopleInView.find((person) => person.name === task.askedBy) ??
-    brain.peopleInView.find((person) => isCargo(person.job));
+    // A technician: the doors of the department are theirs to open, not the Quartermaster's.
+    brain.peopleInView.find((person) => isTechnician(person.job));
   if (!asks.said && caller) {
     return {
       ready: true,

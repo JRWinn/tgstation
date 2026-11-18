@@ -56,6 +56,11 @@ export type Job = {
    */
   needs?: (brain: NpcBrain) => string | null;
   /**
+   * The kinds of counted work this job reports to its head at a staff meeting, by the name the
+   * server counts each under: see jobs/reports.ts. Left out, it reports every kind it has done.
+   */
+  reports?: string[];
+  /**
    * Fills in the rest of something the LLM has agreed to do, from what was said: how many, and
    * where to. The LLM says yes or no. The particulars are read off the words, not left to it.
    */

@@ -12,6 +12,11 @@ import type { NpcBrain, Plan, Task } from '../types';
 /** Things lying about in the NPC's work area, to be put away. */
 const PUT_AWAY = 'put_away';
 
+/** TRUE if the task is putting things away. */
+export function isTidying(task: Task): boolean {
+  return task.kind === PUT_AWAY;
+}
+
 /** Opens the task while there is something lying about, and closes it when there is not. */
 export function syncTidying(brain: NpcBrain): void {
   const task = findTask(brain, PUT_AWAY);

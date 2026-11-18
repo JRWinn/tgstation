@@ -143,6 +143,13 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   take_back: 'take_back',
   reset_alarm: 'reset_alarm',
   throw_out: 'throw_out',
+  // The Quartermaster's order book: writing in it, and fetching paper to write on. And a
+  // technician noting that word of an order has been passed on face to face.
+  note: 'note',
+  get_paper: 'get_paper',
+  word_passed: 'word_passed',
+  // The Quartermaster opening a crate of its own that has come in.
+  open_own_crate: 'open_own_crate',
 };
 
 /** How "my body" and "your body" are put right when they turn up in something said out loud. */

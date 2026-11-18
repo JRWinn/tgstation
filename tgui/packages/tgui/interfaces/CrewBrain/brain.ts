@@ -348,6 +348,16 @@ export function ingest(npcs: Npc[], now: number): void {
         meetingOrderedBy: null,
         lateWork: {},
         requisition: null,
+        book: null,
+        budget: null,
+        crateCosts: {},
+        staffPost: null,
+        headOffice: null,
+        ledger: null,
+        givenOrder: null,
+        qmSilent: null,
+        sentToQm: {},
+        duties: {},
         blockedPlaces: [],
         janitorCalls: {},
         askedCargo: false,
@@ -398,6 +408,8 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.workDone = {
       cleaned: npc.work_done?.cleaned ?? 0,
       put_away: npc.work_done?.put_away ?? 0,
+      crates_in: npc.work_done?.crates_in ?? 0,
+      crates_out: npc.work_done?.crates_out ?? 0,
     };
     brain.cleanableMesses = npc.cleanable_messes ?? [];
     brain.messPlaces = npc.mess_places ?? [];
@@ -480,6 +492,12 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.inHand = !!npc.in_hand;
     brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
+    // What a Quartermaster has written in its order book, and the money every order is paid from.
+    brain.book = npc.book ?? null;
+    brain.budget = typeof npc.budget === 'number' ? npc.budget : null;
+    brain.crateCosts = npc.crate_costs ?? {};
+    brain.staffPost = npc.staff_post ?? null;
+    brain.headOffice = npc.head_office ?? null;
     // With something proper to clean with it is no longer waiting on supplies. A rag does not count.
     if (brain.cleaningTool && !brain.poorTool) {
       brain.askedCargo = false;

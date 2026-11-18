@@ -15,6 +15,7 @@ import { CARGO_LOBBY, knowsPlace } from '../memory';
 import { addTask, blockTask, finishTask, placeNamedIn } from '../tasks';
 import type { Action, NpcBrain, Plan, SenseEvent, Task } from '../types';
 import { isCargo } from './cargo';
+import { isTechnician } from './supply';
 
 /** A crate to collect from cargo. The task's item is its manifest number, and its place the room it is to go to. */
 const COLLECT = 'collect';
@@ -178,7 +179,10 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
         }
       : { ready: false, step: 'You do not know the way to the cargo counter.' };
   }
-  const technician = brain.peopleInView.find((person) => isCargo(person.job));
+  // A technician: the Quartermaster does not work the counter.
+  const technician = brain.peopleInView.find((person) =>
+    isTechnician(person.job),
+  );
   if (!technician) {
     if (brain.now - brain.inPlaceSince > COUNTER_WAIT_DS) {
       task.retryAt = brain.now + TRY_AGAIN_DS;

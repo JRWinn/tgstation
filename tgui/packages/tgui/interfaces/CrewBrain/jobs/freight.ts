@@ -32,6 +32,24 @@ export function isFreight(task: Task): boolean {
   return KINDS.has(task.kind);
 }
 
+/**
+ * Which piece of the standing work a freight task is part of, where a Quartermaster has divided
+ * it: the shuttle, the rooms, or neither. Mail in hand is whoever holds it's to hand over.
+ */
+export function freightDuty(task: Task): 'shuttle' | 'rooms' | null {
+  switch (task.kind) {
+    case UNLOAD:
+    case MAIL:
+    case RECYCLE:
+    case SEND:
+      return 'shuttle';
+    case STOW:
+      return 'rooms';
+    default:
+      return null;
+  }
+}
+
 /** TRUE while there is freight work the NPC could be getting on with. */
 export function freightInHand(brain: NpcBrain): boolean {
   return brain.tasks.some((task) => isFreight(task) && task.state === 'open');

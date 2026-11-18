@@ -363,10 +363,12 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		action_result(tool, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
 		return
 	if(tool == CREW_TOOL_UNLOAD)
+		work_crates_in++
 		action_result(tool, TRUE, "You haul the [hauled_name] off the supply shuttle and leave it in [place].", list("place" = place))
 	else if(tool == CREW_TOOL_STOW)
 		action_result(tool, TRUE, "You haul the [hauled_name] clear of the door and leave it in [place], where it is in nobody's way.", list("place" = place))
 	else
+		work_crates_out++
 		action_result(tool, TRUE, "You put the empty [hauled_name] aboard the supply shuttle to go back.", list("place" = place))
 
 /// Tool: take the mail out of a mail crate in the bay, to keep until it is collected. Cargo staff only.

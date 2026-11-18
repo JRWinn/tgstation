@@ -162,7 +162,13 @@ export type Npc = {
   /** TRUE if all the body has to clean with is a rag, which shifts little. */
   poor_tool?: BooleanLike;
   /** How much of its work the body has done so far this shift: messes cleaned up, and things put away. */
-  work_done?: { cleaned: number; put_away: number } | null;
+  work_done?: {
+    cleaned: number;
+    put_away: number;
+    /** Crates hauled in off the supply shuttle, and crates sent out: to whoever came for one, or back aboard the shuttle. */
+    crates_in?: number;
+    crates_out?: number;
+  } | null;
   /** TRUE if the body carries a PDA with the custodial locator. */
   has_locator: BooleanLike;
   /** Names of the messes in view that the body could clean with what it holds. */
@@ -267,6 +273,19 @@ export type Npc = {
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
   blocked_places: string[] | null;
+  /**
+   * For a Quartermaster: the lines written in its order book, oldest first. Null while it has
+   * nothing on it to write on.
+   */
+  book?: string[] | null;
+  /** For a Quartermaster: how many credits are in cargo's budget, which every order is paid from. */
+  budget?: number | null;
+  /** For a Quartermaster: what one crate of each kind cargo can order costs, in credits. */
+  crate_costs?: Record<string, number> | null;
+  /** For a head: the room its staff work from, which is where it goes to find them. */
+  staff_post?: string | null;
+  /** The office of the head this body answers to, if that head has one: where to knock for them. */
+  head_office?: string | null;
   /** Highest event number this window has already told the server it dealt with. */
   acked_seq: number;
   events: SenseEvent[];
@@ -286,6 +305,10 @@ export type Notice = {
   kinds?: string[] | null;
   /** For a crate that has been lost: why it can no longer be handed over, in words. */
   why?: string | null;
+  /** Who gave the order to whoever placed it, if it was not whoever it is for: the Quartermaster. Word goes back through them. */
+  via?: string | null;
+  /** The number the order goes by in the Quartermaster's book, if it was given one. */
+  ref?: number | null;
 };
 
 /** One crate cargo is holding for collection. */
@@ -401,6 +424,14 @@ export type Task = {
   toldBeyond?: boolean;
   /** For a look round: TRUE once it has said aloud, to whoever shares its post, where it is off to. */
   announced?: boolean;
+  /** For word owed to its head face to face: TRUE once it has been said to them. */
+  passedOn?: boolean;
+  /** For word owed to its head face to face: server time it knocked at their office door, if it has. */
+  knockedAt?: number;
+  /** For word owed to its head face to face: TRUE once it has given up finding them, and sends it on by PDA itself. */
+  byPda?: boolean;
+  /** For word owed to its head face to face: the line it is saying it in, so that it is known when it has been said. */
+  telling?: string;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -862,6 +893,8 @@ export type NpcBrain = {
     missed?: boolean;
     /** TRUE once its head has said the meeting is over. */
     over?: boolean;
+    /** TRUE if its head called the meeting aloud, to its face. Nothing about it then goes by PDA. */
+    aloud?: boolean;
     /** Which way of wording a report it uses, picked once so that the line does not change while it waits. */
     wording: number;
   } | null;
@@ -921,7 +954,46 @@ export type NpcBrain = {
     /** TRUE once someone from cargo has answered since it was put to them. */
     heardBack: boolean;
     startedAt: number;
+    /** TRUE once it was sent to the Quartermaster and no word came back: it is taken to the counter instead. */
+    viaCounter?: boolean;
   } | null;
+  /** For a Quartermaster: the lines written in its order book, oldest first. Null while it has nothing to write on. */
+  book: string[] | null;
+  /** For a Quartermaster: the credits in cargo's budget, or null if the server has not said. */
+  budget: number | null;
+  /** For a Quartermaster: what one crate of each kind costs. */
+  crateCosts: Record<string, number>;
+  /** For a head: the room its staff work from. */
+  staffPost: string | null;
+  /** The office of the head it answers to, if that head has one. */
+  headOffice: string | null;
+  /** For a Quartermaster: every order it has taken, and how far each has got: see jobs/quartermaster.ts. */
+  ledger: Ledger | null;
+  /**
+   * For a technician: the order the Quartermaster last gave it, to its face: the number it has
+   * in the Quartermaster's book, what to order, who it is for, and whether it has been placed.
+   */
+  givenOrder: {
+    n: number;
+    items: { crate: string; count: number }[];
+    for: string;
+    by: string;
+    at: number;
+    placed: boolean;
+  } | null;
+  /**
+   * For a technician: a head who has said, at the counter, that the Quartermaster did not answer
+   * their order, and when (server time). That head's order is taken as it was before there was a
+   * Quartermaster to take it.
+   */
+  qmSilent: { by: string; at: number } | null;
+  /** For a technician: the heads it has told to take their order to the Quartermaster, and when (server time). */
+  sentToQm: Record<string, number>;
+  /**
+   * For a technician: the standing work the Quartermaster has given each of those at the post,
+   * by name, as it heard it handed out: the counter, the shuttle, the rooms. Empty until then.
+   */
+  duties: Record<string, string[]>;
   /** Names of the rooms it lately found no way into. */
   blockedPlaces: string[];
   /** The janitor it last called to each room, when (server time), and how many times it has called. */
@@ -957,6 +1029,67 @@ export type NpcBrain = {
   /** When this NPC last had something to do, in this window's clock (milliseconds). */
   lastActiveAt: number;
   lastDecision?: Decision;
+};
+
+/** One order in the Quartermaster's book. Times are server time. */
+export type LedgerOrder = {
+  /** Its number in the book. */
+  n: number;
+  /** Who ordered it, and their job. */
+  from: string;
+  fromJob: string;
+  items: { crate: string; count: number }[];
+  /** What it comes to, in credits. */
+  cost: number;
+  /**
+   * How far it has got. New: taken, and not yet cleared to be placed. Asking: the Captain has
+   * been asked about it. Cleared: it may be placed, and is to be given to a technician. Given: a
+   * technician has it. Docked: it has come in and whoever ordered has been told. Refused: the
+   * Captain said no.
+   */
+  state: 'new' | 'asking' | 'cleared' | 'given' | 'docked' | 'refused';
+  /** Who cleared it, if it needed clearing: the Captain, or the Quartermaster with no Captain aboard. */
+  approved: 'captain' | 'self' | null;
+  /** When the Captain was last asked about it, and how many times. */
+  askedAt: number | null;
+  asks: number;
+  /** TRUE once whoever ordered has been told it is waiting on the Captain, or on money. */
+  waitingTold: boolean;
+  shortTold: boolean;
+  /** The technician it is to be given to, and whether the Quartermaster has walked up to them. */
+  pick: string | null;
+  walkedUp: boolean;
+  /** Who it was given to, when, and whether they have said they have it. */
+  givenTo: string | null;
+  givenAt: number | null;
+  taken: boolean;
+  /** Not given again before this, after it could not be placed. */
+  retryAt: number;
+  /** The crates it came as, once it has come in: the manifest number of each, and what kind it is if that was said. */
+  crates?: { number: number; kind?: string }[];
+  /** TRUE once a crate of it has been lost and ordered again. That is done once. */
+  reordered?: boolean;
+  /** TRUE if it is the Quartermaster's own order, for something it needs itself. It unpacks that one itself. */
+  own?: boolean;
+  /** For its own order: TRUE once it has opened the crate. */
+  unpacked?: boolean;
+};
+
+/** The Quartermaster's working copy of its order book, and what it has yet to write in it. */
+export type Ledger = {
+  orders: LedgerOrder[];
+  /** The number the next order gets. */
+  next: number;
+  /** Lines it has yet to write in the book, in order. */
+  toWrite: string[];
+  /** TRUE once it has read the book it carries: an empty head and a full book means the book is what it knows. */
+  read: boolean;
+  /** Server time before which it does not go looking for paper again. */
+  paperRetryAt: number;
+  /** Server time it came out of its office to a knock, or 0. It stays out a little while to hear what is wanted. */
+  cameOutAt: number;
+  /** The standing work it has given each technician, by name, in so many words: the counter, the shuttle, the rooms. */
+  duties: Record<string, string[]>;
 };
 
 /** One thing an NPC can do right now, as offered to the LLM. */

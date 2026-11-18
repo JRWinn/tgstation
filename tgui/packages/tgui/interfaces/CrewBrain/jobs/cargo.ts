@@ -26,6 +26,7 @@ import {
 import { isHead } from '../hierarchy';
 import { addTask, blockTask, findTask, finishTask } from '../tasks';
 import type {
+  Action,
   HeldCrate,
   NpcBrain,
   Option,
@@ -37,7 +38,8 @@ import {
   afterFreight,
   describeFreight,
   freightCues,
-  freightInHand,
+  freightDuty,
+  isFreight,
   planFreight,
   syncFreight,
 } from './freight';
@@ -47,15 +49,30 @@ import type { Job } from './job';
 import { COLLECT_WORDS, crateNumberIn } from './pickups';
 import {
   describeRounds,
+  isRounds,
   planRounds,
   roundsInHand,
   syncRounds,
 } from './rounds';
 import {
+  DOCKED,
+  dutiesIn,
+  GIVEN_WORDS,
+  isQuartermaster,
+  isTechnician,
+  NOT_PLACED,
+  orderWritten,
+  QM_SILENT_WORDS,
+  quartermasterAboard,
+  TAKEN,
+  THROUGH_QM,
+  WAITING_TOLD,
+} from './supply';
+import {
   describeTidying,
+  isTidying,
   planTidying,
   syncTidying,
-  tidyingInHand,
 } from './tidying';
 
 /** TRUE if this job title is in cargo, whose work is ordering supplies for the crew. */
@@ -100,6 +117,18 @@ const REMIND = 'remind';
 /** Word owed to someone that a crate of theirs has been lost. The task's item is their name. */
 const LOST = 'lost_crate';
 const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND, LOST]);
+/** An order the Quartermaster has given it, to place at the console. The task's item is the order's number in the Quartermaster's book. */
+const GIVEN = 'given_order';
+/** How long (deciseconds) a head's word at the counter that the Quartermaster has not answered stands. */
+const QM_SILENT_DS = 1200;
+/** How long (deciseconds) before a head is told a second time that orders go through the Quartermaster. */
+const SENT_TO_QM_DS = 3000;
+/** How long (deciseconds) it waits at the Quartermaster's door, having knocked, before it sends word on by PDA itself. */
+const AT_QM_DOOR_DS = 900;
+/** How long (deciseconds) a workmate who was given a piece of the standing work can be out of sight before it is seen to for them. */
+const HOLDER_ABOUT_DS = 600;
+/** The words that mark what a head says at the counter as an order, for telling them who takes it. */
+const ORDERING_WORDS = /\b(order|ordering|requisition)\b/i;
 /** How long (deciseconds) someone's asking for a crate at the counter stands. */
 const PICKUP_ASK_DS = 1200;
 /** Someone who is to be let through the door of the post. The task's item is their name. */
@@ -137,9 +166,12 @@ function about(post: string | null): string {
  * is one sentence here, enough to speak truly of it: the particulars are in the report whenever
  * one of those things is going on (see cues, and jobs/guarding.ts).
  */
-function whenAsked(_brain: NpcBrain, heard: string): string[] {
+function whenAsked(brain: NpcBrain, heard: string): string[] {
+  const quartermaster = quartermasterAboard(brain);
   return [
-    'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, holds the crate in the bay when it comes, and sends them a PDA message with its manifest number, for whoever they send to give at the counter. If they ask for something you cannot order, say so.',
+    quartermaster
+      ? `Every order for supplies goes through the Quartermaster, ${quartermaster.name}, who is the head of your department. You take an order only from ${quartermaster.name}, face to face, and your body places it. Anyone else who asks you to order something, a head of department included, is told kindly to send their order to ${quartermaster.name} by PDA. When an order comes in, your body tells ${quartermaster.name} so, holds the crate in the bay, and brings it out to whoever comes to the counter with its number.`
+      : 'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, holds the crate in the bay when it comes, and sends them a PDA message with its manifest number, for whoever they send to give at the counter. If they ask for something you cannot order, say so.',
     'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors.',
     // Only when what was said touches on it. It is a lot to read for "how is your day going?".
     ...(OWN_WORK_WORDS.test(heard)
@@ -161,14 +193,149 @@ function arrivedNotice(brain: NpcBrain) {
 
 /** TRUE while there is an order somewhere between being placed and whoever asked being told it has come. */
 function orderInHand(brain: NpcBrain): boolean {
-  return brain.orderPending || (!!arrivedNotice(brain) && brain.hasPda);
+  return (
+    brain.orderPending ||
+    (!!arrivedNotice(brain) && brain.hasPda) ||
+    (!!brain.givenOrder && !brain.givenOrder.placed)
+  );
+}
+
+/**
+ * The Quartermaster an order's arrival is to be told to, face to face: whoever gave this NPC the
+ * order, if that was the Quartermaster and it is still aboard. Null if word goes straight to
+ * whoever ordered, by PDA, as it does with no Quartermaster.
+ */
+function toldThrough(
+  brain: NpcBrain,
+  via: string | null | undefined,
+): { name: string; job: string } | null {
+  const quartermaster = quartermasterAboard(brain);
+  return quartermaster && via === quartermaster.name ? quartermaster : null;
+}
+
+/**
+ * Which piece of the standing work a task is part of, where the Quartermaster has divided it
+ * among those at the post: the shuttle (what comes in on it and goes back on it) or the rooms
+ * (looking in on the department, keeping it tidy, the crates left waiting). Null for work that
+ * is whoever's it falls to: the counter is worked by whoever is asked.
+ */
+function dutyOf(task: Task): string | null {
+  if (task.kind === CHECK || isRounds(task) || isTidying(task)) {
+    return 'rooms';
+  }
+  return freightDuty(task);
+}
+
+/**
+ * The workmate a piece of the standing work has been given to, if it is not this NPC's and
+ * that workmate is about: in sight, or seen not long since. Null if it is this NPC's own, if
+ * nobody has divided the work, or if whoever has it is nowhere to be seen: then it is seen to
+ * by whoever is there, the way it was before.
+ */
+function leftTo(brain: NpcBrain, duty: string | null): string | null {
+  if (!duty) {
+    return null;
+  }
+  const holders = Object.entries(brain.duties)
+    .filter(([, theirs]) => theirs.includes(duty))
+    .map(([name]) => name);
+  if (holders.length === 0 || holders.includes(brain.name)) {
+    return null;
+  }
+  return (
+    holders.find(
+      (name) =>
+        brain.peopleInView.some((person) => person.name === name) ||
+        brain.now - (brain.people.get(name)?.at ?? -Infinity) < HOLDER_ABOUT_DS,
+    ) ?? null
+  );
+}
+
+/** TRUE while there is work of this sort that is this NPC's own to be getting on with. */
+function inHand(brain: NpcBrain, is: (task: Task) => boolean): boolean {
+  return brain.tasks.some(
+    (task) =>
+      is(task) && task.state === 'open' && !leftTo(brain, dutyOf(task)),
+  );
+}
+
+/** TRUE while there is freight work that is this NPC's to be getting on with. */
+function freightInHand(brain: NpcBrain): boolean {
+  return inHand(brain, isFreight);
+}
+
+/** TRUE while there are things lying about that are this NPC's to put away. */
+function tidyingInHand(brain: NpcBrain): boolean {
+  return inHand(brain, isTidying);
 }
 
 /** TRUE while there is work on the crates being held that it could be getting on with. */
 function heldInHand(brain: NpcBrain): boolean {
-  return brain.tasks.some(
-    (task) => HELD_KINDS.has(task.kind) && task.state === 'open',
-  );
+  return inHand(brain, (task) => HELD_KINDS.has(task.kind));
+}
+
+/**
+ * Word this NPC owes someone about their crates, taken to the Quartermaster face to face where
+ * there is one: that an order has come in, that crates are still waiting, or that one is lost.
+ * Nothing between a technician and the Quartermaster goes by PDA. If the Quartermaster is in
+ * sight it is told, in so many words. If not, the technician goes to its office door, knocks, and
+ * waits. Once told, the server is told that word has been passed on, and the Quartermaster sends
+ * it to whoever the crates are for. Returns the step, or null if word goes by PDA as it always
+ * did: there is no Quartermaster, or it is not to be found.
+ */
+function tellQuartermaster(
+  brain: NpcBrain,
+  task: Task,
+  quartermaster: { name: string } | null,
+  line: string,
+  about: string,
+  passed: Action,
+): Plan | null {
+  if (!quartermaster || task.byPda) {
+    return null;
+  }
+  if (task.passedOn) {
+    return {
+      ready: true,
+      step: `You have told ${quartermaster.name} ${about}. They will send word to whoever it concerns.`,
+      act: passed,
+    };
+  }
+  if (brain.peopleInView.some((person) => person.name === quartermaster.name)) {
+    task.telling = line;
+    return {
+      ready: true,
+      step: `You have word for ${quartermaster.name}, the Quartermaster, ${about}, and they are here. Your body is telling them, in these words: "${line}"`,
+      say: line,
+      exact: true,
+    };
+  }
+  const office = brain.headOffice;
+  const waitedAtDoor =
+    task.knockedAt !== undefined && brain.now - task.knockedAt > AT_QM_DOOR_DS;
+  if (!office || waitedAtDoor) {
+    task.byPda = true;
+    return null;
+  }
+  if (brain.atDoorOf !== office) {
+    return {
+      ready: true,
+      step: `You have word for ${quartermaster.name}, the Quartermaster, ${about}. It goes to them face to face, and they are not in sight, so you are going to the door of the ${office}.`,
+      act: { tool: 'go_to_door', place: office },
+    };
+  }
+  if (task.knockedAt === undefined) {
+    return {
+      ready: true,
+      step: `You are at the door of the ${office} with word for ${quartermaster.name} ${about}. You are knocking.`,
+      act: { tool: 'knock' },
+    };
+  }
+  return {
+    ready: false,
+    wait: true,
+    step: `You have knocked at the door of the ${office}, and are waiting for ${quartermaster.name} to come out: you have word ${about}.`,
+  };
 }
 
 /** Writes manifest numbers the way they are written down: "crate #12", "crates #12 and #13". */
@@ -333,6 +500,18 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
     }
     const written = cratesWritten(notice.numbers);
     const why = notice.why ?? 'it cannot be found';
+    const quartermaster = quartermasterAboard(brain);
+    const toQuartermaster = tellQuartermaster(
+      brain,
+      task,
+      quartermaster,
+      `${firstName(quartermaster?.name ?? '')}, ${written} for ${notice.to} ${notice.numbers.length === 1 ? 'is' : 'are'} lost: ${why}.`,
+      `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost`,
+      { tool: 'word_passed', person: notice.to, kind: 'lost' },
+    );
+    if (toQuartermaster) {
+      return toQuartermaster;
+    }
     return {
       ready: true,
       step: `${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost: ${why}. Nobody can be handed ${notice.numbers.length === 1 ? 'it' : 'them'} now. You are sending ${notice.to} a PDA message to say so.`,
@@ -352,6 +531,18 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       return { ready: false, step: 'There is nobody left to remind.' };
     }
     const written = cratesWritten(notice.numbers);
+    const quartermaster = quartermasterAboard(brain);
+    const toQuartermaster = tellQuartermaster(
+      brain,
+      task,
+      quartermaster,
+      `${firstName(quartermaster?.name ?? '')}, ${WAITING_TOLD} ${written} for ${notice.to}.`,
+      `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'is' : 'are'} still waiting to be collected`,
+      { tool: 'word_passed', person: notice.to, kind: 'waiting' },
+    );
+    if (toQuartermaster) {
+      return toQuartermaster;
+    }
     return {
       ready: true,
       step: `You have looked over the bay: ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'is' : 'are'} still waiting to be collected. You are sending ${notice.to} a PDA message to remind them.`,
@@ -402,6 +593,32 @@ function syncTasks(brain: NpcBrain): void {
     // The PDA message was the telling, so nobody is left waiting to hear.
     order.reported = true;
     finishTask(brain, order);
+  }
+  // An order the Quartermaster gave it is its to place until it has been.
+  const given = brain.givenOrder;
+  const giving = findTask(
+    brain,
+    GIVEN,
+    given ? { item: String(given.n) } : undefined,
+  );
+  if (given && !given.placed && !giving) {
+    addTask(brain, {
+      kind: GIVEN,
+      item: String(given.n),
+      urgency: 'asked',
+      source: 'asked',
+    });
+  }
+  for (const task of brain.tasks) {
+    if (
+      task.kind === GIVEN &&
+      task.state !== 'done' &&
+      (!given || given.placed || task.item !== String(given.n))
+    ) {
+      // Whoever gave it hears when it comes in. Nobody is owed word that it is placed.
+      task.reported = true;
+      finishTask(brain, task);
+    }
   }
 
   // Having sent for a janitor to a mess in its post, it expects one. Whichever janitor turns up
@@ -520,7 +737,8 @@ function syncTasks(brain: NpcBrain): void {
   // now and then. Nobody else may ever see inside those rooms.
   syncRounds(
     brain,
-    !orderInHand(brain) &&
+    !leftTo(brain, 'rooms') &&
+      !orderInHand(brain) &&
       !freightInHand(brain) &&
       !heldInHand(brain) &&
       !tidyingInHand(brain) &&
@@ -548,6 +766,15 @@ function syncTasks(brain: NpcBrain): void {
 
 /** What one of cargo's tasks comes down to right now. */
 function plan(brain: NpcBrain, task: Task): Plan | null {
+  // Standing work the Quartermaster gave to a workmate who is about is theirs to do.
+  const duty = dutyOf(task);
+  const theirs = leftTo(brain, duty);
+  if (theirs) {
+    return {
+      ready: false,
+      step: `That is ${theirs}'s to see to: the Quartermaster gave them the ${duty} this shift.`,
+    };
+  }
   if (task.kind === POST) {
     return brain.post
       ? {
@@ -580,6 +807,33 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
         }
       : { ready: false, step: `${task.item} has gone.` };
   }
+  if (task.kind === GIVEN) {
+    const given = brain.givenOrder;
+    if (!given || given.placed) {
+      return { ready: false, step: 'That order is placed.' };
+    }
+    const wanted = orderWritten(given.items);
+    // The console takes one order of its at a time. The one on the go is seen through first.
+    if (brain.orderPending) {
+      return {
+        ready: false,
+        step: `${given.by} has given you order ${given.n} (${wanted}) to place. You have an order on the go already, and place this one when that has come in.`,
+      };
+    }
+    return {
+      ready: true,
+      step: `${given.by}, the Quartermaster, has given you order ${given.n} to place: ${wanted}, for ${given.for}. You are going to the supply console to place it.`,
+      act: {
+        tool: 'order',
+        crate: given.items[0].crate,
+        count: given.items[0].count,
+        items: given.items,
+        for_name: given.for,
+        via: given.by,
+        ref: given.n,
+      },
+    };
+  }
   if (task.kind !== ORDER) {
     // Tidying is for when the orders and the shuttle have been seen to.
     return (
@@ -610,6 +864,23 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
             )
             .join('; ')
         : `${written}${(arrived.what ?? kinds[0]) ? ` (${arrived.what ?? kinds[0]})` : ''}`;
+    // An order the Quartermaster gave it: word that it has come goes back to the Quartermaster,
+    // face to face, and the Quartermaster tells whoever ordered. If the Quartermaster is not to
+    // be found, in the bay or behind its office door, word is sent on by PDA as it always was.
+    const quartermaster = toldThrough(brain, arrived.via);
+    const order =
+      typeof arrived.ref === 'number' ? `order ${arrived.ref}` : 'the order';
+    const toQuartermaster = tellQuartermaster(
+      brain,
+      task,
+      quartermaster,
+      `${firstName(quartermaster?.name ?? '')}, ${order} ${DOCKED} ${itemised}.`,
+      `that ${order}, for ${arrived.to}, has come in`,
+      { tool: 'word_passed', person: arrived.to, kind: 'arrived' },
+    );
+    if (toQuartermaster) {
+      return toQuartermaster;
+    }
     return {
       ready: true,
       step: `What ${arrived.to} ordered has come in: ${itemised}. ${several ? 'They are' : 'It is'} held in the bay until someone comes to the counter for ${several ? 'them' : 'it'}, and you are sending ${arrived.to} a PDA message with the number${several ? 's' : ''}.`,
@@ -1009,6 +1280,9 @@ function describeTask(task: Task): string | null {
   if (task.kind === POST) {
     return 'get back to your post';
   }
+  if (task.kind === GIVEN) {
+    return `place order ${task.item} for the Quartermaster`;
+  }
   return task.kind === ORDER
     ? 'see the crate you ordered through'
     : (describeHeld(task) ??
@@ -1037,6 +1311,16 @@ function cues(brain: NpcBrain): string[] {
         `There is a mess in the ${place}. You have sent ${call.to}, a janitor, a PDA message asking them to clean it up.`,
       );
     }
+  }
+  // How the Quartermaster has divided the standing work, so that what it says of it is true.
+  const own = brain.duties[brain.name];
+  if (own) {
+    const others = Object.entries(brain.duties).filter(
+      ([name]) => name !== brain.name,
+    );
+    lines.push(
+      `The Quartermaster has divided the standing work this shift. Yours: ${listed(own.map((part) => `the ${part}`))}.${others.length > 0 ? ` ${others.map(([name, theirs]) => `${name} has ${listed(theirs.map((part) => `the ${part}`))}`).join('; ')}.` : ''} The shuttle is unloading it, loading the empties and sending it back; the rooms is looking in on the department, putting things away and checking on crates left waiting. The counter is worked by whoever is asked.`,
+    );
   }
   lines.push(...freightCues(brain));
   // What is being held, so that what it says about a crate someone has come for is true.
@@ -1171,6 +1455,19 @@ export function itemsAskedFor(
  * they take what they need to their own head, who orders for the whole of their staff at once.
  */
 function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
+  // With a Quartermaster aboard, an order is taken from the Quartermaster and nobody else, and
+  // that is done by code from its own words (see overhears). The one way round it is a head who
+  // has said that the Quartermaster did not answer.
+  if (quartermasterAboard(brain)) {
+    const silent = brain.qmSilent;
+    if (
+      !silent ||
+      brain.now - silent.at > QM_SILENT_DS ||
+      !askers.some((person) => person.name === silent.by)
+    ) {
+      return [];
+    }
+  }
   if (
     !askers.some((person) => !!person.command || isHead(person.job)) ||
     brain.orderable.length === 0 ||
@@ -1195,6 +1492,8 @@ export const CARGO: Job = {
   is: isCargo,
   keepsPost: true,
   cleans: false,
+  // What cargo staff report at their staff meeting, for now: crates in and crates out.
+  reports: ['crates_in', 'crates_out'],
   about,
   whenAsked,
   cues,
@@ -1209,6 +1508,33 @@ export const CARGO: Job = {
   // A message sent about a mess is a janitor called to it.
   afterActing: (brain, act, task, ok) => {
     afterFreight(brain, act, task);
+    // The order the Quartermaster gave it is placed, or could not be. Either way it is done with
+    // here: one that could not be placed goes back to the Quartermaster, who gives it again.
+    const given = brain.givenOrder;
+    if (task?.kind === GIVEN && act.tool === 'order' && given) {
+      if (ok) {
+        given.placed = true;
+      } else {
+        brain.givenOrder = null;
+        brain.toTell.push({
+          to: given.by,
+          line: `${firstName(given.by)}, order ${given.n} ${NOT_PLACED}. The console would not take it.`,
+          why: `You could not place order ${given.n}, which ${given.by} gave you. You are telling ${given.by} so, face to face.`,
+          needs: new RegExp(`\\border ${given.n} ${NOT_PLACED}\\b`, 'i'),
+          at: Date.now(),
+        });
+      }
+    }
+    // Word of an order that has come in is passed on, or it knocked for the Quartermaster.
+    if (task && act.tool === 'knock' && ok) {
+      task.knockedAt = brain.now;
+    }
+    if (task && act.tool === 'word_passed') {
+      task.passedOn = false;
+      task.knockedAt = undefined;
+      task.byPda = false;
+      task.telling = undefined;
+    }
     // The crate is out in the lobby for whoever came for it, and they are told so by name.
     if (task?.kind === HANDOVER && ok && task.askedBy) {
       brain.toTell.push({
@@ -1314,6 +1640,103 @@ export const CARGO: Job = {
   overhears: (brain, event) => {
     const speaker = String(event.details.speaker ?? '');
     const heard = String(event.details.message ?? '');
+    const speakerJob =
+      brain.peopleInView.find((person) => person.name === speaker)?.job ??
+      brain.pdaPeople.find((person) => person.name === speaker)?.job ??
+      '';
+    // The Quartermaster dividing the standing work, at its staff meeting: "Cora, the counter is
+    // yours this shift." Everyone there hears who has what, and goes by it.
+    const duty = isQuartermaster(speakerJob) ? dutiesIn(heard) : null;
+    if (duty) {
+      const first = duty.first.toLowerCase();
+      const name =
+        firstName(brain.name).toLowerCase() === first
+          ? brain.name
+          : [...brain.peopleInView, ...brain.pdaPeople].find(
+              (person) =>
+                isTechnician(person.job) &&
+                firstName(person.name).toLowerCase() === first,
+            )?.name;
+      if (name) {
+        brain.duties[name] = duty.duties;
+      }
+      return;
+    }
+    // The Quartermaster giving it an order, to its face and by name: "Sam, order 3: I need to
+    // order 2 crates of janitorial supplies, for Hop Kins." What to order, how many, who for and
+    // the number it goes by are read off those words. No LLM is asked whether it was an order.
+    const given = heard.match(GIVEN_WORDS);
+    if (
+      given &&
+      isQuartermaster(speakerJob) &&
+      new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(heard.trim())
+    ) {
+      const n = Number(given[1]);
+      const items = itemsAskedFor(given[2].toLowerCase(), brain.orderable);
+      const whoFor = given[3].trim();
+      if (items.length > 0 && brain.givenOrder?.n !== n) {
+        brain.givenOrder = {
+          n,
+          items,
+          for: whoFor,
+          by: speaker,
+          at: brain.now,
+          placed: false,
+        };
+      }
+      // It says that it has the order, so the Quartermaster knows it was heard. Given the same
+      // order again, it says so again: the first word of it was missed.
+      if (items.length > 0) {
+        brain.toTell = brain.toTell.filter(
+          (tell) => !tell.line.startsWith(`Order ${n},`),
+        );
+        brain.toTell.push({
+          to: speaker,
+          line: `Order ${n}, ${TAKEN}.`,
+          why: `${speaker}, the Quartermaster, has given you order ${n} to place: ${orderWritten(items)}, for ${whoFor}. You are saying that you have it.`,
+          needs: new RegExp(`\\border ${n}\\b.*\\b${TAKEN}\\b`, 'i'),
+          at: Date.now(),
+        });
+      }
+      return;
+    }
+    // A head of department trying to order at the counter while there is a Quartermaster to send
+    // it to. One who says the Quartermaster did not answer is served as before. Anyone else is
+    // told, once, by one of those at the post, where orders go.
+    const quartermaster = quartermasterAboard(brain);
+    const speakerSeen = brain.peopleInView.find(
+      (person) => person.name === speaker,
+    );
+    if (
+      quartermaster &&
+      speakerSeen &&
+      !isCargo(speakerJob) &&
+      (!!speakerSeen.command || isHead(speakerJob)) &&
+      event.details.said_to !== 'other' &&
+      ORDERING_WORDS.test(heard) &&
+      !COLLECT_WORDS.test(heard)
+    ) {
+      if (QM_SILENT_WORDS.test(heard)) {
+        brain.qmSilent = { by: speaker, at: brain.now };
+      } else if (
+        brain.now - (brain.sentToQm[speaker] ?? -Infinity) > SENT_TO_QM_DS &&
+        takeOrder(
+          brain.post ?? '',
+          `${speaker}, sent to the Quartermaster`,
+          brain.name,
+          brain.now,
+        )
+      ) {
+        brain.sentToQm[speaker] = brain.now;
+        brain.toTell.push({
+          to: speaker,
+          line: `${firstName(speaker)}, ${THROUGH_QM}, ${quartermaster.name}. Send it by PDA, please.`,
+          why: `${speaker} is trying to order supplies from you. Every order goes through the Quartermaster, ${quartermaster.name}: you are telling ${speaker} to send it there by PDA.`,
+          needs: /\bquartermaster\b/i,
+          at: Date.now(),
+        });
+      }
+    }
     // Someone come to the counter for a crate that is being held. Which crate is read off the
     // number they give, and failing that off who they say it is for. One of those at the post
     // takes any one asking.
@@ -1412,6 +1835,14 @@ export const CARGO: Job = {
     };
   },
   offers,
+  // Having told the Quartermaster what it had to tell it, in so many words, it is told.
+  afterSaying: (brain, called) => {
+    for (const task of brain.tasks) {
+      if (called && task.telling === called && task.state !== 'done') {
+        task.passedOn = true;
+      }
+    }
+  },
   // Plain words for supplies, said to it, are an order for the crate, if it can take one.
   hears: (brain, heard) => {
     const asker = brain.peopleInView.find(

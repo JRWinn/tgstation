@@ -346,6 +346,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(hauled)
 	if(succeeded && still_held && entry)
 		entry.out = TRUE
+		work_crates_out++
 		action_result(CREW_TOOL_RELEASE, TRUE, "You bring crate #[entry.number] out to [place] and leave it there[release_for ? " for [release_for]" : ""] to take away.", list("place" = place, "number" = entry.number))
 		return
 	var/list/details = list("place" = place)

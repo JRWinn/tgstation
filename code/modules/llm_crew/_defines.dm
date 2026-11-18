@@ -251,5 +251,18 @@
 #define CREW_NPC_ORDER_MAX 4
 /// The most kinds of crate cargo staff put in one order.
 #define CREW_NPC_ORDER_KINDS 4
+/// Tool name: write lines in the order book the body carries. The Quartermaster only.
+#define CREW_TOOL_NOTE "note"
+/// Tool name: go and take a sheet of paper, and a pen, to keep the order book on. The Quartermaster only.
+#define CREW_TOOL_PAPER "get_paper"
+/// Tool name: note that word of an order that has come in was passed on face to face, so that nobody is owed a PDA message about it.
+#define CREW_TOOL_WORD_PASSED "word_passed"
+/// Tool name: open a crate cargo is holding for the body itself, where it stands. The Quartermaster only.
+#define CREW_TOOL_OPEN_CRATE "open_own_crate"
+/// The most lines written in the order book in one go, and the longest a line may be, in characters.
+#define CREW_NPC_NOTE_LINES 6
+#define CREW_NPC_NOTE_LINE_LENGTH 200
+/// How much room, in characters, a sheet of the order book has to have left to be written on: enough for the most that is written in one go.
+#define CREW_NPC_NOTE_ROOM (CREW_NPC_NOTE_LINES * (CREW_NPC_NOTE_LINE_LENGTH + 2))
 /// How long after a round starts the standing test crew is spawned, so that whoever owns them has a body by then.
 #define CREW_NPC_AUTOSTART_DELAY (10 SECONDS)

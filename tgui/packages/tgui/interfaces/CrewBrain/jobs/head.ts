@@ -28,6 +28,11 @@
  *
  * All of that is code, the numbers included. The LLM puts the head's lines in its own voice, adds
  * a remark of its own to the ones that carry numbers, and answers people.
+ *
+ * How a staff meeting is held is the same for every head, and is here for all of them: see
+ * MeetingWay. What differs is the room, whether the staff are called by PDA or to their faces,
+ * and what the head says to end it. The Quartermaster holds its meeting with these same steps
+ * (jobs/quartermaster.ts).
  */
 import { answersTo, departmentHeadedBy } from '../hierarchy';
 import { CARGO_LOBBY, knowsPlace } from '../memory';
@@ -38,19 +43,51 @@ import {
   placeNamedIn,
   stillIn,
 } from '../tasks';
-import type { NpcBrain, Plan, Task } from '../types';
+import type { Action, NpcBrain, Plan, Task } from '../types';
 import { isCargo } from './cargo';
 import { isJanitor } from './janitor';
 import type { Job } from './job';
-import { COMING_WORDS, isMeetingOrder, OVER_WORDS } from './meetings';
+import {
+  ALOUD_CALL_WORDS,
+  aloudCall,
+  COMING_WORDS,
+  isMeetingOrder,
+  OVER_WORDS,
+} from './meetings';
 import { sendForLine, UNPACKED_WORDS } from './pickups';
 import { addCounts, capital, listed, readReport, totalWords } from './reports';
+import {
+  CANNOT_ORDER_WORDS,
+  isQuartermaster,
+  isTechnician,
+  NOTED_WORDS,
+  ORDERING,
+  QM_SILENT,
+  quartermasterAboard,
+  REFUSED_WORDS,
+} from './supply';
 
-type Meeting = NonNullable<NpcBrain['meeting']>;
+export type Meeting = NonNullable<NpcBrain['meeting']>;
 type Requisition = NonNullable<NpcBrain['requisition']>;
 
 /** Calling the staff together, hearing their reports and what they need. */
-const MEET = 'hold_meeting';
+export const MEET = 'hold_meeting';
+
+/** How one head holds its staff meeting. The steps are the same for all of them: these are what differ. */
+export type MeetingWay = {
+  /** The room it is held in. */
+  room: (brain: NpcBrain) => string | null | undefined;
+  /** TRUE if the staff are called to it aloud, to their faces, and nothing about it goes to them by PDA. */
+  aloud: boolean;
+  /** How long (deciseconds) into the shift the first one is called. */
+  firstAt: number;
+  /** Something the head has to say once everyone has reported and before it ends the meeting, or null. */
+  before?: (brain: NpcBrain, meeting: Meeting) => Plan | null;
+  /** What it says to end the meeting, word for word. It has to say that the meeting is over. */
+  closing: (brain: NpcBrain, meeting: Meeting) => string;
+  /** Its report of the meeting to the Captain. */
+  report: (brain: NpcBrain, meeting: Meeting) => string;
+};
 /** Putting the order in at the cargo counter, and seeing that those who asked hear when it comes. */
 const REQUISITION = 'requisition';
 /** Going back to its office when there is nothing else to see to. */
@@ -74,6 +111,8 @@ const COUNTER_WAIT_DS = 600;
 const ORDER_OVERDUE_DS = 6000;
 /** How long (deciseconds) it waits at the counter for cargo to answer an order before it asks again. */
 const ANSWER_WAIT_DS = 300;
+/** How long (deciseconds) it waits for the Quartermaster's word that an order is noted before it takes the order to the counter instead. */
+const NOTED_WAIT_DS = 1800;
 /** How many people one crate of supplies is good for. */
 const PER_CRATE = 3;
 /** The most crates of one kind it asks for at once. Cargo will not order more than this in one go. */
@@ -83,7 +122,6 @@ const SAID_MAX = 200;
 
 /** The plain words it calls on someone in, orders in, and tells the Captain of a meeting in, by which those lines are known afterwards. */
 const CALLING_ON = 'your report, please';
-const ORDERING = 'I need to order';
 const HOLDING = 'holding a staff meeting';
 /** The words that mark what one of its staff says or writes as asking for something for their work. */
 const NEED_WORDS =
@@ -119,10 +157,14 @@ export function isHeadOfPersonnel(title: string): boolean {
 }
 
 /** The names of this head's staff, as far as its PDA lists them. */
-function staff(brain: NpcBrain): { name: string; job: string }[] {
+export function staff(brain: NpcBrain): { name: string; job: string }[] {
   const department = departmentHeadedBy(brain.job);
   if (!department) {
     return [];
+  }
+  // The Quartermaster's staff, for now, are its technicians. The miners are its too, but not yet.
+  if (isQuartermaster(brain.job)) {
+    return brain.pdaPeople.filter((person) => isTechnician(person.job));
   }
   return brain.pdaPeople.filter((person) =>
     department.jobs.some((job) =>
@@ -141,7 +183,7 @@ function jobOf(brain: NpcBrain, name: string): string {
 }
 
 /** The Captain's name, if there is one aboard that it knows of: in view, or on its PDA. */
-function captainName(brain: NpcBrain): string | null {
+export function captainName(brain: NpcBrain): string | null {
   const isCaptain = (person: { job: string }) => /captain/i.test(person.job);
   return (
     brain.peopleInView.find(isCaptain)?.name ??
@@ -288,7 +330,7 @@ function inPlace(brain: NpcBrain, meeting: Meeting): boolean {
  * word that they were coming. Someone standing in the doorway is at the meeting, whichever side
  * of the line their feet are. Someone seen through a window who never said they would come is not.
  */
-function present(brain: NpcBrain, meeting: Meeting): string[] {
+export function present(brain: NpcBrain, meeting: Meeting): string[] {
   return staff(brain)
     .filter((person) =>
       brain.peopleInView.some(
@@ -328,7 +370,7 @@ function listening(brain: NpcBrain, meeting: Meeting): boolean {
 }
 
 /** The work its staff have reported this meeting, added up, with anything sent in by PDA since the last. */
-function workReported(
+export function workReported(
   brain: NpcBrain,
   meeting: Meeting,
 ): Record<string, number> {
@@ -403,13 +445,14 @@ function reportToCaptain(brain: NpcBrain, meeting: Meeting): string {
  * Ends the meeting: whoever did not come is told to send their report, the Captain is sent the
  * whole of it, and the next one is ten minutes off.
  */
-function endMeeting(brain: NpcBrain): void {
+function endMeeting(brain: NpcBrain, way: MeetingWay): void {
   const meeting = brain.meeting;
   if (!meeting) {
     return;
   }
-  // Called and not heard from: they send their report by PDA, and are told so the same way.
-  for (const name of meeting.invited) {
+  // Called and not heard from: they send their report by PDA, and are told so the same way. Not
+  // where the staff are called aloud: nothing between that head and its staff goes by PDA.
+  for (const name of way.aloud ? [] : meeting.invited) {
     if (!meeting.reports[name]) {
       brain.toTell.push({
         to: name,
@@ -424,7 +467,7 @@ function endMeeting(brain: NpcBrain): void {
   if (captain) {
     brain.toTell.push({
       to: captain,
-      line: reportToCaptain(brain, meeting),
+      line: way.report(brain, meeting),
       why: `The staff meeting is over. You are sending ${captain}, the Captain, a PDA message with your report of it.`,
       byPda: true,
       at: Date.now(),
@@ -436,29 +479,31 @@ function endMeeting(brain: NpcBrain): void {
   brain.nextMeetingAt = brain.now + MEETING_EVERY_DS;
 }
 
-/** Keeps the head's meetings and orders true to the time, to what has been asked for, and to what has come. */
-function syncTasks(brain: NpcBrain): void {
+/**
+ * Keeps a head's staff meeting true to the time, to who has come and to what has been said: calls
+ * one when it is due, begins it when the staff are there, and ends it. `held` is TRUE while the
+ * head has something to see through first, and no meeting is called meanwhile.
+ */
+export function syncMeeting(
+  brain: NpcBrain,
+  way: MeetingWay,
+  held: boolean,
+): void {
   const people = staff(brain);
   if (brain.nextMeetingAt === 0) {
-    brain.nextMeetingAt = brain.bornAt + FIRST_MEETING_DS;
+    brain.nextMeetingAt = brain.bornAt + way.firstAt;
   }
   // Told to hold one by someone it answers to, it is due now.
   if (brain.meetingOrderedBy && !brain.meeting) {
     brain.nextMeetingAt = Math.min(brain.nextMeetingAt, brain.now);
   }
-  // A meeting is called when one is due and there are staff to call. Not while it is on its way
-  // to the counter with an order, or at it waiting for cargo's answer: that is seen through first.
-  const ordering =
-    !!brain.requisition &&
-    (brain.requisition.askedAt === null || !brain.requisition.heardBack);
   if (
     !brain.meeting &&
-    !ordering &&
+    !held &&
     people.length > 0 &&
     brain.now >= brain.nextMeetingAt
   ) {
-    // The server names a room all its staff can walk into. Failing that, the department's own.
-    const room = brain.meetingRoom ?? departmentHeadedBy(brain.job)?.meetsIn;
+    const room = way.room(brain);
     if (room && knowsPlace(brain, room)) {
       brain.meeting = {
         calledAt: brain.now,
@@ -516,7 +561,7 @@ function syncTasks(brain: NpcBrain): void {
       meeting.closedAt !== null ||
       brain.now - meeting.calledAt > MEETING_MAX_DS
     ) {
-      endMeeting(brain);
+      endMeeting(brain, way);
     }
   }
   const meet = findTask(brain, MEET);
@@ -525,6 +570,26 @@ function syncTasks(brain: NpcBrain): void {
   } else if (!brain.meeting && meet) {
     finishTask(brain, meet);
   }
+}
+
+/** How the Head of Personnel holds its meeting: in a room all its staff can walk into, called by PDA. */
+const HOP_WAY: MeetingWay = {
+  // The server names a room all its staff can walk into. Failing that, the department's own.
+  room: (brain) => brain.meetingRoom ?? departmentHeadedBy(brain.job)?.meetsIn,
+  aloud: false,
+  firstAt: FIRST_MEETING_DS,
+  closing: closingLine,
+  report: reportToCaptain,
+};
+
+/** Keeps the head's meetings and orders true to the time, to what has been asked for, and to what has come. */
+function syncTasks(brain: NpcBrain): void {
+  // A meeting is called when one is due and there are staff to call. Not while it is on its way
+  // to the counter with an order, or at it waiting for cargo's answer: that is seen through first.
+  const ordering =
+    !!brain.requisition &&
+    (brain.requisition.askedAt === null || !brain.requisition.heardBack);
+  syncMeeting(brain, HOP_WAY, ordering);
 
   // What has been asked for is ordered together: after a meeting, or once the first of it has
   // waited long enough that nobody else is likely to add to it.
@@ -592,7 +657,7 @@ function officeStep(brain: NpcBrain): Plan {
 }
 
 /** What holding a meeting comes down to right now. */
-function meetStep(brain: NpcBrain): Plan {
+export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
   const meeting = brain.meeting;
   if (!meeting) {
     return { ready: false, step: 'The meeting is over.' };
@@ -602,7 +667,7 @@ function meetStep(brain: NpcBrain): Plan {
   const uninvited = people.find(
     (person) => !meeting.invited.includes(person.name),
   );
-  if (uninvited && brain.hasPda) {
+  if (uninvited && brain.hasPda && !way.aloud) {
     return {
       ready: true,
       step: `It is time for a staff meeting${meeting.orderedBy ? `, as ${meeting.orderedBy} ordered` : ''}. You are sending ${uninvited.name} a PDA message to come to the ${room}.`,
@@ -633,6 +698,17 @@ function meetStep(brain: NpcBrain): Plan {
       ready: true,
       step: `You have called your staff to a meeting in the ${room}, and are going there.`,
       act: { tool: 'go_to', place: room },
+    };
+  }
+  // Where the staff are called aloud, it calls them once it is standing in the room: word for
+  // word, since their bodies go by it.
+  if (way.aloud && uninvited) {
+    const line = aloudCall(room);
+    return {
+      ready: true,
+      step: `It is time for a staff meeting${meeting.orderedBy ? `, as ${meeting.orderedBy} ordered` : ''}, and you are in the ${room}, where your staff work. Your body is calling them together, in these words: "${line}"`,
+      say: line,
+      exact: true,
     };
   }
   if (meeting.startedAt === null) {
@@ -670,7 +746,12 @@ function meetStep(brain: NpcBrain): Plan {
       needs: new RegExp(`\\b${first}\\b.*\\breport\\b`, 'i'),
     };
   }
-  const line = closingLine(brain, meeting);
+  // Anything it has to tell them while they are all together comes before the end.
+  const first = way.before?.(brain, meeting);
+  if (first) {
+    return first;
+  }
+  const line = way.closing(brain, meeting);
   return {
     ready: true,
     step: `Everyone here has given their report. Your body is summing up and ending the meeting, in these words: "${line}"`,
@@ -687,6 +768,38 @@ function requisitionStep(brain: NpcBrain): Plan {
   }
   const wanted = orderWords(order);
   const people = orderedFor(order).join(', ');
+  // With a Quartermaster aboard, every order goes to the Quartermaster, by PDA. If no word comes
+  // back that it is noted, the Quartermaster is not to be had, and the order is taken to the
+  // counter the way it was before there was one.
+  const quartermaster = quartermasterAboard(brain);
+  if (quartermaster && !order.viaCounter && brain.hasPda) {
+    if (order.askedAt === null) {
+      return {
+        ready: true,
+        step: `Your staff need supplies (${people}). Every order goes through the Quartermaster, ${quartermaster.name}: you are sending them a PDA message to order ${wanted}.`,
+        act: {
+          tool: 'message',
+          person: quartermaster.name,
+          text: `${ORDERING} ${wanted} for my staff, please.`,
+        },
+      };
+    }
+    if (order.heardBack) {
+      return {
+        ready: false,
+        step: `You have sent ${quartermaster.name}, the Quartermaster, your order for ${wanted}, and have word that it is noted. They will send the manifest numbers when it has come in.`,
+      };
+    }
+    if (brain.now - order.askedAt < NOTED_WAIT_DS) {
+      return {
+        ready: false,
+        step: `You have sent ${quartermaster.name}, the Quartermaster, your order for ${wanted}, and are waiting for word that it is noted.`,
+      };
+    }
+    order.viaCounter = true;
+    order.askedAt = null;
+    order.startedAt = brain.now;
+  }
   // Asked, and nobody from cargo has answered: whoever it asked may not have heard. It waits at
   // the counter a little, and then asks again, of whoever is there now.
   if (order.askedAt !== null && !order.heardBack) {
@@ -714,7 +827,9 @@ function requisitionStep(brain: NpcBrain): Plan {
         }
       : { ready: false, step: 'You do not know the way to the cargo counter.' };
   }
-  const technician = brain.peopleInView.find((person) => isCargo(person.job));
+  const technician = brain.peopleInView.find((person) =>
+    isTechnician(person.job),
+  );
   if (!technician) {
     // Nobody at the counter. It waits a while, and then tries again later.
     if (brain.now - brain.inPlaceSince > COUNTER_WAIT_DS) {
@@ -735,7 +850,9 @@ function requisitionStep(brain: NpcBrain): Plan {
   return {
     ready: true,
     step: `Your staff need supplies (${people}). ${technician.name}, who works in cargo, is here: in "say", ask ${technician.name}, by name, to order ${wanted}, all in the one order, and to send you the manifest numbers when it comes in. Only cargo can place an order: you are asking, not doing it yourself.`,
-    say: `${first}, ${ORDERING} ${wanted} for my staff, please. Send me the manifest number${several ? 's' : ''} when ${several ? 'they come' : 'it comes'} in.`,
+    // A technician takes no order while there is a Quartermaster to take it, unless it is told
+    // that the Quartermaster did not answer.
+    say: `${first}, ${ORDERING} ${wanted} for my staff, please. ${quartermaster ? QM_SILENT : `Send me the manifest number${several ? 's' : ''} when ${several ? 'they come' : 'it comes'} in.`}`,
     // Cargo has to hear who is asked, what for and how many: all of that is in the plain line.
     needs: new RegExp(
       `\\b${first}\\b.*\\border\\b.*${order.lines.map((line) => `\\bcrates?\\b.*${line.what.split(' ')[0]}`).join('.*')}`,
@@ -746,7 +863,7 @@ function requisitionStep(brain: NpcBrain): Plan {
 
 function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind === MEET) {
-    return meetStep(brain);
+    return meetStep(brain, HOP_WAY);
   }
   if (task.kind === OFFICE) {
     return officeStep(brain);
@@ -797,16 +914,106 @@ function cues(brain: NpcBrain): string[] {
   return lines;
 }
 
+/**
+ * Hears a report given at the meeting it is holding, by one of its staff, whoever's turn it is.
+ * Returns what was reported, or null if these words were not that.
+ */
+export function hearReport(
+  brain: NpcBrain,
+  speaker: string,
+  heard: string,
+): { counts: Record<string, number>; need: boolean } | null {
+  const meeting = brain.meeting;
+  const report = meeting ? readReport(heard) : null;
+  if (
+    !meeting ||
+    !report ||
+    !staff(brain).some((person) => person.name === speaker)
+  ) {
+    return null;
+  }
+  meeting.reports[speaker] = report;
+  for (const turn of meeting.turns) {
+    if (turn.who === speaker) {
+      turn.heard = true;
+    }
+  }
+  return report;
+}
+
+/** Notes what a head has just said at its meeting: who it called together, who it called on, and that it is over. */
+export function meetingSaid(brain: NpcBrain, called: string): void {
+  const meeting = brain.meeting;
+  if (!meeting) {
+    return;
+  }
+  // Having called its staff together aloud, they are called: every one of them, and those who
+  // were there to hear it are coming.
+  if (ALOUD_CALL_WORDS.test(called)) {
+    for (const person of staff(brain)) {
+      if (!meeting.invited.includes(person.name)) {
+        meeting.invited.push(person.name);
+      }
+      if (brain.peopleInView.some((seen) => seen.name === person.name)) {
+        meeting.answers[person.name] = 'coming';
+      }
+    }
+    // The wait for them runs from the call, not from when the meeting fell due.
+    meeting.calledAt = brain.now;
+  }
+  // Having called on someone, it listens for their report.
+  if (called.includes(CALLING_ON)) {
+    const who = present(brain, meeting).find((name) =>
+      called.includes(`${firstName(name)}, ${CALLING_ON}`),
+    );
+    if (who && !meeting.turns.some((turn) => turn.who === who)) {
+      meeting.turns.push({ who, askedAt: brain.now, heard: false });
+    }
+  }
+  // Having said the meeting is over, it is.
+  if (OVER_WORDS.test(called)) {
+    meeting.closedAt = brain.now;
+  }
+}
+
+/** Notes how a step of holding a meeting went: a walk to the room that gets nowhere, a call sent, the Captain told. */
+export function meetingActed(
+  brain: NpcBrain,
+  act: Action,
+  ok: boolean,
+  looped?: boolean,
+): void {
+  const meeting = brain.meeting;
+  if (!meeting) {
+    return;
+  }
+  // Its walk to the meeting room has arrived three times running, and it is still being sent.
+  // Walking is not what is wrong. It holds the meeting from where it stands.
+  if (ok && looped && act.tool === 'go_to' && act.place === meeting.room) {
+    meeting.fromHere = true;
+  }
+  if (act.tool !== 'message') {
+    return;
+  }
+  const text = String(act.text ?? '');
+  if (/^staff meeting in the/i.test(text)) {
+    meeting.invited.push(String(act.person));
+  }
+  if (text.includes(HOLDING)) {
+    meeting.copied = true;
+  }
+}
+
 export const HEAD_OF_PERSONNEL: Job = {
   is: isHeadOfPersonnel,
   // It has an office and errands of its own. It does not wander the station or show people round.
   keepsPost: true,
   cleans: false,
   about: () =>
-    'You are the Head of Personnel. The service staff answer to you: the janitors, the bartender, the cook and the rest. You see that they have what they need for their work, and you answer to the Captain for how they are getting on. You hold a short staff meeting now and then, hear each of them report, and note what they are short of. Then you go to the cargo counter and ask a cargo technician, by name, to order it: cargo takes orders from heads of department only, and only cargo can place one. Cargo holds what comes, and you send one of your staff to collect it.',
+    'You are the Head of Personnel. The service staff answer to you: the janitors, the bartender, the cook and the rest. You see that they have what they need for their work, and you answer to the Captain for how they are getting on. You hold a short staff meeting now and then, hear each of them report, and note what they are short of. Then you get it ordered: cargo takes orders from heads of department only. With a Quartermaster aboard you send your order to the Quartermaster by PDA. With none, you go to the cargo counter and ask a cargo technician, by name. Cargo holds what comes, and you send one of your staff to collect it.',
   whenAsked: (brain, heard) => [
     'If one of your staff tells you they need something for their work, tell them you will see to it. Your body notes it and asks cargo to order it.',
-    'You do not clean, you do not order supplies for anyone but your own staff, and you never place an order yourself: you ask a cargo technician to.',
+    'You do not clean, you do not order supplies for anyone but your own staff, and you never place an order yourself: you send it to the Quartermaster, or with no Quartermaster aboard you ask a cargo technician to.',
     ...(isMeetingOrder(brain, heard)
       ? [
           brain.meeting && !brain.meeting.orderedBy
@@ -830,19 +1037,8 @@ export const HEAD_OF_PERSONNEL: Job = {
       order.heardBack = true;
     }
     // At the meeting: a report from one of its staff is noted, whoever's turn it is.
-    const meeting = brain.meeting;
-    const report = meeting ? readReport(heard) : null;
-    if (
-      meeting &&
-      report &&
-      staff(brain).some((person) => person.name === speaker)
-    ) {
-      meeting.reports[speaker] = report;
-      for (const turn of meeting.turns) {
-        if (turn.who === speaker) {
-          turn.heard = true;
-        }
-      }
+    const report = hearReport(brain, speaker, heard);
+    if (report) {
       if (report.need) {
         noteAsk(brain, speaker, brain.now);
       }
@@ -869,6 +1065,23 @@ export const HEAD_OF_PERSONNEL: Job = {
   // Word from its staff about a meeting or of what they need, an order to hold a meeting, word
   // from cargo about its crates, and word from whoever it sent for one that it is unpacked.
   readsMessage: (brain, from, text, at, job) => {
+    // Word from the Quartermaster about its order: that it is noted, that the Captain has said
+    // no to it, or that it is not something cargo can get.
+    const sentOrder = brain.requisition;
+    if (isCargo(job) && sentOrder && sentOrder.askedAt !== null) {
+      if (NOTED_WORDS.test(text)) {
+        sentOrder.heardBack = true;
+        return;
+      }
+      if (REFUSED_WORDS.test(text) || CANNOT_ORDER_WORDS.test(text)) {
+        // It is not coming. Those who asked are not kept waiting on it: if they are still short
+        // at the next meeting, they say so again.
+        const people = orderedFor(sentOrder);
+        brain.asks = brain.asks.filter((ask) => !people.includes(ask.who));
+        brain.requisition = null;
+        return;
+      }
+    }
     // The order has come in. One of its staff is sent for each crate, by its number.
     if (isCargo(job) && ARRIVED_WORDS.test(text)) {
       for (const crate of cratesIn(text)) {
@@ -953,20 +1166,7 @@ export const HEAD_OF_PERSONNEL: Job = {
     if (!called) {
       return;
     }
-    const meeting = brain.meeting;
-    // Having called on someone, it listens for their report.
-    if (meeting && called.includes(CALLING_ON)) {
-      const who = present(brain, meeting).find((name) =>
-        called.includes(`${firstName(name)}, ${CALLING_ON}`),
-      );
-      if (who && !meeting.turns.some((turn) => turn.who === who)) {
-        meeting.turns.push({ who, askedAt: brain.now, heard: false });
-      }
-    }
-    // Having said the meeting is over, it is.
-    if (meeting && OVER_WORDS.test(called)) {
-      meeting.closedAt = brain.now;
-    }
+    meetingSaid(brain, called);
     const order = brain.requisition;
     if (order && called.includes(ORDERING)) {
       order.askedAt = brain.now;
@@ -981,24 +1181,24 @@ export const HEAD_OF_PERSONNEL: Job = {
   },
   // Each of its staff is sent the call to the meeting once, and the Captain word of it once.
   afterActing: (brain, act, _task, ok, looped) => {
-    const meeting = brain.meeting;
-    if (!meeting) {
-      return;
+    // Its order is sent to the Quartermaster. From here it waits for word that it is noted.
+    const sent = brain.requisition;
+    if (
+      sent &&
+      sent.askedAt === null &&
+      ok &&
+      act.tool === 'message' &&
+      String(act.text ?? '').startsWith(ORDERING)
+    ) {
+      sent.askedAt = brain.now;
+      sent.heardBack = false;
+      const people = orderedFor(sent);
+      for (const ask of brain.asks) {
+        if (people.includes(ask.who)) {
+          ask.ordered = true;
+        }
+      }
     }
-    // Its walk to the meeting room has arrived three times running, and it is still being sent.
-    // Walking is not what is wrong. It holds the meeting from where it stands.
-    if (ok && looped && act.tool === 'go_to' && act.place === meeting.room) {
-      meeting.fromHere = true;
-    }
-    if (act.tool !== 'message') {
-      return;
-    }
-    const text = String(act.text ?? '');
-    if (/^staff meeting in the/i.test(text)) {
-      meeting.invited.push(String(act.person));
-    }
-    if (text.includes(HOLDING)) {
-      meeting.copied = true;
-    }
+    meetingActed(brain, act, ok, looped);
   },
 };

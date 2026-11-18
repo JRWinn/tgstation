@@ -62,6 +62,14 @@ const TELL_AGAIN_DS = 4800;
 const HAULING = /^hauling\b/i;
 /** The words that mark a PDA message as a call to a meeting. */
 const CALL_WORDS = /\bmeeting in the\b/i;
+/**
+ * How a head calls a meeting aloud, to its staff's faces, where nothing between them goes by PDA.
+ * Said word for word, and known by how it begins: nothing a head might say in passing begins so.
+ */
+export function aloudCall(room: string): string {
+  return `Staff meeting in the ${room} now, please. Gather round and have your reports ready.`;
+}
+export const ALOUD_CALL_WORDS = /^staff meeting in the .+? now, please\b/i;
 /** The words by which a head calls on one of its staff, by name, for their report. */
 const CALLED_ON_WORDS = /\breport\b/i;
 /** The words by which a head says the meeting is over, out loud or by PDA. */
@@ -301,8 +309,11 @@ export function syncMeetings(brain: NpcBrain): void {
         summons.headSeenAt = brain.now;
       }
     }
-    // Its report has gone by PDA: there is nothing left to stay for.
-    const sentWord = summons.said && (!!summons.shutOut || !!summons.missed);
+    // Its report has gone by PDA: there is nothing left to stay for. A meeting that was called
+    // aloud has no report by PDA: one it could not get to is simply missed.
+    const sentWord =
+      (summons.said || !!summons.aloud) &&
+      (!!summons.shutOut || !!summons.missed);
     // Its head has heard it and left, and it did not hear the meeting ended.
     const headGone =
       summons.said &&
@@ -339,8 +350,9 @@ function spokenReport(
   brain: NpcBrain,
   summons: NonNullable<NpcBrain['summons']>,
 ): string {
-  const need = jobFor(brain.job).needs?.(brain) ?? null;
-  return `${firstName(summons.by)}, ${workWords(workSince(brain), summons.wording)}. ${needWords(need)}`;
+  const job = jobFor(brain.job);
+  const need = job.needs?.(brain) ?? null;
+  return `${firstName(summons.by)}, ${workWords(workSince(brain, job.reports), summons.wording)}. ${needWords(need)}`;
 }
 
 /** What being called to a meeting comes down to right now, or null if the task is not that. */
@@ -360,8 +372,9 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
         step: `You could not be at ${by}'s staff meeting, and have no PDA to send your report by.`,
       };
     }
-    const need = jobFor(brain.job).needs?.(brain) ?? null;
-    const report = reportWords(brain, need, summons.wording);
+    const job = jobFor(brain.job);
+    const need = job.needs?.(brain) ?? null;
+    const report = reportWords(brain, need, summons.wording, job.reports);
     return {
       ready: true,
       step: summons.missed
@@ -465,13 +478,34 @@ export function describeMeetings(task: Task): string | null {
 
 /** Follows what its head says at a meeting: being called on by name, and being told the meeting is over. */
 export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
+  const heard = String(event.details.message ?? '');
+  const speaker = String(event.details.speaker ?? '');
+  // Its head calling a meeting aloud, where it stands. It has heard the call, so it sends no word
+  // back: it goes and stands with the rest.
+  if (
+    ALOUD_CALL_WORDS.test(heard.trim()) &&
+    brain.summons?.by !== speaker
+  ) {
+    const theirJob =
+      brain.peopleInView.find((person) => person.name === speaker)?.job ??
+      brain.pdaPeople.find((person) => person.name === speaker)?.job ??
+      '';
+    const room = placeNamedIn(brain, heard.toLowerCase());
+    if (room && answersTo(brain.job, theirJob)) {
+      brain.summons = {
+        ...called(speaker, room, brain.now),
+        answered: true,
+        aloud: true,
+      };
+    }
+    return;
+  }
   const summons = brain.summons;
   // Whatever it hears its head say about the meeting counts, wherever it is standing when it
   // hears it: called on while still coming through the door, it has still been called on.
-  if (!summons || event.details.speaker !== summons.by) {
+  if (!summons || speaker !== summons.by) {
     return;
   }
-  const heard = String(event.details.message ?? '');
   if (OVER_WORDS.test(heard)) {
     summons.over = true;
     return;
