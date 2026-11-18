@@ -10,7 +10,7 @@
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
 	if(!tool_call_allowed())
 		return
-	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_BRING, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK)))
+	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
 		return
 	if(!can_sense())
@@ -48,9 +48,13 @@
 		if(CREW_TOOL_LOCATE)
 			tool_locate()
 		if(CREW_TOOL_ORDER)
-			tool_order(arguments["crate"], arguments["for"], arguments["count"], arguments["deliver_to"])
-		if(CREW_TOOL_BRING)
-			tool_bring_out()
+			tool_order(arguments["crate"], arguments["for"], arguments["count"])
+		if(CREW_TOOL_RELEASE)
+			tool_release(arguments["number"], arguments["person"])
+		if(CREW_TOOL_COLLECT)
+			tool_collect(arguments["number"], arguments["place"])
+		if(CREW_TOOL_CHECK_HELD)
+			tool_check_held()
 		if(CREW_TOOL_UNLOAD)
 			tool_unload()
 		if(CREW_TOOL_MAIL)
@@ -332,8 +336,11 @@
 	var/goal = walk_goal
 	var/why = reason || "you were interrupted"
 
-	if(tool == CREW_TOOL_BRING)
-		crate_hauled(succeeded, reason)
+	if(tool == CREW_TOOL_RELEASE)
+		crate_released(succeeded, reason)
+		return
+	if(tool == CREW_TOOL_COLLECT)
+		crate_collected(succeeded, reason)
 		return
 	if(tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE)
 		freight_hauled(tool, succeeded, reason)

@@ -98,9 +98,15 @@ export function noteLetIn(
   }
 }
 
-/** Notes that someone is out of the department's rooms again, and is expected no longer. */
+/**
+ * Notes that someone is out of the department's rooms again. A call to another of its rooms that
+ * they have not yet been let into still stands: sent for to two rooms, they are not turned away
+ * from the second for having finished in the first.
+ */
 export function noteLetOut(post: string, name: string): void {
-  list = list.filter((it) => !(it.post === post && it.name === name));
+  list = list.filter(
+    (it) => !(it.post === post && it.name === name && it.inside),
+  );
 }
 
 /** The people this department has let into this room who are still in there, as far as it knows. */

@@ -54,28 +54,32 @@
 	var/order_for
 	/// How many crates the order on the go is for.
 	var/order_count = 1
-	/// The room the order on the go is to be delivered to, by name, or null if it is left in the lobby.
-	var/order_deliver_to
-	/// Crates of the order that have come in and wait their turn to be seen out, as weak references.
-	var/list/ordered_more = list()
-	/// A crate that was tipped out at a delivery and has yet to be taken back to the bay, as a weak reference.
+	/// The manifest numbers of the crates of the order on the go.
+	var/list/ordered_numbers = list()
+	/// A crate the body unpacked and has yet to take back to cargo, as a weak reference.
 	var/datum/weakref/crate_to_return
-	/// Name of whoever has yet to be told, by PDA, that the crate they asked for has been brought out.
-	var/message_owed_to
+	/// PDA messages the body owes about crates: each a list with to (a name), kind (CREW_NOTICE_*), numbers and, for an order that has come in, what.
+	var/list/notices_owed = list()
+	/// Name of whoever a held crate is being brought out to the lobby for.
+	var/release_for
+	/// The room a crate the body has collected is being taken to, by name.
+	var/collect_to
+	/// world.time the body next goes to look over the crates waiting to be collected, or 0 while none are.
+	var/held_check_at = 0
+	/// The last time someone at its post said they were going to look that this body has counted from.
+	var/held_claim_seen = 0
 	/// TRUE from the moment the body places an order until the shuttle docks with it or it gives up waiting.
 	var/supply_run_active = FALSE
 	/// The supply order the body has placed, as a weak reference. The game deletes it once the crate is loaded.
 	var/datum/weakref/pending_order
 	/// The name of the crate the body last ordered.
 	var/ordered_crate_name
-	/// The crate that has arrived and is waiting to be brought out, as a weak reference.
-	var/datum/weakref/ordered_crate
 	/// world.time the supply shuttle was first found unable to leave for the order in progress, or 0.
 	var/supply_held_up_since = 0
 	/// The last look at the freight, as freight_state() gives it, and world.time it was taken.
 	var/list/freight_cache
 	var/freight_cached_at = 0
-	/// The name of the crate the body is hauling into the bay or aboard the shuttle.
+	/// The name of the crate the body is hauling: into the bay, aboard the shuttle, out to the lobby, or away to where it is wanted.
 	var/hauled_name
 	/// world.time the supply run in progress started.
 	var/supply_run_started_at = 0

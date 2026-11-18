@@ -28,6 +28,7 @@ import {
 } from './situation';
 import { meetingsAfterActing } from './jobs/meetings';
 import { ordersAfterActing } from './jobs/orders';
+import { pickupsAfterActing } from './jobs/pickups';
 import { knownPlaces } from './memory';
 import { workInOrder, wordOwed } from './tasks';
 import type { Action, NpcBrain, SenseEvent, Task } from './types';
@@ -274,7 +275,13 @@ export function nextStep(brain: NpcBrain): Step | null {
             act: { tool: 'message', person: tell.to, text: tell.line },
             tells: tell.line,
           }
-        : { key, text: tell.why, say: tell.line, tells: tell.line };
+        : {
+            key,
+            text: tell.why,
+            say: tell.line,
+            needs: tell.needs,
+            tells: tell.line,
+          };
     }
   }
 
@@ -664,6 +671,12 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     !!event.details.ok,
   );
   meetingsAfterActing(brain, last.act, !!event.details.ok);
+  pickupsAfterActing(
+    brain,
+    last.act,
+    brain.tasks.find((task) => task.id === last.task),
+    !!event.details.ok,
+  );
   if (event.details.ok) {
     brain.failures.delete(last.key);
     // The alarm is reset and the fire doors are opening: whatever it gave up on because of them

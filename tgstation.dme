@@ -5113,6 +5113,7 @@
 #include "code\modules\llm_crew\crew_npc_freight.dm"
 #include "code\modules\llm_crew\crew_npc_guarding.dm"
 #include "code\modules\llm_crew\crew_npc_hands.dm"
+#include "code\modules\llm_crew\crew_npc_held.dm"
 #include "code\modules\llm_crew\crew_npc_inventory.dm"
 #include "code\modules\llm_crew\crew_npc_motor.dm"
 #include "code\modules\llm_crew\crew_npc_places.dm"

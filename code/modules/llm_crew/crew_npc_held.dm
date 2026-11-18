@@ -1,0 +1,367 @@
+/**
+ * Crates cargo is holding for collection.
+ *
+ * Cargo staff cannot get into the rooms the crew work in, so nothing is delivered. A crate that
+ * comes in on an order is hauled into the bay and held there, and whoever ordered it is sent the
+ * number on its shipping manifest. Whoever they send comes to the counter and gives that number,
+ * and the crate is brought out to the lobby for them. They haul it to where it is wanted, unpack
+ * it, and bring the empty crate back.
+ *
+ * A crate nobody comes for is not forgotten. Every few minutes one of the staff at the post says
+ * it is going to see what is still there, looks, and reminds whoever ordered it. Saying so is
+ * taking the job: everyone else at the post starts counting again from that moment.
+ */
+
+/// One crate that came in on an order and is waiting for whoever it is for to send someone for it.
+/datum/crew_npc_held_crate
+	/// The crate, as a weak reference.
+	var/datum/weakref/crate_ref
+	/// The number on its shipping manifest. Whoever comes for it gives this number.
+	var/number
+	/// Name of whoever ordered it.
+	var/for_name
+	/// What it is, by the name it was ordered under.
+	var/what
+	/// The cargo post that ordered it, by the name of the room.
+	var/post
+	/// world.time it came off the supply shuttle, or 0 while it is still aboard.
+	var/held_since = 0
+	/// How many times whoever ordered it has been reminded that it is waiting.
+	var/reminders = 0
+	/// TRUE once it has been brought out to the lobby for whoever came for it.
+	var/out = FALSE
+	/// Name of whoever is hauling it away, or null.
+	var/collected_by
+
+/// The crates being held for collection, as /datum/crew_npc_held_crate. Read it through crew_npc_held_crates().
+GLOBAL_LIST_EMPTY(crew_npc_held_crates)
+/// world.time someone at each cargo post last said it was going to look over the crates waiting there, by the post's name.
+GLOBAL_LIST_EMPTY(crew_npc_held_claims)
+
+/// Returns the crates being held for collection, having dropped any that are gone and noted any that have come off the shuttle.
+/proc/crew_npc_held_crates()
+	for(var/datum/crew_npc_held_crate/entry as anything in GLOB.crew_npc_held_crates)
+		var/obj/structure/closet/crate/crate = entry.crate_ref?.resolve()
+		if(QDELETED(crate))
+			GLOB.crew_npc_held_crates -= entry
+			continue
+		// Whoever hauled it off the shuttle, it has been waiting since it left it.
+		if(!entry.held_since && !istype(get_area(crate), /area/shuttle))
+			entry.held_since = world.time
+	return GLOB.crew_npc_held_crates
+
+/// Returns the held crate with this manifest number, or null. The number may come as text.
+/proc/crew_npc_held_by_number(number)
+	if(istext(number))
+		number = text2num(number)
+	if(!isnum(number))
+		return null
+	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
+		if(entry.number == number)
+			return entry
+	return null
+
+/// Returns what is known of this crate as one being held, or null if it is not one.
+/proc/crew_npc_held_entry(obj/structure/closet/crate/crate)
+	if(QDELETED(crate))
+		return null
+	for(var/datum/crew_npc_held_crate/entry as anything in GLOB.crew_npc_held_crates)
+		if(entry.crate_ref?.resolve() == crate)
+			return entry
+	return null
+
+/// Returns the number on the shipping manifest still stuck to a crate, or null if it has none.
+/proc/crew_npc_manifest_number(obj/structure/closet/crate/crate)
+	var/obj/item/paper/fluff/jobs/cargo/manifest/manifest = crate.manifest?.resolve()
+	return QDELETED(manifest) ? null : manifest.order_id
+
+/// Says a list of manifest numbers the way it is written: "crate #12", "crates #12 and #13".
+/proc/crew_npc_numbers_written(list/numbers)
+	var/list/written = list()
+	for(var/number in numbers)
+		written += "#[number]"
+	return "crate[length(numbers) == 1 ? "" : "s"] [english_list(written)]"
+
+/// Says a list of manifest numbers the way it is spoken: "crate 12", "crates 12 and 13".
+/proc/crew_npc_numbers_spoken(list/numbers)
+	var/list/spoken = list()
+	for(var/number in numbers)
+		spoken += "[number]"
+	return "crate[length(numbers) == 1 ? "" : "s"] [english_list(spoken)]"
+
+/**
+ * What the brain is told of the crates being held: each one's number, who it is for, where it is
+ * and how long it has waited. Cargo staff are told of all of them. Everyone else is told only of
+ * those put out in the lobby, which anyone there can see.
+ */
+/datum/ai_controller/crew_npc/proc/held_state()
+	var/list/held = list()
+	var/cargo = works_in_cargo()
+	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
+		if(!cargo && !entry.out)
+			continue
+		held += list(list(
+			"number" = entry.number,
+			"for" = entry.for_name,
+			"what" = entry.what,
+			"place" = get_area_name(entry.crate_ref.resolve(), TRUE),
+			"out" = entry.out,
+			"taken_by" = entry.collected_by,
+			"waited" = entry.held_since ? world.time - entry.held_since : 0,
+		))
+	return held
+
+/// Returns the crates of the body's post that are waiting and may still be chased: in the bay or the lobby, nobody hauling them, not yet reminded of too often.
+/datum/ai_controller/crew_npc/proc/held_waiting()
+	var/list/waiting = list()
+	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
+		if(entry.post == post_place && entry.held_since && isnull(entry.collected_by) && entry.reminders < CREW_NPC_HELD_REMINDERS)
+			waiting += entry
+	return waiting
+
+/// Returns those of them that have waited long enough for whoever ordered them to be reminded.
+/datum/ai_controller/crew_npc/proc/held_overdue()
+	var/list/overdue = list()
+	for(var/datum/crew_npc_held_crate/entry as anything in held_waiting())
+		if(world.time - entry.held_since >= CREW_NPC_HELD_OVERDUE)
+			overdue += entry
+	return overdue
+
+/// How long this body leaves it before it next goes to look: a little more or less each time, and not the same as its workmates.
+/datum/ai_controller/crew_npc/proc/held_check_wait()
+	return CREW_NPC_HELD_CHECK_EVERY + rand(-CREW_NPC_HELD_CHECK_SPREAD, CREW_NPC_HELD_CHECK_SPREAD)
+
+/**
+ * TRUE if it is this body's moment to go and look over the crates waiting to be collected.
+ *
+ * Each of the staff at a post counts down by itself, and nobody counts while nothing is waiting.
+ * Whoever's time is up first goes. A crate that has only just come in is not chased: the count
+ * runs on until the oldest one has waited long enough.
+ */
+/datum/ai_controller/crew_npc/proc/held_check_due()
+	if(!works_in_cargo() || isnull(post_turf))
+		return FALSE
+	var/list/waiting = held_waiting()
+	if(!length(waiting))
+		held_check_at = 0
+		return FALSE
+	// A workmate has said it is going to look. Everyone at the post starts counting again from then.
+	var/claimed_at = GLOB.crew_npc_held_claims[post_place]
+	if(claimed_at && claimed_at != held_claim_seen)
+		held_claim_seen = claimed_at
+		held_check_at = claimed_at + held_check_wait()
+	if(!held_check_at)
+		held_check_at = world.time + held_check_wait()
+	if(world.time < held_check_at)
+		return FALSE
+	var/oldest = INFINITY
+	for(var/datum/crew_npc_held_crate/entry as anything in waiting)
+		oldest = min(oldest, entry.held_since)
+	if(world.time - oldest < CREW_NPC_HELD_OVERDUE)
+		held_check_at = oldest + CREW_NPC_HELD_OVERDUE + rand(0, CREW_NPC_HELD_CHECK_SPREAD)
+		return FALSE
+	return TRUE
+
+/**
+ * Tool: say that the body is going to see what crates are still waiting, and go and look. Cargo staff only.
+ *
+ * The words are said as they stand, by the body, so that whoever hears them knows the job is
+ * taken. Saying them is what starts everyone at the post counting again.
+ */
+/datum/ai_controller/crew_npc/proc/tool_check_held()
+	var/mob/living/carbon/human/body = pawn
+	if(!works_in_cargo() || isnull(post_turf))
+		action_result(CREW_TOOL_CHECK_HELD, FALSE, "Keeping track of the crates waiting to be collected is cargo's job.")
+		return
+	if(!held_check_due())
+		action_result(CREW_TOOL_CHECK_HELD, FALSE, "There is no call to look over the crates waiting to be collected just now.")
+		return
+	var/obj/structure/closet/crate/nearest
+	var/nearest_distance = INFINITY
+	for(var/datum/crew_npc_held_crate/entry as anything in held_overdue())
+		var/obj/structure/closet/crate/crate = entry.crate_ref.resolve()
+		var/distance = get_dist(body, crate)
+		if(distance < nearest_distance)
+			nearest_distance = distance
+			nearest = crate
+	if(isnull(nearest))
+		action_result(CREW_TOOL_CHECK_HELD, FALSE, "There is no call to look over the crates waiting to be collected just now.")
+		return
+	GLOB.crew_npc_held_claims[post_place] = world.time
+	speak_plainly(CREW_NPC_HELD_CLAIM)
+	start_errand(nearest, CREW_TOOL_CHECK_HELD, null)
+
+/// Has the body say a line of its own, in the words given, if it can speak. Used for what its work has it say as it stands.
+/datum/ai_controller/crew_npc/proc/speak_plainly(text)
+	var/mob/living/carbon/human/body = pawn
+	if(!body.can_speak())
+		return
+	COOLDOWN_START(src, say_cooldown, CREW_NPC_SAY_COOLDOWN)
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) said as part of its work: [text]")
+	INVOKE_ASYNC(body, TYPE_PROC_REF(/atom/movable, say), text)
+	// Nobody says their piece over their shoulder on the way out. It stops for it, and a moment after.
+	stand_still(CREW_NPC_TALK_PAUSE)
+
+/**
+ * Looks over the crates waiting to be collected, from beside one of them, says what is still there,
+ * and notes who is to be reminded by PDA. Sleeps while it looks.
+ */
+/datum/ai_controller/crew_npc/proc/look_over_held(obj/structure/closet/crate/crate)
+	sleep(CREW_NPC_LOOK_TIME)
+	if(QDELETED(src) || QDELETED(pawn))
+		return list(FALSE, "You could not get to it.")
+	// Who ordered each of them, with the numbers of theirs that are still here.
+	var/list/owed = list()
+	for(var/datum/crew_npc_held_crate/entry as anything in held_overdue())
+		entry.reminders++
+		var/whose = entry.for_name || "nobody you know of"
+		if(isnull(owed[whose]))
+			owed[whose] = list()
+		owed[whose] += entry.number
+	if(!length(owed))
+		return list(TRUE, "You look over the bay. Nothing has been waiting long enough to chase anyone about.")
+	var/list/spoken = list()
+	var/list/written = list()
+	for(var/whose in owed)
+		spoken += "[crew_npc_numbers_spoken(owed[whose])] for [whose]"
+		written += "[crew_npc_numbers_written(owed[whose])] for [whose]"
+		if(whose != "nobody you know of")
+			notices_owed += list(list("to" = whose, "kind" = CREW_NOTICE_WAITING, "numbers" = owed[whose]))
+	speak_plainly("Still waiting: [english_list(spoken)]. I will send word.")
+	return list(TRUE, "You look over the crates waiting to be collected. Still here: [english_list(written)]. Whoever ordered them is to be reminded by PDA.")
+
+/**
+ * Tool: bring a crate that is being held out to the Cargo Lobby, for whoever has come for it. Cargo staff only.
+ *
+ * Whoever comes gives the number on the crate's manifest. Whether they gave the right one is
+ * settled here, whoever asks.
+ */
+/datum/ai_controller/crew_npc/proc/tool_release(number, handle)
+	if(!works_in_cargo() || isnull(post_turf))
+		action_result(CREW_TOOL_RELEASE, FALSE, "Handing out the crates that are being held is cargo's job.")
+		return
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_by_number(number)
+	if(isnull(entry))
+		action_result(CREW_TOOL_RELEASE, FALSE, "You are not holding a crate by that number.", list("no_such_crate" = TRUE))
+		return
+	var/obj/structure/closet/crate/crate = entry.crate_ref.resolve()
+	if(entry.out)
+		var/where = get_area_name(crate, TRUE)
+		action_result(CREW_TOOL_RELEASE, TRUE, "Crate #[entry.number] has been put out already. It is in [where].", list("place" = where, "number" = entry.number))
+		return
+	if(entry.collected_by)
+		action_result(CREW_TOOL_RELEASE, FALSE, "[entry.collected_by] is already taking crate #[entry.number] away.")
+		return
+	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
+	var/mob/living/carbon/human/person = person_ref?.resolve()
+	release_for = QDELETED(person) ? last_heard_speaker : person.name
+	start_errand(crate, CREW_TOOL_RELEASE, "crate #[entry.number]")
+
+/// Takes hold of the held crate the body is standing by and sets off for the Cargo Lobby with it.
+/datum/ai_controller/crew_npc/proc/haul_released(obj/structure/closet/crate/crate)
+	var/mob/living/carbon/human/body = pawn
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(crate)
+	if(isnull(entry))
+		return list(FALSE, "That crate is not one you are holding for anyone.")
+	var/lobby = learn_place(/area/station/cargo/lobby)
+	// The middle of the lobby, so the crate ends up well inside it, where whoever came for it can get at it.
+	var/turf/destination = middle_of(/area/station/cargo/lobby)
+	if(isnull(lobby) || isnull(destination))
+		return list(FALSE, "You do not know where to put the crate out.")
+	body.start_pulling(crate)
+	if(body.pulling != crate)
+		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
+	// It is marked with its number and who it is for before it leaves the bay, so anyone who finds it knows.
+	label_crate(crate, entry)
+	hauled_name = "crate #[entry.number]"
+	hauled_ref = WEAKREF(crate)
+	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
+	start_walk(destination, CREW_TOOL_RELEASE, lobby, CREW_NPC_TRAVEL_TIMEOUT)
+	return list(TRUE, null)
+
+/// Called when the walk out to the lobby with a held crate ends. Lets go of it and tells the brain.
+/datum/ai_controller/crew_npc/proc/crate_released(succeeded, reason)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/structure/closet/crate/hauled = hauled_ref?.resolve()
+	var/still_held = !isnull(body.pulling)
+	body.stop_pulling()
+	freight_changed()
+	var/place = get_area_name(body, TRUE)
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(hauled)
+	if(succeeded && still_held && entry)
+		entry.out = TRUE
+		action_result(CREW_TOOL_RELEASE, TRUE, "You bring crate #[entry.number] out to [place] and leave it there[release_for ? " for [release_for]" : ""] to take away.", list("place" = place, "number" = entry.number))
+		return
+	var/list/details = list("place" = place)
+	var/blocker = in_the_way_report(hauled, details)
+	action_result(CREW_TOOL_RELEASE, FALSE, "You could not get the [hauled_name] out to the lobby: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
+
+/**
+ * Tool: haul a crate that cargo has put out for collection to a room, and unpack it there.
+ *
+ * Anyone sent for a crate can do this. Only a crate cargo has put out can be taken, and only to a
+ * room the body's own ID gets it into.
+ */
+/datum/ai_controller/crew_npc/proc/tool_collect(number, place)
+	var/mob/living/carbon/human/body = pawn
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_by_number(number)
+	if(isnull(entry) || !entry.out)
+		action_result(CREW_TOOL_COLLECT, FALSE, "Cargo has not put a crate by that number out for you.", list("no_such_crate" = isnull(entry)))
+		return
+	if(entry.collected_by && entry.collected_by != body.real_name)
+		action_result(CREW_TOOL_COLLECT, FALSE, "[entry.collected_by] is already taking crate #[entry.number] away.", list("no_such_crate" = TRUE))
+		return
+	var/known = istext(place) ? find_known_place(place) : null
+	var/area/station/room = known ? crew_npc_station_places()[known] : null
+	if(isnull(room))
+		action_result(CREW_TOOL_COLLECT, FALSE, "You do not know of anywhere aboard by that name.")
+		return
+	if(locked_out_of(room))
+		action_result(CREW_TOOL_COLLECT, FALSE, "You cannot get into [known] yourself, so you cannot take a crate there.")
+		return
+	collect_to = known
+	start_errand(entry.crate_ref.resolve(), CREW_TOOL_COLLECT, "crate #[entry.number]")
+
+/// Takes hold of the crate the body has come for and sets off with it for the room it is wanted in.
+/datum/ai_controller/crew_npc/proc/haul_collected(obj/structure/closet/crate/crate)
+	var/mob/living/carbon/human/body = pawn
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(crate)
+	if(isnull(entry))
+		return list(FALSE, "That crate is not one cargo put out for anyone.")
+	var/area/station/room = collect_to ? crew_npc_station_places()[collect_to] : null
+	var/turf/destination = room ? room_middle(room) : null
+	if(isnull(destination))
+		return list(FALSE, "You do not know where to take the crate.")
+	body.start_pulling(crate)
+	if(body.pulling != crate)
+		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
+	entry.collected_by = body.real_name
+	hauled_name = "crate #[entry.number]"
+	hauled_ref = WEAKREF(crate)
+	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
+	start_walk(destination, CREW_TOOL_COLLECT, collect_to, CREW_NPC_TRAVEL_TIMEOUT)
+	return list(TRUE, null)
+
+/// Called when the walk with a collected crate ends. Unpacks it where it was wanted, and tells the brain.
+/datum/ai_controller/crew_npc/proc/crate_collected(succeeded, reason)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/structure/closet/crate/hauled = hauled_ref?.resolve()
+	var/still_held = !isnull(body.pulling)
+	body.stop_pulling()
+	var/place = get_area_name(body, TRUE)
+	var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(hauled)
+	if(succeeded && still_held && !QDELETED(hauled))
+		// It is tipped out where people can pick the things up, and the crate is this body's to take back.
+		var/list/names = tip_out(hauled)
+		crate_to_return = WEAKREF(hauled)
+		// It has been collected. Nobody is reminded of it again.
+		if(entry)
+			GLOB.crew_npc_held_crates -= entry
+		action_result(CREW_TOOL_COLLECT, TRUE, "You haul the [hauled_name] to [place] and unpack it there[length(names) ? ": [english_list(names)]" : ""]. The empty crate is yours to take back to cargo.", list("place" = place, "number" = entry?.number))
+		return
+	// Left where it stopped, it is still there for the taking.
+	if(entry)
+		entry.collected_by = null
+	var/list/details = list("place" = place)
+	var/blocker = in_the_way_report(hauled, details)
+	action_result(CREW_TOOL_COLLECT, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)

@@ -121,11 +121,13 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"meeting_room" = npc.meeting_place,
 			"orderable" = npc.works_in_cargo() ? assoc_to_keys(npc.orderable_crates()) : list(),
 			"order_pending" = npc.supply_run_active,
-			"crate_waiting" = npc.crate_waiting(),
 			"has_pda" = !isnull(npc.pda_messenger()),
-			"message_owed" = npc.message_owed_to,
-			// Where the order on the go is to be delivered, and whether a crate tipped out there has yet to be taken back.
-			"deliver_to" = npc.order_deliver_to,
+			// PDA messages it owes about crates: an order that has come in, or crates still waiting to be collected.
+			"notices" = npc.notices_owed,
+			// The crates being held for collection that it knows of, and whether it is its moment to go and look them over.
+			"held_crates" = npc.held_state(),
+			"held_check_due" = npc.held_check_due(),
+			// Whether a crate it unpacked has yet to be taken back to cargo.
 			"crate_to_return" = !QDELETED(npc.crate_to_return?.resolve()),
 			// Everyone its PDA lists, with their jobs: who it can send word to, and who answers to whom.
 			"pda_people" = npc.people_on_pda(),

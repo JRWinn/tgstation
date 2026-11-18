@@ -117,7 +117,6 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   clean: 'clean',
   find_supplies: 'locate',
   order: 'order',
-  bring_out: 'bring_out',
   message: 'message',
   grenade: 'grenade',
   // Freight work, which only the driver asks for (see jobs/freight.ts).
@@ -133,7 +132,11 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   go_to_door: 'go_to_door',
   // Knocking at a door, and resetting a fire alarm someone pulled: also only ever asked for by code.
   knock: 'knock',
-  // Taking back the crate that was tipped out at a delivery.
+  // Crates cargo holds for collection: looking over what is still waiting, bringing one out to
+  // whoever came for it, hauling it away to unpack, and taking the empty crate back.
+  check_held: 'check_held',
+  release: 'release',
+  collect_crate: 'collect_crate',
   take_back: 'take_back',
   reset_alarm: 'reset_alarm',
   throw_out: 'throw_out',

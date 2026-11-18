@@ -13,6 +13,7 @@ import {
   readSummons,
 } from './jobs/meetings';
 import { ordersAfterSaying } from './jobs/orders';
+import { pickupsAfterSaying, readPickup } from './jobs/pickups';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
 import {
@@ -293,9 +294,13 @@ export function ingest(npcs: Npc[], now: number): void {
         post: null,
         orderable: [],
         orderPending: false,
-        crateWaiting: null,
         hasPda: false,
-        messageOwed: null,
+        notices: [],
+        heldCrates: [],
+        heldCheckDue: false,
+        pickupAsked: null,
+        pickups: [],
+        pickupTurn: 0,
         tidyTodo: 0,
         freight: null,
         mailTold: {},
@@ -304,7 +309,6 @@ export function ingest(npcs: Npc[], now: number): void {
         office: null,
         meetingRoom: null,
         pdaPeople: [],
-        deliverTo: null,
         crateToReturn: false,
         bornAt: now,
         toldHeadAt: null,
@@ -396,9 +400,18 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.post = npc.post ?? null;
     brain.orderable = npc.orderable ?? [];
     brain.orderPending = !!npc.order_pending;
-    brain.crateWaiting = npc.crate_waiting ?? null;
     brain.hasPda = !!npc.has_pda;
-    brain.messageOwed = npc.message_owed ?? null;
+    brain.notices = npc.notices ?? [];
+    brain.heldCrates = (npc.held_crates ?? []).map((crate) => ({
+      number: crate.number,
+      for: crate.for ?? null,
+      what: crate.what ?? null,
+      place: crate.place,
+      out: !!crate.out,
+      takenBy: crate.taken_by ?? null,
+      waited: crate.waited ?? 0,
+    }));
+    brain.heldCheckDue = !!npc.held_check_due;
     brain.tidyTodo = npc.tidy?.todo ?? 0;
     brain.freight = npc.freight
       ? {
@@ -415,7 +428,6 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.office = npc.office ?? null;
     brain.meetingRoom = npc.meeting_room ?? null;
     brain.pdaPeople = npc.pda_people ?? [];
-    brain.deliverTo = npc.deliver_to ?? null;
     brain.crateToReturn = !!npc.crate_to_return;
     brain.workmateCalled = !!npc.workmate_called;
     brain.inHand = !!npc.in_hand;
@@ -450,8 +462,18 @@ export function ingest(npcs: Npc[], now: number): void {
         const theirJob = String(event.details.job ?? '');
         // A call to a staff meeting from its head is read the same by everyone. Anything else
         // means what it means to whoever's PDA it is.
-        if (!readSummons(brain, from, text, event.at, theirJob)) {
-          jobFor(brain.job).readsMessage?.(brain, from, text, event.at, theirJob);
+        // So is being sent by its head to collect a crate from cargo.
+        if (
+          !readSummons(brain, from, text, event.at, theirJob) &&
+          !readPickup(brain, from, text, theirJob)
+        ) {
+          jobFor(brain.job).readsMessage?.(
+            brain,
+            from,
+            text,
+            event.at,
+            theirJob,
+          );
         }
       }
       // Who a line was said to is worked out once, here, before anything acts on it or answers it.
@@ -1217,6 +1239,7 @@ async function think(brain: NpcBrain): Promise<void> {
       guardAfterSaying(brain, mustSay);
       meetingsAfterSaying(brain, mustSay);
       ordersAfterSaying(brain, mustSay);
+      pickupsAfterSaying(brain, mustSay);
       // Anyone in view who was waiting to hear that a task was done has now been told.
       afterSaying(brain);
       // Having spoken up about a mess here, it need not be prompted to again for a while.
@@ -1279,6 +1302,7 @@ async function think(brain: NpcBrain): Promise<void> {
       guardAfterSaying(brain, mustSay);
       meetingsAfterSaying(brain, mustSay);
       ordersAfterSaying(brain, mustSay);
+      pickupsAfterSaying(brain, mustSay);
       afterSaying(brain);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment

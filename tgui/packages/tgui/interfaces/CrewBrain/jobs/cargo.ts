@@ -6,8 +6,13 @@
  * sending a janitor a PDA message when there is a mess in it.
  *
  * The LLM hears the request and decides whether it was one. Everything after that is code: going
- * to the console, waiting on the shuttle, hauling the crate out, sending the PDA message, and
- * getting back to the post.
+ * to the console, waiting on the shuttle, sending the PDA message, and getting back to the post.
+ *
+ * Nothing is delivered: cargo staff cannot get into the rooms the rest of the crew work in. A
+ * crate that comes in on an order is held in the bay, and whoever ordered it is sent the number on
+ * its manifest. Whoever comes to the counter with that number is brought the crate in the lobby.
+ * A crate nobody comes for is chased: every few minutes one of those at the post says it is going
+ * to see what is still there, looks, and reminds whoever ordered it.
  */
 import {
   expectedAt,
@@ -19,14 +24,9 @@ import {
   takeOrder,
 } from '../expected';
 import { isHead } from '../hierarchy';
-import {
-  addTask,
-  blockTask,
-  findTask,
-  finishTask,
-  placeNamedIn,
-} from '../tasks';
+import { addTask, blockTask, findTask, finishTask } from '../tasks';
 import type {
+  HeldCrate,
   NpcBrain,
   Option,
   PersonInView,
@@ -44,6 +44,7 @@ import {
 import { noteSentFor, stagger } from './guarding';
 import { isJanitor } from './janitor';
 import type { Job } from './job';
+import { COLLECT_WORDS, crateNumberIn } from './pickups';
 import {
   describeRounds,
   planRounds,
@@ -79,6 +80,15 @@ const TIDY = 'tidy';
  */
 const SUPPLY_WORDS =
   /order|crate|suppl|soap|cleaner|\bmops?\b|bucket|janitorial|broom|\brags?\b|grenade|purchase|\bbuy|stuff|gear|equipment/i;
+/** A held crate to bring out to the lobby for whoever has come for it. The task's item is its manifest number. */
+const HANDOVER = 'handover';
+/** Going to see which crates are still waiting in the bay to be collected. */
+const CHECK = 'check_held';
+/** A reminder owed to someone whose crates are still waiting. The task's item is their name. */
+const REMIND = 'remind';
+const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND]);
+/** How long (deciseconds) someone's asking for a crate at the counter stands. */
+const PICKUP_ASK_DS = 1200;
 /** Someone who is to be let through the door of the post. The task's item is their name. */
 const DOOR = 'door';
 /** The words that mark what someone says as asking for a door to be opened. */
@@ -116,7 +126,7 @@ function about(post: string | null): string {
  */
 function whenAsked(_brain: NpcBrain, heard: string): string[] {
   return [
-    'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, takes it where they asked for it when the shuttle docks, and sends them a PDA message. If they ask for something you cannot order, say so.',
+    'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, holds the crate in the bay when it comes, and sends them a PDA message with its manifest number, for whoever they send to give at the counter. If they ask for something you cannot order, say so.',
     'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors.',
     // Only when what was said touches on it. It is a lot to read for "how is your day going?".
     ...(OWN_WORK_WORDS.test(heard)
@@ -131,14 +141,183 @@ function whenAsked(_brain: NpcBrain, heard: string): string[] {
 const OWN_WORK_WORDS =
   /\b(door|let (me|us|him|her|them) (in|out)|come in|get in|locked|open|mail|post|parcel|package|letter|shuttle|crates?|unload|mess|messy|tidy|floor|janitor|your job|your work|you do|doing|busy|up to)\b/i;
 
-/** TRUE while there is an order somewhere between being placed and whoever asked being told. */
+/** The PDA message it owes about an order that has come in, if it owes one. */
+function arrivedNotice(brain: NpcBrain) {
+  return brain.notices.find((notice) => notice.kind === 'arrived');
+}
+
+/** TRUE while there is an order somewhere between being placed and whoever asked being told it has come. */
 function orderInHand(brain: NpcBrain): boolean {
-  return (
-    brain.orderPending ||
-    !!brain.crateWaiting ||
-    brain.crateToReturn ||
-    (!!brain.messageOwed && brain.hasPda)
+  return brain.orderPending || (!!arrivedNotice(brain) && brain.hasPda);
+}
+
+/** TRUE while there is work on the crates being held that it could be getting on with. */
+function heldInHand(brain: NpcBrain): boolean {
+  return brain.tasks.some(
+    (task) => HELD_KINDS.has(task.kind) && task.state === 'open',
   );
+}
+
+/** Writes manifest numbers the way they are written down: "crate #12", "crates #12 and #13". */
+function cratesWritten(numbers: number[]): string {
+  return `crate${numbers.length === 1 ? '' : 's'} ${listed(numbers.map((number) => `#${number}`))}`;
+}
+
+/**
+ * The held crate someone at the counter means. It goes by the number they gave. With no number, or
+ * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
+ * that name, and for a head their job will do as well.
+ */
+function crateMeant(
+  brain: NpcBrain,
+  number: number | null,
+  heard: string,
+): HeldCrate | undefined {
+  const named =
+    number === null
+      ? undefined
+      : brain.heldCrates.find((crate) => crate.number === number);
+  if (named) {
+    return named;
+  }
+  const said = heard.toLowerCase();
+  const says = (words: string) =>
+    !!words &&
+    new RegExp(`\\b${words.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`).test(
+      said,
+    );
+  return brain.heldCrates.find((crate) => {
+    if (!crate.for || crate.out || crate.takenBy) {
+      return false;
+    }
+    const job =
+      brain.pdaPeople.find((person) => person.name === crate.for)?.job ?? '';
+    return says(crate.for) || says(firstName(crate.for)) || says(job);
+  });
+}
+
+/**
+ * Keeps the work on held crates true to what the server says is waiting, who has come for one, and
+ * who is owed a reminder.
+ */
+function syncHeld(brain: NpcBrain): void {
+  // Whoever came to the counter for a crate has a task until it is out in the lobby for them.
+  const asked = brain.pickupAsked;
+  const crate =
+    asked && asked.number !== null && brain.now - asked.at < PICKUP_ASK_DS
+      ? brain.heldCrates.find((held) => held.number === asked.number)
+      : undefined;
+  const item =
+    crate && !crate.out && !crate.takenBy ? String(crate.number) : null;
+  for (const task of brain.tasks) {
+    if (task.kind === HANDOVER && task.state !== 'done' && task.item !== item) {
+      // They are told when it is out, in so many words. Nobody is owed more word than that.
+      task.reported = true;
+      finishTask(brain, task);
+    }
+  }
+  if (item && asked && !findTask(brain, HANDOVER, { item })) {
+    addTask(brain, {
+      kind: HANDOVER,
+      item,
+      urgency: 'asked',
+      source: 'asked',
+      askedBy: asked.name,
+    });
+  }
+
+  // Its turn to see what is still waiting. The server keeps the count, and says when it is up.
+  const check = findTask(brain, CHECK);
+  if (brain.heldCheckDue && !check) {
+    addTask(brain, { kind: CHECK, urgency: 'asked', source: 'own' });
+  } else if (!brain.heldCheckDue && check) {
+    finishTask(brain, check);
+  }
+
+  // Whoever ordered crates that are still waiting is reminded, once for each look.
+  const owed = brain.hasPda
+    ? brain.notices.filter((notice) => notice.kind === 'waiting')
+    : [];
+  for (const notice of owed) {
+    if (!findTask(brain, REMIND, { item: notice.to })) {
+      addTask(brain, {
+        kind: REMIND,
+        item: notice.to,
+        urgency: 'asked',
+        source: 'own',
+      });
+    }
+  }
+  for (const task of brain.tasks) {
+    if (
+      task.kind === REMIND &&
+      task.state !== 'done' &&
+      !owed.some((notice) => notice.to === task.item)
+    ) {
+      finishTask(brain, task);
+    }
+  }
+}
+
+/** What one of the tasks about held crates comes down to right now, or null if the task is not one. */
+function planHeld(brain: NpcBrain, task: Task): Plan | null {
+  if (task.kind === HANDOVER) {
+    const crate = brain.heldCrates.find(
+      (held) => String(held.number) === task.item,
+    );
+    const who = task.askedBy ?? 'Someone';
+    const handle = task.askedBy ? brain.handles[task.askedBy] : undefined;
+    return crate
+      ? {
+          ready: true,
+          step: `${who} has come to the counter for crate #${crate.number}${crate.for && crate.for !== who ? `, which ${crate.for} ordered` : ''}. You are fetching it out to the Cargo Lobby for them.`,
+          act: {
+            tool: 'release',
+            number: crate.number,
+            ...(handle ? { person: handle } : {}),
+          },
+        }
+      : { ready: false, step: 'That crate has gone.' };
+  }
+  if (task.kind === CHECK) {
+    return {
+      ready: true,
+      step: 'Crates that came in on orders are still waiting in the bay to be collected, and it is your turn to look them over. You are saying so, and going to see which are still there.',
+      act: { tool: 'check_held' },
+    };
+  }
+  if (task.kind === REMIND) {
+    const notice = brain.notices.find(
+      (owed) => owed.kind === 'waiting' && owed.to === task.item,
+    );
+    if (!notice) {
+      return { ready: false, step: 'There is nobody left to remind.' };
+    }
+    const written = cratesWritten(notice.numbers);
+    return {
+      ready: true,
+      step: `You have looked over the bay: ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'is' : 'are'} still waiting to be collected. You are sending ${notice.to} a PDA message to remind them.`,
+      act: {
+        tool: 'message',
+        person: notice.to,
+        text: `Still waiting at cargo: ${written} from your order. Send someone to the Cargo Lobby counter with the number, please.`,
+      },
+    };
+  }
+  return null;
+}
+
+/** Says one of the tasks about held crates in a few words, or null if the task is not one. */
+function describeHeld(task: Task): string | null {
+  if (task.kind === HANDOVER) {
+    return `bring crate #${task.item} out to the lobby`;
+  }
+  if (task.kind === CHECK) {
+    return 'see which crates are still waiting to be collected';
+  }
+  return task.kind === REMIND
+    ? `remind ${task.item} that their crates are waiting`
+    : null;
 }
 
 /**
@@ -151,7 +330,7 @@ function syncTasks(brain: NpcBrain): void {
     const task =
       order ??
       addTask(brain, { kind: ORDER, urgency: 'asked', source: 'asked' });
-    task.askedBy ??= brain.messageOwed ?? undefined;
+    task.askedBy ??= arrivedNotice(brain)?.to;
     blockTask(
       task,
       brain.orderPending
@@ -198,6 +377,7 @@ function syncTasks(brain: NpcBrain): void {
   }
 
   syncFreight(brain);
+  syncHeld(brain);
   syncTidying(brain);
 
   // Whoever is to be let through the door has a task until the door has been opened for them.
@@ -275,6 +455,7 @@ function syncTasks(brain: NpcBrain): void {
     brain,
     !orderInHand(brain) &&
       !freightInHand(brain) &&
+      !heldInHand(brain) &&
       !tidyingInHand(brain) &&
       !wants,
   );
@@ -285,6 +466,7 @@ function syncTasks(brain: NpcBrain): void {
     brain.location !== brain.post &&
     !orderInHand(brain) &&
     !freightInHand(brain) &&
+    !heldInHand(brain) &&
     !tidyingInHand(brain) &&
     !roundsInHand(brain) &&
     !wants;
@@ -333,42 +515,29 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind !== ORDER) {
     // Tidying is for when the orders and the shuttle have been seen to.
     return (
+      planHeld(brain, task) ??
       planFreight(brain, task) ??
       planRounds(brain, task) ??
-      planTidying(brain, task, orderInHand(brain) || freightInHand(brain))
+      planTidying(
+        brain,
+        task,
+        orderInHand(brain) || freightInHand(brain) || heldInHand(brain),
+      )
     );
   }
-  // The crate it tipped out at a delivery goes back to the bay before anything else of the order.
-  // Left where it is, it is in the way of the people it was brought for.
-  if (brain.crateToReturn) {
+  // The order has come in. Whoever placed it is sent the number on each crate's manifest: that is
+  // what whoever they send for it gives at the counter.
+  const arrived = arrivedNotice(brain);
+  if (arrived) {
+    const written = cratesWritten(arrived.numbers);
+    const several = arrived.numbers.length > 1;
     return {
       ready: true,
-      step: `You have tipped out the crate you delivered${brain.deliverTo ? ` in the ${brain.deliverTo}` : ''}. You are taking the empty crate back to the bay, to go back on the supply shuttle.`,
-      act: { tool: 'take_back' },
-    };
-  }
-  if (brain.crateWaiting) {
-    const where = brain.deliverTo ?? 'Cargo Lobby';
-    return {
-      ready: true,
-      step: brain.deliverTo
-        ? `The ${brain.crateWaiting} you ordered has come in, and you are delivering it to the ${where}, where it was asked for. You will tip it out there and bring the crate back.`
-        : `The ${brain.crateWaiting} you ordered is aboard the supply shuttle, and you are fetching it out to the ${where}.`,
-      act: { tool: 'bring_out' },
-    };
-  }
-  if (brain.messageOwed) {
-    return {
-      ready: true,
-      step: brain.deliverTo
-        ? `What ${brain.messageOwed} ordered is delivered to the ${brain.deliverTo}, and you are sending ${brain.messageOwed} a PDA message to say so.`
-        : `The crate is out in the Cargo Lobby, and you are sending ${brain.messageOwed} a PDA message to say so.`,
+      step: `What ${arrived.to} ordered has come in: ${written}. ${several ? 'They are' : 'It is'} held in the bay until someone comes to the counter for ${several ? 'them' : 'it'}, and you are sending ${arrived.to} a PDA message with the number${several ? 's' : ''}.`,
       act: {
         tool: 'message',
-        person: brain.messageOwed,
-        text: brain.deliverTo
-          ? `What you ordered is in the ${brain.deliverTo} now.`
-          : 'The supplies you asked for are waiting in a crate in the Cargo Lobby.',
+        person: arrived.to,
+        text: `Your order has come in: ${written}${arrived.what ? ` (${arrived.what})` : ''}. Send someone to the Cargo Lobby counter with the number to collect ${several ? 'each one' : 'it'}.`,
       },
     };
   }
@@ -622,7 +791,10 @@ function describeTask(task: Task): string | null {
   }
   return task.kind === ORDER
     ? 'see the crate you ordered through'
-    : (describeFreight(task) ?? describeRounds(task) ?? describeTidying(task));
+    : (describeHeld(task) ??
+        describeFreight(task) ??
+        describeRounds(task) ??
+        describeTidying(task));
 }
 
 /** What the LLM should know about where things stand, so that what it says is true. */
@@ -647,6 +819,21 @@ function cues(brain: NpcBrain): string[] {
     }
   }
   lines.push(...freightCues(brain));
+  // What is being held, so that what it says about a crate someone has come for is true.
+  const waiting = brain.heldCrates.filter((crate) => !crate.takenBy);
+  if (waiting.length > 0) {
+    lines.push(
+      `You are holding ${cratesWritten(waiting.map((crate) => crate.number))} for collection. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body.`,
+    );
+  }
+  const came = brain.pickupAsked;
+  if (came && brain.now - came.at < PICKUP_ASK_DS) {
+    lines.push(
+      came.number === null
+        ? `${came.name} has come to collect a crate, and you are holding none by the number they gave: tell ${came.name} so if you speak.`
+        : `${came.name} has come to collect crate #${came.number}. Your body is seeing to it: say so if you speak of it.`,
+    );
+  }
   const wants = doorWanted(brain);
   if (wants) {
     lines.push(
@@ -700,9 +887,10 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     !askers.some((person) => !!person.command || isHead(person.job)) ||
     brain.orderable.length === 0 ||
     brain.orderPending ||
-    brain.crateWaiting ||
     // Someone at the door wants the door. Offered an order as well, the LLM sometimes takes it.
-    doorWanted(brain)
+    doorWanted(brain) ||
+    // Likewise someone come to collect a crate: "I am here for crate 12" is not an order for one.
+    (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS)
   ) {
     return [];
   }
@@ -710,7 +898,7 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     {
       tool: 'order',
       parameter: { name: 'crate', choices: brain.orderable },
-      text: `order at the supply console what a head of department has just asked you for, for them or their staff. How many crates, and where they are to be taken, your body takes from what was said. Asking means putting it to you: "can you order...", "could I get...", "have you got any...", or telling you, by name, what they need. Someone only saying what they are off to do themselves ("I'll get some from the closet") has not asked. ${brain.orderable.map((crate) => `The ${crate} holds ${CRATE_HOLDS[crate] ?? 'what its name says'}.`).join(' ')} Not for anything else. The shuttle brings it in a minute or two.`,
+      text: `order at the supply console what a head of department has just asked you for, for them or their staff. How many crates, your body takes from what was said. Asking means putting it to you: "can you order...", "could I get...", "have you got any...", or telling you, by name, what they need. Someone only saying what they are off to do themselves ("I'll get some from the closet") has not asked. ${brain.orderable.map((crate) => `The ${crate} holds ${CRATE_HOLDS[crate] ?? 'what its name says'}.`).join(' ')} Not for anything else. The shuttle brings it in a minute or two.`,
     },
   ];
 }
@@ -733,6 +921,20 @@ export const CARGO: Job = {
   // A message sent about a mess is a janitor called to it.
   afterActing: (brain, act, task, ok) => {
     afterFreight(brain, act, task);
+    // The crate is out in the lobby for whoever came for it, and they are told so by name.
+    if (task?.kind === HANDOVER && ok && task.askedBy) {
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `${firstName(task.askedBy)}, crate ${task.item} is out in the lobby for you.`,
+        why: `You have brought crate #${task.item} out to the Cargo Lobby for ${task.askedBy}, who came for it. You are telling ${task.askedBy} it is there to take.`,
+        // Which crate, and where it is: they have to hear both.
+        needs: new RegExp(`\\b${task.item}\\b.*\\blobby\\b`, 'i'),
+        at: Date.now(),
+      });
+      if (brain.pickupAsked?.name === task.askedBy) {
+        brain.pickupAsked = null;
+      }
+    }
     // The door has been opened for them, or could not be. Either way that request is dealt with.
     if (task?.kind === DOOR) {
       if (brain.doorAsked?.name === task.item) {
@@ -788,25 +990,68 @@ export const CARGO: Job = {
   agrees: (brain, action, heard) =>
     action.tool !== 'order' ||
     (SUPPLY_WORDS.test(heard) &&
+      // Coming for a crate that is here is not asking for one to be ordered.
+      !COLLECT_WORDS.test(spokenIn(heard)) &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)),
-  // How many crates, and which room they are to be delivered to, as they were asked for.
-  fills: (brain, action, heard) => {
+  // How many crates, as they were asked for. Where they go is for whoever collects them.
+  fills: (_brain, action, heard) => {
     if (action.tool !== 'order') {
       return;
     }
-    const said = spokenIn(heard).toLowerCase();
-    action.count = cratesAskedFor(said);
-    // The room named after "to": the bay and the lobby are where it is, not where it is going.
-    const room = placeNamedIn(brain, said.replace(/^.*?\b(?:delivered|deliver|taken|take|brought|bring|sent|send)\b/, ''));
-    if (room && /\b(deliver|delivered|take|taken|bring|brought|send|sent)\b/.test(said)) {
-      action.deliver_to = room;
-    }
+    action.count = cratesAskedFor(spokenIn(heard).toLowerCase());
   },
   // Anyone asking for a door in its hearing is noted. Whether they get it is decided from who
   // they are and where they stand, not from how they ask.
   overhears: (brain, event) => {
     const speaker = String(event.details.speaker ?? '');
     const heard = String(event.details.message ?? '');
+    // Someone come to the counter for a crate that is being held. Which crate is read off the
+    // number they give, and failing that off who they say it is for. One of those at the post
+    // takes any one asking.
+    const number = crateNumberIn(heard);
+    const theirJob =
+      brain.peopleInView.find((person) => person.name === speaker)?.job ?? '';
+    if (
+      speaker &&
+      !isCargo(theirJob) &&
+      event.details.said_to !== 'other' &&
+      COLLECT_WORDS.test(heard) &&
+      (number !== null || /\bcrates?\b/i.test(heard)) &&
+      takeOrder(
+        brain.post ?? '',
+        `${speaker}, for a crate`,
+        brain.name,
+        brain.now,
+      )
+    ) {
+      const crate = crateMeant(brain, number, heard);
+      brain.pickupAsked = {
+        name: speaker,
+        number: crate?.number ?? null,
+        at: brain.now,
+      };
+      const first = firstName(speaker);
+      if (!crate) {
+        brain.toTell.push({
+          to: speaker,
+          line: `Sorry, ${first}, I am not holding a crate by that number.`,
+          why: `${speaker} has come to collect a crate. You are holding none by the number they gave, nor one for anyone they named, and are telling them so.`,
+          // A plain no, whatever else is said: they are standing there waiting for a crate.
+          needs: /\b(not|no|none|cannot|can't|don't|isn't)\b/i,
+          at: Date.now(),
+        });
+      } else if (crate.out || crate.takenBy) {
+        brain.toTell.push({
+          to: speaker,
+          line: crate.takenBy
+            ? `${first}, ${crate.takenBy} has taken crate ${crate.number} already.`
+            : `${first}, crate ${crate.number} is out in the lobby already.`,
+          why: `${speaker} has come to collect crate #${crate.number}, which is ${crate.takenBy ? `already being taken away by ${crate.takenBy}` : 'out in the lobby already'}. You are telling them so.`,
+          needs: new RegExp(`\\b${crate.number}\\b`),
+          at: Date.now(),
+        });
+      }
+    }
     // Asked of someone else by name, it is theirs to see to: a workmate, or anyone at all.
     if (
       speaker &&

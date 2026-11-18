@@ -1,9 +1,10 @@
 /**
  * Jobs beyond cleaning: what a crew NPC knows of its post, and the cargo technician's work.
  *
- * A cargo technician stays at its post. Crew come and ask it, face to face, for supplies. It orders
- * the crate at the supply console, brings it out to the Cargo Lobby when the shuttle docks, and
- * sends the crew member a PDA message to say it is waiting.
+ * A cargo technician stays at its post. Heads of department come and ask it, face to face, for
+ * supplies. It orders the crate at the supply console, and when the shuttle docks it sends whoever
+ * ordered a PDA message with the number on the crate's manifest. The crate is held in the bay until
+ * someone comes to the counter with that number: see crew_npc_held.dm.
  */
 
 /// The job written on the body's ID.
@@ -239,11 +240,12 @@
 			return FALSE
 	return TRUE
 
-/// Sticks a label on the crate saying who it is for, the way a technician would with a hand labeler.
-/datum/ai_controller/crew_npc/proc/label_crate(obj/structure/closet/crate/crate)
-	if(!order_for || length(crate.name) + length(order_for) + 4 > MAX_LABEL_LEN)
+/// Sticks a label on a held crate with its number and who it is for, the way a technician would with a hand labeler.
+/datum/ai_controller/crew_npc/proc/label_crate(obj/structure/closet/crate/crate, datum/crew_npc_held_crate/entry)
+	var/words = "#[entry.number][entry.for_name ? " for [entry.for_name]" : ""]"
+	if(length(crate.name) + length(words) + 3 > MAX_LABEL_LEN)
 		return
-	var/obj/item/label/note = new(null, "for [order_for]")
+	var/obj/item/label/note = new(null, words)
 	note.stick_to_atom(crate)
 
 /// Records a spot in the room of this type as somewhere the body knows the way to. Returns the room's name, or null.
@@ -261,7 +263,7 @@
 	return null
 
 /// Tool: order a crate of supplies at the supply console. Cargo staff only.
-/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count, deliver_to)
+/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count)
 	if(!works_in_cargo())
 		action_result(CREW_TOOL_ORDER, FALSE, "Ordering supplies is cargo's job. Ask the cargo technician.")
 		return
@@ -269,7 +271,7 @@
 	if(isnull(pack_type))
 		action_result(CREW_TOOL_ORDER, FALSE, "That is not something you can order.")
 		return
-	if(supply_run_active || crate_waiting())
+	if(supply_run_active)
 		action_result(CREW_TOOL_ORDER, FALSE, "You already have an order on the go. See that one through first.")
 		return
 	// One order may be for several crates of the same thing, when a head asks for enough to go round.
@@ -290,8 +292,6 @@
 	var/mob/living/carbon/human/asker = asker_ref?.resolve()
 	order_for = QDELETED(asker) ? last_heard_speaker : asker.name
 	order_count = wanted
-	// Where it is to be taken when it comes: a room named by whoever ordered it, or the lobby.
-	order_deliver_to = istext(deliver_to) ? find_known_place(deliver_to) : null
 	supply_held_up_since = 0
 	start_errand(nearest_console, CREW_TOOL_ORDER, crate_name)
 
@@ -308,6 +308,12 @@
 	if(length(SSshuttle.shopping_list) <= orders_before)
 		return list(FALSE, "The supply console will not take the order.")
 	order_count = length(SSshuttle.shopping_list) - orders_before
+	// Each crate comes with a manifest that carries its order's number. Those numbers are how the
+	// crates are known from here on: when they dock, and when someone comes to collect them.
+	ordered_numbers = list()
+	for(var/index in orders_before + 1 to length(SSshuttle.shopping_list))
+		var/datum/supply_order/placed = SSshuttle.shopping_list[index]
+		ordered_numbers += placed.id
 	pending_order = WEAKREF(SSshuttle.shopping_list[length(SSshuttle.shopping_list)])
 	ordered_crate_name = crate_name
 	supply_run_started_at = world.time
@@ -345,6 +351,10 @@
 			if(aboard)
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
+			// Something that came on it has yet to be hauled off. Sent now, it would go back with it.
+			if(crate_to_unload())
+				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
+				return
 			if(shuttle.canMove())
 				SSshuttle.moveShuttle("cargo", "cargo_away", TRUE)
 				supply_held_up_since = 0
@@ -365,57 +375,51 @@
 	supply_run_active = FALSE
 	pending_order = null
 	var/datum/supply_pack/pack = SSshuttle.supply_packs[orderable_crates()[ordered_crate_name]]
-	// One crate for each that was ordered. One that a workmate has already taken for their own
-	// order is theirs: each order is seen out by whoever placed it.
+	// The crates of the order are known by the numbers on their manifests. A workmate may have
+	// hauled one off the shuttle already, so the bay and the lobby are looked in as well.
+	var/list/aboard = crates_aboard()
+	var/list/about = aboard.Copy()
+	for(var/area/room as anything in freight_rooms())
+		for(var/obj/structure/closet/crate/crate in room)
+			about |= crate
+	// Each crate found, with its number.
 	var/list/found = list()
-	for(var/area/shuttle/supply/bay in GLOB.areas)
-		for(var/list/level_turfs as anything in bay.get_zlevel_turf_lists())
-			for(var/turf/bay_turf as anything in level_turfs)
-				for(var/obj/structure/closet/crate/crate in bay_turf)
-					if(length(found) >= order_count)
-						break
-					// The crate's name starts with the pack's, and may go on to say who paid for it.
-					if(pack && findtext(crate.name, pack.crate_name) == 1 && !crew_npc_crate_on_order(crate))
-						found += crate
+	var/list/unmatched = ordered_numbers.Copy()
+	for(var/obj/structure/closet/crate/crate as anything in about)
+		var/number = crew_npc_manifest_number(crate)
+		if(isnull(number) || !(number in unmatched) || crew_npc_held_entry(crate))
+			continue
+		found[crate] = number
+		unmatched -= number
+	// A crate whose manifest has come off is known by what it is: its name starts with the pack's.
+	if(pack)
+		for(var/obj/structure/closet/crate/crate as anything in aboard)
+			if(!length(unmatched))
+				break
+			if(found[crate] || crew_npc_held_entry(crate) || findtext(crate.name, pack.crate_name) != 1)
+				continue
+			found[crate] = unmatched[1]
+			unmatched.Cut(1, 2)
+	ordered_numbers = list()
 	if(!length(found))
 		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see the [ordered_crate_name] aboard.")
 		return
-	ordered_more = list()
+	// From here they are held for collection, whoever hauls them off the shuttle.
+	var/list/numbers = list()
 	for(var/obj/structure/closet/crate/crate as anything in found)
-		GLOB.crew_npc_ordered_crates |= WEAKREF(crate)
-		ordered_more += WEAKREF(crate)
-	next_ordered_crate()
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with [length(found) > 1 ? "the [length(found)] crates of [ordered_crate_name]" : "the [ordered_crate_name]"] you ordered[order_for ? " for [order_for]" : ""]. [length(found) > 1 ? "They are" : "It is"] still aboard the shuttle.")
-
-/// Takes up the next crate of the order that is waiting to be seen out, if there is one.
-/datum/ai_controller/crew_npc/proc/next_ordered_crate()
-	ordered_crate = null
-	while(length(ordered_more) && isnull(ordered_crate))
-		var/datum/weakref/next_ref = ordered_more[1]
-		ordered_more.Cut(1, 2)
-		if(!QDELETED(next_ref.resolve()))
-			ordered_crate = next_ref
-
-/// Crates that some crew NPC ordered and has yet to bring out, as weak references. They are not freight for a workmate to shift.
-GLOBAL_LIST_EMPTY(crew_npc_ordered_crates)
-
-/// TRUE if this crate is one a crew NPC ordered and has yet to bring out.
-/proc/crew_npc_crate_on_order(obj/structure/closet/crate/crate)
-	return WEAKREF(crate) in GLOB.crew_npc_ordered_crates
-
-/// Returns the name of a crate this body ordered that is still waiting to be brought out, or null.
-/datum/ai_controller/crew_npc/proc/crate_waiting()
-	if(QDELETED(ordered_crate?.resolve()))
-		next_ordered_crate()
-	return isnull(ordered_crate) ? null : ordered_crate_name
-
-/// Tool: fetch the ordered crate off the supply shuttle and bring it out to the Cargo Lobby.
-/datum/ai_controller/crew_npc/proc/tool_bring_out()
-	var/obj/structure/closet/crate/crate = ordered_crate?.resolve()
-	if(QDELETED(crate))
-		action_result(CREW_TOOL_BRING, FALSE, "You have no crate waiting to be brought out.")
-		return
-	start_errand(crate, CREW_TOOL_BRING, ordered_crate_name)
+		var/datum/crew_npc_held_crate/entry = new
+		entry.crate_ref = WEAKREF(crate)
+		entry.number = found[crate]
+		entry.for_name = order_for
+		entry.what = ordered_crate_name
+		entry.post = post_place
+		GLOB.crew_npc_held_crates += entry
+		numbers += entry.number
+	if(order_for)
+		notices_owed += list(list("to" = order_for, "kind" = CREW_NOTICE_ARRIVED, "numbers" = numbers, "what" = ordered_crate_name))
+	freight_changed()
+	var/several = length(numbers) > 1
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with [several ? "the [length(numbers)] crates of [ordered_crate_name]" : "the [ordered_crate_name]"] you ordered[order_for ? " for [order_for]" : ""]: [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[order_for ? " Send [order_for] a PDA message with the number[several ? "s" : ""]." : ""]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)
@@ -444,33 +448,9 @@ GLOBAL_LIST_EMPTY(crew_npc_ordered_crates)
 			break
 	return best_turf
 
-/// Takes hold of the crate the body is standing by and sets off with it: for the room it was ordered to, or the Cargo Lobby.
-/datum/ai_controller/crew_npc/proc/haul_crate(obj/structure/closet/crate/crate)
-	var/mob/living/carbon/human/body = pawn
-	var/place_name = order_deliver_to
-	var/turf/destination
-	if(place_name)
-		var/area/station/room = crew_npc_station_places()[place_name]
-		destination = room ? room_middle(room) : null
-	if(isnull(destination))
-		place_name = learn_place(/area/station/cargo/lobby)
-		// The middle of the lobby, so the crate ends up well inside it, where whoever asked will look.
-		destination = middle_of(/area/station/cargo/lobby)
-		order_deliver_to = null
-	if(isnull(place_name) || isnull(destination))
-		return list(FALSE, "You do not know where to take the crate.")
-	body.start_pulling(crate)
-	if(body.pulling != crate)
-		return list(FALSE, "You cannot get a grip on the [format_text(crate.name)].")
-	// It is marked with who it is for before it leaves the bay, so anyone who finds it knows.
-	label_crate(crate)
-	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
-	start_walk(destination, CREW_TOOL_BRING, place_name, CREW_NPC_TRAVEL_TIMEOUT)
-	return list(TRUE, null)
-
 /**
  * Tips out what a crate holds onto the floor round it, and returns the names of what came out.
- * A delivery is left where people can pick it up, and the crate goes back to the bay to be sent away.
+ * What was collected is left where people can pick it up, and the crate goes back to cargo to be sent away.
  */
 /datum/ai_controller/crew_npc/proc/tip_out(obj/structure/closet/crate/crate)
 	var/turf/here = get_turf(crate)
@@ -488,50 +468,36 @@ GLOBAL_LIST_EMPTY(crew_npc_ordered_crates)
 		names |= format_text(thing.name)
 	return names
 
-/// Called when the walk out with a crate ends. Lets go of the crate and tells the brain.
-/datum/ai_controller/crew_npc/proc/crate_hauled(succeeded, reason)
-	var/mob/living/carbon/human/body = pawn
-	var/atom/movable/hauled = body.pulling
-	body.stop_pulling()
-	var/place = get_area_name(body, TRUE)
-	if(succeeded && hauled)
-		GLOB.crew_npc_ordered_crates -= ordered_crate
-		// Delivered to a room, it is tipped out there, and the crate is this body's to take back.
-		var/tipped = ""
-		if(order_deliver_to && istype(hauled, /obj/structure/closet/crate))
-			var/list/names = tip_out(hauled)
-			crate_to_return = WEAKREF(hauled)
-			tipped = " You tip out what was in it[length(names) ? ": [english_list(names)]" : ""]. The empty crate is yours to take back to the bay."
-		// The next crate of the order, if there is one. Whoever ordered is only told once all are out.
-		next_ordered_crate()
-		var/more = !isnull(ordered_crate)
-		if(!more)
-			message_owed_to = order_for
-		action_result(CREW_TOOL_BRING, TRUE, "You bring the [ordered_crate_name] out to [place] and leave it there[order_for ? " for [order_for]" : ""].[tipped][more ? " There is another crate of the order still to bring." : (order_for ? " Send [order_for] a PDA message to say it is waiting in [place]." : "")]", list("place" = place))
-	else
-		var/list/details = list("place" = place)
-		var/blocker = in_the_way_report(ordered_crate?.resolve(), details)
-		action_result(CREW_TOOL_BRING, FALSE, "You could not get the [ordered_crate_name] out: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
-
-/// Tool: fetch the crate that was tipped out at a delivery and haul it back to the bay, to go back on the shuttle.
+/// Tool: fetch the crate the body unpacked and haul it back to cargo, to go back on the shuttle.
 /datum/ai_controller/crew_npc/proc/tool_take_back()
 	var/obj/structure/closet/crate/crate = crate_to_return?.resolve()
-	if(QDELETED(crate) || isnull(post_turf))
+	if(QDELETED(crate))
 		crate_to_return = null
 		action_result(CREW_TOOL_TAKE_BACK, FALSE, "You have no empty crate to take back.")
 		return
 	start_errand(crate, CREW_TOOL_TAKE_BACK, format_text(crate.name))
 
-/// Takes hold of the emptied crate the body is standing by and sets off for the bay with it.
+/**
+ * Takes hold of the emptied crate the body is standing by and sets off for cargo with it. Cargo
+ * staff take it into the bay. Anyone else leaves it in the lobby, which is as far as they can
+ * get: cargo puts it aboard the shuttle from there.
+ */
 /datum/ai_controller/crew_npc/proc/haul_crate_back(obj/structure/closet/crate/crate)
 	var/mob/living/carbon/human/body = pawn
-	var/turf/destination = room_middle(get_area(post_turf))
-	if(isnull(destination))
+	var/place_name
+	var/turf/destination
+	if(post_turf && works_in_cargo())
+		place_name = post_place
+		destination = room_middle(get_area(post_turf))
+	else
+		place_name = learn_place(/area/station/cargo/lobby)
+		destination = middle_of(/area/station/cargo/lobby)
+	if(isnull(place_name) || isnull(destination))
 		return list(FALSE, "You do not know where to take the crate.")
 	body.start_pulling(crate)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on the [format_text(crate.name)].")
-	start_walk(destination, CREW_TOOL_TAKE_BACK, post_place, CREW_NPC_TRAVEL_TIMEOUT)
+	start_walk(destination, CREW_TOOL_TAKE_BACK, place_name, CREW_NPC_TRAVEL_TIMEOUT)
 	return list(TRUE, null)
 
 /// Called when the walk back with an emptied crate ends. Lets go of it and tells the brain.
@@ -641,8 +607,10 @@ GLOBAL_LIST_EMPTY(crew_npc_ordered_crates)
 			target = candidate
 			break
 	// Having tried is enough. Someone with no PDA cannot be told this way, and trying again would not change that.
-	if(wanted == LOWER_TEXT(message_owed_to))
-		message_owed_to = null
+	for(var/list/notice as anything in notices_owed)
+		if(LOWER_TEXT(notice["to"]) == wanted)
+			notices_owed -= list(notice)
+			break
 	if(isnull(target))
 		action_result(CREW_TOOL_MESSAGE, FALSE, "You cannot find that person on your PDA.")
 		return

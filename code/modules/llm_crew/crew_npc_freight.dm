@@ -2,7 +2,8 @@
  * Freight: what cargo staff do about the supply shuttle beyond seeing one order through.
  *
  * A shuttle that has docked is not left sitting there. Whatever came on it is hauled off into the
- * bay. Mail is taken out of its crate and kept until whoever it is for comes to the counter. Crates
+ * bay, crates that came on an order among them: those are held there until they are collected (see
+ * crew_npc_held.dm). Mail is taken out of its crate and kept until whoever it is for comes to the counter. Crates
  * with nothing left in them go back aboard, and the shuttle is sent away with them, which is how
  * the station gets paid for them.
  *
@@ -67,13 +68,12 @@
 			return TRUE
 	return FALSE
 
-/// Returns the nearest crate aboard the docked shuttle that still has something in it and is not the one on order.
+/// Returns the nearest crate aboard the docked shuttle that still has something in it. One that came on an order is hauled off like any other, and held in the bay.
 /datum/ai_controller/crew_npc/proc/crate_to_unload()
-	var/obj/structure/closet/crate/ordered = ordered_crate?.resolve()
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		if(crate == ordered || crew_npc_crate_on_order(crate) || crate.anchored || crew_npc_crate_spent(crate))
+		if(crate.anchored || crew_npc_crate_spent(crate))
 			continue
 		var/distance = get_dist(pawn, crate)
 		if(distance < nearest_distance)
@@ -81,13 +81,12 @@
 			nearest = crate
 	return nearest
 
-/// Returns the crates in cargo's rooms, off the shuttle, that are neither on order nor fixed in place.
+/// Returns the crates in cargo's rooms, off the shuttle, that are not fixed in place.
 /datum/ai_controller/crew_npc/proc/crates_in_hand()
-	var/obj/structure/closet/crate/ordered = ordered_crate?.resolve()
 	var/list/crates = list()
 	for(var/area/room as anything in freight_rooms())
 		for(var/obj/structure/closet/crate/crate in room)
-			if(crate != ordered && !crew_npc_crate_on_order(crate) && !crate.anchored && isturf(crate.loc))
+			if(!crate.anchored && isturf(crate.loc))
 				crates += crate
 	return crates
 
@@ -126,11 +125,10 @@
 		return null
 	if(freight_cache && world.time - freight_cached_at < CREW_NPC_FREIGHT_CHECK)
 		return freight_cache
-	var/obj/structure/closet/crate/ordered = ordered_crate?.resolve()
 	var/to_unload = 0
 	var/empties_aboard = 0
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		if(crate == ordered || crew_npc_crate_on_order(crate) || crate.anchored)
+		if(crate.anchored)
 			continue
 		if(crew_npc_crate_spent(crate))
 			empties_aboard++
@@ -369,7 +367,7 @@
 	if(isnull(docked_supply_shuttle()))
 		action_result(CREW_TOOL_SEND, FALSE, "The supply shuttle is not here to send back.")
 		return
-	if(supply_run_active || ordered_crate?.resolve() || crate_to_unload())
+	if(supply_run_active || crate_to_unload())
 		action_result(CREW_TOOL_SEND, FALSE, "There is still something aboard the supply shuttle that has to come off first.")
 		return
 	var/obj/machinery/computer/cargo/console = supply_console()

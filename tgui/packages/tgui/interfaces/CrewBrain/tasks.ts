@@ -31,6 +31,11 @@ import {
   planMeetings,
   syncMeetings,
 } from './jobs/meetings';
+import {
+  describePickups,
+  planPickups,
+  syncPickups,
+} from './jobs/pickups';
 import { allPlaces, knowsPlace } from './memory';
 import type { NpcBrain, Plan, Task, Urgency } from './types';
 
@@ -134,6 +139,8 @@ export function syncTasks(brain: NpcBrain): void {
   syncOrders(brain);
   // And going to a staff meeting its head has called.
   syncMeetings(brain);
+  // And collecting a crate from cargo that its head has sent it for.
+  syncPickups(brain);
   brain.tasks = brain.tasks.filter((task) => {
     if (task.state === 'done') {
       // A finished task is only kept while someone has yet to hear of it.
@@ -278,6 +285,7 @@ export function planTask(brain: NpcBrain, task: Task): Plan {
     planGuarding(brain, task) ??
     planOrders(brain, task) ??
     planMeetings(brain, task) ??
+    planPickups(brain, task) ??
     jobFor(brain.job).plan?.(brain, task) ?? {
       ready: false,
       step: 'You do not know how to go about it.',
@@ -291,6 +299,7 @@ export function describeTask(brain: NpcBrain, task: Task): string {
     describeGuarding(task) ??
     describeOrders(task) ??
     describeMeetings(task) ??
+    describePickups(task) ??
     jobFor(brain.job).describeTask?.(task) ??
     task.kind;
   return `${what}${task.askedBy ? ` (${task.source === 'told' ? `${task.askedBy} told you of it` : `for ${task.askedBy}`})` : ''}`;
@@ -432,6 +441,7 @@ export function describeOrdered(
     describeGuarding(task) ??
     describeOrders(task) ??
     describeMeetings(task) ??
+    describePickups(task) ??
     jobFor(brain.job).describeTask?.(task) ??
     task.kind;
   return `${superior} has just given you an order: ${what}. You answer to ${superior}, so you are doing it, now, ahead of everything else you have to do, your post included. Your body is already seeing to it. In "say", tell ${superior} you are on it. Do not refuse, and do not say it is not your job.`;

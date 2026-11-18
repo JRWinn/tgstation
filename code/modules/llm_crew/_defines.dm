@@ -107,8 +107,25 @@
 #define CREW_TOOL_LOCATE "locate"
 /// Tool name: order a crate of supplies at the supply console. Cargo staff only.
 #define CREW_TOOL_ORDER "order"
-/// Tool name: fetch an ordered crate off the supply shuttle and bring it out to the Cargo Lobby.
-#define CREW_TOOL_BRING "bring_out"
+/// Tool name: bring a crate that is being held for collection out to the Cargo Lobby, for whoever came for it. Cargo staff only.
+#define CREW_TOOL_RELEASE "release"
+/// Tool name: haul a crate that cargo has put out for collection to a room, and unpack it there.
+#define CREW_TOOL_COLLECT "collect_crate"
+/// Tool name: say that the body is going to see which crates are still waiting to be collected, and go and look. Cargo staff only.
+#define CREW_TOOL_CHECK_HELD "check_held"
+/// How long cargo staff leave it between one look at the crates waiting to be collected and the next.
+#define CREW_NPC_HELD_CHECK_EVERY (5 MINUTES)
+/// The most that wait is longer or shorter by, for each of them, so that they do not all go to look at once.
+#define CREW_NPC_HELD_CHECK_SPREAD (1 MINUTES)
+/// How long a crate has to have been waiting before whoever ordered it is reminded of it.
+#define CREW_NPC_HELD_OVERDUE (5 MINUTES)
+/// The most times whoever ordered a crate is reminded that it is waiting.
+#define CREW_NPC_HELD_REMINDERS 3
+/// What the body says, in these words, when it takes on that look. Whoever hears it knows the job is taken.
+#define CREW_NPC_HELD_CLAIM "I am going to check to see what crates are still here."
+/// What a PDA message from cargo is about: an order that has come in, or crates still waiting to be collected.
+#define CREW_NOTICE_ARRIVED "arrived"
+#define CREW_NOTICE_WAITING "waiting"
 /// Tool name: haul the next loaded crate off the supply shuttle into the bay. Cargo staff only.
 #define CREW_TOOL_UNLOAD "unload"
 /// Tool name: take the mail out of a mail crate and keep it until it is collected. Cargo staff only.
@@ -166,7 +183,7 @@
 /// How long one PDA message to a janitor from a post stands as that post's call for one.
 #define CREW_NPC_CALL_STANDS (10 MINUTES)
 /// TRUE if a walk started by this tool has the body hauling something, or someone, behind it.
-#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_BRING || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK)
+#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_RELEASE || tool == CREW_TOOL_COLLECT || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK)
 /// Tool name: send someone a PDA message.
 #define CREW_TOOL_MESSAGE "message"
 /// Tool name: throw a cleaner grenade into a thick patch of mess.
@@ -216,7 +233,7 @@
 #define CREW_NPC_FIRE_DOOR_RANGE 7
 /// How long a fire alarm the body could not get to is left out of its reckoning.
 #define CREW_NPC_ALARM_RETRY (5 MINUTES)
-/// Tool name: haul the crate that was tipped out at a delivery back to the bay.
+/// Tool name: haul the crate the body unpacked back to cargo: to the bay if that is its post, and otherwise to the Cargo Lobby.
 #define CREW_TOOL_TAKE_BACK "take_back"
 /// The most crates of one thing a single order may be for.
 #define CREW_NPC_ORDER_MAX 4

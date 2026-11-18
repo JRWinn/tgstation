@@ -135,8 +135,12 @@
 			return hand_over(target)
 		if(CREW_TOOL_ORDER)
 			return place_order(target)
-		if(CREW_TOOL_BRING)
-			return haul_crate(target)
+		if(CREW_TOOL_RELEASE)
+			return haul_released(target)
+		if(CREW_TOOL_COLLECT)
+			return haul_collected(target)
+		if(CREW_TOOL_CHECK_HELD)
+			return look_over_held(target)
 		if(CREW_TOOL_TAKE_BACK)
 			return haul_crate_back(target)
 		if(CREW_TOOL_UNLOAD, CREW_TOOL_RECYCLE)
@@ -333,8 +337,10 @@
 				return "walking off to explore"
 			if(CREW_TOOL_GO_TO)
 				return "walking to [walk_goal]"
-			if(CREW_TOOL_BRING)
-				return "hauling a crate out to [walk_goal]"
+			if(CREW_TOOL_RELEASE)
+				return "hauling a crate out to [walk_goal] for whoever came for it"
+			if(CREW_TOOL_COLLECT)
+				return "hauling a crate you collected to [walk_goal]"
 			if(CREW_TOOL_TAKE_BACK)
 				return "hauling an empty crate back to [walk_goal]"
 			if(CREW_TOOL_UNLOAD)
@@ -363,10 +369,14 @@
 				return "about to throw a cleaner grenade at a big mess"
 			if(CREW_TOOL_ORDER)
 				return "going to the supply console to place an order"
-			if(CREW_TOOL_BRING)
-				return "going to fetch a crate off the supply shuttle"
+			if(CREW_TOOL_RELEASE)
+				return "going to fetch a crate that someone has come to collect"
+			if(CREW_TOOL_COLLECT)
+				return "going to take hold of the crate you came to collect"
+			if(CREW_TOOL_CHECK_HELD)
+				return "going to see what crates are still waiting to be collected"
 			if(CREW_TOOL_TAKE_BACK)
-				return "going to fetch back the crate you tipped out"
+				return "going to fetch back the crate you unpacked"
 			if(CREW_TOOL_UNLOAD)
 				return "going to unload a crate from the supply shuttle"
 			if(CREW_TOOL_RECYCLE)

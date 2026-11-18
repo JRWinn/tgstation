@@ -60,8 +60,7 @@ export function syncFreight(brain: NpcBrain): void {
       freight?.toUnload === 0 &&
       freight.emptyCrates === 0 &&
       !freight.mailCrate &&
-      !brain.orderPending &&
-      !brain.crateWaiting,
+      !brain.orderPending,
   );
 
   // Mail is held for each person until it is in their hands.

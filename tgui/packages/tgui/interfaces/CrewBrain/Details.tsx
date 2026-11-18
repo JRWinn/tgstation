@@ -94,8 +94,8 @@ export const NpcDetails = (props: {
           <LabeledList.Item label="Post">
             {npc.post}
             {npc.order_pending ? ' (a crate is on order)' : ''}
-            {npc.crate_waiting
-              ? ` (${npc.crate_waiting} waiting on the shuttle)`
+            {npc.held_crates?.length
+              ? ` (holding ${npc.held_crates.map((crate) => `#${crate.number}`).join(', ')} for collection)`
               : ''}
           </LabeledList.Item>
         )}

@@ -185,12 +185,27 @@ export type Npc = {
   orderable: string[];
   /** TRUE while a crate it ordered is on its way. */
   order_pending: BooleanLike;
-  /** Name of a crate it ordered that has arrived and not yet been brought out, or null. */
-  crate_waiting: string | null;
   /** TRUE if the body carries a PDA it can send messages with. */
   has_pda: BooleanLike;
-  /** Name of whoever is still to be told by PDA that the crate they asked for is out, or null. */
-  message_owed: string | null;
+  /** PDA messages it owes about crates: an order that has come in, or crates still waiting to be collected. */
+  notices?: Notice[] | null;
+  /**
+   * The crates cargo is holding for collection, as far as this body knows: all of them for cargo
+   * staff, and for everyone else only those put out in the lobby.
+   */
+  held_crates?:
+    | {
+        number: number;
+        for: string | null;
+        what: string | null;
+        place: string;
+        out: BooleanLike;
+        taken_by: string | null;
+        waited: number;
+      }[]
+    | null;
+  /** For cargo staff: TRUE if it is this body's moment to go and look over the crates still waiting. */
+  held_check_due?: BooleanLike;
   /** How much is lying about in its work area that it could put away. Null if it has no work area. */
   tidy: { todo: number } | null;
   /** What is waiting on the supply shuttle and in the bay, for cargo staff. Null for everyone else. */
@@ -212,9 +227,7 @@ export type Npc = {
   meeting_room?: string | null;
   /** Everyone its PDA lists, with the job the PDA shows for each. */
   pda_people?: { name: string; job: string }[] | null;
-  /** The room the order it has on the go is to be delivered to, or null if it is left in the lobby. */
-  deliver_to?: string | null;
-  /** TRUE if a crate it tipped out at a delivery has yet to be taken back to the bay. */
+  /** TRUE if a crate it unpacked has yet to be taken back to cargo. */
   crate_to_return?: BooleanLike;
   /** The rooms of its department, beyond its post and where it serves, that its own ID opens. */
   look_in_rooms?: string[] | null;
@@ -231,6 +244,35 @@ export type Npc = {
   /** Highest event number this window has already told the server it dealt with. */
   acked_seq: number;
   events: SenseEvent[];
+};
+
+/** A PDA message cargo owes someone about their crates. */
+export type Notice = {
+  /** Who it goes to: whoever ordered them. */
+  to: string;
+  /** The order has come in, or crates of it are still waiting to be collected. */
+  kind: 'arrived' | 'waiting';
+  /** The manifest numbers of the crates it is about. */
+  numbers: number[];
+  /** For an order that has come in: what was ordered. */
+  what?: string | null;
+};
+
+/** One crate cargo is holding for collection. */
+export type HeldCrate = {
+  /** The number on its manifest, which whoever comes for it gives. */
+  number: number;
+  /** Who ordered it. */
+  for: string | null;
+  what: string | null;
+  /** The room it is in. */
+  place: string;
+  /** TRUE once it has been brought out to the lobby for whoever came for it. */
+  out: boolean;
+  /** Who is hauling it away, if anyone is. */
+  takenBy: string | null;
+  /** How long (deciseconds) it has been off the shuttle. */
+  waited: number;
 };
 
 export type Data = {
@@ -315,6 +357,14 @@ export type Task = {
   found?: string;
   /** For an order: TRUE if a PDA message to whoever gave it could not be sent. */
   pdaFailed?: boolean;
+  /** For a crate to collect from cargo: server time it last asked at the counter for it. */
+  askedAt?: number;
+  /** For a crate to collect: server time before which it does not go back to the counter to try again. */
+  retryAt?: number;
+  /** For a crate to collect: TRUE once it has hauled it to where it is wanted and unpacked it. */
+  unpacked?: boolean;
+  /** For a crate to collect: TRUE once whoever sent it has been told the crate is unpacked. */
+  toldUnpacked?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -505,6 +555,8 @@ export type NpcBrain = {
     line: string;
     /** Why it is saying it, for the report. */
     why: string;
+    /** If it is said out loud: what the line has to have in it. A line from the LLM without it is not used: see Plan. */
+    needs?: RegExp;
     byPda?: boolean;
     /** When it was thought of (this window's clock). Stale ones are dropped unsaid. */
     at: number;
@@ -623,10 +675,29 @@ export type NpcBrain = {
   post: string | null;
   orderable: string[];
   orderPending: boolean;
-  crateWaiting: string | null;
   hasPda: boolean;
-  /** Name of whoever is still to be told by PDA that their crate is out, or null. */
-  messageOwed: string | null;
+  /** PDA messages it owes about crates: an order that has come in, or crates still waiting to be collected. */
+  notices: Notice[];
+  /** The crates cargo is holding for collection, as far as this NPC knows of them. */
+  heldCrates: HeldCrate[];
+  /** For cargo staff: TRUE if it is this NPC's moment to go and look over the crates still waiting. */
+  heldCheckDue: boolean;
+  /**
+   * For cargo staff: who last came to the counter for a crate, the manifest number they gave or
+   * were taken to mean, and when (server time). Null number: no crate could be made out.
+   */
+  pickupAsked: { name: string; number: number | null; at: number } | null;
+  /** For a head: the crates of its orders that cargo is holding, and who it has sent for each. */
+  pickups: {
+    number: number;
+    to: string;
+    /** The room it is to be taken to and unpacked in. */
+    room: string;
+    what: string;
+    at: number;
+  }[];
+  /** For a head: how many of its staff it has sent for a crate so far, so that each takes a turn. */
+  pickupTurn: number;
   /** How many things are lying about in its work area that it could put away. */
   tidyTodo: number;
   /** What is waiting on the supply shuttle and in the bay, for cargo staff. Null for everyone else. */
@@ -643,9 +714,7 @@ export type NpcBrain = {
   meetingRoom: string | null;
   /** Everyone its PDA lists, with the job the PDA shows for each. */
   pdaPeople: { name: string; job: string }[];
-  /** The room the order it has on the go is to be delivered to, or null if it is left in the lobby. */
-  deliverTo: string | null;
-  /** TRUE if a crate it tipped out at a delivery has yet to be taken back to the bay. */
+  /** TRUE if a crate it unpacked has yet to be taken back to cargo. */
   crateToReturn: boolean;
   /** Server world time (deciseconds) this NPC was first heard of: the start of its shift. */
   bornAt: number;
@@ -687,7 +756,7 @@ export type NpcBrain = {
     /** What it is, as it is said. */
     what: string;
     count: number;
-    /** The room it is to be delivered to. */
+    /** The room its staff are to take it to when they collect it from cargo. */
     room: string;
     /** Who it is for. */
     people: string[];

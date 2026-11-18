@@ -4,9 +4,14 @@
  * Cargo takes orders from heads of department only, so the staff bring what they need to their
  * head, and the head puts one order in for all of it. To find out what is needed it calls a short
  * staff meeting by PDA, two minutes into the shift and every so often after, asks the room, and
- * notes what is said. Then it goes to the cargo counter and orders enough for everyone at once, to
- * be delivered to the room the staff work from. When cargo sends word that it is there, each
- * person who asked is told by PDA.
+ * notes what is said. Then it goes to the cargo counter and orders enough for everyone at once.
+ *
+ * Cargo delivers nothing: its staff cannot get into the rooms the service staff work from. When
+ * the order comes in, cargo sends the number on each crate's manifest, and the head sends one of
+ * its staff for each crate, each in turn, with that number: to collect it at the counter, take it
+ * to the room they work from, unpack it and bring the crate back. If cargo sends word that a crate
+ * is still waiting, the next of them is sent for it. When a crate is unpacked, whoever asked is
+ * told by PDA where their things are.
  *
  * All of that is code. The LLM puts the head's lines in its own voice and answers people.
  */
@@ -17,6 +22,7 @@ import type { NpcBrain, Plan, Task } from '../types';
 import { isCargo } from './cargo';
 import { isJanitor } from './janitor';
 import type { Job } from './job';
+import { sendForLine, UNPACKED_WORDS } from './pickups';
 
 /** Calling the staff together and asking what they need. */
 const MEET = 'hold_meeting';
@@ -48,16 +54,18 @@ const CRATES_MAX = 4;
 
 /** The plain words it asks the room in, and orders in, by which those lines are known afterwards. */
 const ASKING_ROOM = 'does anyone need anything for their work';
-const ORDERING = 'delivered to the';
+const ORDERING = 'I need to order';
 /** The words that mark what one of its staff says or writes as asking for something for their work. */
 const NEED_WORDS =
   /\bi need\b|\bwe need\b|nothing to clean with|could you get|get it ordered|\bsuppl(y|ies)\b|\bout of\b/i;
 /** The words of someone saying they need nothing. */
 const NO_NEED_WORDS = /nothing from me|need nothing|don'?t need|do not need|no,? thank/i;
-/** The words by which cargo sends word that an order is where it was asked for. */
-const ARRIVED_WORDS = /what you ordered is in|waiting in a crate|supplies you asked for/i;
+/** The words by which cargo sends word that an order has come in, with the number of each crate. */
+const ARRIVED_WORDS = /order has come in/i;
+/** The words by which cargo sends word that crates of an order are still waiting to be collected. */
+const STILL_WAITING_WORDS = /still waiting at cargo/i;
 
-/** What each kind of staff is sent when they are short, and the room it is delivered to: where they work from. */
+/** What each kind of staff is sent when they are short, and the room they take it to when it comes: where they work from. */
 const SUPPLIES = [
   {
     for: isJanitor,
@@ -129,6 +137,57 @@ function orderFor(brain: NpcBrain): NonNullable<NpcBrain['requisition']> | null 
     heardBack: false,
     startedAt: brain.now,
   };
+}
+
+/** The manifest numbers written in a message from cargo: "#12 and #13". */
+function numbersIn(text: string): number[] {
+  return [...text.matchAll(/#(\d+)/g)].map((found) => Number(found[1]));
+}
+
+/**
+ * Sends one of its staff for a crate cargo is holding. Each takes a turn: those who asked for what
+ * is in it first, then the rest of those it is for, and round again. Sent for a crate a second
+ * time, because it is still waiting, it goes to the next of them and not the one who did not come.
+ */
+function sendFor(brain: NpcBrain, number: number): void {
+  const before = brain.pickups.find((pickup) => pickup.number === number);
+  const order = brain.requisition;
+  const supply =
+    SUPPLIES.find((it) => it.ordered === (before?.what ?? order?.what)) ??
+    SUPPLIES[0];
+  // Those who are waiting on what is in it, in the order they asked.
+  const askers = brain.asks
+    .filter((ask) => ask.ordered && !ask.told)
+    .map((ask) => ask.who);
+  const able = staff(brain)
+    .filter((person) => supply.for(person.job))
+    .map((person) => person.name);
+  const turns = [
+    ...askers.filter((name) => able.includes(name)),
+    ...able.filter((name) => !askers.includes(name)),
+  ];
+  if (turns.length === 0) {
+    return;
+  }
+  let to = turns[brain.pickupTurn % turns.length];
+  brain.pickupTurn++;
+  if (before && to === before.to && turns.length > 1) {
+    to = turns[brain.pickupTurn % turns.length];
+    brain.pickupTurn++;
+  }
+  const room = before?.room ?? order?.room ?? supply.room;
+  const what = before?.what ?? order?.what ?? supply.ordered;
+  brain.pickups = brain.pickups.filter((pickup) => pickup.number !== number);
+  brain.pickups.push({ number, to, room, what, at: brain.now });
+  brain.toTell.push({
+    to,
+    line: sendForLine(to, number, what, room),
+    why: before
+      ? `Cargo says crate #${number} of ${what} is still waiting: ${before.to} has not collected it. You are sending ${to} a PDA message to go and collect it instead.`
+      : `Cargo is holding crate #${number} of ${what} for you. You are sending ${to} a PDA message to go and collect it, take it to the ${room} and unpack it.`,
+    byPda: true,
+    at: Date.now(),
+  });
 }
 
 /** Keeps the head's meetings and orders true to the time, to what has been asked for, and to what has come. */
@@ -318,7 +377,7 @@ function requisitionStep(brain: NpcBrain): Plan {
   if (order.askedAt !== null) {
     return {
       ready: false,
-      step: `You have ordered ${crates} of ${order.what} from cargo, to be delivered to the ${order.room}. They will send word when it is there.`,
+      step: `You have ordered ${crates} of ${order.what} from cargo. They will send word, with the manifest numbers, when it has come in.`,
     };
   }
   if (brain.location !== CARGO_LOBBY) {
@@ -349,10 +408,10 @@ function requisitionStep(brain: NpcBrain): Plan {
   const first = technician.name.split(' ')[0];
   return {
     ready: true,
-    step: `Your staff need ${order.what} (${order.people.join(', ')}). ${technician.name}, who works in cargo, is here: in "say", order ${crates} of ${order.what} from ${technician.name}, to be ${ORDERING} ${order.room}.`,
-    say: `${first}, I need to order ${crates} of ${order.what} for my staff, ${ORDERING} ${order.room}, please.`,
-    // Cargo has to hear who is asked, what for, how many and where to: all of that is in the plain line.
-    needs: new RegExp(`\\b${first}\\b.*\\b${order.room}\\b`, 'i'),
+    step: `Your staff need ${order.what} (${order.people.join(', ')}). ${technician.name}, who works in cargo, is here: in "say", order ${crates} of ${order.what} from ${technician.name}, and ask to be sent the manifest numbers when it comes in.`,
+    say: `${first}, ${ORDERING} ${crates} of ${order.what} for my staff, please. Send me the manifest numbers when it comes in.`,
+    // Cargo has to hear who is asked, what for and how many: all of that is in the plain line.
+    needs: new RegExp(`\\b${first}\\b.*\\border\\b.*\\bcrates?\\b`, 'i'),
   };
 }
 
@@ -390,7 +449,12 @@ function cues(brain: NpcBrain): string[] {
   const order = brain.requisition;
   if (order?.askedAt !== null && order?.askedAt !== undefined) {
     lines.push(
-      `You have an order in with cargo: ${order.count === 1 ? 'a crate' : `${order.count} crates`} of ${order.what} for ${order.people.join(', ')}, to be delivered to the ${order.room}. It has not come yet.`,
+      `You have an order in with cargo: ${order.count === 1 ? 'a crate' : `${order.count} crates`} of ${order.what} for ${order.people.join(', ')}. It has not come yet.`,
+    );
+  }
+  if (brain.pickups.length > 0) {
+    lines.push(
+      `Cargo is holding crates of yours for collection, and you have sent for them: ${brain.pickups.map((pickup) => `${pickup.to} for crate #${pickup.number}`).join('; ')}. Each is to take it to the ${brain.pickups[0].room} and unpack it.`,
     );
   }
   return lines;
@@ -402,7 +466,7 @@ export const HEAD_OF_PERSONNEL: Job = {
   keepsPost: true,
   cleans: false,
   about: () =>
-    'You are the Head of Personnel. The service staff answer to you: the janitors, the bartender, the cook and the rest. You see that they have what they need for their work: you call a short staff meeting in the Bar now and then, note what they ask for, and put the order in at the cargo counter yourself, because cargo takes orders from heads of department only.',
+    'You are the Head of Personnel. The service staff answer to you: the janitors, the bartender, the cook and the rest. You see that they have what they need for their work: you call a short staff meeting in the Bar now and then, note what they ask for, and put the order in at the cargo counter yourself, because cargo takes orders from heads of department only. Cargo holds what comes, and you send one of your staff to collect it.',
   whenAsked: () => [
     'If one of your staff tells you they need something for their work, tell them you will see to it. Your body notes it and orders it from cargo.',
     'You do not clean, and you do not order supplies for anyone but your own staff.',
@@ -431,28 +495,51 @@ export const HEAD_OF_PERSONNEL: Job = {
       noteAsk(brain, String(event.details.speaker ?? ''), brain.now);
     }
   },
-  // Word from its staff of what they need, and word from cargo that an order has come.
+  // Word from its staff of what they need, word from cargo about its crates, and word from
+  // whoever it sent for one that it is unpacked.
   readsMessage: (brain, from, text, at, job) => {
+    // The order has come in. One of its staff is sent for each crate, by its number.
     if (isCargo(job) && ARRIVED_WORDS.test(text)) {
-      const order = brain.requisition;
-      if (!order) {
-        return;
+      for (const number of numbersIn(text)) {
+        sendFor(brain, number);
       }
-      const room = placeNamedIn(brain, text.toLowerCase()) ?? order.room;
+      brain.requisition = null;
+      return;
+    }
+    // A crate nobody has come for. Someone else is sent.
+    if (isCargo(job) && STILL_WAITING_WORDS.test(text)) {
+      for (const number of numbersIn(text)) {
+        sendFor(brain, number);
+      }
+      return;
+    }
+    // A crate is unpacked where the staff work. Whoever asked for what was in it is told where
+    // it is. Whoever unpacked it knows already.
+    const unpacked = text.match(UNPACKED_WORDS);
+    if (unpacked) {
+      const number = Number(unpacked[1]);
+      const pickup = brain.pickups.find((it) => it.number === number);
+      const room =
+        placeNamedIn(brain, text.toLowerCase()) ??
+        pickup?.room ??
+        SUPPLIES[0].room;
+      brain.pickups = brain.pickups.filter((it) => it.number !== number);
       for (const ask of brain.asks) {
-        if (!order.people.includes(ask.who) || ask.told) {
+        if (!ask.ordered || ask.told) {
           continue;
         }
         ask.told = true;
+        if (ask.who === from) {
+          continue;
+        }
         brain.toTell.push({
           to: ask.who,
           line: `${ask.who.split(' ')[0]}, what you asked for has come. It is in the ${room}.`,
-          why: `Cargo has delivered what ${ask.who} asked for to the ${room}. You are sending ${ask.who} a PDA message to say so.`,
+          why: `${from} has collected what ${ask.who} asked for from cargo and unpacked it in the ${room}. You are sending ${ask.who} a PDA message to say so.`,
           byPda: true,
           at: Date.now(),
         });
       }
-      brain.requisition = null;
       return;
     }
     if (NEED_WORDS.test(text) && !NO_NEED_WORDS.test(text)) {
