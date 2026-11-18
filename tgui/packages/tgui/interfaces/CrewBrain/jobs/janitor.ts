@@ -102,13 +102,103 @@ export function beyondRoom(text: string): string | undefined {
 }
 
 /** What a mess that has beaten one janitor is said to want, in a call to the next. */
-export const NEEDS_SCRUBBING = 'it needs soap or a wet mop';
+export const NEEDS_SCRUBBING = 'it needs scrubbing with soap or a rag';
 /** The words of a call that asks a janitor to come only if it has that. */
-const ONLY_IF_WORDS = /needs soap or a wet mop\b.*\bif you have one\b/is;
+const ONLY_IF_WORDS = /needs scrubbing with soap or a rag\b.*\bif you have one\b/is;
+/**
+ * The kinds of mess that only scrubbing shifts. A mop washes the floor and a spray washes what
+ * it is sprayed at: neither moves these, and they stay when the floor round them is washed.
+ */
+const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;
 
-/** TRUE if what this janitor holds is soap or a mop: what a mess that will not wash off is scrubbed with. */
+/** Writes a short list the way it is said: "cobweb", "cobweb and rubble", "oil, ashes and dirt". */
+function listed(names: string[]): string {
+  return names.length < 2
+    ? names.join('')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** TRUE if this janitor holds soap or a rag: what a mess that will not wash off is scrubbed with. A mop is not that. */
 function canScrub(brain: NpcBrain): boolean {
-  return brain.dryMop || /soap|mop/i.test(brain.cleaningTool ?? '');
+  return brain.holding.some((item) => /soap|\brag$/i.test(item));
+}
+
+/** The mess jobs for which a janitor has begun putting its mop and bucket back, by the task's id: see changeForScrubbing. */
+const puttingBack = new Set<number>();
+
+/** Soap or a rag that it has put away about it, or knows the whereabouts of: what it scrubs with when it has a hand for it. Undefined if it knows of none. */
+function scrubberToHand(brain: NpcBrain): string | undefined {
+  const scrubs = (item: string) => /soap|\brag$/i.test(item);
+  return brain.stowed.find(scrubs) ?? allKnownItems(brain).find(scrubs);
+}
+
+/**
+ * The next step of changing a mop and bucket for something that scrubs, for a mess it was called
+ * to that wants scrubbing. Null if there is nothing to change: it holds soap or a rag already,
+ * the call is not of that kind, or it knows of nothing to scrub with.
+ */
+function changeForScrubbing(
+  brain: NpcBrain,
+  task: Task,
+  toldBy: string,
+): Plan | null {
+  if (!task.wantsScrub || canScrub(brain) || task.place === brain.location) {
+    return null;
+  }
+  const scrubber = scrubberToHand(brain);
+  if (!scrubber) {
+    return null;
+  }
+  const inTheWay = brain.holding.filter((item) => /\bmop$|bucket/i.test(item));
+  const kept = brain.supplyPlaces.find((place) => knowsPlace(brain, place));
+  // With a hand free it only has to take the rag up. With both full, the mop and the bucket both
+  // go back: once it has begun putting them back it puts back both, and does not stop at the
+  // first because that freed a hand. The owner: "put the mop and bucket back in the janitor area".
+  if (brain.holding.length >= 2 && inTheWay.length > 0) {
+    puttingBack.add(task.id);
+  } else if (inTheWay.length === 0) {
+    puttingBack.delete(task.id);
+  }
+  if (inTheWay.length > 0 && puttingBack.has(task.id)) {
+    // Back to where the gear is kept, if it knows where that is, so that the mop and the bucket
+    // are there to be had again and not lying in a hallway.
+    if (kept && brain.location !== kept) {
+      return {
+        ready: true,
+        step: `The mess in ${task.place}${toldBy} needs scrubbing with soap or a rag, which your ${listed(inTheWay)} will not do, and your hands are full. You are taking ${inTheWay.length > 1 ? 'them' : 'it'} back to the ${kept}, to put down there and take up your ${scrubber}.`,
+        act: { tool: 'go_to', place: kept },
+      };
+    }
+    return {
+      ready: true,
+      step: `The mess in ${task.place}${toldBy} needs scrubbing with soap or a rag. You are putting your ${inTheWay[0]} down here${kept ? `, in the ${kept}, where it is kept` : ''}, to have a hand for your ${scrubber}.`,
+      act: { tool: 'put_down', item: inTheWay[0] },
+    };
+  }
+  return {
+    ready: true,
+    step: `The mess in ${task.place}${toldBy} needs scrubbing with soap or a rag, and you ${brain.stowed.includes(scrubber) ? 'have' : 'know where there is'} ${scrubber}. You are getting it before you set off.`,
+    act: { tool: 'pick_up', item: scrubber },
+  };
+}
+
+/** What a janitor says is left in a room that it could not shift: the kinds by name if they are the scrubbing kind, and no claim about what the rest wants if not. */
+function whatIsLeft(brain: NpcBrain): string {
+  const kinds = brain.beyondKinds;
+  return kinds.length > 0
+    ? `What is left (${listed(kinds)}) needs scrubbing with soap or a rag.`
+    : `The rest would not come off with my ${brain.cleaningTool}.`;
+}
+
+/** The kinds of mess a call names: "There is a mess in the Cargo Bay: pool of oil and cobweb." */
+function kindsCalled(text: string): string[] {
+  const named = text.match(/\bmess in [^:.]+: ([^.]+)\./i)?.[1];
+  return named
+    ? named
+        .split(/,| and /)
+        .map((kind) => kind.trim())
+        .filter(Boolean)
+    : [];
 }
 
 /** The job of someone it can see or has on its PDA, or '' if it does not know them. */
@@ -279,7 +369,7 @@ function cues(brain: NpcBrain): string[] {
   }
   lines.push(
     brain.cleaningTool
-      ? `There is a mess here that your ${brain.cleaningTool} will not shift. It needs soap or a wet mop.`
+      ? `There is a mess here that your ${brain.cleaningTool} will not shift.${brain.beyondKinds.length > 0 ? ` The ${listed(brain.beyondKinds)} needs scrubbing with soap or a rag.` : ''}`
       : 'There is a mess here, but you have nothing to clean it with yet.',
   );
   return lines;
@@ -365,8 +455,8 @@ function syncTasks(brain: NpcBrain): void {
       brain.toTell.push({
         to: task.askedBy,
         line: task.cleanedSome
-          ? `I have done what I can in the ${task.place}. The rest needs soap or a wet mop.`
-          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}. It needs soap or a wet mop.`,
+          ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
+          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`,
         why: task.cleanedSome
           ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what your ${brain.cleaningTool} would shift, and the rest will not come off. You are sending ${task.askedBy} a PDA message to say so.`
           : `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
@@ -418,8 +508,16 @@ function syncTasks(brain: NpcBrain): void {
     addTask(brain, { kind: SUPPLIES, urgency: 'routine', source: 'own' });
   // With only a rag, and something better known to be there for the taking, it goes for that
   // before it answers a call to a mess: the rag would likely not shift the mess anyway.
+  // Not while it has a mess to scrub that it took the rag up for: it put its mop down on purpose,
+  // and goes back for it when that mess is seen to.
+  const scrubbing = brain.tasks.some(
+    (other) =>
+      other.kind === CLEAN && other.state !== 'done' && !!other.wantsScrub,
+  );
   task.urgency =
-    brain.poorTool && (!!knownSupply(brain) || suppliesWaiting(brain))
+    brain.poorTool &&
+    !scrubbing &&
+    (!!knownSupply(brain) || suppliesWaiting(brain))
       ? 'asked'
       : 'routine';
   blockTask(
@@ -439,10 +537,20 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind !== CLEAN) {
     return null;
   }
+  const toldBy = task.askedBy ? ` (${task.askedBy} told you of it)` : '';
+  // Called to a mess that wants scrubbing, a cobweb say, with a mop and a bucket in its hands:
+  // neither will shift it, and it has no hand for what will. So it takes them back to where the
+  // cleaning gear is kept, puts them down there, and takes up a rag or soap: one it put away in
+  // its bag to carry the bucket, or one it knows the whereabouts of. This comes before the check
+  // for something to clean with, because for a moment in the middle of it its hands are empty.
+  // It goes back for the mop afterwards: with only a rag, it is short of something better.
+  const change = changeForScrubbing(brain, task, toldBy);
+  if (change) {
+    return change;
+  }
   if (!brain.cleaningTool) {
     return { ready: false, step: 'You need something to clean with first.' };
   }
-  const toldBy = task.askedBy ? ` (${task.askedBy} told you of it)` : '';
   // Water comes before anything, wherever the mess is. A bucket that is running low is filled
   // while there is a tank or a sink in sight: it is the water the body carries to where there is
   // none, and a mop wetted from it saves a walk back across the station.
@@ -702,11 +810,21 @@ export const JANITOR: Job = {
       // A call that says the mess wants soap or a wet mop, and to come if it has one. With
       // neither it would walk the length of the station to find that out at the door, as two did
       // in turn. It sends back that it cannot, and stays where it is.
-      if (named && from && ONLY_IF_WORDS.test(text) && !canScrub(brain)) {
+      // So does a call that names only the kinds of mess that want scrubbing: a cobweb, rubble.
+      // Called to "pool of oil and cobweb" with a space cleaner, it comes, for the oil. Called to
+      // a cobweb alone, it would be let in and say at once that it could not shift it.
+      const kinds = kindsCalled(text);
+      const scrubOnly =
+        ONLY_IF_WORDS.test(text) ||
+        (kinds.length > 0 && kinds.every((kind) => SCRUB_KINDS.test(kind)));
+      // It may have soap or a rag put away, or know where there is some: then it takes the call
+      // and gets that first, putting its mop and bucket back if its hands are full of them.
+      const within = !!scrubberToHand(brain);
+      if (named && from && scrubOnly && !canScrub(brain) && !within) {
         brain.toTell.push({
           to: from,
-          line: `I have no soap or wet mop either, so I cannot shift the mess in the ${named}.`,
-          why: `${from} has called you to a mess in the ${named} that needs soap or a wet mop. You have neither, so you are sending ${from} a PDA message to say you cannot shift it, and staying where you are.`,
+          line: `I have no soap or rag, so I cannot shift the mess in the ${named}.`,
+          why: `${from} has called you to a mess in the ${named} that needs scrubbing with soap or a rag. You have neither, so you are sending ${from} a PDA message to say you cannot shift it, and staying where you are.`,
           byPda: true,
           at: Date.now(),
         });
@@ -727,6 +845,9 @@ export const JANITOR: Job = {
                 });
         if (task && fromCargo && named !== CARGO_LOBBY) {
           task.via = CARGO_LOBBY;
+        }
+        if (task) {
+          task.wantsScrub = scrubOnly;
         }
         return;
       }
@@ -775,6 +896,18 @@ export const JANITOR: Job = {
   },
   // What it has done to be let into a locked room, each thing once.
   afterActing: (brain, act, task, ok) => {
+    // The soap or rag it meant to scrub with was not to be had after all: someone has taken it.
+    // The mess is then one to go to with what it has, like any other, and it says what is left.
+    if (
+      task?.kind === CLEAN &&
+      task.wantsScrub &&
+      act.tool === 'pick_up' &&
+      !ok &&
+      /soap|\brag$/i.test(String(act.item ?? ''))
+    ) {
+      task.wantsScrub = false;
+      puttingBack.delete(task.id);
+    }
     // Having cleaned something in a room, what it says of that room afterwards allows for it.
     if (act.tool === 'clean' && ok) {
       const here = findTask(brain, CLEAN, { place: brain.location });

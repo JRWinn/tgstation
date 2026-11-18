@@ -16,6 +16,85 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 15:00: faults and alterations from the 13:32 round (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 42 scenarios with a quiet LLM pass, the six security ones among them, and `nested` and `qm` with a chatty LLM and `qm` and `crew` with a dead one pass. The change of mop and bucket for a rag was added after that run: type check, compile, and the twelve scenarios with janitors in them again, all passing. **Not played in a round. No model tests. No new simulator scenarios.** A round (`round-14.28.06`, on `3c948542`) was running while this was built, so the normal build was left until the owner had closed the server: it was run at 15:07 (0 errors, 0 warnings, the bundle rebuilt), and the next round has all of this and the security work of the entry below. The simulator runs none of the server code and knows nothing of marked squares, door scores, kinds of mess or the brain window, so everything in a `.dm` file below is compile-checked only. On the brain side the new paths (a knock from inside with nobody on record, a head passing on "I am shut in", a call that names only cobwebs, the shuttle called in for empties) have no scenario that walks them: the old scenarios show only that nothing they cover broke. The brain window's new section was never drawn: it is type-checked only.
+
+**Round that showed the faults:** `data/logs/2026/11/18/round-13.32.16` (MetaStation, 50 minutes, on `a8578281`). It was the first round played with door names, a carried bucket and the fixes from the 12:23 round, and most of those were seen to work: see the plan.
+
+**Plan:** `LLM_CREW_PLAN_ROUND_1332.md`. The numbers below are the ones in it, which are the ones the owner and I used while the round ran. The owner said "write it up and code all changes we talked about".
+
+### Two of my fixes from the 13:30 entry were wrong
+
+- **"One asking takes a visitor all the way out" sent a janitor back into the room it had been let out of.** The next door was asked for while it was still on the threshold of the first, and the nearest door of the outer room was the one it was coming out of. It walked back in and was shut in the Bitrunning Den for forty minutes. Mended below (2).
+- **A room it had twice found no way into stayed "blocked" after a door was opened for it.** Not seen to do harm, but it is what the 13:30 entry built. Left as it is.
+
+### What the crew does now
+
+Doors and being shut in:
+
+- **(2) Being let out, a door that only leads into another room that is locked to them is not chosen.** `room_door_for` in `crew_npc_doors.dm` scores such a door last. The next door is asked for four seconds after the first is opened, not at once (`after` on `doorAsked`, `NEXT_DOOR_DS` in `jobs/cargo.ts`).
+- **(4) Letting someone out strikes only the note that they are inside.** The call that brought them stands while the mess is there. `noteLetOut` in `expected.ts`. A janitor that stepped out and came straight back had been told "nobody here sent for you".
+- **(4) A janitor does not walk out of a room while there is work in it that it can get on with.** The owner: "what if they can no longer clean it?" It leaves when what is left is done or is beyond what it holds. `decide` in `driver.ts`, where it walks back out.
+- **(3) A knock from inside a locked room is answered whether or not anyone is down as being in there.** The body finds who is standing at the door. `SOMEONE_INSIDE` in `jobs/cargo.ts`, `shut_in_at_door` in `crew_npc_doors.dm`. Failing the name it was given, a janitor standing outside at the door is taken for whoever knocked (`janitor_at_door`).
+- **(3) A door opened to let one person out lets out anyone else who is shut in the room.** `hold_door_for`.
+- **(3) Someone shut in writes to whoever's ID opens the door, by the card they wear.** `door_keepers` only looked for a card inside the PDA, found none, and nobody was ever written to but the head.
+- **(3) A head told "I am shut in" by one of its staff passes it to the Captain by PDA**, once for each person and room in five minutes. `readsMessage` in `jobs/head.ts`.
+
+Meetings and standing about:
+
+- **(6) Nobody waits in a doorway or on the same tile as someone else.** Sharing a tile now counts as being in the way (`on_top_of_someone`), and a body steps clear at most twice in one room before it waits where it is (`mayStepInside` in `driver.ts`): a janitor had stepped aside eight times in three minutes.
+- **(6) A member of staff in the meeting room who cannot see its head walks up to another of its own trade who is there.** `meetingStep` in `jobs/meetings.ts`. One had stood by the door of the Bar Lounge, out of its head's sight, and been put down as absent.
+
+Cleaning:
+
+- **(5) Each mess is cleaned with whatever the body holds that suits it**: the spray for what washes off, the rag for what wants scrubbing. `tool_for_mess`, `could_shift` in `crew_npc_cleaning.dm`.
+- **(5) A mop does not scrub.** `can_clean_mess` knows that cobwebs, rubble, decomposing garbage and gooey grey mass stay when the floor is washed (`is_mopped`), and that a spray only washes. A janitor with a wet mop had scrubbed at a cobweb and said it wanted a wet mop.
+- **(5) What a janitor says is left is true**: "What is left (cobweb and rubble) needs scrubbing with soap or a rag", or, where that is not it, "The rest would not come off with my mop". `whatIsLeft` in `jobs/janitor.ts`; the server sends the kinds (`beyond_kinds_here`).
+- **(5) A technician passes on what a mess wants only if whoever tried it said so**, and a mess two janitors could not shift is left thirty minutes, not ten. `tidyStep`, `DECLINED_AGAIN_DS`.
+- **(13) A janitor called to a mess that is all of the scrubbing kind, with no soap or rag in its hands, changes what it holds.** With a mop and a bucket it takes both back to where the cleaning gear is kept, puts them down there, and takes up a rag or soap: the rag it put in its bag to carry the bucket, or one it knows the whereabouts of. The owner: "put the mop and bucket back in the janitor area and grab a wet rag for cob webs". With a hand free it only takes the rag up. It declines by PDA only if it knows of nothing to scrub with. When that mess is seen to it goes back for the mop, as a janitor with only a rag does. `changeForScrubbing`, `scrubberToHand`, `kindsCalled`, `SCRUB_KINDS` in `jobs/janitor.ts`; `tool_put_down` now puts down the thing named; `tool_pick_up` takes a thing out of the body's own bag or pocket before it looks anywhere else (`crew_npc_hands.dm`). The brain is told what the body has put away (`stowed`).
+
+Finding its way:
+
+- **(11) Exploring skips a room whose every door is locked to the body.** `pick_somewhere_new` in `crew_npc_tools.dm`.
+- **(7) "None of your work can be got on with" now says why**, in the log: what stands in the way of each job, up to four.
+
+Cargo's floor (the owner's alterations):
+
+- **(16) Crates are stood on the marked squares of the bay floor.** `crew_npc_marked_squares` finds them by the paint on the tile; `free_square`, `storage_spot` in `crew_npc_freight.dm`. With no square free, or a bay that has none, a crate goes where it went before.
+- **(17) A crate loose in the bay, off the squares, is put on one.** `misplaced_crates`. Not one that is open, with its contents on the floor round it.
+- **(15) An empty brought back to the lobby is taken into the bay**, and **the shuttle is called in for empties**: when three wait, or one has waited ten minutes. `CALL` in `jobs/freight.ts`; `tool_send_shuttle` calls it in when it is away.
+- **(14) Only a crate that came in on the shuttle goes back when it is empty.** `crew_npc_came_by_shuttle`, set when a crate is seen aboard with something in it. The station's own crates were being sold with the rest.
+
+The brain window (the owner's alteration 1, built by a second session and looked over by me):
+
+- **Every NPC's name and job are shown in the colour of its ID card.** A head goes by its department's colour, not command's. `crew_npc_card_color` in the new `crew_brain_rooms.dm`; `colors.ts`.
+- **A "Locked rooms" section** lists the rooms that are locked to the crew at large and that one of the owner's NPCs may go into, each room's name in its department's colour and the names of those allowed in plain text. The station's locked rooms are worked out once a round; who is allowed where every thirty seconds.
+- Names that are too dark to read on the window are lightened in the window only.
+
+Small:
+
+- **(12)** A bucket fill is logged once.
+
+### Not built
+
+- **(18) Selling loose things left on the marked squares when the shuttle comes.** The owner: "a future TODO".
+- **(15) An order nobody collects is not yet sent back.**
+- **(12) Mess calls still go one message a room.**
+- **(8) The crate dropped at the lobby door.** In the round a technician was standing at its post just inside that door, and the crate could not pass it. Nothing asks it to move until the haul has been given up.
+- **(10) The Warehouse.** Its only airlock opens from the tunnel and the bay side is shutters, but why no route is found by way of the tunnel is still not known. It is now left fifteen minutes after two failures, which is all.
+- **(9) "No way out" of the crowded closet at the start of a round.** Cause not confirmed.
+- **(13) The change of tools is only made for a call that names nothing but the scrubbing kinds**, or one passed on as needing soap or a rag. A janitor that finds a cobweb in a room it is mopping for other reasons still reports it as left, and does not go for its rag.
+
+### Known and not fixed
+
+- **None of the server side has been seen in the game.** In particular: that the paint on a tile can be read from its overlays, which is how the squares are found (if it cannot, nothing changes: crates go where they went); that the shuttle comes when it is called in; that the right door is chosen when someone is let out.
+- A crate on a marked square that is within a tile of a door would be moved again. The bay on MetaStation has no such square.
+- A head with no Captain on its PDA does nothing about staff who are shut in.
+- The brain window's "Where" line is not coloured, only the room names in the new section.
+
+---
+
 ## 2026-11-18, 14:15: a Head of Security and a security officer, warrants, arrests and the brig (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), the table of cases in `tools/llm_crew/security.ts` (72 cases), simulator: the six new scenarios (`warrant`, `arresthead`, `pardon`, `fight`, `hurt`, `nohos`), each with a quiet, a chatty and a dead LLM, all 18 runs pass; the 37 older scenarios, run once each with a quiet LLM, 36 pass. The one that failed, `aside` ("asked to step aside ... 8s after being asked"), failed 1 run in 4 on this code and 2 in 4 on a clean copy of the last commit, so it is not from this work. **Not played in a round. No model tests.** A round was running while this was built, so the normal build was not run: **the game and the brain window have none of this until `BUILD.cmd` is run between rounds.** The simulator runs none of the server code. Every click with a baton, a pair of cuffs, a locker or a cell timer in this entry is compile-checked only. Treat all of the server side as unproven until a round shows it.

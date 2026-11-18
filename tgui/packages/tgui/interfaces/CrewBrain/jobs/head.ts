@@ -144,6 +144,13 @@ const ARRIVED_WORDS = /order has come in/i;
 const STILL_WAITING_WORDS = /still waiting at cargo/i;
 /** How a report begins that one of its staff sends by PDA because they were not at the meeting. */
 const REPORT_BY_PDA = /^(I could not get into|Sorry I missed the meeting)/i;
+/** The words one of its staff sends when it is shut in a room and nobody has come to the door: see the driver. The room is what it reads out of them. */
+const SHUT_IN_WORDS =
+  /^I am shut in the (.+?) and nobody has come to the door/i;
+/** How long (deciseconds) before it passes on word of the same person shut in the same room a second time. */
+const SHUT_IN_AGAIN_DS = 3000;
+/** When each head last passed on word of someone shut in (server time), by the head, the person and the room. */
+const shutInPassedOn = new Map<string, number>();
 
 /** What each kind of staff is sent when they are short, and the room they take it to when it comes: where they work from. */
 const SUPPLIES = [
@@ -1174,6 +1181,31 @@ export const HEAD_OF_PERSONNEL: Job = {
   // Word from its staff about a meeting or of what they need, an order to hold a meeting, word
   // from cargo about its crates, and word from whoever it sent for one that it is unpacked.
   readsMessage: (brain, from, text, at, job) => {
+    // One of its staff is shut in somewhere and nobody has come to the door. A head has no key
+    // to another department's rooms, but it does have the Captain's ear: it passes the word up,
+    // once for each of them and each room in five minutes. Told this twice by a janitor that was
+    // shut in the Bitrunning Den for forty minutes, the head did nothing at all.
+    const shutIn = text.match(SHUT_IN_WORDS);
+    if (from && shutIn) {
+      const captain = brain.pdaPeople.find(
+        (person) => /captain/i.test(person.job) && person.name !== brain.name,
+      );
+      const key = `${brain.id}|${from}|${shutIn[1]}`;
+      if (
+        captain &&
+        at - (shutInPassedOn.get(key) ?? -Infinity) > SHUT_IN_AGAIN_DS
+      ) {
+        shutInPassedOn.set(key, at);
+        brain.toTell.push({
+          to: captain.name,
+          line: `${from}, one of my staff, is shut in the ${shutIn[1]} and nobody has come to let them out. Could you see that someone opens it, please?`,
+          why: `${from}, who answers to you, has sent word of being shut in the ${shutIn[1]} with nobody coming to the door. You have no key to it, so you are passing the word to ${captain.name}, the Captain, by PDA.`,
+          byPda: true,
+          at: Date.now(),
+        });
+      }
+      return;
+    }
     // Word from the Quartermaster about its order: that it is noted, that the Captain has said
     // no to it, or that it is not something cargo can get.
     const sentOrder = brain.requisition;

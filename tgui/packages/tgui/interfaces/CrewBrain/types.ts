@@ -143,6 +143,8 @@ export type Npc = {
   id: string;
   name: string;
   job: string;
+  /** The colour of the department stripe on its own ID card, as "#RRGGBB", or null if it has no card. For the window only. */
+  card_color?: string | null;
   /** Everything the body has on it. */
   inventory?: CarriedItem[];
   awake: BooleanLike;
@@ -180,6 +182,8 @@ export type Npc = {
   has_locator: BooleanLike;
   /** Names of the messes in view that the body could clean with what it holds. */
   cleanable_messes: string[];
+  /** The kinds of mess it remembers in the room it is in that nothing it holds will shift: cobwebs, rubble and the like, which want scrubbing with soap or a rag. */
+  beyond_kinds?: string[];
   /** Names of the rooms the body remembers a mess in: seen, and not yet seen to be gone. */
   mess_places: string[];
   /** Those of them where what the body holds would shift at least one of the messes it remembers. */
@@ -644,8 +648,19 @@ export type HeldCrate = {
   waited: number;
 };
 
+/** A room that is locked to the crew at large and that some of the owner's NPCs are allowed into. For the window only. */
+export type LockedRoom = {
+  name: string;
+  /** The department it belongs to, going by the kind of area it is: "security", "cargo" and so on. Null if it is no department's. */
+  department: string | null;
+  /** The names of the owner's NPCs whose own ID opens a door of it. */
+  allowed: string[];
+};
+
 export type Data = {
   npcs: Npc[];
+  /** The locked rooms the owner's NPCs are allowed into, and who. Null while the server is still working it out. */
+  locked_rooms?: LockedRoom[] | null;
   /** The name of every room aboard. Sent once, when the window opens. */
   places?: string[];
   /** Server world time in deciseconds. */
@@ -742,6 +757,8 @@ export type Task = {
   toldBeyond?: boolean;
   /** For a mess: TRUE once it has cleaned some of it. What it says of the rest then allows for that. */
   cleanedSome?: boolean;
+  /** For a mess it was called to: TRUE if the call named only kinds of mess that want scrubbing with soap or a rag. */
+  wantsScrub?: boolean;
   /** For a look round: TRUE once it has said aloud, to whoever shares its post, where it is off to. */
   announced?: boolean;
   /** For word owed to its head face to face: TRUE once it has been said to them. */
@@ -844,6 +861,8 @@ export type NpcBrain = {
   thingsInView: ThingInView[];
   /** Names of the items in the body's hands. */
   holding: string[];
+  /** Names of the things it has put away about it: in its bag, on its belt or in a pocket. A rag it put away to carry a bucket is one. */
+  stowed: string[];
   /** Rooms this NPC has been in, by name. */
   places: Map<string, PlaceMemory>;
   /** Where this NPC last saw each person, by name. */
@@ -904,6 +923,8 @@ export type NpcBrain = {
   /** How much of each it had done when it last reported to its head. What it reports is what it has done since. */
   workReported: Record<string, number>;
   cleanableMesses: string[];
+  /** The kinds of mess in the room it is in that nothing it holds will shift, by name: see `beyond_kinds`. */
+  beyondKinds: string[];
   /** Names of the rooms the body remembers a mess in. */
   messPlaces: string[];
   /** Those of them where what it holds would do some good. */
@@ -1010,6 +1031,8 @@ export type NpcBrain = {
     answered?: boolean;
     /** Which of the room's doors they are at, by what it is called, if they said. */
     door?: string;
+    /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
+    after?: number;
   } | null;
   /**
    * Someone it answers to has told it to leave the room it was in: who, which room, when (this
@@ -1398,6 +1421,8 @@ export type NpcBrain = {
       /** The janitors who have sent word that they cannot shift it, and when the last of them did (server time). */
       declined?: string[];
       declinedAt?: number;
+      /** TRUE if whoever last could not shift it said that it wants scrubbing with soap or a rag: the next janitor is told so. */
+      wantsScrub?: boolean;
     }
   >;
   /** TRUE once this NPC has gone to the Cargo Lobby and asked for supplies, until they come. */

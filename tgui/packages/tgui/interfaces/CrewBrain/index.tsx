@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Box, Button, Icon, NoticeBox } from 'tgui-core/components';
+import { Box, Button, Icon, NoticeBox, Section } from 'tgui-core/components';
 
 import { useBackend } from '../../backend';
 import { Window } from '../../layouts';
@@ -21,10 +21,16 @@ import {
   stopSession,
   subscribe,
 } from './brain';
+import {
+  cardColor,
+  cardColorsByName,
+  departmentColor,
+  sortLockedRooms,
+} from './colors';
 import { NpcDetails } from './Details';
 import { setStationPlaces } from './memory';
 import { describeTask } from './tasks';
-import type { CarriedItem, Data, Npc, NpcBrain } from './types';
+import type { CarriedItem, Data, LockedRoom, Npc, NpcBrain } from './types';
 
 const OLLAMA_CHECK_TIMEOUT_MS = 5000;
 /** How many NPCs are shown side by side. */
@@ -118,10 +124,14 @@ export const CrewBrain = () => {
             <NpcDetails
               npc={detailed}
               brain={getBrain(detailed.id)}
+              cardColors={cardColorsByName(npcs)}
               onClose={() => setDetailsOf(null)}
             />
           </Box>
         )}
+        <Box mt={1}>
+          <LockedRooms rooms={data.locked_rooms} />
+        </Box>
       </Window.Content>
     </Window>
   );
@@ -290,10 +300,10 @@ const NpcCard = (props: {
     <div style={detailsOpen ? CARD_OPEN_STYLE : CARD_STYLE}>
       <div style={HEADER_STYLE}>
         <Box style={{ flex: 1, minWidth: 0 }}>
-          <Box bold fontSize="15px">
+          <Box bold fontSize="15px" color={cardColor(npc)}>
             {npc.name}
           </Box>
-          <Box>{npc.job || 'No job'}</Box>
+          <Box color={cardColor(npc)}>{npc.job || 'No job'}</Box>
           <Box color="label">{brain?.card.label ?? 'No personality yet'}</Box>
         </Box>
         <Box textAlign="right">
@@ -360,6 +370,42 @@ const NpcCard = (props: {
         <ItemChips items={carried} empty="Nothing" />
       </Field>
     </div>
+  );
+};
+
+const ROOMS_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: `repeat(${CARDS_PER_ROW}, minmax(0, 1fr))`,
+  gap: '8px 16px',
+  overflowWrap: 'anywhere',
+};
+
+/**
+ * The rooms that are locked to the crew at large and that at least one of these NPCs is allowed
+ * into, each with who. The room's name is in its department's colour. The names under it are not
+ * coloured: it is the room that is being looked up here, not the people.
+ */
+const LockedRooms = (props: { rooms?: LockedRoom[] | null }) => {
+  const { rooms } = props;
+  return (
+    <Section title="Locked rooms">
+      {!rooms ? (
+        <Box color="label">Still working out which rooms are locked.</Box>
+      ) : rooms.length === 0 ? (
+        <Box color="label">No locked room has anyone allowed in yet.</Box>
+      ) : (
+        <div style={ROOMS_STYLE}>
+          {sortLockedRooms(rooms).map((room) => (
+            <div key={room.name} style={{ minWidth: 0 }}>
+              <Box bold color={departmentColor(room.department)}>
+                {room.name}
+              </Box>
+              <Box>{room.allowed.join(', ')}</Box>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 };
 

@@ -456,6 +456,31 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       act: { tool: 'approach', person: head.handle },
     };
   }
+  // In the room and its head nowhere in sight: a big room, and it has stopped just inside the
+  // door. The others of its own trade it can see are standing round whoever called the meeting,
+  // so it goes and stands with them. A janitor that stayed by the door of the Bar Lounge, seven
+  // tiles from the rest, was never seen by its head and was put down as absent.
+  const fellow = head
+    ? undefined
+    : brain.peopleInView.find(
+        (person) =>
+          person.place === room &&
+          person.job === brain.job &&
+          (person.distance ?? 0) > WALK_UP_BEYOND,
+      );
+  if (
+    fellow &&
+    brain.location === room &&
+    summons.walkUps < WALK_UPS_MAX &&
+    (summons.walkedUpAt === null ||
+      brain.now - summons.walkedUpAt > WALK_UP_AGAIN_DS)
+  ) {
+    return {
+      ready: true,
+      step: `You are in the ${room} for the staff meeting and cannot see ${by} from where you stand, but ${fellow.name} is here. You are walking up to ${fellow.name}, to stand with the others.`,
+      act: { tool: 'approach', person: fellow.handle },
+    };
+  }
   return {
     ready: false,
     wait: true,

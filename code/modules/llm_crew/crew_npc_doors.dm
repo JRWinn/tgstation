@@ -146,7 +146,13 @@
 		var/turf/where = get_turf(candidate.computer)
 		if(isnull(where) || !is_station_level(where.z))
 			continue
+		// The card in the PDA, or failing that the one its holder wears: most of the crew wear
+		// theirs. Going only by a card in the PDA, nobody was ever found to write to, and a janitor
+		// shut in a cargo room wrote to its own head and to no technician.
 		var/obj/item/card/id/card = candidate.computer.stored_id
+		if(isnull(card))
+			var/mob/living/holder = get(candidate.computer, /mob/living)
+			card = holder?.get_idcard(TRUE)
 		if(card && door.check_access(card))
 			names += candidate.computer.saved_identification
 	return names
@@ -397,6 +403,11 @@
 			return wanted
 	var/obj/machinery/door/airlock/best
 	var/best_score = INFINITY
+	// Being let out, a door that only leads into another room that is locked to them is no way
+	// out at all. A janitor let out of the Bitrunning Den into the Mining Office had the Den's
+	// door opened for it a second time, as the nearest door of the Mining Office, walked back
+	// through it, and was shut in the Den for the rest of the round.
+	var/letting_out = get_area(person) == room
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		if(!door.allowed(pawn))
 			continue
@@ -408,6 +419,8 @@
 		// Of two doors as near, the one onto a hallway or a lobby: the other may only lead into
 		// another room that is locked to them.
 		var/area/beyond = get_area(sides[2])
+		if(letting_out && istype(their_controller) && their_controller.locked_out_of(beyond))
+			score += 200
 		if(istype(beyond, /area/station/maintenance))
 			score += 50
 		else if(!istype(beyond, /area/station/hallway) && !findtext(beyond.name, "lobby"))
@@ -459,6 +472,12 @@
 		person = person_at_room(person_name, room)
 		if(person)
 			handle = handle_for(person)
+	// A knock from inside says where, and not who. Whoever is standing inside at a door of the
+	// room, and cannot open it for themselves, is who knocked.
+	if(QDELETED(person))
+		person = shut_in_at_door(room) || janitor_at_door(room)
+		if(person)
+			handle = handle_for(person)
 	if(QDELETED(person))
 		action_result(CREW_TOOL_DOOR, FALSE, "You do not know who that is, and there is nobody of that name at the door of [room_name].")
 		return
@@ -504,6 +523,24 @@
 			return person
 	return null
 
+/// Returns someone standing inside a room at one of its doors who cannot open that door for themselves, or null.
+/datum/ai_controller/crew_npc/proc/shut_in_at_door(area/room)
+	var/mob/living/carbon/human/body = pawn
+	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
+		for(var/mob/living/carbon/human/person in range(CREW_NPC_AT_DOOR, door))
+			if(person != body && get_area(person) == room && !door.allowed(person))
+				return person
+	return null
+
+/// Returns a janitor standing outside a room at one of its doors, or null: whoever knocked there, when the name the brain gave is not who is standing at it.
+/datum/ai_controller/crew_npc/proc/janitor_at_door(area/room)
+	var/mob/living/carbon/human/body = pawn
+	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
+		for(var/mob/living/carbon/human/person in range(CREW_NPC_AT_DOOR, door))
+			if(person != body && get_area(person) != room && findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor"))
+				return person
+	return null
+
 /// Opens the door the body is standing by, holds it open a while, and lets whoever it is for know. Sleeps while it opens.
 /datum/ai_controller/crew_npc/proc/hold_door_for(obj/machinery/door/airlock/door)
 	var/mob/living/carbon/human/body = pawn
@@ -537,6 +574,24 @@
 		var/list/sides = crew_npc_doors_of(room, body.z)[door]
 		var/turf/spot = room_name == post_place ? post_turf : (sides ? sides[1] : get_turf(door))
 		their_controller.door_opened_for(body, room_name, spot, door)
+	// A door opened to let one person out lets out anyone else who is shut in there with them. A
+	// janitor shut in the Bitrunning Den watched its door opened for another janitor and shut
+	// again, and stayed where it was for another forty minutes.
+	if(inside)
+		var/list/room_sides = crew_npc_doors_of(room, body.z)[door]
+		var/turf/way_out = room_sides ? room_sides[1] : get_turf(door)
+		for(var/mob/living/carbon/human/other in room)
+			if(other == person || other == body)
+				continue
+			var/datum/ai_controller/crew_npc/other_controller = other.ai_controller
+			if(!istype(other_controller) || !other_controller.is_shut_in())
+				continue
+			other_controller.door_opened_for(body, room_name, way_out, door)
+			// Each is watched a tick longer than the last, so that the door shuts behind whoever
+			// is last through it and not on them: see watch_door.
+			held_until += 1
+			GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+			watch_door(WEAKREF(door), WEAKREF(other), TRUE, held_until, room)
 	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].")
 
 /// Watches a door held open for someone, and lets it shut once they are through it or time is up.
@@ -789,6 +844,14 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		action_result(CREW_TOOL_STEP_ASIDE, FALSE, "There is nowhere here to step aside to.")
 		return
 	start_walk(best, CREW_TOOL_STEP_ASIDE, "out of the way", CREW_NPC_WALK_TIMEOUT)
+
+/// TRUE if the body is standing on the same tile as someone else. Two bodies can end up on one tile, and nobody waits like that: it counts as standing in the way, as a doorway does.
+/datum/ai_controller/crew_npc/proc/on_top_of_someone()
+	var/mob/living/carbon/human/body = pawn
+	for(var/mob/living/carbon/human/other in get_turf(body))
+		if(other != body)
+			return TRUE
+	return FALSE
 
 /// Says who, if anyone, was in the way of what the body was hauling: words for the brain, and who it was.
 /datum/ai_controller/crew_npc/proc/in_the_way_report(atom/movable/load, list/details)

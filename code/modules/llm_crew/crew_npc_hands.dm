@@ -16,6 +16,19 @@
 		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full of things you need. Put something down first.")
 		return
 
+	// Something it has put away about it comes before anything it would have to walk to: the rag
+	// it put in its bag to have a hand for the bucket is taken out again when a cobweb wants it.
+	for(var/obj/item/stowed in body.get_all_contents_type(/obj/item))
+		// In a bag or a pocket, that is: not what it wears, and not what is in its hands already.
+		if(stowed.loc == body && stowed != body.l_store && stowed != body.r_store)
+			continue
+		if((stowed.item_flags & ABSTRACT) || !name_matches(stowed.name, wanted))
+			continue
+		var/stowed_name = format_text(stowed.name)
+		if(body.put_in_hands(stowed))
+			action_result(CREW_TOOL_PICK_UP, TRUE, "You take the [stowed_name] out from where you had put it away.")
+			return
+
 	// Something lying in plain view comes first.
 	var/obj/item/nearest_item
 	var/nearest_distance = INFINITY
@@ -94,9 +107,18 @@
 	return findtext(LOWER_TEXT(format_text(thing_name)), wanted)
 
 /// Tool: put down what the body is holding.
-/datum/ai_controller/crew_npc/proc/tool_put_down()
+/datum/ai_controller/crew_npc/proc/tool_put_down(item_name)
 	var/mob/living/carbon/human/body = pawn
-	var/obj/item/held = first_held_item()
+	// The thing it named, if it named one and holds it. A janitor putting its bucket back in the
+	// closet to take up a rag means the bucket, not whatever is in its other hand.
+	var/obj/item/held
+	var/wanted = istext(item_name) ? LOWER_TEXT(trim(item_name)) : null
+	if(length(wanted))
+		for(var/obj/item/candidate in body.held_items)
+			if(!(candidate.item_flags & ABSTRACT) && name_matches(candidate.name, wanted))
+				held = candidate
+				break
+	held ||= first_held_item()
 	if(isnull(held))
 		action_result(CREW_TOOL_PUT_DOWN, FALSE, "You are not holding anything.")
 		return

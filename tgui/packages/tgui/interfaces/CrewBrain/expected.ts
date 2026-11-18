@@ -106,15 +106,20 @@ export function noteLetIn(
 export function noteLetOut(post: string, name: string, room?: string): void {
   // Out of one room, if it is said which: someone seen to have left the bay may still be in the
   // room beyond it, and striking them from both leaves them behind a door nobody knows to open.
-  list = list.filter(
-    (it) =>
-      !(
-        it.post === post &&
-        it.name === name &&
-        it.inside &&
-        (room === undefined || it.room === room)
-      ),
-  );
+  // Only the note that they are inside is struck. The call that brought them stands for as long
+  // as any call does: a janitor who stepped out with the mess still there, for water or by a
+  // door that happened to open, was told on coming back that nobody had sent for it. Whether
+  // there is still a mess to let them in for is asked when they ask: see mayPass in jobs/cargo.ts.
+  for (const it of list) {
+    if (
+      it.post === post &&
+      it.name === name &&
+      it.inside &&
+      (room === undefined || it.room === room)
+    ) {
+      it.inside = false;
+    }
+  }
 }
 
 /**

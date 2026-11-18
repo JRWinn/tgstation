@@ -169,8 +169,12 @@ const LEFT_INSIDE_DS = 1800;
 const NOTICE_DS = 600;
 /** How long (deciseconds) after calling a janitor to a room before calling again about it. */
 const CALL_AGAIN_DS = 6000;
+/** How long (deciseconds) a mess that two janitors have said they cannot shift is left before anyone is called to it again. Ten minutes had the same cobweb called for all round. */
+const DECLINED_AGAIN_DS = 18000;
 /** How many janitors may send word that they cannot shift a mess before it is left alone for that long. */
 const JANITORS_TRIED = 2;
+/** How long (deciseconds) after letting someone out of an inner room it leaves it before it opens the next door for them. */
+const NEXT_DOOR_DS = 40;
 /** How long "your crate is out in the lobby" is worth saying for, in milliseconds. */
 const LOBBY_LINE_KEPT_MS = 20000;
 /** The most (deciseconds) one of them waits longer than another before calling, so that two do not call at once. */
@@ -1095,6 +1099,8 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
  * them out. `beyond` is the room further in that they were sent for to, if this one is only on the way.
  */
 type DoorWant = { name: string; room: string; out: boolean; beyond?: string };
+/** Who a door is opened for when all that is known is that someone is knocking from inside: the body finds who is standing there. */
+const SOMEONE_INSIDE = 'whoever is knocking';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -1333,7 +1339,11 @@ function doorSought(brain: NpcBrain): DoorWant | null {
     return null;
   }
   const asked = brain.doorAsked;
-  if (asked && brain.now - asked.at < (asked.out ? LET_OUT_ASK_DS : DOOR_ASK_DS)) {
+  if (
+    asked &&
+    brain.now >= (asked.after ?? 0) &&
+    brain.now - asked.at < (asked.out ? LET_OUT_ASK_DS : DOOR_ASK_DS)
+  ) {
     const want = mayPass(brain, asked.name, asked.room, asked.out);
     if (want && doorIsMine(brain, asked.at, !!asked.byPda)) {
       return want;
@@ -1380,6 +1390,13 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       const inside = letIn ?? seen;
       if (inside && mine(letIn?.by)) {
         return { name: inside.name, room: knock.room, out: true };
+      }
+      // Nobody it has down as being in there, and somebody is knocking from inside a room that
+      // is locked. Whoever it is cannot get out, and that is reason enough to go and open it:
+      // the body finds who is standing at the door. A janitor that had walked back into a room
+      // it had been let out of knocked, and was left there, because the record said it was out.
+      if (!inside && brain.closedRooms.includes(knock.room) && mine(undefined)) {
+        return { name: SOMEONE_INSIDE, room: knock.room, out: true };
       }
     } else {
       // From outside: only someone the department sent for, while the mess is still there.
@@ -1525,7 +1542,7 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // them walk the length of the station to find that out at the door.
   const willing = brain.janitorsOnPda.filter((name) => !declined.includes(name));
   if (willing.length === 0 || declined.length >= JANITORS_TRIED) {
-    if (call?.declinedAt !== undefined && brain.now - call.declinedAt > CALL_AGAIN_DS) {
+    if (call?.declinedAt !== undefined && brain.now - call.declinedAt > DECLINED_AGAIN_DS) {
       call.declined = [];
     }
     return {
@@ -1533,7 +1550,7 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
       step:
         willing.length === 0
           ? `Every janitor you can call has sent word that they cannot shift the mess in the ${place}. You will try them again later.`
-          : `${listed(declined)} have sent word that they cannot shift the mess in the ${place}: ${NEEDS_SCRUBBING}. You are leaving it until later.`,
+          : `${listed(declined)} have sent word that they cannot shift the mess in the ${place}${call?.wantsScrub ? `: ${NEEDS_SCRUBBING}` : ''}. You are leaving it until later.`,
     };
   }
   // A janitor who is in the department already is the one to tell: sending for a second on top
@@ -1571,9 +1588,13 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     act: {
       tool: 'message',
       person: janitor,
-      text: tried
-        ? `There is a mess in the ${place}${what ? `: ${what}` : ''}. ${tried.split(' ')[0]} could not shift it: ${NEEDS_SCRUBBING}. Could you come and clean it up if you have one, please?${wayIn}`
-        : `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${wayIn}`,
+      // What it wants is passed on only if whoever tried it said so. Otherwise the next janitor is
+      // asked to come and try: what beat the first may have been only what it had in its hand.
+      text: !tried
+        ? `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${wayIn}`
+        : call?.wantsScrub
+          ? `There is a mess in the ${place}${what ? `: ${what}` : ''}. ${tried.split(' ')[0]} could not shift it: ${NEEDS_SCRUBBING}. Could you come and clean it up if you have one, please?${wayIn}`
+          : `There is a mess in the ${place}${what ? `: ${what}` : ''}. ${tried.split(' ')[0]} could not shift it with what they had. Could you come and try, please?${wayIn}`,
     },
   };
 }
@@ -1955,6 +1976,10 @@ export const CARGO: Job = {
                 out: true,
                 byPda: true,
                 answered: true,
+                // Once they are through the door being held now, and not before: asked for while
+                // they were still on its threshold, the nearest door of the outer room was the
+                // one they were coming out of.
+                after: brain.now + NEXT_DOOR_DS,
               };
             }
           }
@@ -2228,6 +2253,9 @@ export const CARGO: Job = {
       if (call) {
         call.declined = [...new Set([...(call.declined ?? []), from])];
         call.declinedAt = at;
+        // What they said it wants, if they said: only then is the next janitor told so. A
+        // janitor whose mop had only run dry was once passed on as "it needs soap".
+        call.wantsScrub = /soap or a rag/i.test(text);
       }
       return;
     }

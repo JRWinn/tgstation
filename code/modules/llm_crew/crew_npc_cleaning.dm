@@ -156,6 +156,7 @@
 	var/bucket_hand = body.get_held_index_of_item(bucket)
 	if(bucket_hand && bucket_hand != body.active_hand_index)
 		body.swap_hand(bucket_hand)
+	var/held_before = bucket.reagents.total_volume
 	for(var/go in 1 to CREW_NPC_BUCKET_FILLS)
 		var/before = bucket.reagents.total_volume
 		if(before >= bucket.reagents.maximum_volume)
@@ -168,16 +169,66 @@
 			break
 	if(bucket.reagents.total_volume < 1)
 		return list(!isnull(cleaning_tool()), "You could not fill your bucket at the [source_name]: it has run dry.", TRUE)
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) filled its bucket at the [source_name] at [AREACOORD(source)]: it holds [round(bucket.reagents.total_volume)] units.")
+	// Only if any went in: sent to a tank with a bucket that was full already, it wrote the same line twice.
+	if(bucket.reagents.total_volume > held_before)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) filled its bucket at the [source_name] at [AREACOORD(source)]: it holds [round(bucket.reagents.total_volume)] units.")
 	if(dry_mop() && isnull(proper_tool()))
 		return wet_mop(bucket)
 	return list(TRUE, null, TRUE)
 
-/// TRUE if this tool can shift this mess. A spray only washes; cobwebs, rubble and the like need scrubbing.
+/**
+ * TRUE if this tool can shift this mess, going by what each is.
+ *
+ * A spray washes the thing it is sprayed at, and a mop washes the floor. Neither scrubs. Cobwebs,
+ * rubble and the like want scrubbing, and stay where they are when the floor round them is washed:
+ * a janitor with a wet mop scrubbed at a cobweb, gave it up, and said it wanted a wet mop. Soap or
+ * a rag, used on the thing itself, shifts everything.
+ */
 /datum/ai_controller/crew_npc/proc/can_clean_mess(obj/item/tool, obj/effect/decal/cleanable/mess)
+	var/washes_off = !!(mess.clean_type & CLEAN_WASH)
 	if(istype(tool, /obj/item/reagent_containers/spray))
-		return !!(mess.clean_type & CLEAN_WASH)
+		return washes_off
+	if(istype(tool, /obj/item/mop))
+		return washes_off && mess.is_mopped
 	return TRUE
+
+/// Returns the thing in the body's hands to use on this mess, or null if nothing it holds will shift it. A proper tool before a rag; a rag where only scrubbing will do.
+/datum/ai_controller/crew_npc/proc/tool_for_mess(obj/effect/decal/cleanable/mess)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/rag
+	for(var/obj/item/held in body.held_items)
+		if(!can_clean_with(held) || !can_clean_mess(held, mess))
+			continue
+		if(istype(held, /obj/item/rag))
+			rag ||= held
+			continue
+		return held
+	return rag
+
+/// TRUE if something the body holds could shift this mess: now, or in the case of a mop, once it is wet.
+/datum/ai_controller/crew_npc/proc/could_shift(obj/effect/decal/cleanable/mess)
+	var/mob/living/carbon/human/body = pawn
+	for(var/obj/item/held in body.held_items)
+		if((can_clean_with(held) || istype(held, /obj/item/mop)) && can_clean_mess(held, mess))
+			return TRUE
+	return FALSE
+
+/// Returns the names of the kinds of mess the body remembers in the room it is in that nothing it holds can shift, whatever it does: those that want scrubbing. For what it says of the room.
+/datum/ai_controller/crew_npc/proc/beyond_kinds_here()
+	var/list/kinds = list()
+	if(isnull(tool_in_hand()))
+		return kinds
+	var/place = get_area_name(pawn, TRUE)
+	for(var/key in remembered_messes)
+		var/list/memory = remembered_messes[key]
+		if(memory[2] != place)
+			continue
+		var/datum/weakref/mess_ref = memory[1]
+		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
+		if(QDELETED(mess) || could_shift(mess))
+			continue
+		kinds |= format_text(mess.name)
+	return kinds
 
 /**
  * Keeps track of each mess the body has seen and has not yet seen to be gone.
@@ -238,7 +289,7 @@
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
-		if(QDELETED(mess) || (tool && !can_clean_mess(tool, mess)))
+		if(QDELETED(mess) || (tool && !could_shift(mess)))
 			continue
 		var/distance = get_dist(pawn, mess)
 		if(distance < nearest_distance)
@@ -284,7 +335,7 @@
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
-		if(QDELETED(mess) || (tool && !can_clean_mess(tool, mess)))
+		if(QDELETED(mess) || (tool && !could_shift(mess)))
 			continue
 		places += memory[2]
 	return places
@@ -336,7 +387,10 @@
 	if(isnull(tool))
 		return found
 	for(var/obj/effect/decal/cleanable/mess in in_sight)
-		if(get_area(mess) == here && can_clean_mess(tool, mess) && !stubborn_messes[REF(mess)])
+		// Whatever it holds that will shift this one: the spray for what washes off, the rag for
+		// what wants scrubbing. A mop that is dry counts while there is water to hand to wet it.
+		var/obj/item/mop/dry = sink_in_view ? dry_mop() : null
+		if(get_area(mess) == here && (tool_for_mess(mess) || (dry && can_clean_mess(dry, mess))) && !stubborn_messes[REF(mess)])
 			found += mess
 
 	var/list/nearest_first = list()
@@ -443,7 +497,9 @@
  */
 /datum/ai_controller/crew_npc/proc/clean_mess(obj/effect/decal/cleanable/mess)
 	var/mob/living/carbon/human/body = pawn
-	var/obj/item/tool = cleaning_tool()
+	// The thing it holds that suits this mess, if it holds two: a rag for a cobweb, with a spray
+	// in the other hand for what washes off.
+	var/obj/item/tool = tool_for_mess(mess) || cleaning_tool()
 	if(isnull(tool))
 		return list(FALSE, "You have nothing to clean with.")
 	var/mess_name = format_text(mess.name)

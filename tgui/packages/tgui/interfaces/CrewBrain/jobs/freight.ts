@@ -22,10 +22,19 @@ const DELIVER = 'deliver';
 const RECYCLE = 'recycle';
 /** A shuttle with nothing left to come off it, to be sent back. */
 const SEND = 'send';
-/** A crate left within a tile of a door, to be hauled clear of it. */
+/** A crate left where it does not belong: within a tile of a door, loose in the bay off the marked squares, or an empty brought back to the lobby. */
 const STOW = 'stow';
+/** Empties waiting to go back with the shuttle away: it is called in for them. */
+const CALL = 'call_shuttle';
 
-const KINDS = new Set([UNLOAD, MAIL, DELIVER, RECYCLE, SEND, STOW]);
+const KINDS = new Set([UNLOAD, MAIL, DELIVER, RECYCLE, SEND, STOW, CALL]);
+
+/** How many empties have to be waiting before the shuttle is called in for them. */
+const EMPTIES_TO_CALL = 3;
+/** How long (deciseconds) even one empty waits before the shuttle is called in for it. */
+const EMPTY_WAITS_DS = 6000;
+/** When each NPC first saw an empty waiting with the shuttle away (server time), by its id. */
+const emptiesSince = new Map<string, number>();
 
 /** TRUE if the task is one of these. */
 export function isFreight(task: Task): boolean {
@@ -42,6 +51,7 @@ export function freightDuty(task: Task): 'shuttle' | 'rooms' | null {
     case MAIL:
     case RECYCLE:
     case SEND:
+    case CALL:
       return 'shuttle';
     case STOW:
       return 'rooms';
@@ -81,6 +91,22 @@ export function syncFreight(brain: NpcBrain): void {
   } else if (!misplaced && stow) {
     finishTask(brain, stow);
   }
+  // Empties are not left waiting for the next order to bring the shuttle. Three of them, or one
+  // that has waited ten minutes, and it is called in to take them back.
+  const empties = freight?.emptyCrates ?? 0;
+  if (docked || empties === 0) {
+    emptiesSince.delete(brain.id);
+  } else if (!emptiesSince.has(brain.id)) {
+    emptiesSince.set(brain.id, brain.now);
+  }
+  const waited = brain.now - (emptiesSince.get(brain.id) ?? brain.now);
+  keep(
+    brain,
+    CALL,
+    !docked &&
+      !brain.orderPending &&
+      (empties >= EMPTIES_TO_CALL || (empties > 0 && waited > EMPTY_WAITS_DS)),
+  );
   // The shuttle goes back once there is nothing left to come off it or go on it.
   keep(
     brain,
@@ -147,9 +173,17 @@ export function planFreight(brain: NpcBrain, task: Task): Plan | null {
     case STOW:
       return {
         ready: true,
-        step: 'A crate has been left right by a door, where it is in the way of anyone coming through. You are hauling it to a clear spot a little way off.',
+        step: 'A crate has been left where it does not belong: right by a door, loose in the middle of the bay, or empty out in the lobby. You are hauling it to where crates are kept: a marked square on the bay floor if one is free.',
         act: { tool: 'stow_crate' },
       };
+    case CALL: {
+      const waiting = freight?.emptyCrates ?? 0;
+      return {
+        ready: true,
+        step: `${waiting === 1 ? 'An empty crate is' : `${waiting} empty crates are`} waiting to go back and the supply shuttle is away. You are going to the supply console to call it in for ${waiting === 1 ? 'it' : 'them'}.`,
+        act: { tool: 'send_shuttle' },
+      };
+    }
     case SEND: {
       const empties = freight?.emptiesAboard ?? 0;
       return {
@@ -197,7 +231,9 @@ export function describeFreight(task: Task): string | null {
     case SEND:
       return 'send the supply shuttle back';
     case STOW:
-      return 'move a crate that has been left by a door';
+      return 'move a crate that has been left where it does not belong';
+    case CALL:
+      return 'call the supply shuttle in for the empty crates';
     default:
       return null;
   }

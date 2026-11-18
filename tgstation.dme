@@ -5105,6 +5105,7 @@
 #include "code\modules\lighting\static_lighting_area.dm"
 #include "code\modules\llm_crew\_defines.dm"
 #include "code\modules\llm_crew\crew_brain_link.dm"
+#include "code\modules\llm_crew\crew_brain_rooms.dm"
 #include "code\modules\llm_crew\crew_npc_cargo.dm"
 #include "code\modules\llm_crew\crew_npc_cleaning.dm"
 #include "code\modules\llm_crew\crew_npc_controller.dm"

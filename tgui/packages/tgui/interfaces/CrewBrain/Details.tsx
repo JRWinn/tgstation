@@ -3,6 +3,7 @@
  * see, its tasks, what the LLM was asked and sent, and the sense events behind it all. The window
  * shows this for one NPC at a time, and only when asked.
  */
+import { Fragment } from 'react';
 import {
   Box,
   Button,
@@ -12,6 +13,7 @@ import {
   Stack,
 } from 'tgui-core/components';
 
+import { cardColor } from './colors';
 import { describeFeeling } from './relationships';
 import { describeTask } from './tasks';
 import type { Npc, NpcBrain, Task } from './types';
@@ -40,15 +42,29 @@ function shownTasks(tasks: Task[]): Task[] {
 export const NpcDetails = (props: {
   npc: Npc;
   brain?: NpcBrain;
+  /** The card colour of each of the owner's NPCs, by name. Anyone not in it is shown in the usual colour. */
+  cardColors?: Map<string, string>;
   onClose: () => void;
 }) => {
-  const { npc, brain, onClose } = props;
+  const { npc, brain, cardColors, onClose } = props;
   const newestFirst = [...npc.events].reverse();
   const decision = brain?.lastDecision;
+  const peopleInView = npc.people_in_view ?? [];
+  const thingsInView = (npc.things_in_view ?? []).map((thing) =>
+    thing.count > 1 ? `${thing.name} x${thing.count}` : thing.name,
+  );
 
   return (
     <Section
-      title={`${npc.name}${npc.job ? `, ${npc.job}` : ''} (${npc.id})`}
+      title={
+        <>
+          <span style={{ color: cardColor(npc) }}>
+            {npc.name}
+            {npc.job ? `, ${npc.job}` : ''}
+          </span>{' '}
+          ({npc.id})
+        </>
+      }
       buttons={
         <>
           <Box inline mr={1} color={npc.awake ? 'good' : 'bad'}>
@@ -65,7 +81,8 @@ export const NpcDetails = (props: {
           <LabeledList.Item label="Feels">
             {[...brain.feelings.entries()].map(([name, feeling]) => (
               <Box key={name} color={feeling.score > 0 ? 'good' : 'bad'}>
-                {name}: {describeFeeling(brain, name)}
+                <span style={{ color: cardColors?.get(name) }}>{name}</span>:{' '}
+                {describeFeeling(brain, name)}
                 {feeling.why ? ` (${feeling.why})` : ''}
               </Box>
             ))}
@@ -75,15 +92,21 @@ export const NpcDetails = (props: {
           {npc.location || 'Unknown'} ({npc.place_kind})
         </LabeledList.Item>
         <LabeledList.Item label="Can see">
-          {[
-            ...(npc.people_in_view ?? []).map(
-              (person) =>
-                `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle})`,
-            ),
-            ...(npc.things_in_view ?? []).map((thing) =>
-              thing.count > 1 ? `${thing.name} x${thing.count}` : thing.name,
-            ),
-          ].join(', ') || <Box color="label">Nothing of note.</Box>}
+          {peopleInView.map((person, index) => (
+            <Fragment key={person.handle}>
+              {index > 0 ? ', ' : ''}
+              <span style={{ color: cardColors?.get(person.name) }}>
+                {person.name}
+                {person.job ? `, ${person.job}` : ''}
+              </span>{' '}
+              ({person.handle})
+            </Fragment>
+          ))}
+          {peopleInView.length > 0 && thingsInView.length > 0 ? ', ' : ''}
+          {thingsInView.join(', ')}
+          {peopleInView.length + thingsInView.length === 0 && (
+            <Box color="label">Nothing of note.</Box>
+          )}
         </LabeledList.Item>
         {/janitor|custodian/i.test(npc.job) && (
           <LabeledList.Item label="Can clean with">

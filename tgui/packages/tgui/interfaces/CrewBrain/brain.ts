@@ -223,6 +223,7 @@ export function ingest(npcs: Npc[], now: number): void {
         peopleInView: [],
         thingsInView: [],
         holding: [],
+        stowed: [],
         places: new Map(),
         people: new Map(),
         feelings: new Map(),
@@ -254,6 +255,7 @@ export function ingest(npcs: Npc[], now: number): void {
         workDone: {},
         workReported: {},
         cleanableMesses: [],
+        beyondKinds: [],
         messPlaces: [],
         workablePlaces: [],
         mopNeedsWater: false,
@@ -419,6 +421,9 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     brain.thingsInView = npc.things_in_view ?? [];
     brain.holding = npc.holding ?? [];
+    brain.stowed = (npc.inventory ?? [])
+      .filter((item) => item.where === 'stowed')
+      .map((item) => item.name);
     brain.placeKind = npc.place_kind;
     brain.walking = !!npc.walking;
     brain.resting = !!npc.resting;
@@ -435,6 +440,7 @@ export function ingest(npcs: Npc[], now: number): void {
       machines_set: npc.work_done?.machines_set ?? 0,
     };
     brain.cleanableMesses = npc.cleanable_messes ?? [];
+    brain.beyondKinds = npc.beyond_kinds ?? [];
     brain.messPlaces = npc.mess_places ?? [];
     brain.workablePlaces = npc.workable_mess_places ?? [];
     brain.mopNeedsWater = !!npc.mop_needs_water;

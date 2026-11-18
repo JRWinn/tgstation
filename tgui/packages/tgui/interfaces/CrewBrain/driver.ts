@@ -99,6 +99,25 @@ const TELL_KEPT_MS = 120000;
 const CHOOSE_KEY = 'choose';
 /** Names the step of moving out of a doorway it would otherwise be waiting in. */
 const STEP_INSIDE_KEY = 'step-inside';
+/** How many times it steps clear in one room before it takes it that there is nowhere clear to stand, and waits where it is. */
+const STEP_INSIDE_MAX = 2;
+/** How many times each NPC has stepped clear to wait, and in which room, by its id. */
+const stepInsideTries = new Map<string, { place: string; count: number }>();
+
+/**
+ * TRUE if the NPC may step clear once more in the room it is in, and counts that it has. Stepping
+ * clear and finding itself still by a door, a janitor did it eight times in three minutes at a
+ * staff meeting: some rooms have a door by every tile it can stand on.
+ */
+function mayStepInside(brain: NpcBrain): boolean {
+  const tries = stepInsideTries.get(brain.id);
+  const count = tries && tries.place === brain.location ? tries.count : 0;
+  if (count >= STEP_INSIDE_MAX) {
+    return false;
+  }
+  stepInsideTries.set(brain.id, { place: brain.location, count: count + 1 });
+  return true;
+}
 /**
  * How many times running the same walk may be said to have got there before it is taken to be
  * getting the body nowhere, and how close together (milliseconds) those have to come to count.
@@ -380,12 +399,19 @@ export function nextStep(brain: NpcBrain): Step | null {
   // on the way, or has not tried this room yet. It walks for where it was last out. If the way is
   // open, a wall blown through or a door left standing, it simply leaves. If not, that walk coming
   // to nothing is what tells it so, and it goes to the door it came in by and asks.
+  // Not while there is work in this room that it can get on with. Having asked to be let out of
+  // an inner room, it still meant to get out when it came into the outer one, and walked out on
+  // a mess there that it had been called to: then asked straight back in. It leaves when what is
+  // left here is done, or is beyond what it holds.
   if (
     brain.wantsOut &&
     !brain.shutIn &&
     brain.wayOutTo &&
     brain.wayOutTo !== brain.location &&
-    !brain.doorHeld
+    !brain.doorHeld &&
+    !workInOrder(brain).some(
+      ({ task, plan }) => plan.ready && task.place === brain.location,
+    )
   ) {
     const act = { tool: 'go_to', place: brain.wayOutTo };
     const key = keyOf(null, act);
@@ -486,11 +512,12 @@ export function nextStep(brain: NpcBrain): Step | null {
           plan.inside &&
           brain.inDoorway &&
           !brain.shutIn &&
-          !inBackoff(brain, STEP_INSIDE_KEY)
+          !inBackoff(brain, STEP_INSIDE_KEY) &&
+          mayStepInside(brain)
         ) {
           return {
             key: STEP_INSIDE_KEY,
-            text: `${plan.step} You are standing in a doorway, in the way of anyone coming through, and are stepping clear of it to wait.`,
+            text: `${plan.step} You are standing in a doorway or on top of someone, in the way, and are stepping clear to wait.`,
             act: { tool: 'step_aside' },
             task: task.id,
           };
@@ -566,12 +593,26 @@ export function nextStep(brain: NpcBrain): Step | null {
     : work.length > 0
       ? 'None of your work can be got on with just now, so'
       : 'You have no work waiting, so';
+  // What stands in the way of each piece of work it has, for the log. A janitor walked the
+  // station for minutes with "none of your work can be got on with" and nothing to say why.
+  const notReady = [
+    ...new Set(
+      work
+        .filter(({ plan }) => !plan.ready)
+        .map(({ task, plan }) => `${task.place ?? task.kind}: ${plan.step}`),
+    ),
+  ].slice(0, 4);
+  const inTheWay =
+    notReady.length > 0
+      ? ` What stands in the way: ${notReady.join(' | ')}`
+      : '';
   return {
     key,
     text:
-      idle.tool === 'search'
+      (idle.tool === 'search'
         ? `${why} you are seeing what is kept in the storage here.`
-        : `${why} you are walking the station to see what needs doing.`,
+        : `${why} you are walking the station to see what needs doing.`) +
+      inTheWay,
     act: idle,
     idle: true,
   };

@@ -41,7 +41,7 @@
 		if(CREW_TOOL_PICK_UP)
 			tool_pick_up(arguments["item"])
 		if(CREW_TOOL_PUT_DOWN)
-			tool_put_down()
+			tool_put_down(arguments["item"])
 		if(CREW_TOOL_GIVE)
 			tool_give(arguments["person"])
 		if(CREW_TOOL_CLEAN)
@@ -299,6 +299,13 @@
 			if(isnull(nearest))
 				break
 			group -= nearest
+			// A room whose every door is locked to it is not somewhere to go and look at. The
+			// route planner now and then finds a way in that the body cannot walk, through a
+			// counter or a shutter, and a janitor set off for the Mining Office and the Cargo Bay.
+			if(locked_out_of(nearest))
+				unreachable_places[format_text(nearest.name)] = TRUE
+				tries_left++
+				continue
 			var/turf/spot = safe_spot_in(nearest, here)
 			var/list/route
 			if(spot)

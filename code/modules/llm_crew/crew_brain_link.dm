@@ -87,6 +87,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"id" = npc.npc_id,
 			"name" = body.real_name,
 			"job" = body.get_assignment(if_no_id = "", if_no_job = ""),
+			// The colour of the department stripe on its own ID card, which the window shows its name and job in. Null with no card.
+			"card_color" = crew_npc_card_color(body),
 			"awake" = npc.can_sense(),
 			// The room the body is standing in, which it knows the way anyone does: by looking.
 			"location" = get_area_name(body, TRUE),
@@ -102,6 +104,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away, "crates_in" = npc.work_crates_in, "crates_out" = npc.work_crates_out, "machines_set" = npc.work_machines_set, "arrests" = npc.work_arrests),
 			"has_locator" = npc.has_custodial_locator(),
 			"cleanable_messes" = npc.cleanable_messes,
+			// The kinds of mess in this room that nothing it holds will shift: those that want scrubbing.
+			"beyond_kinds" = npc.beyond_kinds_here(),
 			"mess_places" = npc.mess_places(),
 			// Those of them where what the body holds would do some good.
 			"workable_mess_places" = npc.workable_mess_places(),
@@ -131,7 +135,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// What that door is called, to tell it from the room's other doors.
 			"at_door_label" = npc.at_door_label(),
 			// It is standing in a doorway or right beside a door, in the way of anyone coming through.
-			"in_doorway" = !crew_npc_clear_of_doors(body),
+			"in_doorway" = !crew_npc_clear_of_doors(body) || npc.on_top_of_someone(),
 			"grenade_messes" = npc.grenade_messes,
 			"doing" = npc.describe_doing(),
 			"post" = npc.post_place,
@@ -197,6 +201,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"events" = npc.sense_events,
 		))
 	data["npcs"] = npc_list
+	// The rooms locked to the crew at large that some of these NPCs are allowed into, and who. Null while that is being worked out.
+	data["locked_rooms"] = locked_rooms()
 	data["now"] = world.time
 	return data
 
