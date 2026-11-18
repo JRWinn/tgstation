@@ -489,6 +489,8 @@ export type Talk = {
   replies: number;
   /** Server world time (deciseconds) this speaker was last heard. */
   lastHeardAt: number;
+  /** Server world time (deciseconds) the NPC last spoke in reply to this speaker, if it has. Kept when they go quiet. */
+  repliedAt?: number;
 };
 
 /**
@@ -542,6 +544,8 @@ export type Task = {
   out?: boolean;
   /** For a mess it was called to: TRUE once whoever called has been told that what it holds will not shift it. */
   toldBeyond?: boolean;
+  /** For a mess: TRUE once it has cleaned some of it. What it says of the rest then allows for that. */
+  cleanedSome?: boolean;
   /** For a look round: TRUE once it has said aloud, to whoever shares its post, where it is off to. */
   announced?: boolean;
   /** For word owed to its head face to face: TRUE once it has been said to them. */
@@ -1076,6 +1080,10 @@ export type NpcBrain = {
     closedAt: number | null;
     /** TRUE once its walk to the room has kept arriving and kept leaving it outside. It holds the meeting from where it stands. */
     fromHere?: boolean;
+    /** For a meeting called aloud: how many times the call has been said. */
+    calls?: number;
+    /** Who it has walked up to so as to be heard: by name before the call, and as "turn:name" before calling on them. Each once. */
+    walkedTo?: string[];
     /** Who ordered it held, if it was not called of its own accord. */
     orderedBy: string | null;
   } | null;
@@ -1213,6 +1221,8 @@ export type LedgerOrder = {
   asks: number;
   /** TRUE once whoever ordered has been told it is waiting on the Captain, or on money. */
   waitingTold: boolean;
+  /** How many times the Captain has been asked what they meant by something said about it that was no plain yes or no. */
+  unclear?: number;
   shortTold: boolean;
   /** The technician it is to be given to, and whether the Quartermaster has walked up to them. */
   pick: string | null;

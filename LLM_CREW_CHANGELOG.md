@@ -16,6 +16,106 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 12:00: eleven faults from the 09:12 round (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 37 scenarios with a quiet LLM, and eight of them (`crew`, `qm`, `nested`, `office`, `vouch`, `qmbig`, `qmquiet`, `qmpaper`) with a chatty and a dead LLM. 54 of 56 runs passed. `nested` with a dead LLM failed "the cargo technician ends at the post", the check the entries below list as flaky: the committed code failed it in three runs of four here. `qm` with a chatty LLM failed "no janitor keeps walking at a room it cannot get into" once (four tries at the Cargo Bay where three are allowed), then passed three times out of three, as the committed code did. I did not run that one down. It may be mine: a janitor that drops a call now keeps the mess as its own, and the simulator, unlike the server, goes on listing a locked room as messy. **Not played in a round. No model tests. No new simulator scenarios.** The simulator runs none of the server code, so everything in a `.dm` file below is compile-checked only. On the brain side the new paths (a clean that fails, a meeting call not heard, the Captain's unclear answer, the Quartermaster's own crate by PDA, "I cannot shift it") have no scenario that walks them: the old scenarios show only that nothing they cover broke. The new wordings were checked against the lines from the round by a throwaway script (21 cases), which is not kept.
+
+**Round that showed the faults:** `data/logs/2026/11/18/round-09.12.44` (MetaStation, 20 minutes, on `6b378160`).
+
+**Plan:** `LLM_CREW_PLAN_ROUND_0912.md`. Its Status section says where what was built differs. The owner said "write in all your fixes" without answering the six choices in its section 7, so they were built as written there.
+
+### What the crew does now
+
+Janitors (the worst of it: three janitors walked between the same two rooms for most of the round):
+
+- **A visit settles a room.** A mess the body cannot shift, or cannot get to, is passed over there and then, and it goes on to the next one it remembers in the room. It reports when eight are cleaned, twelve have failed, or none is left to try. `more_to_clean` in `crew_npc_cleaning.dm`, called from `finish_errand` in `crew_npc_hands.dm`.
+- **Twice beaten by one kind of mess, it gives up that kind in that room** and does not scrub at each of the rest to find out. `clean_mess`, `stubborn_kinds`.
+- **A clean that fails holds back the whole job for that room, walk and all**, for 20 seconds and longer each time. Before, only the scrubbing was held back, so the walk to the room was ready again the moment the body was anywhere else. `jobKey` in `driver.ts`.
+- A body still scrubbing when its eight seconds are up is given eight more. A mess given up a moment before it came off was reported as beyond it, then as cleaned. `clean_mess`.
+- **What would not come off with one thing is tried again with another.** The list of messes a body has given up on is cleared when the kind of thing it holds to clean with changes. Before, it was kept for good, so oil a rag would not shift was never tried with soap. `mind_what_it_holds`.
+
+"I cannot shift it" (`jobs/janitor.ts`, `jobs/cargo.ts`):
+
+- **Sending it ends the call on the janitor's side too.** The job is dropped, and the mess goes back on its list as its own, to wait until it holds something else. Before, it kept the call, came back to the door minutes later, and was told nobody had sent for it.
+- **One line, true of the whole room.** With some of it cleaned: "I have done what I can in the Cargo Lobby. The rest needs soap or a wet mop." Not "cannot shift" and then "cleaned up".
+- **A technician calls one more janitor and says what the mess wants**: "Lance could not shift it: it needs soap or a wet mop. Could you come and clean it up if you have one, please?" A janitor with neither sends back "I have no soap or wet mop either, so I cannot shift the mess in the Cargo Bay." and stays where it is. After two have said so the mess is left for ten minutes. `tidyStep`, `JANITORS_TRIED`.
+- Word that a mess is beyond someone is never read as a call to it. `beyondRoom`.
+- A mess another janitor only spoke of is not a call: nobody is owed word of it. `syncTasks` in `jobs/janitor.ts`.
+
+The Captain's answer and the order book (`jobs/quartermaster.ts`):
+
+- **With an order waiting on the Captain, something the Captain says or writes about an order that is no plain yes or no, and names no crate, is asked about**: "Zim, is that a yes or a no to order 2: 1 Janitorial Supplies Crate?" Aloud if it was said, by PDA if it was written, twice at most for one order. Before, it was taken for a new order and answered "I cannot order that". `askWhatWasMeant`.
+- More words count as yes: "place it", "place that order", "put it through", "buy it", "get it", "go on".
+- **An order that is no longer a big purchase goes ahead without the Captain.** Each time it looks at an order that is waiting, it works out again whether it still needs the Captain's say. If not, the book gets "No longer a big purchase: approved by me." and the Captain a PDA. `clearOrders`.
+- An order held for no answer is named in every meeting report to the Captain: "Order 2 is still waiting on your say." `supplyReport`.
+
+The Quartermaster's own crate:
+
+- **A technician who cannot find the Quartermaster sends word of the Quartermaster's own order in the words it would have said**: "Bryan, order 1 has come in: crate #1779 (Bureaucracy Crate)." `arrived` in `jobs/cargo.ts`.
+- **The Quartermaster reads that from a PDA as it does from speech**, and reads the line meant for whoever ordered the same way. Told that a crate of its own is still waiting, with nothing in its book about it coming in, it takes that as the word. Then it goes and opens it. `noteDocked`, `noteOwnCrate`.
+
+Staff meetings called aloud (`jobs/head.ts`, `jobs/meetings.ts`; the Quartermaster's and the Chief Engineer's):
+
+- **The head walks up to within four tiles of the nearest of its staff before it calls.** Those within six tiles when it calls are called. Anyone in sight but further off is walked up to and called again. Anyone out of sight is sent the PDA call the Head of Personnel uses. `meetStep`, `meetingSaid`.
+- It walks up to someone standing well off before it calls on them for their report.
+- **Staff called on by name for their report, by a head they answer to, give it, whether or not they heard the meeting called.** `meetingsOverhear`.
+- The Quartermaster's report counts as there only those who reported, and with no report given says "No reports given." in place of "No crates in or out to count yet." `supplyReport`, `supplyClosing`.
+
+Cargo's doors (`jobs/cargo.ts`):
+
+- **Once the Quartermaster has divided the work, the doors go with the rooms.** Whoever has the rooms answers an ask said aloud, or a knock. The other leaves it, unless the first is out of sight and fifteen seconds have gone by. A PDA message is answered by whoever it was sent to. `doorIsMine`, `roomsKeeper`.
+- The other technician's voice is told the door is not its to open, and not to say nobody sent for them.
+- **Nobody is let out unasked until they have been in a room three minutes** with the mess gone. Asked, by a knock, a word or a PDA, they are let out at once, as before. `LEFT_INSIDE_DS`.
+
+A crate in the way (`crew_npc_grip.dm`):
+
+- **A body moves a crate from a doorway only if its own ID opens a door the crate lies by.** `crate_in_the_way`.
+
+Things put in a hand (`crew_npc_hands.dm`, `crew_npc_senses.dm`):
+
+- **The cause was Pun Pun, not the crew.** The game's monkey behaviour puts what it holds into the hand or pocket of whoever is near (`code/datums/ai/generic_behaviors/give.dm`; Pun Pun's chance is 30).
+- **A body that finds something in its hand that it did not pick up puts it down**: on a table or rack it is standing by, by a click on it, or at its feet. It is told "You find a salt shaker in your hand that you did not pick up." A tool of its trade it keeps. So is anything one of the crew hands it. With its hands busy it waits. `on_item_in_hand`, `put_down_unasked_item`.
+
+The log:
+
+- **A walk the planner finds no route for writes a second line to `game.log`**: whether the game's other pathfinder finds a way, how each door of the room stands for that body, and the first thing in the way on the straight line there. For the Warehouse, which a technician twice found no way to. `log_no_route` in `crew_npc_tools.dm`.
+- "found a X in its hand that it did not pick up" and "put down the X it had not picked up".
+
+The voice:
+
+- The Quartermaster is told who the Captain is by name, that the Captain's say is what a waiting order waits on, and never to send the Captain to their head of department. It is told when it has its order book. `cues` in `jobs/quartermaster.ts`.
+- An order that is cleared or given is said to be "going ahead".
+- A technician is told whose each held crate is, and that it holds none for anyone not named. `cues` in `jobs/cargo.ts`.
+- An order given by number, and the yes-or-no question to the Captain, take no remark after them. `withRemark` in `jobs/reports.ts`.
+- **Having answered a fellow NPC, a crew member does not answer them again for three minutes unless asked a question.** Two technicians at one post answered each other's "I am going to look in on..." all round. `hearSpeaker` in `brain.ts`.
+
+### Where my fault list was wrong
+
+- "Captain p3" was never said aloud. The brain log keeps the model's raw reply, and I read that. What was said was "Captain Zim": the handle was already put right before speaking. Nothing was changed for it.
+- The Chinese character was in a reason given for a choice of job, not in speech. Nothing was changed for it.
+
+### Not built
+
+- **A knock is still answered by name.** The plan had the technician go to the door and open it to see who is there. The door tool is built round a named person from end to end (`tool_open_door`, `hold_door_for`), and holding a door is one of the cheats still to be taken out (`LLM_CREW_PLAN_NO_CHEATS.md`). Rewriting it blind seemed worse than leaving it. The two wrong-name knocks in the round both came from a janitor returning to a call it had already answered, which is mended above.
+- "A walk once begun is finished" needed nothing: the driver already leaves a walk alone unless an emergency order comes.
+- A thing put in a pocket is not noticed.
+- Technicians still put any empty crate on the shuttle, the station's trash cart and freezer among them.
+- No new simulator scenarios.
+
+### Known and not fixed
+
+- **None of the server side has been seen in the game.** In particular: that a click with the thing in hand puts it on a table; that the equip signal fires for what Pun Pun gives and not for something the body takes out of a locker in the middle of an errand; that going on to the next mess from inside `finish_errand` behaves; that `do_afters` is still set while a mop is at work.
+- The Warehouse fault has no cause yet. The new log line should give one.
+- The Captain saying anything with "order", "crate", "supplies", "budget" or "credits" in it while an order waits is asked "is that a yes or a no", twice at most. "How are the crates?" will get that question.
+- "It needs soap or a wet mop" is still what a janitor says of any mess it could not shift, whatever the real reason. A janitor holding a mop is taken to have what is wanted, though a wet mop failed on something in the round.
+- A technician called by PDA to a meeting that was called aloud sends "On my way", and if it misses the meeting sends its report by PDA. The Quartermaster does not read either.
+- A janitor let into a locked room and finished there now has to find it is shut in before it asks out: one failed walk, then the door. Before, the door was opened for it unasked.
+- With the technician who has the rooms in sight but busy, the other does not answer a door at all.
+- A line that only looks like a question ("is it?") still gets an answer between two NPCs.
+- Who a line is spoken to. The Captain, two tiles from the Quartermaster, was heard by a technician seven tiles away as speaking to her. Not looked into.
+
+---
+
 ## 2026-11-18, 11:00: a Chief Engineer and a station engineer who light the engine (the commit that added this entry)
 
 **Tested:** type check, server compile (0 errors, 0 warnings), the table of cases in `tools/llm_crew/engine.ts` (86 cases), simulator (the five new scenarios, each in quiet, chatty and dead modes: all 15 runs pass; of the 32 older scenarios, run once each in quiet mode, the first nine had passed when this was committed and the rest were still running). **Not played in a round. No model tests.** The simulator runs none of the server code and its crystal is a toy. Every click on a real machine in this entry is compile-checked only. Treat all of the server side as unproven until a round shows it.

@@ -66,6 +66,8 @@
 #define CREW_NPC_GRENADE_THROW_DISTANCE 4
 /// The most messes a crew NPC cleans in one go.
 #define CREW_NPC_MESSES_PER_CLEAN 8
+/// The most messes a crew NPC tries and cannot shift, or cannot get to, in one go before it reports.
+#define CREW_NPC_MESSES_FAILED_PER_CLEAN 12
 /// How long a crew NPC scrubs at one mess before giving up on it.
 #define CREW_NPC_CLEAN_TIME (8 SECONDS)
 /// The most containers a crew NPC looks inside in one search of a room.

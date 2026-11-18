@@ -451,6 +451,10 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/list/theirs = mail_carried_for(person)
 	if(!length(theirs))
 		return list(FALSE, "You are not holding any mail for [person.name].")
+	// One of the crew taking it knows it was handed over, and keeps it.
+	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
+	if(istype(their_controller))
+		their_controller.being_handed_something()
 	for(var/obj/item/mail/letter as anything in theirs)
 		// What their hands cannot take ends up at their feet.
 		if(!person.put_in_hands(letter))

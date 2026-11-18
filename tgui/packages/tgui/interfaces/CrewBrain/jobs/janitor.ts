@@ -10,6 +10,7 @@ import { allKnownItems, CARGO_LOBBY, knowsPlace } from '../memory';
 import {
   addTask,
   blockTask,
+  dropTask,
   findTask,
   finishTask,
   placeNamedIn,
@@ -84,6 +85,39 @@ function doorFor(brain: NpcBrain, place: string): string {
     door = outer;
   }
   return door;
+}
+
+/**
+ * The words by which a janitor sends word that a mess is beyond what it holds: that it cannot shift
+ * it at all, or has done what it can and the rest will not come off. Whoever called it reads them
+ * (see jobs/cargo.ts), and another janitor who is sent them does not take them for a call.
+ */
+const BEYOND_WORDS =
+  /\bI cannot shift the mess in the (.+?)(?: with\b|[.,])|\bI have done what I can in the (.+?)\./i;
+
+/** The room a janitor's word that a mess is beyond it is about, or undefined if the words are not that. */
+export function beyondRoom(text: string): string | undefined {
+  const found = text.match(BEYOND_WORDS);
+  return found?.[1] ?? found?.[2];
+}
+
+/** What a mess that has beaten one janitor is said to want, in a call to the next. */
+export const NEEDS_SCRUBBING = 'it needs soap or a wet mop';
+/** The words of a call that asks a janitor to come only if it has that. */
+const ONLY_IF_WORDS = /needs soap or a wet mop\b.*\bif you have one\b/is;
+
+/** TRUE if what this janitor holds is soap or a mop: what a mess that will not wash off is scrubbed with. */
+function canScrub(brain: NpcBrain): boolean {
+  return brain.dryMop || /soap|mop/i.test(brain.cleaningTool ?? '');
+}
+
+/** The job of someone it can see or has on its PDA, or '' if it does not know them. */
+function jobOf(brain: NpcBrain, name: string): string {
+  return (
+    brain.peopleInView.find((person) => person.name === name)?.job ??
+    brain.pdaPeople.find((person) => person.name === name)?.job ??
+    ''
+  );
 }
 
 /** The words of a message that says no to letting it in. */
@@ -257,6 +291,21 @@ function cues(brain: NpcBrain): string[] {
  * with for as long as it has nothing.
  */
 function syncTasks(brain: NpcBrain): void {
+  // A mess another janitor spoke of is not a call. Nobody is waiting on it, and nobody is owed
+  // word of it: sent "I cannot shift it" about one, a janitor took that for a call, and the two of
+  // them sent the same words back and forth.
+  for (const task of brain.tasks) {
+    if (
+      task.kind === CLEAN &&
+      task.source === 'told' &&
+      task.askedBy &&
+      isJanitor(jobOf(brain, task.askedBy))
+    ) {
+      task.source = 'noticed';
+      task.urgency = 'routine';
+      task.askedBy = undefined;
+    }
+  }
   // The body keeps track of the messes it has seen and not yet seen gone. A room wants cleaning
   // for as long as it remembers one there: not seeing a mess from where it stands proves nothing.
   const messy = new Set(brain.messPlaces);
@@ -302,22 +351,34 @@ function syncTasks(brain: NpcBrain): void {
     // Called to a mess that what it holds will not shift, it sends word to whoever called it,
     // once. They are waiting on it, and someone with soap or a mop can be sent for instead.
     // Only from in the room, where it has tried: a room it cannot get into is another matter.
+    // And not in the middle of scrubbing: what is left is only known once it has stopped.
     if (
       beyondIt &&
       task.place === brain.location &&
       task.askedBy &&
       task.source === 'told' &&
-      !task.toldBeyond &&
+      !brain.doing?.startsWith('cleaning') &&
       brain.hasPda
     ) {
-      task.toldBeyond = true;
+      // One thing is said of the room, and it is true of all of it: that none of it would shift,
+      // or that some is done and the rest would not.
       brain.toTell.push({
         to: task.askedBy,
-        line: `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}. It needs soap or a wet mop.`,
-        why: `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
+        line: task.cleanedSome
+          ? `I have done what I can in the ${task.place}. The rest needs soap or a wet mop.`
+          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}. It needs soap or a wet mop.`,
+        why: task.cleanedSome
+          ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what your ${brain.cleaningTool} would shift, and the rest will not come off. You are sending ${task.askedBy} a PDA message to say so.`
+          : `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
         byPda: true,
         at: Date.now(),
       });
+      // With that said the call is done with, on its side as on theirs. Kept on its list, it had
+      // the janitor back at their door a few minutes later, to be told nobody had sent for it.
+      // The mess is still one it knows of: it goes back on its list as its own, and waits there
+      // until it holds something that will shift it.
+      dropTask(brain, task);
+      continue;
     }
     // A room it could not get into is left alone until the body is ready to try the way again.
     // A door being held open for it is a way in, whatever it found a moment ago.
@@ -577,6 +638,10 @@ export const JANITOR: Job = {
   // supplies are in.
   readsMessage: (brain, from, text, at, job) => {
     const heard = text.toLowerCase();
+    // Word that a mess is beyond whoever sent it names a mess and a room, and is not a call.
+    if (beyondRoom(text)) {
+      return;
+    }
     if (MESS_WORDS.test(heard)) {
       // Cargo calls janitors to rooms the janitors may never have set foot in, so the room is
       // taken from the message itself, and the way in is by asking at the lobby.
@@ -586,6 +651,19 @@ export const JANITOR: Job = {
       const said = text.match(/mess in (?:the )?([^:.,]+)/i)?.[1]?.trim();
       const known = placeNamedIn(brain, (said ?? heard).toLowerCase());
       const named = known ?? (fromCargo ? said : undefined);
+      // A call that says the mess wants soap or a wet mop, and to come if it has one. With
+      // neither it would walk the length of the station to find that out at the door, as two did
+      // in turn. It sends back that it cannot, and stays where it is.
+      if (named && from && ONLY_IF_WORDS.test(text) && !canScrub(brain)) {
+        brain.toTell.push({
+          to: from,
+          line: `I have no soap or wet mop either, so I cannot shift the mess in the ${named}.`,
+          why: `${from} has called you to a mess in the ${named} that needs soap or a wet mop. You have neither, so you are sending ${from} a PDA message to say you cannot shift it, and staying where you are.`,
+          byPda: true,
+          at: Date.now(),
+        });
+        return;
+      }
       if (named) {
         const task =
           known === named && !fromCargo
@@ -649,6 +727,13 @@ export const JANITOR: Job = {
   },
   // What it has done to be let into a locked room, each thing once.
   afterActing: (brain, act, task, ok) => {
+    // Having cleaned something in a room, what it says of that room afterwards allows for it.
+    if (act.tool === 'clean' && ok) {
+      const here = findTask(brain, CLEAN, { place: brain.location });
+      if (here) {
+        here.cleanedSome = true;
+      }
+    }
     if (task?.kind !== CLEAN || !task.place || !task.via) {
       return;
     }

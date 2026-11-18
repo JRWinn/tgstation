@@ -500,6 +500,30 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
     }
     return;
   }
+  // Called on by name for its report, by a head it answers to, with no meeting it knows of. The
+  // call went unheard: it was said across a room, or before it came in. Being called on is word
+  // enough that there is a meeting and it is at it. It gives its report from where it stands.
+  // Left to the call alone, two technicians stood through a whole meeting and reported nothing.
+  if (
+    !brain.summons &&
+    new RegExp(`\\b${firstName(brain.name)}\\b.*\\byour report\\b`, 'i').test(heard)
+  ) {
+    const head = brain.peopleInView.find((person) => person.name === speaker);
+    const theirJob =
+      head?.job ??
+      brain.pdaPeople.find((person) => person.name === speaker)?.job ??
+      '';
+    if (answersTo(brain.job, theirJob)) {
+      brain.summons = {
+        ...called(speaker, head?.place ?? brain.location, brain.now),
+        answered: true,
+        aloud: true,
+        fromHere: true,
+        askedAt: brain.now,
+      };
+    }
+    return;
+  }
   const summons = brain.summons;
   // Whatever it hears its head say about the meeting counts, wherever it is standing when it
   // hears it: called on while still coming through the door, it has still been called on.

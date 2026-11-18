@@ -43,7 +43,7 @@ import {
   placeNamedIn,
   stillIn,
 } from '../tasks';
-import type { Action, NpcBrain, Plan, Task } from '../types';
+import type { Action, NpcBrain, PersonInView, Plan, Task } from '../types';
 import { isCargo } from './cargo';
 import { isJanitor } from './janitor';
 import type { Job } from './job';
@@ -104,6 +104,12 @@ const GATHER_MAX_DS = 1800;
 const TURN_WAIT_DS = 450;
 /** How long (deciseconds) a meeting may run in all before it is given up on. */
 const MEETING_MAX_DS = 4200;
+/** How near (tiles) it stands to someone before it calls them to a meeting aloud, or calls on them: near enough to be sure of being heard. */
+const CALL_NEAR = 4;
+/** How far (tiles) a call said aloud is counted on to carry. A voice is heard a little further than this, but not reliably round a corner. */
+const EARSHOT = 6;
+/** How many times a meeting is called aloud before whoever is in sight is taken to have heard. */
+const ALOUD_CALLS_MAX = 2;
 /** How long (deciseconds) something asked for outside a meeting waits, in case more is asked for, before it is ordered. */
 const BATCH_DS = 1200;
 /** How long (deciseconds) it waits at the counter for someone from cargo, and for word that an order has come. */
@@ -708,15 +714,56 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
     };
   }
   // Where the staff are called aloud, it calls them once it is standing in the room: word for
-  // word, since their bodies go by it.
-  if (way.aloud && uninvited) {
-    const line = aloudCall(room);
-    return {
-      ready: true,
-      step: `It is time for a staff meeting${meeting.orderedBy ? `, as ${meeting.orderedBy} ordered` : ''}, and you are in the ${room}, where your staff work. Your body is calling them together, in these words: "${line}"`,
-      say: line,
-      exact: true,
-    };
+  // word, since their bodies go by it. Said is not told. A call made from the doorway to people
+  // at the far end of the bay was heard by none of them, and the meeting was held to nobody. So
+  // it walks up to whoever is nearest of those it has yet to call, and calls from there. Those
+  // near enough to hear are called; anyone further off is walked up to and called in turn.
+  const uncalled = way.aloud
+    ? people.filter((person) => !meeting.invited.includes(person.name))
+    : [];
+  if (uncalled.length > 0) {
+    const nearest = uncalled
+      .map((person) =>
+        brain.peopleInView.find((seen) => seen.name === person.name),
+      )
+      .filter((seen): seen is PersonInView => !!seen)
+      .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))[0];
+    if (
+      nearest &&
+      (nearest.distance ?? 0) > CALL_NEAR &&
+      !(meeting.walkedTo ?? []).includes(nearest.name)
+    ) {
+      return {
+        ready: true,
+        step: `It is time for a staff meeting${meeting.orderedBy ? `, as ${meeting.orderedBy} ordered` : ''}. ${nearest.name} is too far off to be sure of hearing you call it, so you are walking up to them first.`,
+        act: { tool: 'approach', person: nearest.handle },
+      };
+    }
+    if (nearest) {
+      const line = aloudCall(room);
+      return {
+        ready: true,
+        step: `It is time for a staff meeting${meeting.orderedBy ? `, as ${meeting.orderedBy} ordered` : ''}, and you are in the ${room}, where your staff work. Your body is calling them together, in these words: "${line}"`,
+        say: line,
+        exact: true,
+      };
+    }
+    // None of those left to call is in sight. A voice will not reach them, so the call goes by
+    // PDA, as a head whose staff are spread about the station sends it.
+    const absent = uncalled[0];
+    if (brain.hasPda) {
+      return {
+        ready: true,
+        step: `It is time for a staff meeting, and ${absent.name} is not in sight to be called to it. You are sending ${absent.name} a PDA message to come to the ${room}.`,
+        act: {
+          tool: 'message',
+          person: absent.name,
+          text: `Staff meeting in the ${room} now, please. Send word that you are coming, and bring your report.`,
+        },
+      };
+    }
+    // Nothing reaches them. They are counted as called, and the meeting goes on without them.
+    meeting.invited.push(absent.name);
   }
   if (meeting.startedAt === null) {
     const coming = people
@@ -745,6 +792,19 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
   if (next) {
     const first = firstName(next);
     const opening = meeting.turns.length === 0;
+    // Whoever is called on has to hear it. Someone standing well off is walked up to first, once.
+    const seen = brain.peopleInView.find((person) => person.name === next);
+    if (
+      seen &&
+      (seen.distance ?? 0) > CALL_NEAR &&
+      !(meeting.walkedTo ?? []).includes(`turn:${next}`)
+    ) {
+      return {
+        ready: true,
+        step: `${opening ? 'Your staff are here and the meeting begins' : 'The meeting goes on'}. It is ${next}'s turn, and they are standing too far off to be sure of hearing you. You are walking up to them before you call on them.`,
+        act: { tool: 'approach', person: seen.handle },
+      };
+    }
     return {
       ready: true,
       step: `${opening ? 'Your staff are here and the meeting begins' : 'The meeting goes on'}. It is ${next}'s turn: in "say", ${opening ? 'thank them all for coming and ' : ''}call on ${next}, by name, for their report. Ask for nothing else.`,
@@ -954,16 +1014,23 @@ export function meetingSaid(brain: NpcBrain, called: string): void {
   if (!meeting) {
     return;
   }
-  // Having called its staff together aloud, they are called: every one of them, and those who
-  // were there to hear it are coming.
+  // Having called its staff together aloud, those near enough to hear it are called, and are
+  // coming. Anyone further off, or out of sight, has not been: they are walked up to and called
+  // again, or sent word by PDA (see meetStep). Called twice, whoever is in sight has heard.
   if (ALOUD_CALL_WORDS.test(called)) {
+    meeting.calls = (meeting.calls ?? 0) + 1;
     for (const person of staff(brain)) {
+      const seen = brain.peopleInView.find((it) => it.name === person.name);
+      const heard =
+        !!seen &&
+        ((seen.distance ?? 0) <= EARSHOT || meeting.calls >= ALOUD_CALLS_MAX);
+      if (!heard) {
+        continue;
+      }
       if (!meeting.invited.includes(person.name)) {
         meeting.invited.push(person.name);
       }
-      if (brain.peopleInView.some((seen) => seen.name === person.name)) {
-        meeting.answers[person.name] = 'coming';
-      }
+      meeting.answers[person.name] = 'coming';
     }
     // The wait for them runs from the call, not from when the meeting fell due.
     meeting.calledAt = brain.now;
@@ -998,6 +1065,20 @@ export function meetingActed(
   // Walking is not what is wrong. It holds the meeting from where it stands.
   if (ok && looped && act.tool === 'go_to' && act.place === meeting.room) {
     meeting.fromHere = true;
+  }
+  // Having walked up to someone so as to be heard, near enough or not, it speaks. Each is walked
+  // up to once before the call, and once before being called on.
+  if (act.tool === 'approach') {
+    const who = brain.peopleInView.find(
+      (person) => person.handle === act.person,
+    )?.name;
+    if (who) {
+      meeting.walkedTo = [
+        ...(meeting.walkedTo ?? []),
+        meeting.startedAt === null ? who : `turn:${who}`,
+      ];
+    }
+    return;
   }
   if (act.tool !== 'message') {
     return;

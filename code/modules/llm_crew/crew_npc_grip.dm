@@ -380,12 +380,19 @@
 		if(distance >= nearest_distance || !crew_npc_crate_shuts_way(crate))
 			continue
 		var/in_sight = (crate in seen)
-		if(!in_sight)
-			for(var/obj/machinery/door/door in range(1, crate))
-				if(!istype(door, /obj/machinery/door/firedoor) && (door in seen))
-					in_sight = TRUE
-					break
-		if(!in_sight)
+		// The door it lies by has to be one the body's own ID opens. A door that is locked to it is
+		// what stops it, crate or no crate, and shifting someone's crate about gets it nowhere: a
+		// janitor shut in the Mining Office hauled a crate across the room for a door it could
+		// never have gone through. Anyone knows what their own card opens.
+		var/own_door = FALSE
+		for(var/obj/machinery/door/door in range(1, crate))
+			if(istype(door, /obj/machinery/door/firedoor))
+				continue
+			if(door.allowed(body))
+				own_door = TRUE
+			if(door in seen)
+				in_sight = TRUE
+		if(!in_sight || !own_door)
 			continue
 		nearest = crate
 		nearest_distance = distance

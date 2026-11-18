@@ -44,7 +44,7 @@ import {
   syncFreight,
 } from './freight';
 import { noteSentFor, stagger } from './guarding';
-import { isJanitor } from './janitor';
+import { beyondRoom, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
 import { COLLECT_WORDS, crateNumberIn } from './pickups';
 import {
@@ -161,10 +161,16 @@ const GONE_THROUGH_DS = 300;
 const LET_OUT_ASK_DS = 3000;
 /** How long (deciseconds) a request for the door stands. */
 const DOOR_ASK_DS = 600;
+/** How long (deciseconds) the technician who has the rooms is given to answer a door, when they are out of sight, before the other goes. */
+const KEEPER_WAIT_DS = 150;
+/** How long (deciseconds) someone must have been inside a room, with the mess there gone and no word from them, before the door is opened for them unasked. */
+const LEFT_INSIDE_DS = 1800;
 /** How long (deciseconds) a mess is left before a janitor is called to it: one may be on the way already. */
 const NOTICE_DS = 600;
 /** How long (deciseconds) after calling a janitor to a room before calling again about it. */
 const CALL_AGAIN_DS = 6000;
+/** How many janitors may send word that they cannot shift a mess before it is left alone for that long. */
+const JANITORS_TRIED = 2;
 /** The most (deciseconds) one of them waits longer than another before calling, so that two do not call at once. */
 const CALL_STAGGER_DS = 300;
 
@@ -1038,6 +1044,24 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     if (toQuartermaster) {
       return toQuartermaster;
     }
+    // The Quartermaster's own order, and the Quartermaster not to be found. The PDA says what would
+    // have been said to its face, in the same words: those are the words its order book goes by.
+    // Sent the line meant for whoever ordered, it never took its own crate to have come in.
+    if (
+      quartermaster &&
+      arrived.to === quartermaster.name &&
+      typeof arrived.ref === 'number'
+    ) {
+      return {
+        ready: true,
+        step: `Order ${arrived.ref}, which ${quartermaster.name} ordered for themselves, has come in: ${itemised}. You could not find ${quartermaster.name} to tell them, so you are sending them a PDA message.`,
+        act: {
+          tool: 'message',
+          person: quartermaster.name,
+          text: `${firstName(quartermaster.name)}, ${order} ${DOCKED} ${itemised}.`,
+        },
+      };
+    }
     return {
       ready: true,
       step: `What ${arrived.to} ordered has come in: ${itemised}. ${several ? 'They are' : 'It is'} held in the bay until someone comes to the counter for ${several ? 'them' : 'it'}, and you are sending ${arrived.to} a PDA message with the number${several ? 's' : ''}.`,
@@ -1254,6 +1278,31 @@ const lastOpened = new Map<
   { name: string; room: string; out: boolean; at: number }
 >();
 
+/** The technician who has the rooms this shift, if the Quartermaster has divided the standing work: the department's doors are theirs. */
+function roomsKeeper(brain: NpcBrain): string | undefined {
+  return Object.entries(brain.duties).find(([, parts]) =>
+    parts.includes('rooms'),
+  )?.[0];
+}
+
+/**
+ * TRUE if a door someone has asked for aloud, or knocked at, is this technician's to open. With
+ * the standing work divided, the doors go with the rooms: whoever has those answers, and the
+ * other leaves it to them. Two who both heard one ask both went to the door, and one of them was
+ * told it would not open. The other answers only when the keeper is out of sight and has had a
+ * little while to come, or when the ask was sent to it by name: a PDA message is.
+ */
+function doorIsMine(brain: NpcBrain, at: number, toMe: boolean): boolean {
+  const keeper = roomsKeeper(brain);
+  if (toMe || !keeper || keeper === brain.name) {
+    return true;
+  }
+  if (brain.peopleInView.some((seen) => seen.name === keeper)) {
+    return false;
+  }
+  return brain.now - at > KEEPER_WAIT_DS;
+}
+
 /** Who a door is wanted for, leaving aside whether it has only just been opened for them: see doorWanted. */
 function doorSought(brain: NpcBrain): DoorWant | null {
   const post = brain.post;
@@ -1263,7 +1312,7 @@ function doorSought(brain: NpcBrain): DoorWant | null {
   const asked = brain.doorAsked;
   if (asked && brain.now - asked.at < (asked.out ? LET_OUT_ASK_DS : DOOR_ASK_DS)) {
     const want = mayPass(brain, asked.name, asked.room, asked.out);
-    if (want) {
+    if (want && doorIsMine(brain, asked.at, !!asked.byPda)) {
       return want;
     }
     // Word by PDA from someone who says they are shut in one of its locked rooms, and names it.
@@ -1288,13 +1337,16 @@ function doorSought(brain: NpcBrain): DoorWant | null {
   ) {
     // Two do not go to one door. Whoever sent for them, or let them in, sees to it if they are
     // here to. With nobody to say whose it is, the first of those at the post by name goes.
+    // Once the Quartermaster has divided the work, the doors go with the rooms.
     const mine = (by?: string) =>
-      by
-        ? by === brain.name ||
-          !brain.peopleInView.some((seen) => seen.name === by)
-        : !brain.peopleInView.some(
-            (seen) => isCargo(seen.job) && seen.name < brain.name,
-          );
+      roomsKeeper(brain)
+        ? doorIsMine(brain, knock.at, false)
+        : by
+          ? by === brain.name ||
+            !brain.peopleInView.some((seen) => seen.name === by)
+          : !brain.peopleInView.some(
+              (seen) => isCargo(seen.job) && seen.name < brain.name,
+            );
     if (knock.inside) {
       // From inside: someone it let in there. Failing that, in its post, which it can see into,
       // whoever is in there who does not work there.
@@ -1336,12 +1388,18 @@ function doorSought(brain: NpcBrain): DoorWant | null {
     }
   }
   // Someone it let into a room where the mess is now gone has nothing left to do in there, and
-  // cannot get out alone. Nobody is left behind a door they cannot open.
+  // cannot get out alone. Nobody is left behind a door they cannot open. But nobody is let out
+  // who has only just gone in: whoever wants out asks, by a knock, a word or a PDA message, and
+  // is let out at once. Opened unasked the moment the mess was not in this technician's sight,
+  // the door was held for a janitor who had been let in half a minute before and was scrubbing.
+  // This is the long stop, for someone who has been in there a good while and has not asked.
   for (const room of ownRooms(brain)) {
     if (room === post || brain.areaMesses[room]) {
       continue;
     }
-    const left = stillInside(post, room, brain.now)[0];
+    const left = stillInside(post, room, brain.now).find(
+      (entry) => brain.now - entry.at > LEFT_INSIDE_DS,
+    );
     if (left) {
       return { name: left.name, room, out: true };
     }
@@ -1428,14 +1486,20 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     };
   }
   // A janitor who has sent word that they cannot shift it is not called to it again for a while.
+  // One more is asked, and told what the mess wants, so that they come only if they have it. After
+  // that it is left: calling every janitor aboard in turn to a mess that wants soap had each of
+  // them walk the length of the station to find that out at the door.
   const willing = brain.janitorsOnPda.filter((name) => !declined.includes(name));
-  if (willing.length === 0) {
+  if (willing.length === 0 || declined.length >= JANITORS_TRIED) {
     if (call?.declinedAt !== undefined && brain.now - call.declinedAt > CALL_AGAIN_DS) {
       call.declined = [];
     }
     return {
       ready: false,
-      step: `Every janitor you can call has sent word that they cannot shift the mess in the ${place}. You will try them again later.`,
+      step:
+        willing.length === 0
+          ? `Every janitor you can call has sent word that they cannot shift the mess in the ${place}. You will try them again later.`
+          : `${listed(declined)} have sent word that they cannot shift the mess in the ${place}: ${NEEDS_SCRUBBING}. You are leaving it until later.`,
     };
   }
   // A janitor who is in the department already is the one to tell: sending for a second on top
@@ -1457,13 +1521,25 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     outermost = brain.roomsThrough[outermost];
   }
   const byLobby = place === brain.post || outermost === brain.post;
+  const wayIn = byLobby
+    ? ' Come to the Cargo Lobby and I will let you in.'
+    : lockedAway
+      ? ' Come to its door and knock, and I will let you in.'
+      : '';
+  // Someone has tried it and could not shift it. Whoever is asked next is told so, and what it
+  // wants, and is asked to come only if they have that.
+  const tried = declined[declined.length - 1];
   return {
     ready: true,
-    step: `There is a mess in the ${place}, which is yours to keep fit to work in, and you are sending ${janitor}, a janitor, a PDA message asking them to come and clean it.`,
+    step: tried
+      ? `${tried} could not shift the mess in the ${place}. You are sending ${janitor}, another janitor, a PDA message saying what it needs and asking them to come if they have it.`
+      : `There is a mess in the ${place}, which is yours to keep fit to work in, and you are sending ${janitor}, a janitor, a PDA message asking them to come and clean it.`,
     act: {
       tool: 'message',
       person: janitor,
-      text: `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${byLobby ? ' Come to the Cargo Lobby and I will let you in.' : lockedAway ? ' Come to its door and knock, and I will let you in.' : ''}`,
+      text: tried
+        ? `There is a mess in the ${place}${what ? `: ${what}` : ''}. ${tried.split(' ')[0]} could not shift it: ${NEEDS_SCRUBBING}. Could you come and clean it up if you have one, please?${wayIn}`
+        : `There is a mess in the ${place}${what ? `: ${what}` : ''}. Could you come and clean it up, please?${wayIn}`,
     },
   };
 }
@@ -1528,7 +1604,13 @@ function cues(brain: NpcBrain): string[] {
   const waiting = brain.heldCrates.filter((crate) => !crate.takenBy);
   if (waiting.length > 0) {
     lines.push(
-      `You are holding ${cratesWritten(waiting.map((crate) => crate.number))} for collection. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body. A crate is never kept back from anyone for any other reason: not until a floor is clean, and not until someone has left.`,
+      // Whose each one is, by name. Told only the numbers, two technicians spent a shift saying
+      // they were holding the Quartermaster's crate for the Captain.
+      `You are holding for collection: ${listed(waiting.map((crate) => `crate #${crate.number}${crate.for ? ` for ${crate.for}` : ''}`))}. Each is for the person named and nobody else: you are holding no crate for anyone not named here, and you never say that you are. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body. A crate is never kept back from anyone for any other reason: not until a floor is clean, and not until someone has left.`,
+    );
+  } else {
+    lines.push(
+      'You are holding no crate for anyone just now. Do not say that you are.',
     );
   }
   // A crate that would not come, so that nobody is told it is on its way.
@@ -1579,6 +1661,23 @@ function cues(brain: NpcBrain): string[] {
   if (wants) {
     lines.push(
       `${doorCue(wants)} You are opening the door for them now: say so if you speak of it.`,
+    );
+  } else if (
+    brain.doorAsked &&
+    brain.now - brain.doorAsked.at < DOOR_ASK_DS &&
+    !brain.doorAsked.byPda &&
+    roomsKeeper(brain) &&
+    roomsKeeper(brain) !== brain.name &&
+    mayPass(
+      brain,
+      brain.doorAsked.name,
+      brain.doorAsked.room,
+      brain.doorAsked.out,
+    )
+  ) {
+    // Someone who may be let through, and the door is the other technician's to open.
+    lines.push(
+      `${brain.doorAsked.name} has asked about the door. ${roomsKeeper(brain)} has the rooms this shift, so the door is theirs to open, and you are leaving it to them. If you answer, say that ${firstName(roomsKeeper(brain) ?? '')} is seeing to it. Do not say that nobody sent for them.`,
     );
   } else if (brain.doorAsked && brain.now - brain.doorAsked.at < DOOR_ASK_DS) {
     // Someone has asked who is not being let in. What it says has to match what it does.
@@ -2049,9 +2148,9 @@ export const CARGO: Job = {
   },
   // Someone a door hides sends word that they are at it. The room is the one they name.
   readsMessage: (brain, from, text, at) => {
-    // A janitor it called sends word that what they have will not shift the mess. That call is
-    // done with, and someone else can be sent for.
-    const beyond = text.match(/cannot shift the mess in the (.+?) with\b/i)?.[1];
+    // A janitor it called sends word that what they have will not shift the mess, or has shifted
+    // some of it and not the rest. That call is done with, and someone else can be sent for.
+    const beyond = beyondRoom(text);
     if (from && beyond) {
       const room = Object.keys(brain.janitorCalls).find(
         (place) => place.toLowerCase() === beyond.toLowerCase(),

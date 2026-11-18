@@ -134,7 +134,14 @@ const ORDER_WORDS =
 const NO_WORDS =
   /\b(no|nope|nah|denied|deny|refused?|rejected?|not approved|do not|don'?t|negative|cancel)\b/i;
 const YES_WORDS =
-  /\b(yes|yep|yeah|aye|approved?|granted|go ahead|do it|fine|ok|okay|sure|agreed|authori[sz]ed|no (objection|problem))\b/i;
+  /\b(yes|yep|yeah|aye|approved?|granted|go ahead|go on|do it|buy it|get it|place it|places? (that|the|your) order|put it through|fine|ok|okay|sure|agreed|authori[sz]ed|no (objection|problem))\b/i;
+/**
+ * The words that mark what the Captain says as being about an order, when it is neither a plain
+ * yes or no nor an order that names a crate. With one waiting on their say, it is asked about.
+ */
+const ABOUT_ORDER_WORDS = /\b(orders?|crates?|purchase|buy|supplies|budget|credits)\b/i;
+/** How many times the Captain is asked what they meant about one order. */
+const UNCLEAR_ASKS = 2;
 /** The kind of crate that has paper in it, by the words in its name. */
 const PAPER_CRATE = /bureaucracy|paper|stationery/i;
 
@@ -237,6 +244,8 @@ const BOOK = {
   no: (order: LedgerOrder) => `Order ${order.n}. The Captain said no.`,
   self: (order: LedgerOrder) =>
     `Order ${order.n}. No Captain aboard: approved by me.`,
+  small: (order: LedgerOrder) =>
+    `Order ${order.n}. No longer a big purchase: approved by me.`,
   silent: (order: LedgerOrder) =>
     `Order ${order.n}. No answer from the Captain: held.`,
   short: (order: LedgerOrder, have: number) =>
@@ -324,7 +333,7 @@ export function readBook(
       order.state = 'new';
     } else if (/^The Captain said no\.$/.test(rest)) {
       order.state = 'refused';
-    } else if (/^No Captain aboard/.test(rest)) {
+    } else if (/^No Captain aboard|^No longer a big purchase/.test(rest)) {
       order.approved = 'self';
       order.state = 'new';
     } else if (/^No answer from the Captain/.test(rest)) {
@@ -493,6 +502,51 @@ function readAnswer(brain: NpcBrain, text: string): boolean {
   return true;
 }
 
+/**
+ * Asks the Captain what they meant. With an order waiting on their say, something they say or
+ * write about an order that is no plain yes or no, and names no crate, is most likely their
+ * answer in other words: "place that order you asked me about". Taken for a new order, it was
+ * answered with "I cannot order that", and the order it was about waited for the rest of the shift.
+ *
+ * It asks in the way it was spoken to: aloud to someone standing there, by PDA otherwise.
+ * Returns TRUE if it asked.
+ */
+function askWhatWasMeant(
+  brain: NpcBrain,
+  captain: string,
+  text: string,
+  aloud: boolean,
+): boolean {
+  const ledger = ledgerOf(brain);
+  const order = orderAnswered(ledger, text);
+  if (
+    !order ||
+    !ABOUT_ORDER_WORDS.test(text) ||
+    itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0 ||
+    (order.unclear ?? 0) >= UNCLEAR_ASKS
+  ) {
+    return false;
+  }
+  order.unclear = (order.unclear ?? 0) + 1;
+  const about = `order ${order.n}: ${orderWritten(order.items)}`;
+  const why = `${captain} has said something about an order, and order ${order.n} is waiting on the Captain's say. You could not tell whether it was a yes or a no, so you are asking.`;
+  if (aloud) {
+    const line = `${firstName(captain)}, is that a yes or a no to ${about}?`;
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: captain,
+      line,
+      why,
+      exact: true,
+      whileBusy: true,
+      at: Date.now(),
+    });
+  } else {
+    sendWord(brain, captain, `Captain, is that a yes or a no to ${about}?`, why);
+  }
+  return true;
+}
+
 /** Asks the Captain, by PDA, whether an order may be placed. The numbers are the server's. */
 function askCaptain(
   brain: NpcBrain,
@@ -540,6 +594,29 @@ function tellOrderer(
 function clearOrders(brain: NpcBrain, ledger: Ledger): void {
   const captain = captainName(brain);
   for (const order of ledger.orders) {
+    if (order.state === 'asking' && order.approved === null) {
+      // The Captain was asked because it was a big purchase when it was taken. With more in the
+      // budget since, it may be one no longer, and then it wants nobody's say: an order for 400
+      // credits waited on the Captain to the end of a shift that had 1,960 to spend.
+      const freeNow = moneyFree(brain, ledger);
+      if (
+        freeNow !== null &&
+        order.cost <= BIG_PURCHASE_CR &&
+        order.cost <= freeNow / 2
+      ) {
+        order.approved = 'self';
+        order.state = 'new';
+        ledger.toWrite.push(BOOK.small(order));
+        if (captain) {
+          sendWord(
+            brain,
+            captain,
+            `Captain, order ${order.n} no longer needs your say: there are ${credits(freeNow)} credits free in the budget now, and it comes to ${credits(order.cost)}. I am having it placed.`,
+            `There is more in the budget than when you asked the Captain about order ${order.n}, and it is no longer a big purchase. You are having it placed, and sending the Captain word of that.`,
+          );
+        }
+      }
+    }
     if (order.state === 'asking' && order.approved === null) {
       if (
         order.askedAt !== null &&
@@ -611,7 +688,13 @@ function giveLine(order: LedgerOrder, to: string): string {
 /** What its staff have brought in and sent out between them, as it says it to end a meeting. */
 function supplyClosing(brain: NpcBrain, meeting: Meeting): string {
   const work = totalWords(workReported(brain, meeting));
-  return `${work ? `Between you, that is ${work}.` : 'There are no crates in or out to count yet.'} The meeting is over, thank you.`;
+  // With no report given there is nothing to say about crates either way. "No crates in or out"
+  // was said of a shift that had brought one in and sent three out, because nobody had reported.
+  const none =
+    Object.keys(meeting.reports).length === 0
+      ? 'I have had no reports.'
+      : 'There are no crates in or out to count yet.';
+  return `${work ? `Between you, that is ${work}.` : none} The meeting is over, thank you.`;
 }
 
 /**
@@ -621,23 +704,39 @@ function supplyClosing(brain: NpcBrain, meeting: Meeting): string {
  */
 function supplyReport(brain: NpcBrain, meeting: Meeting): string {
   const ledger = ledgerOf(brain);
-  const there = meeting.turns.length;
+  // Whoever gave a report was there. Someone it could see and never heard from was not at it.
+  const reported = Object.keys(meeting.reports).length;
+  const there = meeting.turns.filter((turn) => turn.heard).length;
   const work = totalWords(workReported(brain, meeting));
   const open = ledger.orders.filter(isOpen).length;
   const came = `Supply staff meeting: ${there} of ${meeting.invited.length} there.`;
   const done = work
     ? `Since the last one: ${work}.`
-    : 'No crates in or out to count yet.';
+    : reported === 0
+      ? 'No reports given.'
+      : 'No crates in or out to count yet.';
   const orders =
     open === 0
       ? 'No orders in hand.'
       : `${open} order${open === 1 ? '' : 's'} in hand.`;
+  // An order held for want of the Captain's say is named each time, until it has it.
+  const held = ledger.orders.filter(
+    (order) =>
+      order.state === 'asking' && order.approved === null && order.waitingTold,
+  );
+  const waiting =
+    held.length === 0
+      ? ''
+      : ` Order${held.length === 1 ? '' : 's'} ${listed(held.map((order) => String(order.n)))} ${held.length === 1 ? 'is' : 'are'} still waiting on your say.`;
   const money =
     brain.budget === null ? '' : ` Budget: ${credits(brain.budget)} credits.`;
   return (
-    [`${came} ${done} ${orders}${money}`, `${came} ${done} ${orders}`].find(
-      (line) => line.length <= SAID_MAX,
-    ) ?? `${came} ${done}`
+    [
+      `${came} ${done} ${orders}${waiting}${money}`,
+      `${came} ${done} ${orders}${waiting}`,
+      `${came} ${orders}${waiting}`,
+      `${came} ${done} ${orders}`,
+    ].find((line) => line.length <= SAID_MAX) ?? `${came} ${done}`
   );
 }
 
@@ -1109,10 +1208,12 @@ function standing(order: LedgerOrder): string {
       return order.waitingTold
         ? 'held: the Captain has not answered'
         : "waiting on the Captain's say";
+    // Said plainly that these are going ahead. Told only "cleared" and "given", it told the
+    // technician it had just given an order to that the crate was not coming yet.
     case 'cleared':
-      return 'cleared, to be given to a technician';
+      return `cleared${order.approved === 'captain' ? ' (the Captain has said yes)' : ''} and going ahead: you are giving it to a technician to place`;
     case 'given':
-      return `given to ${order.givenTo}, not yet come in`;
+      return `given to ${order.givenTo} to place${order.approved === 'captain' ? ' (the Captain has said yes)' : ''}: it is going ahead, and has not come in yet`;
     case 'docked':
       return 'come in';
     case 'refused':
@@ -1150,6 +1251,22 @@ function cues(brain: NpcBrain): string[] {
   if (brain.book === null) {
     lines.push(
       'You have no paper to keep your order book on yet. Orders you take meanwhile you carry in your head, and write up when you have some.',
+    );
+  } else {
+    // Asked whether it had found paper, with its book in its hand, it said it had seen none.
+    lines.push(
+      'You have paper: your order book is written up, and you carry it with you.',
+    );
+  }
+  // Who the Captain is, by name, and what they are to it. Spoken to by the Captain, it told them
+  // to take their order to the head of their department, and to give the Captain their say.
+  const captain = captainName(brain);
+  if (captain) {
+    const asking = ledger.orders.filter(
+      (order) => order.state === 'asking' && order.approved === null,
+    );
+    lines.push(
+      `${captain} is the Captain: the one you answer to, who may order supplies from you, and whose say a big purchase waits on.${asking.length > 0 ? ` ${captain}'s yes or no is what order${asking.length === 1 ? '' : 's'} ${listed(asking.map((order) => String(order.n)))} ${asking.length === 1 ? 'is' : 'are'} waiting on. If ${firstName(captain)} speaks of ${asking.length === 1 ? 'it' : 'one'}, that is their answer: never tell them to ask the Captain, or to go to their head of department.` : ''}`,
     );
   }
   const duties = Object.entries(ledger.duties);
@@ -1226,6 +1343,69 @@ function crateLost(
   }
 }
 
+/**
+ * Takes a technician's word that an order has come in: the order is marked so in the book, and
+ * whoever ordered is sent the crate numbers. Its own order is nobody's to tell, and with it marked
+ * as come in the Quartermaster goes to open the crate. The word may come to its face or, when the
+ * technician could not find it, by PDA.
+ */
+function noteDocked(
+  brain: NpcBrain,
+  from: string,
+  n: number,
+  told: string,
+): void {
+  const ledger = ledgerOf(brain);
+  const order = ledger.orders.find((it) => it.n === n);
+  if (!order || order.state === 'docked') {
+    return;
+  }
+  const itemised = itemisedIn(told);
+  const several = (itemised.match(/#\d+/g) ?? []).length > 1;
+  order.state = 'docked';
+  order.crates = cratesTold(itemised);
+  ledger.toWrite.push(BOOK.docked(order, itemised));
+  tellOrderer(
+    brain,
+    order,
+    `Your order has come in: ${itemised}. Send someone to the Cargo Lobby counter with the number to collect ${several ? 'each one' : 'it'}.`,
+    `${from} has told you that order ${order.n}, which ${order.from} sent you, has come in. You are sending ${order.from} the crate numbers by PDA.`,
+  );
+}
+
+/**
+ * Takes word of crates that are waiting at cargo as word that an order of its own has come in, if
+ * its book does not have it so already. A technician who could not find it sends whoever ordered a
+ * PDA message, and for its own order that is the Quartermaster: "Your order has come in: crate
+ * #12 (Bureaucracy Crate)." Later it is told, to its face, that the crate is still waiting. Either
+ * is the first it has heard of it.
+ */
+function noteOwnCrate(brain: NpcBrain, from: string, told: string): void {
+  const ledger = ledgerOf(brain);
+  const numbers = cratesTold(told).map((crate) => crate.number);
+  if (numbers.length === 0) {
+    return;
+  }
+  // The crate is already one it knows of.
+  if (
+    ledger.orders.some((order) =>
+      order.crates?.some((crate) => numbers.includes(crate.number)),
+    )
+  ) {
+    return;
+  }
+  // The order of its own that a technician has in hand, the longest given first.
+  const order = ledger.orders
+    .filter((it) => it.own && it.state === 'given')
+    .sort((a, b) => (a.givenAt ?? 0) - (b.givenAt ?? 0))[0];
+  if (order) {
+    noteDocked(brain, from, order.n, told);
+  }
+}
+
+/** The words a technician sends whoever ordered when their order has come in. See `arrived` in jobs/cargo.ts. */
+const ARRIVED_WORDS = /^Your order has come in: (.+?)\. Send\b/i;
+
 export const QUARTERMASTER: Job = {
   is: isQuartermaster,
   // It has an office and its staff to see to. It does not wander the station.
@@ -1261,9 +1441,29 @@ export const QUARTERMASTER: Job = {
       }
       return;
     }
+    // Something the Captain has written about an order, with one waiting on their say, that is
+    // no plain answer and names no crate: asked about, not taken for a new order.
+    if (/captain/i.test(job) && askWhatWasMeant(brain, from, text, false)) {
+      return;
+    }
     if (isHead(job) && ORDER_WORDS.test(text)) {
       takeOrder(brain, from, job, text);
       return;
+    }
+    // A technician who could not find it sends word that an order has come in by PDA: in the
+    // words it would have said, or, for the Quartermaster's own order, in those meant for
+    // whoever ordered.
+    if (isTechnician(job)) {
+      const docked = text.match(DOCKED_WORDS);
+      if (docked) {
+        noteDocked(brain, from, Number(docked[1]), docked[2]);
+        return;
+      }
+      const arrived = text.match(ARRIVED_WORDS);
+      if (arrived) {
+        noteOwnCrate(brain, from, arrived[1]);
+        return;
+      }
     }
     // One of its technicians is shut in and cannot walk to it: the one time word between them
     // goes by PDA. It sends another technician to see what is shutting the way.
@@ -1320,20 +1520,7 @@ export const QUARTERMASTER: Job = {
       const docked = heard.match(DOCKED_WORDS);
       if (docked) {
         heardIt();
-        const order = ledger.orders.find((it) => it.n === Number(docked[1]));
-        if (order && order.state !== 'docked') {
-          const itemised = itemisedIn(docked[2]);
-          const several = (itemised.match(/#\d+/g) ?? []).length > 1;
-          order.state = 'docked';
-          order.crates = cratesTold(itemised);
-          ledger.toWrite.push(BOOK.docked(order, itemised));
-          tellOrderer(
-            brain,
-            order,
-            `Your order has come in: ${itemised}. Send someone to the Cargo Lobby counter with the number to collect ${several ? 'each one' : 'it'}.`,
-            `${speaker} has told you that order ${order.n}, which ${order.from} sent you, has come in. You are sending ${order.from} the crate numbers by PDA.`,
-          );
-        }
+        noteDocked(brain, speaker, Number(docked[1]), docked[2]);
         return;
       }
       // A crate that would not go where it was meant to. It says what is to be done about it.
@@ -1364,6 +1551,11 @@ export const QUARTERMASTER: Job = {
       if (waiting) {
         heardIt();
         const whose = waiting[2].trim();
+        // A crate of its own, still waiting: if its book has no word of that order coming in, this
+        // is that word. It goes and opens it.
+        if (whose === brain.name) {
+          noteOwnCrate(brain, speaker, waiting[1]);
+        }
         if (whose !== brain.name) {
           sendWord(
             brain,
@@ -1410,6 +1602,11 @@ export const QUARTERMASTER: Job = {
       if (!brain.meeting) {
         brain.meetingOrderedBy = speaker;
       }
+      return;
+    }
+    // Something the Captain has said about an order, with one waiting on their say, that is no
+    // plain answer and names no crate: asked about, not taken for a new order.
+    if (/captain/i.test(job) && askWhatWasMeant(brain, speaker, heard, true)) {
       return;
     }
     if (isHead(job) && ORDER_WORDS.test(heard)) {

@@ -92,6 +92,8 @@ const PENDING_MAX_LINES = 30;
 const MAX_REPLIES_PER_TALK = 6;
 /** A speaker who has been quiet this long (deciseconds of server time) starts a fresh conversation. */
 const TALK_RESET_DS = 300;
+/** How long (deciseconds of server time) after answering a fellow NPC before it answers them again, unless they ask it something. */
+const FELLOW_REPLY_EVERY_DS = 1800;
 /** The server refuses speech sooner than this after the last, so wait it out before thinking again. */
 const SAY_COOLDOWN_MS = 4200;
 /** How long a room is left alone because of its fire doors, when its alarm is not one to reset or cannot be got to. */
@@ -950,7 +952,7 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
   const speaker = event.details.handle ?? event.details.speaker ?? 'someone';
   let talk = brain.talks.get(speaker);
   if (!talk || event.at - talk.lastHeardAt > TALK_RESET_DS) {
-    talk = { replies: 0, lastHeardAt: event.at };
+    talk = { replies: 0, lastHeardAt: event.at, repliedAt: talk?.repliedAt };
     brain.talks.set(speaker, talk);
   }
   talk.lastHeardAt = event.at;
@@ -960,6 +962,18 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
     (other) => other !== brain && other.name === event.details.speaker,
   );
   if (talk.replies >= (fellow ? 1 : MAX_REPLIES_PER_TALK)) {
+    return false;
+  }
+  // Two NPCs who work side by side each say what they are off to do, every minute or so, and each
+  // such line started the two of them off again: the same few sentences, back and forth, for the
+  // whole of a shift. Having answered a fellow NPC, it does not answer them again for a while
+  // unless they ask it something. What they say is still heard, and still acted on by its body.
+  if (
+    fellow &&
+    talk.repliedAt !== undefined &&
+    event.at - talk.repliedAt < FELLOW_REPLY_EVERY_DS &&
+    !String(event.details.message ?? '').includes('?')
+  ) {
     return false;
   }
   brain.pendingSpeakers.add(speaker);
@@ -1417,6 +1431,7 @@ async function think(brain: NpcBrain): Promise<void> {
         const talk = brain.talks.get(speaker);
         if (talk) {
           talk.replies++;
+          talk.repliedAt = brain.now;
         }
       }
     }

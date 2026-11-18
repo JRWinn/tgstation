@@ -10,12 +10,14 @@
 	// Before each step, not after it: the base controller already listens for the body having moved,
 	// and two listeners for one signal on one body cannot both stand. The later one replaces the first.
 	RegisterSignal(body, COMSIG_MOVABLE_PRE_MOVE, PROC_REF(mind_its_step))
+	// Something landing in its hand: its own doing as a rule, but not always. See on_item_in_hand.
+	RegisterSignal(body, COMSIG_MOB_EQUIPPED_ITEM, PROC_REF(on_item_in_hand))
 	start_pda_senses(body)
 	look_timer = addtimer(CALLBACK(src, PROC_REF(look_around)), CREW_NPC_LOOK_INTERVAL, TIMER_LOOP | TIMER_STOPPABLE)
 
 /// Stops watching and listening. Called when the controller lets go of its body.
 /datum/ai_controller/crew_npc/proc/stop_senses(mob/living/carbon/human/body)
-	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_PRE_MOVE))
+	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_PRE_MOVE, COMSIG_MOB_EQUIPPED_ITEM))
 	stop_pda_senses()
 	deltimer(look_timer)
 	look_timer = null

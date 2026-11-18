@@ -140,6 +140,15 @@ function keyOf(task: Task | null, act: Action | undefined, say?: string): string
   return `${task?.id ?? 'none'}:${act ? JSON.stringify(act) : `say:${say}`}`;
 }
 
+/**
+ * The key a whole job is left alone under, whatever its next step would be. A clean that came to
+ * nothing holds back the walk to that room as well: with only the clean held back, the walk was
+ * ready the moment the body was anywhere else, and it went back and forth between two rooms.
+ */
+function jobKey(taskId: string | number): string {
+  return `job:${taskId}`;
+}
+
 /** How many walks out may fail with a door standing open before the door is taken to be no way out. */
 const OPEN_DOOR_TRIES = 2;
 
@@ -492,7 +501,7 @@ export function nextStep(brain: NpcBrain): Step | null {
       continue;
     }
     const key = keyOf(task, plan.act, plan.say);
-    if (inBackoff(brain, key)) {
+    if (inBackoff(brain, key) || inBackoff(brain, jobKey(task.id))) {
       heldBack = true;
       continue;
     }
@@ -917,6 +926,9 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     fail(brain, last.key);
   } else if (event.details.ok) {
     brain.failures.delete(last.key);
+    if (last.act.tool === 'clean' && last.task !== undefined) {
+      brain.failures.delete(jobKey(last.task));
+    }
     // The alarm is reset and the fire doors are opening: whatever it gave up on because of them
     // is worth trying again at once.
     if (last.act.tool === 'reset_alarm' && typeof last.act.place === 'string') {
@@ -938,6 +950,14 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     }
   } else {
     fail(brain, last.key);
+    // A clean that came to nothing: the job is left alone, not only the scrubbing. The walk back
+    // to the room is part of the job. Only a clean in the room the job is for, though. Wetting a
+    // mop at a sink on the way to a mess elsewhere is the same tool, and reports that there was
+    // nothing to clean where the sink is: that is no reason to put off going to the mess.
+    const cleaned = brain.tasks.find((task) => task.id === last.task);
+    if (last.act.tool === 'clean' && cleaned?.place === brain.location) {
+      fail(brain, jobKey(cleaned.id));
+    }
     // A knock that did not land, because the body was not at the door after all, is no knock.
     // It goes and stands at the door again, and knocks when it is there.
     if (last.act.tool === 'knock') {

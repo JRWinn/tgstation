@@ -115,10 +115,25 @@
 	return proper_tool() || dry_mop() || cleaning_tool()
 
 /**
+ * What would not come off with one thing may with another. Once the body holds a different kind of
+ * thing to clean with, each mess it gave up on is worth one more try: a janitor who has been brought
+ * soap goes back to the oil its rag would not shift.
+ */
+/datum/ai_controller/crew_npc/proc/mind_what_it_holds()
+	var/obj/item/tool = tool_in_hand()
+	if(isnull(tool) || tool.type == stubborn_with)
+		return
+	if(stubborn_with)
+		stubborn_messes = list()
+		stubborn_kinds = list()
+	stubborn_with = tool.type
+
+/**
  * Returns the nearest mess the body remembers in the room of this name that what it holds could shift,
  * or null. With nothing in hand, any mess it remembers there counts.
  */
 /datum/ai_controller/crew_npc/proc/remembered_mess_in(place)
+	mind_what_it_holds()
 	var/obj/item/tool = tool_in_hand()
 	var/obj/effect/decal/cleanable/nearest
 	var/nearest_distance = INFINITY
@@ -156,6 +171,7 @@
 
 /// Returns the names of the rooms where the body remembers a mess that what it holds could shift.
 /datum/ai_controller/crew_npc/proc/workable_mess_places()
+	mind_what_it_holds()
 	var/obj/item/tool = tool_in_hand()
 	var/list/places = list()
 	for(var/key in remembered_messes)
@@ -210,6 +226,7 @@
 /datum/ai_controller/crew_npc/proc/messes_to_clean(list/in_sight)
 	var/mob/living/carbon/human/body = pawn
 	var/area/here = get_area(body)
+	mind_what_it_holds()
 	var/obj/item/tool = working_tool()
 	var/list/found = list()
 	if(isnull(tool))
@@ -249,6 +266,7 @@
 		if(nearest_sink)
 			clean_queue = list()
 			cleaned_count = 0
+			clean_failed_count = 0
 			start_errand(nearest_sink, CREW_TOOL_CLEAN, null)
 			return
 		// With no sink in sight, a rag in the other hand will still do what a rag does.
@@ -270,7 +288,30 @@
 		return
 	clean_queue = messes
 	cleaned_count = 0
+	clean_failed_count = 0
 	next_mess()
+
+/**
+ * With the messes it set out for seen to, looks for more in the room: those in sight first, then the
+ * nearest one it remembers. Sets off for the next and returns TRUE, or returns FALSE if the job is over.
+ *
+ * A room is settled in one visit. Each mess the body cannot shift, or cannot get to, is found out
+ * and passed over there and then, and it leaves knowing what is beyond it. Finding that out one
+ * mess to a visit had three janitors walking between the same two rooms for a quarter of an hour.
+ * What it does clean still comes in goes of a few, so that it is free to hear of other work.
+ */
+/datum/ai_controller/crew_npc/proc/more_to_clean()
+	if(cleaned_count >= CREW_NPC_MESSES_PER_CLEAN || clean_failed_count >= CREW_NPC_MESSES_FAILED_PER_CLEAN)
+		return FALSE
+	var/list/messes = messes_to_clean(view(CREW_NPC_VISION_RANGE, pawn))
+	if(!length(messes))
+		var/obj/effect/decal/cleanable/remembered = remembered_mess_in(get_area_name(pawn, TRUE))
+		if(remembered)
+			messes = list(remembered)
+	if(!length(messes))
+		return FALSE
+	clean_queue = messes
+	return next_mess()
 
 /// Sends the body to the next mess still to be cleaned. Returns FALSE if there are none left.
 /datum/ai_controller/crew_npc/proc/next_mess()
@@ -304,7 +345,10 @@
 	body.ClickOn(target)
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
-	while(!QDELETED(mess) && world.time < deadline)
+	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
+	// before it came off was reported as beyond the body, and then, seconds later, as cleaned up.
+	var/last_chance = deadline + CREW_NPC_CLEAN_TIME
+	while(!QDELETED(mess) && (world.time < deadline || (length(body.do_afters) && world.time < last_chance)))
 		sleep(0.5 SECONDS)
 		if(QDELETED(body))
 			return list(FALSE, "You could not get to it.")
@@ -312,6 +356,17 @@
 		return list(TRUE, "You clean up the [mess_name].")
 	// Some messes do not yield to scrubbing at all. Remember this one so the body stops trying it.
 	stubborn_messes[REF(mess)] = TRUE
+	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
+	// does not scrub at every other one in the room to find out. Once could be a slip of the hand.
+	stubborn_kinds[mess.type]++
+	if(stubborn_kinds[mess.type] >= 2)
+		var/place = get_area_name(mess, TRUE)
+		for(var/key in remembered_messes)
+			var/list/memory = remembered_messes[key]
+			var/datum/weakref/other_ref = memory[1]
+			var/obj/effect/decal/cleanable/other = other_ref.resolve()
+			if(!QDELETED(other) && memory[2] == place && other.type == mess.type)
+				stubborn_messes[key] = TRUE
 	return list(FALSE, "You scrub at the [mess_name] but it will not come off.")
 
 /// TRUE if the body carries a PDA with the custodial locator, which shows where the station's cleaning gear is.

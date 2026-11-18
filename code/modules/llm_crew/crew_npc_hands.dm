@@ -260,6 +260,10 @@
 	var/held_name = format_text(held.name)
 	if(!body.temporarilyRemoveItemFromInventory(held))
 		return list(FALSE, "You cannot let go of the [held_name].")
+	// One of the crew taking it knows it was handed over, and keeps it.
+	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
+	if(istype(their_controller))
+		their_controller.being_handed_something()
 	if(person.put_in_hands(held))
 		return list(TRUE, "You hand the [held_name] to [person.name].")
 	// Their hands were full, so it ends up at their feet.
@@ -296,16 +300,22 @@
 	else if(outcome[1])
 		cleaned_count++
 		work_cleaned++
+	else
+		clean_failed_count++
 	clean_queue = messes_left
-	// Stop if the tool has given out; otherwise carry on to the next mess.
-	if(cleaning_tool() && next_mess())
+	// Stop if the tool has given out; otherwise carry on to the next mess, and then to any other in the room.
+	if(cleaning_tool() && (next_mess() || more_to_clean()))
 		return
 	clean_queue = list()
 	var/place = get_area_name(pawn, TRUE)
+	// Whether anything is left in this room that what it holds could shift. The brain is told, so that
+	// what it says of the room is one thing and true: all clean, or done what it can.
+	var/more_here = !isnull(remembered_mess_in(place))
+	var/beyond_it = clean_failed_count > 0 && !more_here
 	if(cleaned_count)
-		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].", list("place" = place))
+		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].[beyond_it ? " What is left there will not come off with what you have." : ""]", list("place" = place, "beyond" = beyond_it))
 	else
-		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.")
+		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it))
 
 /// Does what the body came to its errand target to do.
 /datum/bt_node/ai_behavior/crew_npc_do_errand
@@ -463,3 +473,92 @@
 	if(resting)
 		return "resting"
 	return null
+
+/// How long after something turns up in its hand a crew NPC takes to notice and put it down.
+#define CREW_NPC_UNASKED_NOTICE (2 SECONDS)
+/// How long it puts that off while its hands are busy, and how many times.
+#define CREW_NPC_UNASKED_WAIT (6 SECONDS)
+#define CREW_NPC_UNASKED_WAITS 10
+
+/// Notes that one of the crew is handing this body something. What comes to its hand in the next moment is given, and kept.
+/datum/ai_controller/crew_npc/proc/being_handed_something()
+	handed_at = world.time
+
+/**
+ * Something has landed in the body's hand.
+ *
+ * Nearly always that is its own doing: it is fetching, searching or tidying, and the thing is what
+ * it went for. Now and then it is not. The bartender's monkey puts what it is holding into the
+ * hand of whoever is standing near, and a head and three janitors came away from two staff meetings
+ * in the Bar Lounge holding a salt shaker, a pie, a pack of cards and a seating placer, which they
+ * then carried for the rest of the shift. Anyone would look at their hand and put the thing down.
+ *
+ * A tool of its own trade it keeps, whoever put it there. So is anything one of the crew hands it.
+ */
+/datum/ai_controller/crew_npc/proc/on_item_in_hand(mob/living/carbon/human/body, obj/item/item, slot)
+	SIGNAL_HANDLER
+	if(!(slot & ITEM_SLOT_HANDS) || (item.item_flags & ABSTRACT))
+		return
+	// Its own doing, or handed over by one of the crew.
+	if(errand_tool || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
+		return
+	if(handed_at && world.time - handed_at < 2 SECONDS)
+		return
+	if(is_trade_tool(item, trade_tool_types()))
+		return
+	unasked_item = WEAKREF(item)
+	unasked_item_waits = 0
+	addtimer(CALLBACK(src, PROC_REF(put_down_unasked_item), TRUE), CREW_NPC_UNASKED_NOTICE)
+
+/**
+ * Puts down the thing that turned up in its hand: on a table or rack it is standing by, the way
+ * anyone sets something down, or failing that at its feet. With its hands busy it waits and tries
+ * again. The brain is told what it found and what it did with it.
+ */
+/datum/ai_controller/crew_npc/proc/put_down_unasked_item(first_look = FALSE)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/item = unasked_item?.resolve()
+	if(QDELETED(body) || QDELETED(item) || !(item in body.held_items))
+		unasked_item = null
+		return
+	var/item_name = format_text(item.name)
+	if(first_look)
+		// Whoever is standing right by it, if there is only one of them, is most likely who put it there.
+		var/list/beside = list()
+		for(var/mob/living/other in oview(1, body))
+			beside += other
+		var/mob/living/giver = length(beside) == 1 ? beside[1] : null
+		emit_sense(CREW_SENSE_KNOWLEDGE, "You find a [item_name] in your hand that you did not pick up.[giver ? " [giver.name], standing by you, must have put it there." : ""] It is not yours, and you will put it down.", list("item" = item_name))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found a [item_name] in its hand that it did not pick up[giver ? ", with [giver.name] beside it" : ""].")
+	// In the middle of something with its hands: it finishes that first.
+	if(errand_tool || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET) || length(body.do_afters))
+		if(unasked_item_waits++ < CREW_NPC_UNASKED_WAITS)
+			addtimer(CALLBACK(src, PROC_REF(put_down_unasked_item)), CREW_NPC_UNASKED_WAIT)
+		else
+			unasked_item = null
+		return
+	unasked_item = null
+	// On a table or rack within reach, with the thing in the hand it is using: a click on the table top.
+	var/obj/structure/surface
+	for(var/turf/spot in range(1, body))
+		if(!crew_npc_free_surface(spot))
+			continue
+		surface = (locate(/obj/structure/table) in spot) || (locate(/obj/structure/rack) in spot)
+		if(surface && body.Adjacent(surface))
+			break
+		surface = null
+	var/item_hand = body.get_held_index_of_item(item)
+	if(surface && item_hand)
+		if(item_hand != body.active_hand_index)
+			body.swap_hand(item_hand)
+		body.ClickOn(surface)
+	// No table by it, or the table would not take it: it goes down at its feet.
+	var/on_surface = !(item in body.held_items) && surface
+	if((item in body.held_items) && !body.dropItemToGround(item))
+		return
+	emit_sense(CREW_SENSE_KNOWLEDGE, on_surface ? "You put the [item_name] down on the [format_text(surface.name)]." : "You put the [item_name] down.", list("item" = item_name))
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put down the [item_name] it had not picked up[on_surface ? ", on the [surface.name]" : ""].")
+
+#undef CREW_NPC_UNASKED_NOTICE
+#undef CREW_NPC_UNASKED_WAIT
+#undef CREW_NPC_UNASKED_WAITS

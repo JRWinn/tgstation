@@ -196,12 +196,20 @@ export function addCounts(
   }
 }
 
+/** Lines said word for word that take no remark after them: an order given by number, and asking the Captain for a plain yes or no. */
+const BARE_LINES = /^\S+, order \d+: |\bis that a yes or a no to\b/i;
+
 /**
  * Puts the LLM's remark after a line that is said word for word. The remark is left off if it has
  * a number or an amount in it, asks a question, uses a word the listener acts on, runs long, or
  * would take the whole past what a body can say at once.
  */
 export function withRemark(line: string, said: unknown): string {
+  // An order given to a technician, and a question put to the Captain, are said bare. Whoever
+  // hears one acts on it, and a remark after it has undone it: "hand over that crate".
+  if (BARE_LINES.test(line)) {
+    return line;
+  }
   let remark = typeof said === 'string' ? said.trim().replace(/\s+/g, ' ') : '';
   // The model sometimes gives the line back with its remark on the end. The line is said already.
   if (remark.toLowerCase().startsWith(line.toLowerCase())) {

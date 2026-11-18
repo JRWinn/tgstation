@@ -474,3 +474,62 @@
 	var/route = isnull(last_route_steps) ? "no route had been planned yet" : (last_route_steps ? "the last route planned was [last_route_steps] steps" : "no route could be found")
 	var/heading = QDELETED(target) ? "something that is gone" : "[target] at [AREACOORD(target)]"
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) walk failed ([tool], to [goal]): [why]. Stopped at [AREACOORD(body)], heading for [heading]; [route].")
+	// The planner found no route at all. Nothing above says what was shut, so more is looked into.
+	if(!isnull(last_route_steps) && !last_route_steps && !QDELETED(target))
+		INVOKE_ASYNC(src, PROC_REF(log_no_route), get_turf(target), goal)
+
+/**
+ * Says more, in the round's game log, about a walk the planner found no route for at all: whether
+ * the game's other pathfinder finds one, how each door of the room it was heading for stands, and
+ * what first lies in the way on the straight line there. A cargo technician twice found no way
+ * from the Cargo Bay to its own Warehouse, and nothing in the log said what was shut.
+ *
+ * This only writes to the log. The body learns nothing from it.
+ */
+/datum/ai_controller/crew_npc/proc/log_no_route(turf/heading_for, goal)
+	var/mob/living/carbon/human/body = pawn
+	var/turf/from = get_turf(body)
+	if(QDELETED(body) || isnull(from) || isnull(heading_for) || from.z != heading_for.z)
+		return
+	var/list/other_way = get_path_to(body, heading_for, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+	if(QDELETED(src) || QDELETED(body))
+		return
+	// The doors of the room it was heading for, and whether each would open for it.
+	var/list/door_lines = list()
+	var/area/goal_room = get_area(heading_for)
+	if(goal_room && goal_room != get_area(from))
+		for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(goal_room, heading_for.z))
+			if(length(door_lines) >= 6)
+				break
+			var/list/state = list()
+			if(!door.allowed(body))
+				state += "locked to it"
+			if(door.locked)
+				state += "bolted"
+			if(door.welded)
+				state += "welded"
+			if(!door.hasPower())
+				state += "no power"
+			door_lines += "[door.name] at ([door.x],[door.y]): [length(state) ? english_list(state) : "opens for it"]"
+	// What first stands in the way going straight there: a wall, most often, but now and then a
+	// shutter, a windoor or a crate that the planner took for shut.
+	var/first_shut = "nothing"
+	for(var/turf/on_line as anything in get_line(from, heading_for))
+		if(on_line == from)
+			continue
+		var/atom/in_way
+		if(on_line.density)
+			in_way = on_line
+		else
+			for(var/obj/thing in on_line)
+				if(!thing.density)
+					continue
+				var/obj/machinery/door/door = thing
+				if(istype(door) && door.allowed(body) && !door.locked && !door.welded)
+					continue
+				in_way = thing
+				break
+		if(in_way)
+			first_shut = "[in_way.name] at ([on_line.x],[on_line.y])"
+			break
+	log_game("Crew NPC [key_name(body)] found no route to [goal] from [AREACOORD(from)]. The game's other pathfinder [length(other_way) ? "finds one of [length(other_way)] steps" : "finds none either"]. Doors of [goal_room ? goal_room.name : "that place"]: [length(door_lines) ? door_lines.Join("; ") : "none found"]. On the straight line there, the first thing in the way is [first_shut].")

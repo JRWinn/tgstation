@@ -202,6 +202,18 @@
 	var/list/clean_queue = list()
 	/// How many messes the cleaning job in progress has cleaned.
 	var/cleaned_count = 0
+	/// Something that turned up in its hand without its picking it up, as a weakref: it has yet to put it down.
+	var/datum/weakref/unasked_item
+	/// How many times it has put off putting that down because its hands were busy.
+	var/unasked_item_waits = 0
+	/// When one of the crew last handed it something. What comes to hand then is given, not found there.
+	var/handed_at = 0
+	/// How many messes it has tried in the cleaning job in hand and could not shift or could not get to.
+	var/clean_failed_count = 0
+	/// The kind of thing it was cleaning with when it found the messes in stubborn_messes would not come off.
+	var/stubborn_with
+	/// How many messes of each kind have not come off with that, by the kind's type.
+	var/list/stubborn_kinds = list()
 	/// How many messes the body has cleaned up this shift, and how many things it has put away. Its head hears of them at staff meetings.
 	var/work_cleaned = 0
 	var/work_put_away = 0
