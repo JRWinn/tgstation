@@ -73,8 +73,12 @@ import {
   ORDERING,
   orderSpoken,
   orderWritten,
+  SHUT_IN_WORDS,
+  seeToLine,
   TAKEN_WORDS,
+  tryAgainLine,
   WAITING_TOLD_WORDS,
+  WONT_COME_WORDS,
   WORD_HEARD,
   WORD_HEARD_WORDS,
 } from './supply';
@@ -87,6 +91,10 @@ const PAPER = 'qm_paper';
 const GIVE = 'qm_give';
 /** Opening a crate of its own that has come in. The task's item is the order's number. */
 const UNPACK = 'qm_unpack';
+/** Sending one of its technicians to see to something a workmate could not, face to face. */
+const SEND = 'qm_send';
+/** How long (deciseconds) such a sending is worth making. After that the trouble is over, or someone has told it again. */
+const SEND_STANDS_DS = 3000;
 /** Coming out of its office to a knock at the door. */
 const KNOCK = 'qm_knock';
 /** Going back to its office when there is nothing to see to. */
@@ -181,6 +189,8 @@ function ledgerOf(brain: NpcBrain): Ledger {
     paperRetryAt: 0,
     cameOutAt: 0,
     duties: {},
+    heldUp: {},
+    sendFor: null,
   };
   return brain.ledger;
 }
@@ -758,6 +768,17 @@ function syncTasks(brain: NpcBrain): void {
     }
   }
 
+  // A technician it means to send to see to something: the sending is face to face.
+  const sending = findTask(brain, SEND);
+  const toSend =
+    !!ledger.sendFor && brain.now - ledger.sendFor.at < SEND_STANDS_DS;
+  if (toSend && !sending) {
+    addTask(brain, { kind: SEND, urgency: 'asked', source: 'own' });
+  } else if (!toSend && sending) {
+    ledger.sendFor = null;
+    finishTask(brain, sending);
+  }
+
   // A knock at its office door, while it is in there: one of its technicians has word for it.
   const knock = brain.knockAt;
   const atDoor =
@@ -778,7 +799,7 @@ function syncTasks(brain: NpcBrain): void {
   const busy = brain.tasks.some(
     (task) =>
       task.state !== 'done' &&
-      [WRITE, GIVE, KNOCK, UNPACK, MEET].includes(task.kind),
+      [WRITE, GIVE, SEND, KNOCK, UNPACK, MEET].includes(task.kind),
   );
   const stayingOut =
     ledger.cameOutAt > 0 && brain.now - ledger.cameOutAt < STAY_OUT_DS;
@@ -892,10 +913,119 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
   };
 }
 
+/**
+ * A technician has said a crate would not go where it was meant to. The Quartermaster is the
+ * guide: it sends another technician to see to it, whoever's part of the work the shuttle is.
+ * With only the one technician, that one is told to try again. Told of the same crate a second
+ * time, whoever ordered it is sent word that it is held up.
+ */
+function crateHeldUp(
+  brain: NpcBrain,
+  speaker: string,
+  what: string,
+  how: string,
+  leftIn: string | null,
+): void {
+  const ledger = ledgerOf(brain);
+  ledger.heldUp[what] ??= { by: speaker, times: 0, at: brain.now };
+  const entry = ledger.heldUp[what];
+  entry.times += 1;
+  entry.at = brain.now;
+  entry.by = speaker;
+  if (entry.times === 1) {
+    const others = technicians(brain).filter((name) => name !== speaker);
+    const to =
+      others.find((name) =>
+        brain.peopleInView.some((person) => person.name === name),
+      ) ??
+      others[0] ??
+      speaker;
+    const where = leftIn ? `is in the ${leftIn}` : 'is lying by a door';
+    ledger.sendFor = {
+      to,
+      line:
+        to === speaker
+          ? tryAgainLine(firstName(to), what)
+          : seeToLine(
+              firstName(to),
+              `${what} ${where} and ${firstName(speaker)} could not get it ${how}`,
+            ),
+      why:
+        to === speaker
+          ? `${speaker} has told you that they could not get ${what} ${how}. You have no other technician to send, so you are telling ${speaker} to try it again.`
+          : `${speaker} has told you that they could not get ${what} ${how}. You are sending ${to} to see to it.`,
+      at: brain.now,
+    };
+    return;
+  }
+  // Twice now. Whoever ordered it is told that it is held up, once.
+  const number = Number(what.match(/#(\d+)/)?.[1]);
+  const order = number
+    ? ledger.orders.find((it) =>
+        it.crates?.some((crate) => crate.number === number),
+      )
+    : undefined;
+  if (entry.times === 2 && order && order.from !== brain.name) {
+    sendWord(
+      brain,
+      order.from,
+      `Held up at cargo: ${what} from your order cannot be got ${how} yet. I will send word when it can be collected.`,
+      `Your technicians have told you twice that they could not get ${what}, which ${order.from} ordered, ${how}. You are sending ${order.from} word that it is held up.`,
+    );
+  }
+}
+
+/** What sending a technician to see to something comes down to right now. */
+function sendStep(brain: NpcBrain): Plan {
+  const send = ledgerOf(brain).sendFor;
+  if (!send) {
+    return { ready: false, step: 'There is nobody to send.' };
+  }
+  const seen = brain.peopleInView.find((person) => person.name === send.to);
+  if (!seen) {
+    const post = brain.staffPost;
+    if (!post) {
+      return {
+        ready: false,
+        step: `${send.why} You do not know where to find ${send.to}.`,
+      };
+    }
+    if (brain.location !== post) {
+      return {
+        ready: true,
+        step: `${send.why} You tell your technicians what to do face to face, so you are going to the ${post} to find ${send.to}.`,
+        act: { tool: 'go_to', place: post },
+      };
+    }
+    return {
+      ready: false,
+      wait: true,
+      step: `${send.why} You are in the ${post}, waiting for ${send.to} to come back to it.`,
+    };
+  }
+  // Face to face means standing with them, not calling across the bay.
+  if ((seen.distance ?? 0) > SPEAKING_DISTANCE && !send.walkedUp) {
+    return {
+      ready: true,
+      step: `${send.why} ${send.to} is in sight, and you are walking up to them.`,
+      act: { tool: 'approach', person: seen.handle },
+    };
+  }
+  return {
+    ready: true,
+    step: `${send.why} ${send.to} is here. Your body is telling them, in these words: "${send.line}"`,
+    say: send.line,
+    exact: true,
+  };
+}
+
 function plan(brain: NpcBrain, task: Task): Plan | null {
   const ledger = ledgerOf(brain);
   if (task.kind === MEET) {
     return meetStep(brain, SUPPLY_WAY);
+  }
+  if (task.kind === SEND) {
+    return sendStep(brain);
   }
   if (task.kind === PAPER) {
     return {
@@ -959,6 +1089,8 @@ function describeTask(task: Task): string | null {
       return 'write up your order book';
     case GIVE:
       return `give order ${task.item} to one of your technicians`;
+    case SEND:
+      return 'send a technician to see to a crate that would not come';
     case UNPACK:
       return `open the crate that came on order ${task.item}`;
     case KNOCK:
@@ -1131,6 +1263,24 @@ export const QUARTERMASTER: Job = {
     }
     if (isHead(job) && ORDER_WORDS.test(text)) {
       takeOrder(brain, from, job, text);
+      return;
+    }
+    // One of its technicians is shut in and cannot walk to it: the one time word between them
+    // goes by PDA. It sends another technician to see what is shutting the way.
+    const shutIn = isTechnician(job) ? text.match(SHUT_IN_WORDS) : null;
+    if (shutIn) {
+      const other = technicians(brain).find((name) => name !== from);
+      if (other) {
+        ledgerOf(brain).sendFor = {
+          to: other,
+          line: seeToLine(
+            firstName(other),
+            `${firstName(from)} is shut in the ${shutIn[1].trim()}`,
+          ),
+          why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to see what is shutting the way.`,
+          at: brain.now,
+        };
+      }
     }
   },
   // What is said in its hearing: a technician giving its report, saying they have an order, that
@@ -1184,6 +1334,19 @@ export const QUARTERMASTER: Job = {
             `${speaker} has told you that order ${order.n}, which ${order.from} sent you, has come in. You are sending ${order.from} the crate numbers by PDA.`,
           );
         }
+        return;
+      }
+      // A crate that would not go where it was meant to. It says what is to be done about it.
+      const stuck = heard.match(WONT_COME_WORDS);
+      if (stuck) {
+        heardIt();
+        crateHeldUp(
+          brain,
+          speaker,
+          stuck[1].trim(),
+          stuck[2],
+          stuck[3] ?? null,
+        );
         return;
       }
       const lost = heard.match(LOST_TOLD_WORDS);
@@ -1270,6 +1433,11 @@ export const QUARTERMASTER: Job = {
       }
       return;
     }
+    // Having sent a technician to see to something in so many words, they are sent.
+    if (ledger.sendFor && called === ledger.sendFor.line) {
+      ledger.sendFor = null;
+      return;
+    }
     // Having given an order in so many words, it is given.
     const given = called.match(GIVEN_WORDS);
     if (!given) {
@@ -1307,6 +1475,10 @@ export const QUARTERMASTER: Job = {
       if (order) {
         order.walkedUp = true;
       }
+    }
+    // Likewise one it means to send somewhere.
+    if (task?.kind === SEND && act.tool === 'approach' && ledger.sendFor) {
+      ledger.sendFor.walkedUp = true;
     }
     // Its own crate is open, and what was in it is out where it can be got at.
     if (task?.kind === UNPACK && act.tool === 'open_own_crate' && ok) {

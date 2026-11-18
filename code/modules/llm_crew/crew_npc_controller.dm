@@ -153,6 +153,24 @@
 	var/list/tidy_skipped = list()
 	/// The crate the body is hauling into the bay or aboard the shuttle, as a weak reference.
 	var/datum/weakref/hauled_ref
+	/// How many times the crate of the haul in progress has got away and been taken up again.
+	var/haul_tries = 0
+	/// The haul the body has given up on while it puts the crate clear of the doors: the tool that began it, and why it failed. Null when it has not given one up.
+	var/gave_up_tool
+	var/gave_up_reason
+	/// TRUE for the moment between one step of seeing to a crate and the next: a walk has ended and the errand that follows it has not begun. The brain is told the body is busy throughout.
+	var/seeing_to_crate = FALSE
+	/// TRUE while that haul is being reported to the brain as failed, so the report says where the crate was left.
+	var/reporting_gave_up = FALSE
+	/// TRUE once the body has tried to pull that crate clear and could not. Pushing it is what is left.
+	var/clear_by_pushing = FALSE
+	/// Where the crate of a haul that was given up has been left, in words for the brain, and whether it was pushed there. Null if it could not be put clear.
+	var/left_clear_in
+	var/left_clear_pushed = FALSE
+	/// What the body goes back to once a crate that was shutting its way is clear: a list with either walk (target, tool, goal, timeout) or haul (crate as a weak reference, tool, name, tries). Null when it is not clearing its way.
+	var/list/after_clearing
+	/// world.time the body last set about moving a crate that was shutting its way, or 0. It does not do so again for a while, so a crate it cannot shift is not gone at over and over.
+	var/way_cleared_at = 0
 	/// TRUE if the room the body is in is locked to it: none of its doors open for the body.
 	var/out_of_bounds = FALSE
 	/// The doors into the body's post, as weak references. Null until they have been looked for.

@@ -29,6 +29,7 @@
 //   bun run sim.ts quiet qmgone    a Quartermaster who never answers: after three minutes the head takes its order to the counter, as it did before there was one
 //   bun run sim.ts quiet qmpaper   no paper anywhere to be found: the Quartermaster orders some like anything else, and opens that crate itself
 //   bun run sim.ts quiet qmlost    a crate a head ordered is destroyed in the bay: the technician tells the Quartermaster to its face, who tells the head and has it ordered again
+//   bun run sim.ts quiet qmstuck   a technician gives a crate up after it got away too often: it tells the Quartermaster where it left it, and the Quartermaster sends the other technician to see to it
 //   bun run sim.ts quiet qmwait    a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -260,6 +261,8 @@ const opened: string[] = [];
 const putAway: string[] = [];
 // Crates hauled clear of a door they were left by, and each time someone stepped out of someone's way.
 const stowed: string[] = [];
+// The technician whose first haul off the shuttle came to nothing, in the scenario about that.
+let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 const HOP_OFFICE = "Head of Personnel's Office";
 // What was ordered and for whom; where each crate was unpacked and by whom; how many came back; who was at the meeting when the room was asked.
@@ -705,6 +708,11 @@ function toolCall(body: Body, tool: string, args: any) {
     case 'unload': {
       const crate = shuttle.docked ? shuttle.aboard.find((box) => !spent(box)) : undefined;
       if (!crate) return result(body, 'unload', false, 'There is nothing left aboard the supply shuttle to unload.');
+      const ordered = held.find((entry) => entry.box === crate);
+      if (VARIANT === 'qmstuck' && !stuckBy && ordered) {
+        stuckBy = body.name;
+        return busy(body, 12, 'hauling a crate off the supply shuttle', true, () => result(body, 'unload', false, `You could not get the ${crate.name} where it was going: it caught on something and you lost your grip on it. You have left it in Supply Shuttle, clear of the doors. You are in Cargo Bay.`, { place: 'Cargo Bay', gave_up: true, crate: crate.name, number: ordered.number, left_in: 'Supply Shuttle' }));
+      }
       return busy(body, 6, 'hauling a crate off the supply shuttle', true, () => {
         // A workmate may have had it off first.
         if (!shuttle.aboard.includes(crate)) return result(body, 'unload', false, 'There is nothing left aboard the supply shuttle to unload.');
@@ -1000,6 +1008,12 @@ function spawnOrderDesk() {
   players.push({ name: 'Hal Pott', job: 'Head of Personnel', room: 'Bridge' }, { name: CAPTAIN, job: 'Captain', room: 'Bridge' });
   return crew;
 }
+// A Quartermaster and two technicians, so that there is a second one to send.
+function spawnStuckDesk() {
+  const crew = [spawn('Ada Finch', 'Quartermaster'), spawn('Cora Tech', 'Cargo Technician'), spawn('Vik Hale', 'Cargo Technician')];
+  players.push({ name: 'Hal Pott', job: 'Head of Personnel', room: 'Bridge' }, { name: CAPTAIN, job: 'Captain', room: 'Bridge' });
+  return crew;
+}
 // The usual crew with one technician, and a Quartermaster who is aboard and never answers: it is not one of the NPCs.
 function spawnQuartermasterGone() {
   const crew = spawnStaffed(['Cora Tech']);
@@ -1007,7 +1021,7 @@ function spawnQuartermasterGone() {
   return crew;
 }
 // The scenarios about the Quartermaster's desk alone: no janitors, no meeting, one order.
-const DESK = VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmlost' || VARIANT === 'qmwait';
+const DESK = VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmlost' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
 // How many of the Quartermaster's questions the Captain has answered, in the scenarios where it answers.
 let captainAnswers = 0;
 let captainAnsweredAt = 0;
@@ -1018,11 +1032,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 // With a Quartermaster who does not answer, the order, and the mail that comes with it, are three minutes later.
@@ -1058,7 +1072,7 @@ for (let second = 0; second < SECONDS; second++) {
   if ((VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet') && second === 20) playerMessages('Hal Pott', bodies[0], 'I need to order two crates of janitorial supplies and a crate of replacement lights for my staff, please.');
   if (VARIANT === 'qmpoor' && second === 20) playerMessages('Hal Pott', bodies[0], 'I need to order two crates of janitorial supplies for my staff, please.');
   // One crate, well within the budget: nothing the Captain has to be asked about.
-  if ((VARIANT === 'qmlost' || VARIANT === 'qmwait') && second === 20) playerMessages('Hal Pott', bodies[0], 'I need to order a crate of janitorial supplies for my staff, please.');
+  if ((VARIANT === 'qmlost' || VARIANT === 'qmwait' || VARIANT === 'qmstuck') && second === 20) playerMessages('Hal Pott', bodies[0], 'I need to order a crate of janitorial supplies for my staff, please.');
   // The Captain answers the Quartermaster a little after being asked, in the scenarios where it answers at all.
   // Each question is answered once, yes, except where the scenario is the Captain saying no, or saying nothing.
   const quartermasterBody = bodies.find((other) => other.job === 'Quartermaster');
@@ -1233,7 +1247,7 @@ if (tech) {
     check('it does not nag: each door is knocked at or asked for a few times at most', knocks.filter((entry) => entry.startsWith(jan.name)).length <= 6 && asked.length <= 6, `${knocks.length} knock(s), ${asked.length} ask(s)`);
   }
   const orders = techLog.filter((line) => /^\S+ .{24} order( |$)/.test(line)).length;
-  const ordered = janitors.length > 2 || VARIANT === 'waiting' || VARIANT === 'mixed' || VARIANT === 'lost' || VARIANT === 'qmbig' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmwait';
+  const ordered = janitors.length > 2 || VARIANT === 'waiting' || VARIANT === 'mixed' || VARIANT === 'lost' || VARIANT === 'qmbig' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
   // A crate that is lost is ordered again: two orders, one after the other.
   if (VARIANT === 'qmlost') check('two orders were placed: the one the head sent, and the same again when its crate was lost', orders === 2, `orders: ${orders}`);
   else check(ordered ? 'exactly one order was placed, by one technician' : 'no order was needed', ordered ? orders === 1 : orders === 0, `orders: ${orders}`);
@@ -1342,13 +1356,30 @@ if (qm) {
       const counter = techs.find((body) => body.name === sorted[0])!;
       const other = techs.find((body) => body.name === sorted[1])!;
       const notHers = counter.log.filter((line) => line.slice(0, 8) > since && /^\S+ .{24} (unload|recycle|send_shuttle|collect_mail|tidy|check_held|stow_crate|go_to \{"place":"Delivery Office"\})( |$)/.test(line));
-      check('whoever has the counter leaves the shuttle and the rooms to whoever was given them', notHers.length === 0 && other.log.some((line) => / unload/.test(line)), notHers.length ? notHers.join(' | ') : `${other.name} unloaded the shuttle`);
+      // Sent by the Quartermaster to see to a crate a workmate gave up, the shuttle is whoever was sent's as well. Until then it is left alone.
+      if (VARIANT === 'qmstuck') {
+        const sentAt = spoken.find((line) => line.who === qm.name && /See to it, please\.$/.test(line.text))?.at;
+        const before = sentAt ? new Date(sentAt).toISOString().slice(11, 19) : '99';
+        check('whoever has the counter leaves the shuttle alone until the Quartermaster sends them to it, and then sees to it', notHers.length > 0 && notHers.every((line) => line.slice(0, 8) >= before), notHers.join(' | ') || 'they never went to the shuttle');
+      } else check('whoever has the counter leaves the shuttle and the rooms to whoever was given them', notHers.length === 0 && other.log.some((line) => / unload/.test(line)), notHers.length ? notHers.join(' | ') : `${other.name} unloaded the shuttle`);
     }
   }
   if (VARIANT === 'qmpaper') {
     check('finding no paper anywhere, it orders a crate that has some in it, through its own technician', paperTries.length >= 1 && orderKinds.length === 1 && orderKinds[0] === '1 Bureaucracy Crate', `${paperTries.length} look(s) for paper; ordered: ${orderKinds.join('; ') || 'nothing'}`);
     check('when the crate comes it opens it itself, in its own department, once it is off the shuttle', openedOwn.length === 1 && openedOwn[0] === 4521 && released.length === 0, `opened: ${openedOwn.join(', ') || 'nothing'}`);
     check('and then has its paper: it finds a sheet, takes its clipboard in hand, and writes up what it carried in its head', gotPaperAt.length === 1 && qm.holding.includes('clipboard') && inBook(/^Order 1\. From Ada Finch, Quartermaster: 1 Bureaucracy Crate\. 640 cr\.$/) && inBook(/^Order 1\. Docked: crate #4521/), book.join(' | ') || 'nothing written');
+  }
+  if (VARIANT === 'qmstuck') {
+    const stuck = techs.find((body) => body.name === stuckBy);
+    const helper = techs.find((body) => body.name !== stuckBy);
+    const told = stuck?.said.filter((line) => /^Ada, I could not get crate #4521 off the shuttle\. It is in the Supply Shuttle, clear of the doors\./.test(line)) ?? [];
+    check('a technician who gave a crate up tells the Quartermaster, face to face, what would not come and where it left it', !!stuck && told.length >= 1 && told.length <= 2, told[0] ?? `it was never said; ${stuckBy || 'nobody'} gave a crate up`);
+    const heardIt = qm.said.filter((line) => line.startsWith(`${firstOf(stuckBy)}, `) && /\bI have that\b/.test(line));
+    check('the Quartermaster says, by name, that it has that', heardIt.length >= 1, `${heardIt.length} time(s), counting its word back about the order coming in`);
+    const sent = qm.said.filter((line) => !!helper && line === `${firstOf(helper.name)}, crate #4521 is in the Supply Shuttle and ${firstOf(stuckBy)} could not get it off the shuttle. See to it, please.`);
+    check('and sends the other technician to see to it, face to face, once, in so many words', sent.length === 1, sent[0] ?? `it said: ${qm.said.join(' | ')}`);
+    check('the crate is hauled off the shuttle in the end', (held[0]?.heldSince ?? 0) > 0, held[0] ? `crate #${held[0].number} is ${held[0].heldSince ? 'in the bay' : 'still aboard'}` : 'no crate came');
+    check('nobody is sent word of it by PDA: the crate was not lost', !techs.some((body) => sentBy(body, orderer, /could not get|held up/i).length > 0) && sentBy(qm, orderer, /held up/i).length === 0);
   }
   if (VARIANT === 'qmlost') {
     const tech = techs[0];

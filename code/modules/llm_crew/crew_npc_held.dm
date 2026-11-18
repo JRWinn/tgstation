@@ -311,6 +311,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	release_for = QDELETED(person) ? last_heard_speaker : person.name
+	begin_haul()
 	start_errand(crate, CREW_TOOL_RELEASE, "crate #[entry.number]")
 
 /// Takes hold of the held crate the body is standing by and sets off for the Cargo Lobby with it.
@@ -328,11 +329,14 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
 	// It is marked with its number and who it is for before it leaves the bay, so anyone who finds it knows.
-	label_crate(crate, entry)
+	// Once: a crate taken up again after it got away has its label already.
+	if(!haul_tries)
+		label_crate(crate, entry)
 	hauled_name = "crate #[entry.number]"
 	hauled_ref = WEAKREF(crate)
 	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
 	start_walk(destination, CREW_TOOL_RELEASE, lobby, CREW_NPC_TRAVEL_TIMEOUT)
+	wait_for_way(crate)
 	return list(TRUE, null)
 
 /// Called when the walk out to the lobby with a held crate ends. Lets go of it and tells the brain.
@@ -351,7 +355,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		return
 	var/list/details = list("place" = place)
 	var/blocker = in_the_way_report(hauled, details)
-	action_result(CREW_TOOL_RELEASE, FALSE, "You could not get the [hauled_name] out to the lobby: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
+	action_result(CREW_TOOL_RELEASE, FALSE, "You could not get the [hauled_name] out to the lobby: [reason || "you lost your grip on it"].[blocker][gave_up_report(details)] You are in [place].", details)
 
 /**
  * Tool: haul a crate that cargo has put out for collection to a room, and unpack it there.
@@ -377,6 +381,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		action_result(CREW_TOOL_COLLECT, FALSE, "You cannot get into [known] yourself, so you cannot take a crate there.")
 		return
 	collect_to = known
+	begin_haul()
 	start_errand(entry.crate_ref.resolve(), CREW_TOOL_COLLECT, "crate #[entry.number]")
 
 /// Takes hold of the crate the body has come for and sets off with it for the room it is wanted in.
@@ -397,6 +402,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	hauled_ref = WEAKREF(crate)
 	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
 	start_walk(destination, CREW_TOOL_COLLECT, collect_to, CREW_NPC_TRAVEL_TIMEOUT)
+	wait_for_way(crate)
 	return list(TRUE, null)
 
 /// Called when the walk with a collected crate ends. Unpacks it where it was wanted, and tells the brain.
@@ -421,4 +427,4 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		entry.collected_by = null
 	var/list/details = list("place" = place)
 	var/blocker = in_the_way_report(hauled, details)
-	action_result(CREW_TOOL_COLLECT, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
+	action_result(CREW_TOOL_COLLECT, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker][gave_up_report(details)] You are in [place].", details)

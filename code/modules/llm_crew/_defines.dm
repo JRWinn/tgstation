@@ -196,8 +196,24 @@
 #define CREW_NOTICE_LOST "lost"
 /// How many times cargo staff have to find they cannot get to a held crate before it is written off.
 #define CREW_NPC_LOST_AFTER 2
+/// Not a tool the brain can call: marks the errand and the walk a body makes to get a crate clear of a door, when the crate would not go where it was meant to or was shutting its way.
+#define CREW_TOOL_PUT_CLEAR "put_clear"
 /// TRUE if a walk started by this tool has the body hauling something, or someone, behind it.
-#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_RELEASE || tool == CREW_TOOL_COLLECT || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK || tool == CREW_TOOL_STOW)
+#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_RELEASE || tool == CREW_TOOL_COLLECT || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK || tool == CREW_TOOL_STOW || tool == CREW_TOOL_PUT_CLEAR)
+/// TRUE if what it hauls is a crate, which can be taken up again if it gets away. Someone being walked out is not.
+#define CREW_NPC_HAULS_CRATE(tool) (CREW_NPC_HAULS(tool) && tool != CREW_TOOL_EVICT)
+/// Why a walk ended, in the words the body is told, when what it was hauling was left behind.
+#define CREW_NPC_GRIP_LOST "it caught on something and you lost your grip on it"
+/// Why a walk ended, in the words the body is told, when no way to where it was going could be found.
+#define CREW_NPC_NO_WAY "there is no way through"
+/// How many times a body takes up a crate that got away from it before it gives that haul up.
+#define CREW_NPC_HAUL_TRIES 3
+/// How long a body that has taken a crate up again gives whoever it caught on to get out of the way.
+#define CREW_NPC_REGRIP_WAIT (3 SECONDS)
+/// How far from itself, in tiles, a body looks for somewhere clear of doors to put a crate that will not come.
+#define CREW_NPC_CLEAR_REACH 6
+/// The most tiles a body pushes a crate to get it clear of a door.
+#define CREW_NPC_PUSH_REACH 6
 /// Tool name: send someone a PDA message.
 #define CREW_TOOL_MESSAGE "message"
 /// Tool name: throw a cleaner grenade into a thick patch of mess.

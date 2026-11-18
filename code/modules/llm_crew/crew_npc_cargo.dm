@@ -567,6 +567,7 @@
 		crate_to_return = null
 		action_result(CREW_TOOL_TAKE_BACK, FALSE, "You have no empty crate to take back.")
 		return
+	begin_haul()
 	start_errand(crate, CREW_TOOL_TAKE_BACK, format_text(crate.name))
 
 /**
@@ -589,7 +590,10 @@
 	body.start_pulling(crate)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on the [format_text(crate.name)].")
+	hauled_name = "empty crate"
+	hauled_ref = WEAKREF(crate)
 	start_walk(destination, CREW_TOOL_TAKE_BACK, place_name, CREW_NPC_TRAVEL_TIMEOUT)
+	wait_for_way(crate)
 	return list(TRUE, null)
 
 /// Called when the walk back with an emptied crate ends. Lets go of it and tells the brain.
@@ -604,7 +608,7 @@
 	else
 		var/list/details = list("place" = place)
 		var/blocker = in_the_way_report(crate_to_return?.resolve(), details)
-		action_result(CREW_TOOL_TAKE_BACK, FALSE, "You could not get the empty crate back: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
+		action_result(CREW_TOOL_TAKE_BACK, FALSE, "You could not get the empty crate back: [reason || "you lost your grip on it"].[blocker][gave_up_report(details)] You are in [place].", details)
 
 /**
  * Returns the messes the body remembers in the rooms it works in, as room name -> what the messes are.

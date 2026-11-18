@@ -277,6 +277,9 @@ export function ingest(npcs: Npc[], now: number): void {
         lookedIn: {},
         lastArrivalAt: 0,
         inTheWay: null,
+        gaveUp: null,
+        seeToUntil: 0,
+        wontComeTold: {},
         doorAsked: null,
         toldToLeave: null,
         keptOut: {},
@@ -654,6 +657,21 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.inTheWay = {
           handle: String(event.details.in_the_way),
           at: Date.now(),
+        };
+      }
+      // A haul it gave up on: the crate got away too often, or there was no way through with it.
+      // What its job makes of that, such as telling its head, is for the job.
+      if (event.details.gave_up && typeof event.details.tool === 'string') {
+        const number = Number(event.details.number);
+        const named = String(event.details.crate ?? 'crate').replace(/\./g, '');
+        brain.gaveUp = {
+          tool: event.details.tool,
+          what: number ? `crate #${number}` : `the ${named}`,
+          leftIn:
+            typeof event.details.left_in === 'string'
+              ? event.details.left_in
+              : null,
+          at: event.at,
         };
       }
       noteResult(brain, event);

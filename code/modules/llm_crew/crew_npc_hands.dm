@@ -177,6 +177,8 @@
 			return haul_crate_back(target)
 		if(CREW_TOOL_UNLOAD, CREW_TOOL_RECYCLE, CREW_TOOL_STOW)
 			return haul_freight(target)
+		if(CREW_TOOL_PUT_CLEAR)
+			return haul_clear(target)
 		if(CREW_TOOL_MAIL)
 			return take_mail(target)
 		if(CREW_TOOL_HAND_MAIL)
@@ -269,6 +271,11 @@
 	var/list/messes_left = clean_queue
 	cancel_errand()
 	if(isnull(tool))
+		return
+	// Getting a crate clear of a door is not something the brain asked for. What it did ask for is
+	// reported, or taken up again, now that the crate has been pushed clear or could not be got to.
+	if(tool == CREW_TOOL_PUT_CLEAR)
+		put_clear_finished()
 		return
 	// A thing it could not find a place for is put back down, not carried about for the rest of the shift.
 	if(tool == CREW_TOOL_TIDY && !outcome[1])
@@ -385,7 +392,7 @@
 				return "hauling a crate off the supply shuttle"
 			if(CREW_TOOL_RECYCLE)
 				return "hauling an empty crate aboard the supply shuttle"
-			if(CREW_TOOL_STOW)
+			if(CREW_TOOL_STOW, CREW_TOOL_PUT_CLEAR)
 				return "hauling a crate clear of a door"
 			if(CREW_TOOL_STEP_ASIDE)
 				return "stepping out of someone's way"
@@ -427,6 +434,10 @@
 				return "going to unload a crate from the supply shuttle"
 			if(CREW_TOOL_RECYCLE)
 				return "going to fetch an empty crate to send back"
+			if(CREW_TOOL_STOW)
+				return "going to move a crate that was left by a door"
+			if(CREW_TOOL_PUT_CLEAR)
+				return "getting a crate clear of a door"
 			if(CREW_TOOL_MAIL)
 				return "going to take the mail out of its crate"
 			if(CREW_TOOL_HAND_MAIL)
@@ -443,6 +454,8 @@
 				return "putting away something that was lying about"
 	if(blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
 		return "looking through the storage here"
+	if(seeing_to_crate)
+		return "going back for a crate"
 	if(resting)
 		return "resting"
 	return null

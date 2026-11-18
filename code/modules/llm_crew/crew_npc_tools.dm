@@ -372,22 +372,22 @@
 	var/why = reason || "you were interrupted"
 	if(!succeeded)
 		log_walk_failed(target, tool, goal, why)
+		// A loose crate jammed in a doorway may be all that shuts the way. Anyone would move it and go on.
+		if(reason == CREW_NPC_NO_WAY && clear_the_way(target, tool, goal))
+			return
+		// A crate that got away is gone back for, and one that will not come is put clear of the
+		// doors, before anything is said about the haul. It is not over until that is done.
+		if(crate_got_away(tool, reason))
+			return
 
-	if(tool == CREW_TOOL_RELEASE)
-		crate_released(succeeded, reason)
+	if(tool == CREW_TOOL_PUT_CLEAR)
+		put_clear_finished()
 		return
-	if(tool == CREW_TOOL_COLLECT)
-		crate_collected(succeeded, reason)
-		return
-	if(tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_STOW)
-		freight_hauled(tool, succeeded, reason)
+	if(finish_haul(tool, succeeded, reason))
 		return
 	// Getting out of someone's way is over when the body is standing clear, wherever that is.
 	if(tool == CREW_TOOL_STEP_ASIDE)
 		action_result(tool, succeeded, succeeded ? "You step aside, out of the way." : "You could not get out of the way: [why].")
-		return
-	if(tool == CREW_TOOL_TAKE_BACK)
-		crate_taken_back(succeeded, reason)
 		return
 	if(tool == CREW_TOOL_EVICT)
 		put_out(succeeded, reason)

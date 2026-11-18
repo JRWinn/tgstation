@@ -1,10 +1,49 @@
 # Crew NPC plan: dropped crates
 
-Written 2026-11-18 from the round logged at `data/logs/2026/11/18/round-00.56.30`. Rewritten the same day after the project owner answered. **Planning only: nothing here is built, and nothing is to be built until the owner says so.**
+Written 2026-11-18 from the round logged at `data/logs/2026/11/18/round-00.56.30`. Rewritten the same day after the project owner answered, and built that morning on the owner's "do it". The sections below are the plan as it was written. The Status section says what was built and where it differs.
 
 Items marked **Decided** are the owner's. Items marked **Mine** are choices I made to fill in the rest; section 7 lists the ones worth a second look. Items marked **Unknown** are not known yet.
 
-**Do not start until the Quartermaster work is committed.** That work now changes `crew_npc_tools.dm`, `crew_npc_cargo.dm`, `_defines.dm`, `types.ts`, `brain.ts`, `jobs/cargo.ts` and the simulator, and this plan touches every one of them.
+## Status
+
+**Built 2026-11-18. Server compile, type check and simulator only. Not played in a round.** Everything a crate does (getting away, being taken up again, being pulled or pushed clear) happens only in the game, so none of that has been seen to work. The entry at the top of `LLM_CREW_CHANGELOG.md` has the detail.
+
+Built:
+
+- The log lines (4.5).
+- Taking a crate up again, for every kind of haul (4.1).
+- Putting it clear by pulling, and by pushing where pulling fails (4.2).
+- A crate that shuts anyone's way is moved, and empties by a shuttle door are tidied (4.3).
+- A technician tells the Quartermaster of a crate it gave up, the Quartermaster sends another technician or tells its only one to try again, and tells whoever ordered if it is told a second time (4.4).
+- A failed haul with no way through counts towards a body knowing it is shut in (4.4).
+- What the technician's voice is told about a crate it gave up (4.6).
+
+Where what was built differs from the plan:
+
+- "Three tries" is three goes at taking it up again. The crate is given up the fourth time it gets away.
+- "A crate lying in a doorway" (4.3) is narrower than "within a tile of a door": the crate has to be on a door's own tile, or beside a door in a passage one tile wide. A crate that merely stands near a door shuts nobody's way, and maintenance is full of those.
+- The body has to see the crate, or the door it lies by. A crate between two shut doors is not seen, but the door is.
+- A body clears its way at most once a minute, so a crate it cannot shift is not gone at over and over.
+- The deck tidy-up covers empties only. A crate with something in it by a shuttle door is hauled off with the rest.
+- Pushing is only done across open floor. A crate is not pushed at a shut door: a body pulls it back the way it came instead, straight back if it cannot see where it came from.
+- The Quartermaster's "try it again" changes nothing in the technician who hears it. That technician tries again by itself, a little later, as it does after any failed haul.
+
+Not built:
+
+- The Quartermaster coming itself when a technician is shut in and there is no other to send.
+- Anything in the order book about a crate that would not come.
+- Voice cases on the real model for the new lines.
+- Simulator scenarios `regrip`, `putclear` and `shutaboard`. The simulator plays the server by hand and has no crates that move, so they would test nothing. One scenario was added, `qmstuck`: a technician gives a crate up, tells the Quartermaster, and the other technician is sent.
+
+Not known:
+
+- Whether a technician shut aboard the shuttle gets as far as sending its head the "I am shut in" message. That path was written for locked doors, and asks for a door to stand at.
+- Which tiles the crates lay on in the round this came from. The new log lines will say next time.
+
+Background, checked on 2026-11-18 after the Quartermaster commits (`1939a113`, `6e249e9e`, `4b648cca`):
+
+- The Quartermaster already hands out the shuttle to one technician for the shift at its first meeting. Section 4.4 uses that, and the way a technician now passes word to the Quartermaster.
+- Lost grips are not only a dock fault. The first round with a Quartermaster (`round-01.53.17`) had three: an empty going aboard, a crate brought out to the lobby, and a crate being moved from a door. The round before the one this plan came from had two.
 
 ## 1. The rules, in short
 
@@ -32,7 +71,7 @@ Times are the local clock, as the NPCs see it. The log files are six hours ahead
 
 - The dock on MetaStation has two airlocks for people, at y 151 and y 153. Each is one tile wide and three long (x 64 to 66), with a door at each end. The supply shuttle has a door facing each.
 - A pull breaks the moment the load is more than one tile from whoever is pulling it. The load trails one step behind.
-- Two people who meet in a passage change places. A crate cannot change places with anyone. So when a hauler and someone coming the other way swap, the crate is left a tile further back and the pull breaks. In a passage one tile wide this happens every time.
+- Crew bodies step past each other in a passage. A crate cannot step past anyone. So when a hauler and someone coming the other way pass, the crate comes up against whoever was passed, stops, and the pull breaks. In a passage one tile wide this happens every time.
 - Anyone can push a loose crate by walking into it. It moves one tile ahead of them. Read from the game's code (`PushAM` in `living.dm`); not yet tried with a crew body.
 - A route is never planned through a loose crate. To the planner it is a wall.
 - The supply shuttle will not leave with anyone standing aboard. A technician shut in on it is not carried off.
@@ -43,10 +82,13 @@ Times are the local clock, as the NPCs see it. The log files are six hours ahead
   - An empty crate anywhere on the shuttle counts as already sent back. Nobody moves it again.
   - The crate tidy-up hauls by pulling, with the body in front. A body shut in behind a crate in a one-tile passage cannot get in front of it, so the tidy-up fails the same way the haul did.
   - A failed walk to a room counts towards a body knowing it is shut in. A failed haul does not.
-- What the Quartermaster work gives us (built 2026-11-18, not yet played):
-  - A technician tells the Quartermaster face to face when an order has come in, and knocks at its office door if it is not in sight.
+- What the Quartermaster work gives us (committed 2026-11-18; the duty split has not been seen in a played round):
+  - At its first meeting the Quartermaster divides the standing work, to each technician's face: "Cora, the shuttle and the rooms are yours this shift." With two technicians, one has the counter and the other has the shuttle and the rooms.
+  - Unloading, loading the empties and sending the shuttle back are shuttle work. Moving a crate from a door is rooms work. A technician leaves another's part alone while that workmate is about.
+  - With four or more technicians, the extra ones help with the shuttle, so two can still meet in the dock.
+  - A technician with word for the Quartermaster says it in person and waits to hear "I have that". With nothing back it says it again, and after two tries it sends a PDA message to whoever ordered. It knocks at the office door if the Quartermaster is not in sight.
   - Nothing passes between the Quartermaster and a technician by PDA.
-  - The Quartermaster hands out each order. It does not yet hand out the standing work: counter, shuttle and rooms.
+  - A lost crate is ordered again once by the Quartermaster.
 
 ## 4. How it would work
 
@@ -79,16 +121,15 @@ Times are the local clock, as the NPCs see it. The log files are six hours ahead
 ### 4.4 The Quartermaster is the guide
 
 - **Decided:** the Quartermaster will be aboard, and it is the guide. The dock is not shared out by a rule between technicians.
-- **Mine:** one technician has the shuttle at a time, and the Quartermaster says who.
-  - When a technician tells it an order has come in, the Quartermaster answers, word for word: "Maria, the shuttle is yours: unload it and load the empties."
-  - That technician alone unloads, loads the empties and sends the shuttle back. The other keeps the counter and the rooms, and does not go through the dock to haul.
-  - With one technician aboard, the shuttle is theirs without being told.
-- **Mine:** a technician who has given up on a crate (4.2) tells the Quartermaster face to face, in a line written by code: "Ada, I could not get crate #1091 off the shuttle. It is aboard, clear of the doors."
-  - The Quartermaster sends the other technician for it, by name and face to face. With only one technician, it tells that one to try again, once.
+- One technician has the shuttle, and the Quartermaster says who. **This is already built** as the duty split at its first meeting. Nothing more is added here.
+- **Mine:** a technician who has given up on a crate (4.2) tells the Quartermaster, in a line written by code: "Ada, I could not get crate #1091 off the shuttle. It is aboard, clear of the doors."
+  - It is passed the way other word is now: in person, waiting for "I have that", said again if not heard.
+  - The Quartermaster sends another technician for it, by name and face to face, whatever that technician's own part of the work is. With only one technician, it tells that one to try again, once.
   - If that fails too, the Quartermaster tells whoever ordered the crate that it is held up, by PDA.
 - **Mine:** a technician shut in by a crate it cannot shift tells the Quartermaster by PDA. This is the one case where they do not speak face to face, because the technician cannot walk to it. The Quartermaster sends the other technician to move the crate from the outside, or comes itself if there is none.
 - **Mine:** a failed haul with no way through counts towards a body knowing it is shut in, the same as a failed walk does. In the round neither technician knew for five minutes.
-- With the Quartermaster dead or gone, nobody hands out the shuttle. Both technicians work it as they do today, and rules 1 to 4 are what keep the dock clear.
+- A crate that shuts a technician's own way is moved by that technician (4.3), whoever has the rooms.
+- With the Quartermaster dead or gone before it has divided the work, both technicians work the shuttle, and rules 1 to 4 are what keep the dock clear.
 
 ### 4.5 The log
 
@@ -114,22 +155,23 @@ Server, `code/modules/llm_crew`:
 - `misplaced_crates` and `storage_spot`: the shuttle deck while docked. One tile of clearance from doors there, the deck being small.
 - `walk_finished`: on no way through, look for a loose crate in a doorway in view, move it, walk once more.
 - `freight_hauled`: a haul that fails with no way through counts towards being shut in.
-- Who has the shuttle, kept on the server and sent to the brain with the rest of the freight state.
+- A regrip must not be counted as a second crate in the technicians' "crates in" and "crates out" tallies.
 
 Brain window, `tgui/packages/tgui/interfaces/CrewBrain`:
 
-- `jobs/supply.ts`: the words for "the shuttle is yours", "I could not get crate N", "fetch crate N" and "try again", read by code on both sides like the order lines.
-- `jobs/quartermaster.ts`: giving out the shuttle, and what it does when told a crate will not come or a technician is shut in.
-- `jobs/freight.ts`: unloading, loading and sending wait unless the shuttle is this technician's, while there is a Quartermaster.
-- `jobs/cargo.ts`: telling the Quartermaster, and the cues for 4.6.
-- `types.ts`, `brain.ts`: the new field and the new event lines.
-- `tools/llm_crew/fixtures.ts`: the new field, or the model tests break.
+- `jobs/supply.ts`: the words for "I could not get crate N", "fetch crate N" and "try again", read by code on both sides like the order lines.
+- `jobs/quartermaster.ts`: what it does when told a crate will not come or a technician is shut in (`overhears`).
+- `jobs/cargo.ts`: one more kind of word for `tellQuartermaster`, a fetch that overrides `leftTo`, and the cues for 4.6.
+- `brain.ts`: the new event lines.
+- `tools/llm_crew/fixtures.ts`, if a brain field is added.
+
+And an entry at the top of `LLM_CREW_CHANGELOG.md`.
 
 Checks:
 
 - Server compile and type check.
 - The table of cases in `tools/llm_crew/book.ts` for the new lines.
-- Simulator scenarios: `regrip`, `putclear`, `shuttleyours`, `wontcome`, `shutaboard`. They show what the brains do with each report. **They cannot show a crate moving:** pulling and pushing happen only in the game.
+- Simulator scenarios: `regrip`, `putclear`, `wontcome`, `shutaboard`. They show what the brains do with each report. **They cannot show a crate moving:** pulling and pushing happen only in the game.
 - Played in a round with a Quartermaster, two technicians and an order of three or more crates, then read back from the new log lines. Until that is done this is not known to work.
 
 ## 6. Order of building
@@ -138,7 +180,7 @@ Checks:
 2. Taking it up again (4.1).
 3. Putting it clear, by pulling or pushing (4.2).
 4. A crate in anyone's way, and the shuttle deck (4.3).
-5. The Quartermaster hands out the shuttle and is told of trouble (4.4).
+5. The Quartermaster is told of trouble and sends help (4.4).
 6. The voice (4.6).
 
 Steps 1 to 4 are server code and do not need a Quartermaster to work. Step 5 does.
@@ -147,13 +189,12 @@ Steps 1 to 4 are server code and do not need a Quartermaster to work. Step 5 doe
 
 These are the choices marked **Mine** that change what you would see in a round:
 
-- The shuttle goes to whichever technician reports that it has docked. The other does not haul through the dock at all while there is a Quartermaster.
-- A crate that will not come is reported to the Quartermaster, who sends the other technician. It is not written in the order book.
+- A crate that will not come is reported to the Quartermaster, who sends another technician even if the shuttle is not that technician's part. It is not written in the order book.
 - A technician shut in by a crate uses the PDA to reach the Quartermaster. Everything else between them stays face to face.
 
 ## 8. Not in this plan
 
-- The rest of the standing work: who has the counter and who looks in on the rooms. That is the Quartermaster plan's, and is not built there yet. This plan hands out the shuttle only.
+- How the standing work is divided. That is the Quartermaster plan's, and is built.
 - Lanes: out by one airlock and in by the other. The route planner picks the shorter way and would have to be taught otherwise.
 - Using the conveyors and flaps beside the airlocks to move crates.
 - A crate that drifts out of the dock into space. The locked-areas work already writes it off and tells whoever ordered it.

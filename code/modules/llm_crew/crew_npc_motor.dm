@@ -105,7 +105,7 @@
 	// A crate that catches on someone or something is let go of. There is no hauling on without it.
 	var/mob/living/puller = controller.pawn
 	if(CREW_NPC_HAULS(crew_controller.walk_tool) && isnull(puller.pulling))
-		fail_reason = crew_controller.walk_tool == CREW_TOOL_EVICT ? "they got away from you" : "it caught on something and you lost your grip on it"
+		fail_reason = crew_controller.walk_tool == CREW_TOOL_EVICT ? "they got away from you" : CREW_NPC_GRIP_LOST
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	// A walk to a door is over when the body is standing at the door, and not before. Close to the
 	// spot beside it is not enough: that can be a tile too far to count as standing at the door, and
@@ -133,7 +133,7 @@
 		else if(!crew_npc_clear_of_doors(target) || crew_npc_clear_of_doors(hauler))
 			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 	if(movement_failed)
-		fail_reason = "there is no way through"
+		fail_reason = CREW_NPC_NO_WAY
 	return ..()
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/finish_action(datum/ai_controller/controller, succeeded)

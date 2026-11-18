@@ -643,6 +643,24 @@ export type NpcBrain = {
   lookedIn: Record<string, number>;
   /** Who was standing in the way of something it was hauling, and when (this window's clock). */
   inTheWay: { handle: string; at: number } | null;
+  /**
+   * The last haul it gave up on, after the crate got away from it too often or there was no way
+   * through: the tool that began it, what the crate is called, the room it was left in clear of
+   * the doors (null if it could not be got clear), and when (server time). Null once it is dealt with.
+   */
+  gaveUp: {
+    tool: string;
+    what: string;
+    leftIn: string | null;
+    at: number;
+  } | null;
+  /**
+   * For a technician: server time until which the shuttle and the rooms are its to see to as
+   * well as its own work, because the Quartermaster sent it to help a workmate. 0 if it has not been.
+   */
+  seeToUntil: number;
+  /** For a technician: the crates it has told the Quartermaster would not come, by what each is called, and when (server time). It does not tell of the same one again for a while. */
+  wontComeTold: Record<string, number>;
   /** Who last asked, in its hearing, for a door to be opened, and when (server time). */
   doorAsked: {
     name: string;
@@ -1102,6 +1120,20 @@ export type Ledger = {
   cameOutAt: number;
   /** The standing work it has given each technician, by name, in so many words: the counter, the shuttle, the rooms. */
   duties: Record<string, string[]>;
+  /** Crates a technician has told it would not come, by what each is called: who said so, how many times, and when last (server time). */
+  heldUp: Record<string, { by: string; times: number; at: number }>;
+  /**
+   * Word it owes one of its technicians face to face, sending them to see to something: who, the
+   * line, why (for what the LLM is told), when it came to owe it (server time), and whether it
+   * has walked up to them. Null when it owes none.
+   */
+  sendFor: {
+    to: string;
+    line: string;
+    why: string;
+    at: number;
+    walkedUp?: boolean;
+  } | null;
 };
 
 /** One thing an NPC can do right now, as offered to the LLM. */

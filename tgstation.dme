@@ -5111,6 +5111,7 @@
 #include "code\modules\llm_crew\crew_npc_danger.dm"
 #include "code\modules\llm_crew\crew_npc_doors.dm"
 #include "code\modules\llm_crew\crew_npc_freight.dm"
+#include "code\modules\llm_crew\crew_npc_grip.dm"
 #include "code\modules\llm_crew\crew_npc_guarding.dm"
 #include "code\modules\llm_crew\crew_npc_hands.dm"
 #include "code\modules\llm_crew\crew_npc_held.dm"

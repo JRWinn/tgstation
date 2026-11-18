@@ -192,6 +192,53 @@ export const WAITING_TOLD = 'still waiting to be collected:';
 export const WAITING_TOLD_WORDS =
   /\bstill waiting to be collected: (crates? #\d+(?:(?:, | and )#\d+)*) for ([^.]+)\./i;
 
+/** Where a crate would not go, by the tool that began the haul: how a haul that was given up is spoken of. */
+const WONT_COME_HOW: Record<string, string> = {
+  unload: 'off the shuttle',
+  recycle: 'aboard the shuttle',
+  release: 'out to the lobby',
+  stow_crate: 'clear of the door',
+};
+
+/** Those words for a haul begun by this tool, or null if it is not one a technician tells the Quartermaster of. */
+export function wontComeHow(tool: string): string | null {
+  return WONT_COME_HOW[tool] ?? null;
+}
+
+/**
+ * A technician telling the Quartermaster that a crate would not go where it was meant to, and
+ * where it has been left: "Ada, I could not get crate #12 off the shuttle. It is in the Supply
+ * Shuttle, clear of the doors."
+ */
+export function wontComeLine(
+  first: string,
+  what: string,
+  how: string,
+  leftIn: string | null,
+): string {
+  return `${first}, I could not get ${what} ${how}.${leftIn ? ` It is in the ${leftIn}, clear of the doors.` : ' It is still lying by a door.'}`;
+}
+export const WONT_COME_WORDS =
+  /\bI could not get (.+?) (off the shuttle|aboard the shuttle|out to the lobby|clear of the door)\.(?: It is in the (.+?), clear of the doors\.)?/i;
+
+/**
+ * The Quartermaster sending a technician to see to something a workmate could not, to its face:
+ * "Sam, crate #12 is in the Supply Shuttle and Maria could not get it off the shuttle. See to it,
+ * please." Whoever is told has the shuttle and the rooms as well as their own work for a while.
+ */
+export function seeToLine(first: string, what: string): string {
+  return `${first}, ${what}. See to it, please.`;
+}
+export const SEE_TO_WORDS = /^(\S+), (.+?)\. See to it, please\./i;
+
+/** The Quartermaster telling its only technician to have another go at a crate that would not come. */
+export function tryAgainLine(first: string, what: string): string {
+  return `${first}, try ${what} again in a little while, please.`;
+}
+
+/** A PDA message from someone who is shut in, to their head: the room they are shut in is read from it. */
+export const SHUT_IN_WORDS = /\bI am shut in the (.+?) and\b/i;
+
 /** A technician telling the Quartermaster that crates someone ordered have been lost, and why. */
 export const LOST_TOLD_WORDS =
   /\b(crates? #\d+(?:(?:, | and )#\d+)*) for (.+?) (?:is|are) lost: ([^.]+)\./i;

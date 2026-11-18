@@ -125,6 +125,14 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		if(entry?.collected_by)
 			continue
 		crates += crate
+	// The shuttle deck too, while it is docked. An empty lying by one of its doors counts as sent
+	// back, so nobody would ever move it again, and it is in the way of every crate that comes off.
+	// One with something in it is not counted here: it is hauled off with the rest.
+	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
+		if(crate.anchored || !isturf(crate.loc) || crate_taken(crate) || !crew_npc_crate_spent(crate))
+			continue
+		if(!crew_npc_clear_of_doors(crate))
+			crates += crate
 	return crates
 
 /// Returns the nearest mail crate in cargo's rooms that still has addressed mail in it, or null.
@@ -268,6 +276,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		action_result(CREW_TOOL_UNLOAD, FALSE, "There is nothing left aboard the supply shuttle to unload.")
 		return
 	claim_crate(crate)
+	begin_haul()
 	start_errand(crate, CREW_TOOL_UNLOAD, format_text(crate.name))
 
 /**
@@ -290,6 +299,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		action_result(CREW_TOOL_STOW, FALSE, "There is no crate lying by a door.")
 		return
 	claim_crate(crate)
+	begin_haul()
 	start_errand(crate, CREW_TOOL_STOW, format_text(crate.name))
 
 /// Tool: haul a crate with nothing left in it aboard the supply shuttle, to be sent back. Cargo staff only.
@@ -312,6 +322,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			nearest_distance = distance
 			crate = candidate
 	claim_crate(crate)
+	begin_haul()
 	start_errand(crate, CREW_TOOL_RECYCLE, format_text(crate.name))
 
 /// Takes hold of the crate the body is standing by and sets off with it: into the bay, or aboard the shuttle.
@@ -327,8 +338,9 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		if(CREW_TOOL_UNLOAD)
 			destination = storage_spot()
 		if(CREW_TOOL_STOW)
-			// The nearest clear spot to where it lies, in the room it is in.
-			destination = storage_spot(get_area(crate), get_turf(crate))
+			// An empty left by a door aboard the shuttle goes to the middle of the deck, where empties go.
+			// Anything else goes to the nearest clear spot to where it lies, in the room it is in.
+			destination = (crate in crates_aboard()) ? shuttle_spot() : storage_spot(get_area(crate), get_turf(crate))
 		else
 			destination = shuttle_spot()
 	if(isnull(destination))
@@ -343,6 +355,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	hauled_ref = WEAKREF(crate)
 	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.
 	start_walk(destination, tool, get_area_name(destination, TRUE), CREW_NPC_TRAVEL_TIMEOUT)
+	wait_for_way(crate)
 	return list(TRUE, null)
 
 /// Called when a walk with a crate, into the bay or aboard the shuttle, ends. Lets go of it and tells the brain.
@@ -360,7 +373,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			action_result(tool, FALSE, "[dropped.pulledby.name] has taken the [hauled_name] from you. You are in [place].", details)
 			return
 		var/blocker = in_the_way_report(dropped, details)
-		action_result(tool, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker] You are in [place].", details)
+		action_result(tool, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker][gave_up_report(details)] You are in [place].", details)
 		return
 	if(tool == CREW_TOOL_UNLOAD)
 		work_crates_in++

@@ -64,10 +64,13 @@ import {
   orderWritten,
   QM_SILENT_WORDS,
   quartermasterAboard,
+  SEE_TO_WORDS,
   TAKEN,
   THROUGH_QM,
   WAITING_TOLD,
   WORD_HEARD_WORDS,
+  wontComeHow,
+  wontComeLine,
 } from './supply';
 import {
   describeTidying,
@@ -120,6 +123,12 @@ const LOST = 'lost_crate';
 const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND, LOST]);
 /** An order the Quartermaster has given it, to place at the console. The task's item is the order's number in the Quartermaster's book. */
 const GIVEN = 'given_order';
+/** Word owed to the Quartermaster that a crate would not go where it was meant to. The task's item is what the crate is called. */
+const WONT_COME = 'wont_come';
+/** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of. */
+const WONT_COME_DS = 3000;
+/** How long (deciseconds) the shuttle and the rooms are its to see to as well, once the Quartermaster has sent it to help a workmate. */
+const SEE_TO_DS = 3000;
 /** How long (deciseconds) a head's word at the counter that the Quartermaster has not answered stands. */
 const QM_SILENT_DS = 1200;
 /** How long (deciseconds) before a head is told a second time that orders go through the Quartermaster. */
@@ -243,6 +252,14 @@ function dutyOf(task: Task): string | null {
  */
 function leftTo(brain: NpcBrain, duty: string | null): string | null {
   if (!duty) {
+    return null;
+  }
+  // Sent by the Quartermaster to help a workmate with a crate, the shuttle and the rooms are its
+  // to see to as well for a while, whoever they were given to.
+  if (
+    brain.now < brain.seeToUntil &&
+    (duty === 'shuttle' || duty === 'rooms')
+  ) {
     return null;
   }
   const holders = Object.entries(brain.duties)
@@ -598,6 +615,76 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
   return null;
 }
 
+/**
+ * Keeps the word owed to the Quartermaster about a crate that would not come. A technician who
+ * gave a haul up, and put the crate clear of the doors, tells the Quartermaster, who is the one
+ * to say what is done about it. With no Quartermaster aboard there is nobody to tell, and the
+ * crate is tried again in its turn like any other.
+ */
+function syncWontCome(brain: NpcBrain): void {
+  const gaveUp = brain.gaveUp;
+  const how = gaveUp ? wontComeHow(gaveUp.tool) : null;
+  const telling = brain.tasks.find(
+    (task) => task.kind === WONT_COME && task.state !== 'done',
+  );
+  // The Quartermaster is told of one crate once in a while, not each time the same haul fails.
+  const owed =
+    !!gaveUp &&
+    !!how &&
+    brain.now - gaveUp.at < WONT_COME_DS &&
+    brain.now - (brain.wontComeTold[gaveUp.what] ?? -Infinity) > WONT_COME_DS &&
+    !!quartermasterAboard(brain);
+  // Told and heard, or the Quartermaster was not to be found or did not answer: either way it is
+  // done with. Nothing between the two of them goes by PDA, so there is no other way to send it.
+  if (telling && (telling.passedOn || telling.byPda || !owed)) {
+    if (telling.passedOn && telling.item) {
+      brain.wontComeTold[telling.item] = brain.now;
+    }
+    telling.reported = true;
+    finishTask(brain, telling);
+    brain.gaveUp = null;
+    return;
+  }
+  if (gaveUp && !owed) {
+    brain.gaveUp = null;
+    return;
+  }
+  if (owed && gaveUp && !telling) {
+    addTask(brain, {
+      kind: WONT_COME,
+      item: gaveUp.what,
+      urgency: 'asked',
+      source: 'own',
+    });
+  }
+}
+
+/** What telling the Quartermaster of a crate that would not come comes down to right now. */
+function wontComeStep(brain: NpcBrain, task: Task): Plan {
+  const gaveUp = brain.gaveUp;
+  const how = gaveUp ? wontComeHow(gaveUp.tool) : null;
+  const quartermaster = quartermasterAboard(brain);
+  if (!gaveUp || !how || !quartermaster || task.passedOn) {
+    return { ready: false, step: 'There is nothing left to tell of it.' };
+  }
+  return (
+    tellQuartermaster(
+      brain,
+      task,
+      quartermaster,
+      wontComeLine(
+        firstName(quartermaster.name),
+        gaveUp.what,
+        how,
+        gaveUp.leftIn,
+      ),
+      `that you could not get ${gaveUp.what} ${how}`,
+      // Never taken: once the Quartermaster has it, the task is closed and nothing more is done.
+      { tool: 'rest' },
+    ) ?? { ready: false, step: 'There is nobody to tell of it.' }
+  );
+}
+
 /** Says one of the tasks about held crates in a few words, or null if the task is not one. */
 function describeHeld(task: Task): string | null {
   if (task.kind === HANDOVER) {
@@ -702,6 +789,7 @@ function syncTasks(brain: NpcBrain): void {
 
   syncFreight(brain);
   syncHeld(brain);
+  syncWontCome(brain);
   syncTidying(brain);
 
   // Whoever is to be let through the door has a task until the door has been opened for them.
@@ -838,6 +926,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === TIDY) {
     return tidyStep(brain, task);
+  }
+  if (task.kind === WONT_COME) {
+    return wontComeStep(brain, task);
   }
   if (task.kind === DOOR) {
     // Whoever it is may be on the far side of the door, out of sight. The body still knows them.
@@ -1363,6 +1454,9 @@ function describeTask(task: Task): string | null {
   if (task.kind === GIVEN) {
     return `place order ${task.item} for the Quartermaster`;
   }
+  if (task.kind === WONT_COME) {
+    return `tell the Quartermaster that ${task.item} would not come`;
+  }
   return task.kind === ORDER
     ? 'see the crate you ordered through'
     : (describeHeld(task) ??
@@ -1408,6 +1502,14 @@ function cues(brain: NpcBrain): string[] {
   if (waiting.length > 0) {
     lines.push(
       `You are holding ${cratesWritten(waiting.map((crate) => crate.number))} for collection. Whoever comes to the counter and gives a crate's number is brought it in the lobby, by your body. A crate is never kept back from anyone for any other reason: not until a floor is clean, and not until someone has left.`,
+    );
+  }
+  // A crate that would not come, so that nobody is told it is on its way.
+  const gaveUp = brain.gaveUp;
+  const how = gaveUp ? wontComeHow(gaveUp.tool) : null;
+  if (gaveUp && how) {
+    lines.push(
+      `You could not get ${gaveUp.what} ${how}: it kept catching and getting away from you. ${gaveUp.leftIn ? `Your body has left it in the ${gaveUp.leftIn}, clear of the doors.` : 'It is still lying by a door.'} It is not where it was going, and you do not say that it is or that it is on its way.${quartermasterAboard(brain) ? ' Your body is telling the Quartermaster, who will say what is done about it.' : ' It will be tried again.'}`,
     );
   }
   // A crate that has been lost, so that nobody is promised it.
@@ -1768,6 +1870,18 @@ export const CARGO: Job = {
             )?.name;
       if (name) {
         brain.duties[name] = duty.duties;
+      }
+      return;
+    }
+    // The Quartermaster sending it to see to something a workmate could not: "Sam, crate #12 is
+    // in the Supply Shuttle and Maria could not get it off the shuttle. See to it, please." The
+    // shuttle and the rooms are its as well for a while, whoever they were given to.
+    const seeTo = isQuartermaster(speakerJob)
+      ? heard.trim().match(SEE_TO_WORDS)
+      : null;
+    if (seeTo) {
+      if (seeTo[1].toLowerCase() === firstName(brain.name).toLowerCase()) {
+        brain.seeToUntil = brain.now + SEE_TO_DS;
       }
       return;
     }
