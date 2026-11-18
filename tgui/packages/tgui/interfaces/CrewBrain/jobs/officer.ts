@@ -44,7 +44,7 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
-  deskNotFollowed,
+  deskUnread,
   deskTakes,
   planDesk,
   syncDesk,
@@ -396,6 +396,18 @@ export const OFFICER: Job = {
   cleans: false,
   // What an officer reports at its staff meeting: the arrests it has made.
   reports: ['arrests'],
+  // With no baton or no cuffs on it, it says so in its report. Nobody orders one: they are in
+  // the security lockers.
+  lacks: (brain) => {
+    const security = brain.security;
+    if (!security || (security.has_baton && security.has_cuffs)) {
+      return null;
+    }
+    return [
+      ...(security.has_baton ? [] : ['a stun baton']),
+      ...(security.has_cuffs ? [] : ['a pair of cuffs']),
+    ].join(' and ');
+  },
   about: () =>
     'You are a Security Officer. You answer to the Head of Security, who answers to the Captain. You serve warrants: you find whoever a warrant is on, tell them they are under arrest, put the cuffs on them and take them to a cell in the brig. Someone who stands still for it you never hit. Someone who will not, or who hits you, gets your stun baton and nothing harder. You work from the Security Office.',
   whenAsked: () => [
@@ -417,7 +429,7 @@ export const OFFICER: Job = {
       // Keeping the list itself, it says so when the Captain or a head sends it something it
       // can make nothing of.
       if (!deskTakes(brain, from, job, text, false)) {
-        deskNotFollowed(brain, from, job);
+        deskUnread(brain, from, job, text);
       }
       return;
     }

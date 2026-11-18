@@ -362,7 +362,7 @@ function spokenReport(
   summons: NonNullable<NpcBrain['summons']>,
 ): string {
   const job = jobFor(brain.job);
-  const need = job.needs?.(brain) ?? null;
+  const need = job.needs?.(brain) ?? job.lacks?.(brain) ?? null;
   return `${firstName(summons.by)}, ${workWords(workSince(brain, job.reports), summons.wording)}. ${needWords(need)}`;
 }
 
@@ -384,7 +384,7 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       };
     }
     const job = jobFor(brain.job);
-    const need = job.needs?.(brain) ?? null;
+    const need = job.needs?.(brain) ?? job.lacks?.(brain) ?? null;
     const report = reportWords(brain, need, summons.wording, job.reports);
     return {
       ready: true,
@@ -431,7 +431,7 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: true,
       step: `${by} has called a staff meeting in the ${room}. That comes before everything else, and you are on your way there.`,
-      act: { tool: 'go_to', place: room },
+      act: { tool: 'go_to', place: room, middle: true },
     };
   }
   if (summons.said) {
@@ -469,6 +469,16 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       ready: true,
       step: `You are at the staff meeting in the ${room}, and ${by} is here. You are walking up to ${by}, to stand with the others.`,
       act: { tool: 'approach', person: head.handle },
+    };
+  }
+  // In the room already when it was called, and its head nowhere in sight: it goes to the middle
+  // of the room, which is where its head goes to stand. Two technicians at their counter and a
+  // Quartermaster by its office door stood in one bay for three minutes, out of each other's sight.
+  if (!head && brain.location === room && !summons.wentIn && !summons.said) {
+    return {
+      ready: true,
+      step: `You are in the ${room} for the staff meeting and cannot see ${by} from where you stand. You are going to the middle of the room to find them.`,
+      act: { tool: 'go_to', place: room, middle: true },
     };
   }
   // In the room and its head nowhere in sight: a big room, and it has stopped just inside the
@@ -636,6 +646,10 @@ export function meetingsAfterActing(
       summons.fromHere = true;
     }
   }
+  // It has been to the middle of the room, or tried to: once is all.
+  if (summons && act.tool === 'go_to' && act.place === summons.room && act.middle) {
+    summons.wentIn = true;
+  }
   // It walks up to its head a time or two, and that is all, however that went.
   if (summons && act.tool === 'approach') {
     summons.walkUps++;
@@ -648,6 +662,8 @@ export function meetingsAfterActing(
     !ok &&
     act.tool === 'go_to' &&
     act.place === summons.room &&
+    // In the room already, a walk to its middle that came to nothing does not mean it is shut out.
+    brain.location !== summons.room &&
     !brain.shutIn
   ) {
     summons.tries++;

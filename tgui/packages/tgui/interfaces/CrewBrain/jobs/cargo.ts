@@ -47,6 +47,7 @@ import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
 import { COLLECT_WORDS, crateNumberIn } from './pickups';
+import { isSecurity } from './security';
 import {
   describeRounds,
   isRounds,
@@ -1279,6 +1280,18 @@ function mayPass(
     (wanted === post ? !!person.in_post : seenInside(brain, person) === wanted);
   if (out || already || (inside && !person && inside.room === wanted)) {
     return null;
+  }
+  // Security at the door, asking to be let in: it has a warrant on someone inside, and the
+  // warrant is the permission. It was left standing in the lobby calling an arrest through the
+  // counter until the Captain came and opened the door.
+  if (
+    isSecurity(
+      person?.job ??
+        brain.pdaPeople.find((known) => known.name === name)?.job ??
+        '',
+    )
+  ) {
+    return { name, room: wanted, out: false };
   }
   // Sent for to a room further in, which has no way to it but through this one.
   const beyond = boundBeyond(brain, name, wanted);

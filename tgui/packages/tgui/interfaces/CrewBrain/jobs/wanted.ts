@@ -415,7 +415,13 @@ export function wantedAbsent(brain: NpcBrain, absent: string[]): void {
     return;
   }
   for (const name of absent) {
-    for (const line of meetingLines(names)) {
+    // Someone who is on the list is sent the list without their own name on it: a head sent one
+    // of its staff "security is looking for you, send word if you see yourself".
+    const others = names.filter((wanted) => !sameName(wanted, name));
+    if (others.length === 0 && others.length !== names.length) {
+      continue;
+    }
+    for (const line of meetingLines(others)) {
       brain.toTell.push({
         to: name,
         line,

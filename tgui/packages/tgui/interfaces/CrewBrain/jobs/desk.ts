@@ -50,6 +50,10 @@ import {
   addressOf,
   againLine,
   CANCEL_WORDS,
+  closeIn,
+  mendWords,
+  type Reading,
+  readingAsOrder,
   copyLine,
   firstName,
   GIVE_WORDS,
@@ -217,7 +221,13 @@ export function stillWanted(brain: NpcBrain): string {
   return `Still wanted: ${desk.warrants
     .map(
       (warrant) =>
-        `${warrant.name}${warrant.lastSeen ? `, last seen in the ${warrant.lastSeen.place}` : ''}`,
+        `${warrant.name}${
+          desk.cuffed?.[warrant.name] !== undefined
+            ? ', in cuffs and on the way to a cell'
+            : warrant.lastSeen
+              ? `, last seen in the ${warrant.lastSeen.place}`
+              : ''
+        }`,
     )
     .join('; ')}.`;
 }
@@ -255,6 +265,9 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
     delete desk.held[held];
   }
   const who = warrant?.name ?? held ?? name;
+  if (desk.cuffed) {
+    delete desk.cuffed[who];
+  }
   // Whoever may have them lets them go: its officer, if the officer was given the warrant or
   // put them in the cell, and itself.
   if (officerAboard(brain) && (held || (warrant && warrant.given !== 'no'))) {
@@ -276,11 +289,16 @@ export function deskTakes(
   brain: NpcBrain,
   from: string,
   fromJob: string,
-  text: string,
+  written: string,
   aloud: boolean,
 ): boolean {
   const desk = deskOf(brain);
   const to = addressOf(from, fromJob);
+  // Its own staff say their lines word for word. Anyone else may have typed in a hurry: the
+  // words an order turns on are put right before it is read.
+  const text = isSecurity(fromJob)
+    ? written
+    : mendWords(written, knownNames(brain));
   // A head saying it has the notice.
   if (NOTICE_ACK_WORDS.test(text)) {
     const state = desk.noticed[from];
@@ -316,7 +334,7 @@ export function deskTakes(
 
   // A warrant taken back by whoever declared it, or by the Captain.
   if (CANCEL_WORDS.test(text)) {
-    const name = nameIn(text, standing);
+    const name = nameIn(text, standing) ?? closeIn(text, standing);
     const warrant = desk.warrants.find((it) => it.name === name);
     if (!declarer) {
       reply(
@@ -355,7 +373,9 @@ export function deskTakes(
     return true;
   }
   // A pardon. It names someone there is something against, or uses the word.
-  const pardoned = PARDON_WORDS.test(text) ? nameIn(text, anyone) : undefined;
+  const pardoned = PARDON_WORDS.test(text)
+    ? (nameIn(text, anyone) ?? closeIn(text, anyone))
+    : undefined;
   if (pardoned || /\bpardon\b/i.test(text)) {
     if (!captain) {
       reply(
@@ -564,6 +584,62 @@ export function deskNotFollowed(
   return true;
 }
 
+/** How many orders may wait on the LLM to read them, and how often (ms) one is put to it. Past either, the sender is told it was not followed. */
+const UNREAD_MOST = 2;
+const READING_EVERY_MS = 5000;
+
+/**
+ * Takes a PDA message from the Captain or a head that code could make nothing of, and has the LLM
+ * read it: the reader of last resort, for an order typed loosely. The answer comes back to
+ * deskRead. Returns TRUE if the message is anyone's whose order it could be.
+ */
+export function deskUnread(
+  brain: NpcBrain,
+  from: string,
+  fromJob: string,
+  text: string,
+): boolean {
+  if (!isHead(fromJob) || isSecurity(fromJob)) {
+    return false;
+  }
+  const desk = deskOf(brain);
+  desk.unread ??= [];
+  if (
+    desk.unread.length >= UNREAD_MOST ||
+    Date.now() - (desk.readingAt ?? 0) < READING_EVERY_MS
+  ) {
+    return deskNotFollowed(brain, from, fromJob);
+  }
+  desk.readingAt = Date.now();
+  desk.unread.push({ from, fromJob, text, at: Date.now() });
+  return true;
+}
+
+/**
+ * Takes what the LLM made of an order code could not read. A warrant or a pardon is put into the
+ * words code reads and taken exactly as an order in those words would be: the name is matched to
+ * who is aboard, every rule about who may declare what still holds, and the sender gets the same
+ * word back, so that a wrong reading is seen at once. Anything else, and no answer at all, gets
+ * "I did not follow that". Returns what came of it, for the log.
+ */
+export function deskRead(
+  brain: NpcBrain,
+  asked: NonNullable<DeskWork['unread']>[number],
+  reading: Reading | null,
+): string {
+  const desk = deskOf(brain);
+  desk.unread = (desk.unread ?? []).filter((it) => it !== asked);
+  if (reading) {
+    const order = readingAsOrder(reading);
+    if (deskTakes(brain, asked.from, asked.fromJob, order, false)) {
+      return `Read as: "${order}" The body answers ${asked.from} in the fixed words.`;
+    }
+  }
+  desk.notFollowedAt = 0;
+  deskNotFollowed(brain, asked.from, asked.fromJob);
+  return `Not read. ${asked.from} is told it was not followed.`;
+}
+
 /** Takes what was said in its hearing, if it is security's business. Returns TRUE if it was. */
 export function deskHears(brain: NpcBrain, event: SenseEvent): boolean {
   const heard = String(event.details.message ?? '');
@@ -607,7 +683,19 @@ export function deskOutcome(
   }
   const warrant = desk.warrants.find((it) => sameName(it.name, outcome.name));
   const who = own ? 'I' : firstName(from);
+  if (outcome.what !== 'cuffed' && outcome.what !== 'cannot' && desk.cuffed) {
+    delete desk.cuffed[warrant?.name ?? outcome.name];
+  }
   switch (outcome.what) {
+    case 'cuffed':
+      desk.cuffed ??= {};
+      desk.cuffed[warrant?.name ?? outcome.name] = brain.now;
+      tellCaptain(
+        brain,
+        `Captain, ${own ? 'I have' : `${firstName(from)} has`} ${outcome.name} in cuffs.`,
+        `${outcome.name} is in cuffs and on the way to a cell. You are telling the Captain by PDA.`,
+      );
+      return;
     case 'jailed': {
       const minutes = outcome.minutes ?? MINUTES_USUAL;
       desk.held[outcome.name] = {

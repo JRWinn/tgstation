@@ -731,7 +731,17 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
     return {
       ready: true,
       step: `You have called your staff to a meeting in the ${room}, and are going there.`,
-      act: { tool: 'go_to', place: room },
+      act: { tool: 'go_to', place: room, middle: true },
+    };
+  }
+  // In the room already, it goes and stands in the middle of it, where its staff will look for
+  // it. A Quartermaster that held its meeting from by its office door, with both its technicians
+  // at the counter at the far end of the bay, saw neither and reported "0 of 2 there".
+  if (!meeting.wentIn && !meeting.fromHere) {
+    return {
+      ready: true,
+      step: `You are in the ${room} for your staff meeting, and are going to stand in the middle of it, where your staff will look for you.`,
+      act: { tool: 'go_to', place: room, middle: true },
     };
   }
   // Where the staff are called aloud, it calls them once it is standing in the room: word for
@@ -1093,6 +1103,10 @@ export function meetingActed(
   // Walking is not what is wrong. It holds the meeting from where it stands.
   if (ok && looped && act.tool === 'go_to' && act.place === meeting.room) {
     meeting.fromHere = true;
+  }
+  // It has been to the middle of the room, or tried to: once is all.
+  if (act.tool === 'go_to' && act.place === meeting.room && act.middle) {
+    meeting.wentIn = true;
   }
   // Having walked up to someone so as to be heard, near enough or not, it speaks. Each is walked
   // up to once before the call, and once before being called on.

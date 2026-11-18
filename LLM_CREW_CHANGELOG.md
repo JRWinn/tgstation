@@ -16,6 +16,94 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 16:50 to 17:35: security bugs from the second and third rounds: the baton, the cell door, a prisoner hauled about, loose wording, and meetings held out of sight (the commit that added this entry)
+
+**This entry was added to twice after it was first written, at 17:20 and 17:35, after the next round: read those two sections first. The build that has all of it was made at 17:34.**
+
+**Tested, as first written at 16:50:** type check, server compile to a side copy (0 errors, 0 warnings), the table of cases in `tools/llm_crew/security.ts` (114 cases), simulator: all 46 scenarios with a quiet LLM, the two new ones (`badcell`, `loose`) among them, and the nine security scenarios with a chatty and a dead LLM as well: 64 runs, none failing. Two small edits went in while those ran (a suspect who moves to another room, and two wordings taken back out), so the nine security scenarios were run again after them, 12 runs, none failing; the other 37 were not rerun. **Not played in a round. No model tests:** the question put to the LLM to read a loose order has never been put to a real model. The normal build was run at 17:05 with the server closed (0 errors, 0 warnings), so the next round has all of this. The simulator runs none of the server code, so the baton, the cell door, the next cell, who can open a room and the reason "in sight and out of reach" are compile-checked only. No scenario has security shut out of a room, so asking to be let in is covered by the type check and two cases of its wording, and nothing else.
+
+**Round that showed the bugs:** `data/logs/2026/11/18/round-15.52.18` (MetaStation, read live from 16:07 to 16:18, on `e1376b13`). It had the first arrest the system has made: the Captain opened the Cargo Bay door, the officer cuffed a technician who stood still, walked her to the Brig and set the cell's timer.
+
+**Plan:** `LLM_CREW_PLAN_ROUND_1428_SECURITY.md`, the section "Second round: 2026-11-18, 15:52". The numbers below are the plan's. The owner said "go ahead and get started on yours".
+
+### Added at 17:20, after ten minutes of the next round: two more fixes, not in the 17:05 build
+
+`data/logs/2026/11/18/round-17.06.14`, on the 17:05 build. Type check, side-copy compile (0 errors, 0 warnings) and 116 cases. The server was running then, so these two waited for the 17:34 build below.
+
+### Added at 17:35: the belt worn, getting away from an attacker, meetings in the middle of the room. Built at 17:34
+
+On the owner's "But fix the bugs / this round is a wash" and "get that baton also (without cheating as much as possible) / seems like he should put on the belt". **Tested:** type check, server compile, 121 cases, the security scenarios in the simulator after the get-away change (16 runs, none failing), and all 46 scenarios after the meeting change (51 runs, none failing). **The normal build was run at 17:34 with the server closed (0 errors, 0 warnings): the next round has everything in this entry.** Not played. The belt is server code and has never run.
+
+- **The officer puts the security belt on.** `wear_kit_belt` (`crew_npc_security.dm`). Its PDA is on its belt, so that comes off first with a click and goes into a pocket with a click on the pocket (`attack_ui`, which is what a click on a pocket's square sends). A pocket that is full of anything but its cuffs is emptied into its bag first: on an officer that is its flash. Then it picks the belt up and puts it on with the key that puts on whatever is in the hand (`execute_quick_equip`). The baton stays in the belt, where the arrest code already looks for it and draws it from. If any step fails the log says which ("would not go into its pocket", "would not go on"), a PDA left in its hand goes back on its belt, and it falls back to taking the baton out of the belt as before. `game.log` says "put on the security belt from the security officer's locker at (x,y)" when it works.
+- **(H6) Hit by someone it cannot stop, it gets out of their reach.** With no baton, or hurt, and hit in the last 30 seconds, nothing comes before it: it goes for a baton at the lockers, and if the lockers are no use it goes back to its post. It does not walk on with its warrant. Whoever keeps the list is told "X attacked me", once, so that the Captain can declare a warrant. `AWAY` in `jobs/arrests.ts`; `securityFeels` notes who and when. With a baton it stops them, as before.
+- **Everyone called to a staff meeting makes for the middle of the room.** This is not security's: it is the meeting code, which is older work of mine. The Quartermaster held two meetings running from by its office door, with both technicians at their counter eight tiles off in the same bay and out of its sight, and reported "0 of 2 there" (15:52 round and this one). Now the head goes to the middle of the room before it starts, staff walking to the meeting go there, and staff who were in the room already and cannot see their head go there once. `go_to` takes `middle` (`tool_go_to` in `crew_npc_tools.dm`, using the `middle_of` that already picked a head's meeting spot); `wentIn` in `jobs/head.ts` and `jobs/meetings.ts`.
+
+**Simulator after the meeting change:** all 46 scenarios with a quiet LLM, and `qm`, `warrant` and `crew` with a chatty or a dead one as well: 51 runs, none failing. The simulator has no room big enough for people in it to be out of each other's sight, so it shows only that the change breaks nothing, not that it mends the "0 of 2".
+
+### Seen in the 17:06 round and left alone: none of it is security's
+
+The round was 16 minutes old when read. The station trait "Revenge of Pun Pun" was picked at its start (`game.log` 23:06:18), which arms the monkey and sets it on the crew: that is why it clubbed four of them. Most janitor fixes of the 16:15 entry were never exercised because the janitors were down by minute four.
+
+- Of the 16:15 entry: **25 (PDA resend) worked** under the "PDA glitch" trait, twice, on the first retry 20 seconds later. **24 worked** for a plain mail crate. **20** looked right: two grip losses, not thirteen. 19, 21, 22, 23 were not exercised.
+- **The Quartermaster answered one knock five times** (23:14:00 to 23:14:38), walking out and back each time.
+- **Four people who arrived in the Delivery Office by disposal chute** were told to the technicians as "let in by someone who works here".
+- **The Warehouse had no route** once (known, item 10).
+- **A technician sent one janitor four clean-up requests** in 100 seconds, two of them after seeing it lying on the floor.
+- **The Head of Personnel's brain made its first decision two minutes after everyone else's.** Cause not found.
+- **`cargo.html` records the order as placed by "*null*".**
+- **A crate of janitorial supplies was ordered for a janitor who then said "I need nothing".**
+- A technician takes the other's "I am going to look in on the Delivery Office" for a request for supplies, and says so six times.
+
+- **The real cause of C1, proven by six runtime errors.** `empty_clicking_hand` (`crew_npc_machines.dm`) called the game's `swap_hand()` with no hand number, which the game refuses ("You passed  into swap_hand instead of a number"). So a body with one hand full could never click with the other. With the belt in one hand the officer could not take the baton out with the other: `game.log` said "could not take the stun baton out of the belt in its hand", three lockers running. All three calls now pass `get_inactive_hand_index()`. The third is in an engineer connecting a canister with a wrench held in the wrong hand, which had the same fault. What I wrote above about C1 was a real fault too, and came first: with only that one mended the officer got as far as this one.
+- **"Place a warrant on Caleb Whiteman, lock him up for 15 minutes" gave the reason as "lock him up for".** It went out in the notice to every head and in the arrest line. What is to be done with someone is no longer taken for what they did (`SENTENCE_WORDS` in `jobs/security.ts`), and a "for" left over from "for 15 minutes" is dropped.
+
+**What that round showed that is not fixed:** Pun Pun, with a tail club, beat three janitors and the security officer unconscious between 23:09:29 and 23:10:44 (log time) and put each in a disposal unit. The officer had no baton, was telling the janitor he was under arrest while the monkey was beating him, and then walked off toward the hallways while it was being beaten itself. Nobody was told that anyone was down, and nothing has anyone help them. This is H6 (it does not step back from someone it cannot stop), and beyond it: no body knows what to do about a crew member who is down. The owner, 2026-11-18: "We have no medical yet so not important". So nothing is to be built for crew who are down until there is a medical department.
+
+### What the round showed working, of the 15:40 entry
+
+No runtime errors in 25 minutes (22 the round before). "Put a warrant on" and "Place a warrant on" taken as warrants. "No baton" and "no way into the Kitchen" passed from the officer to the Head of Security to the Captain. Sightings from a head, the Quartermaster and a janitor passed to the officer.
+
+### The cause of C1, which the 15:40 entry did not have
+
+The officer got the locker open and the belt into its hand every time. `baton_carried` looks through everything on the body, so with the belt in its hand the baton inside the belt counted as carried, `kit_from_belt` found it was short of nothing, took nothing out and put the belt back. That path wrote no log line, which is why the new log lines showed nothing.
+
+### What the crew does now
+
+- **(C1) The officer takes the baton out of the belt.** `kit_from_belt` (`crew_npc_security.dm`) works out what the body is short of before it picks the belt up. A belt picked up with nothing taken out of it is now logged.
+- **(C2) A step into or out of a cell is tried for three seconds, not 0.6.** `walk_steps`, `CREW_NPC_STEP_WAIT`. A cell's glass door takes 0.7 seconds to open once it is walked into. This is the likely cause of "You cannot get into Cell 1", six times running: no log line proves it. `game.log` now says where it stuck: "could not put X in Cell 1: it could not walk in to (x,y), N tiles of cell, the door shut".
+- **(C2) A cell that refused a prisoner is passed over for another for two minutes.** `free_cell`, `cell_refuses`, `cell_refused`.
+- **(H10) With someone by the arm it does nothing but put them in a cell.** `serveStep` in `jobs/arrests.ts`: another warrant waits while `security.holding` is set. A try at a cell that came to nothing is followed at once by the next (the try is numbered, so the driver does not hold it back 20 seconds as a failed step). When every cell has refused, it walks back to the Brig, stands there with the prisoner, tells the Head of Security "I cannot bring in X: I cannot get them into a cell", and tries the cells again after a minute and a half.
+- **(M8) The Head of Security is told of an arrest:** "Javier, I have Marisol Burris in cuffs." (`'cuffed'` in `outcomeLine` and `readOutcome`, `jobs/security.ts`). The Captain is told, and the list reads "Marisol Burris, in cuffs and on the way to a cell" (`stillWanted`, `deskOutcome` in `jobs/desk.ts`).
+- **(M8) Someone in sight and out of reach is not "lost".** The server says `no_way`, the room they are in and who can open it (`security_details`, `arrest_target`).
+- **(H9) Shut out of a room with someone wanted in it, it asks to be let in.** It goes to the door (`go_to_door`), and sends a PDA message to someone whose ID opens it: "Quin, I am at the Cargo Lobby door of the Cargo Bay with a warrant for Marisol Burris. Could you let me in, please?" Staff of that room first, then heads, then the Captain, one at a time, 45 seconds each, three at most. Never the person the warrant is on. `letInStep`, `noteShutOut`, `keepersOf` in `jobs/arrests.ts`; `room_keepers`, `keepers_known` in `crew_npc_security.dm`, sent in `security.keepers`. It no longer calls the arrest out through a counter. "Nobody has let me into the X" is reported only after nobody opened the door.
+- **(H9) A cargo technician opens the door for security.** `mayPass` in `jobs/cargo.ts`: security asking to be let in is let in. This is the one change to another job's file.
+- **(M5) More wordings are warrants,** read by code: "lock Pun Pun up for 10 minutes", "throw X in the brig", "jail", "detain", "apprehend", "capture", "N mins". "Now", "please" and the like are no part of a name. `WARRANT_WORDS`, `LOCK_AROUND`, `FILLER` in `jobs/security.ts`.
+- **(M5) Spelling is forgiven.** "warrent", "arest", "pardn" (`mendWords`); "marisol buris" and "Marisoll" are Marisol Burris (`closeName`); "punpun" names Pun Pun (`sameName`); a pardon or a cancelling finds a misspelt name (`closeIn`). A word that is part of someone's name is never changed: "Warrant for Warren Hale" stays that.
+- **(M5) The LLM reads an order code cannot,** as the reader of last resort the owner approved ("yes, last resort works"). A PDA message from the Captain or a head that code makes nothing of is put to the LLM by itself: the message and one question, about 100 words, no room, no crew list, no history, since the owner found a long prompt chokes the model. The answer is three fields: warrant, pardon or neither; the name as the message spells it; the minutes. Code refuses a name that is not in the message, puts the reading into the fixed words ("Warrant for pun pun, 10 minutes.") and takes it through the same code as any order, so every rule about who may declare what still holds and the sender gets the usual word back. No answer, "neither" or a bad answer gets "I did not follow that". One reading at a time, one every five seconds at most. `buildReading`, `readReading`, `readingAsOrder` in `jobs/security.ts`; `deskUnread`, `deskRead` in `jobs/desk.ts`; `readOrder`, `readingQueue` in `brain.ts`. The brain log shows each as "READING (LLM) of an order code could not read". **This bends a standing rule:** until now every line with a name or a number was read by code alone.
+- **(M6) An officer with no baton or cuffs says so in its report:** "I need a stun baton." A new job hook, `lacks`, for what is not cargo's to bring (`jobs/job.ts`, `jobs/meetings.ts`, `jobs/officer.ts`).
+- **(M6) The officer's report counts its arrests.** The brain never copied the server's count of arrests into `workDone` (`brain.ts`), so an officer always reported "nothing done". That is a fault in the 14:15 entry's work.
+- **(M7) "No baton" is reported only once they have shown they will not stand still** and a trip for one has come to nothing. `syncBeat`.
+- **(L5) A head does not send someone the list with their own name on it.** `wantedAbsent` in `jobs/wanted.ts`.
+- **(L6) The officer's voice is told a warrant is security business,** not to be brought up with people it meets and never with whoever it is on. `beatCues`. This is a line in the prompt, so it holds only as far as the model follows it.
+
+### Not built
+
+- **Anyone but a cargo technician or the Captain opening a door for security.** The Kitchen has no staff aboard, so the officer will write to the Head of Personnel if their ID opens it, and nothing has a head come and open a door. The Captain, a player, can.
+- **A wanted person read out the list at a meeting they are standing in.** Only the PDA copy leaves their name off.
+- **Orders said aloud that code cannot read** are not put to the LLM reader. The voice answers them, as before.
+- From the first round's list: H6, H7 (fire doors), H8 (the Bar), M4 (a follow order), L3, L4, and the weapons hand-out.
+
+### Known and not fixed
+
+- **C2's cause is not proven.** If the next round still shows "could not put X in Cell N", the new log line says which step and whether the door was shut.
+- **Taking a baton out of a belt held in the other hand is a click on the baton.** A player has to open the belt first. If the click does not take it out, the log now says "could not take the stun baton out of the belt in its hand".
+- **The forgiving speller can be wrong.** A word one letter off "warrant", "arrest", "pardon", "release", "wanted", "cancel", "minutes", two off "withdraw" or "apprehend", is taken for it, anywhere in a message from the Captain or a head. The read-back shows what was understood.
+- **"Capture", "detain", "jail" and "apprehend" now declare a warrant** on whatever follows them, when the Captain or a head says them to security, as "arrest" already did. I left out "pick up" and "round up": they are too common in other talk ("pick up Dana's mail" would have been a warrant on "Dana's mail"). The LLM reader is what catches those.
+- **Who can open a room is worked out from ID cards,** as `door_keepers` already did for a body shut in. It is at most a minute stale.
+- The officer waits 45 seconds on each person it asks, and asks three. A room nobody opens costs it two and a quarter minutes before it says so.
+
+---
+
 ## 2026-11-18, 16:15: faults from the 15:09 round: a pick-up loop, a mail crate that stopped the shuttle, a second door, lost PDA messages (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 44 scenarios with a quiet LLM. 43 passed first time. `aside` failed one timing check (the janitor stepped aside 8 seconds after being asked, against a limit of 6) and passed four times out of four when run again: I take it for chance, and have not proved that. **Not played in a round. No model tests.** The normal build was run at 16:24 with the server closed (0 errors, 0 warnings), so the next round has all of this. The simulator runs none of the server code, and most of this is server code: the spent bottle, the mail crate, what bars the shuttle, the kept PDA messages, the door held on, the crate claim and the order of who a shut-in body writes to are compile-checked only. No scenario has a spoken ask about a door from someone already inside, so the change to that is covered only by the door scenarios still passing.

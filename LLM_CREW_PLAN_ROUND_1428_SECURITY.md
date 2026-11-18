@@ -9,7 +9,10 @@ Items marked **Seen** are from the logs. Items marked **Cause** say how sure I a
 **Partly built 2026-11-18, about 15:40,** on the owner's "the previous guy's work should be commited so lets go". **Type check, server compile on a side copy, the table of cases and the simulator only. Not played in a round.** The top entry of `LLM_CREW_CHANGELOG.md` for that time says what was built and where.
 
 - **Built:** the logging for C1 (not its fix), H1, H2, H3, H4, H5, M1, M2, M3, L1, L2. For M4, only the voice being told it cannot follow.
-- **Not built:** C1's fix (the cause is still not known), H6, H7, H8, M4, L3, L4, and the weapons hand-out below.
+- **Not built:** C1's fix, H6, H7, H8, M4, L3, L4, and the weapons hand-out below.
+- **2026-11-18, 16:10:** the next round showed C1's cause, the first arrest, and nine new bugs (C2, H9, H10, M5, M6, M7, M8, L5, L6). The owner, after it: "no build yet". They are in "Second round: 2026-11-18, 15:52" near the end.
+- **2026-11-18, 16:50, on the owner's "go ahead and get started on yours":** built C1's fix, C2, H9, H10, M5 (both layers), M6, M7, M8, L5 (the PDA copy only), L6. Type check, server compile on a side copy, the table of cases and the simulator. **Not played in a round**, and the LLM reader has not been tried on a real model. The change log's 16:50 entry says where each is and what is known to be wrong. **Still not built:** H6, H7, H8, M4, L3, L4, the weapons hand-out.
+- **2026-11-18, 17:35, after the third round (`round-17.06.14`, wrecked by the station trait "Revenge of Pun Pun"):** the real cause of C1 was found from six runtime errors and fixed (a hand swap called with no hand number). The officer now puts the security belt on, the owner's idea. H6 is built: hit by someone it cannot stop, it gets away and goes for a baton. A reason of "lock him up for" is fixed. The normal build was run at 17:34. Not played. **Still not built:** H7, H8, M4, L3, L4, the weapons hand-out. The owner on crew who are down: "We have no medical yet so not important".
 
 Earlier: the owner, 2026-11-18: "no code until I say".
 
@@ -254,6 +257,75 @@ Easiest first.
 4. C1's fix, once the log shows the cause.
 5. H5, H6, then part 1 of H8.
 6. M4, H7 and part 2 of H8, each as its own piece of work.
+
+## Second round: 2026-11-18, 15:52
+
+Read live at 16:08 from `data/logs/2026/11/18/round-15.52.18`, its first 17 minutes, on commit `e1376b13` with the 15:40 fixes built in. **Built 2026-11-18 at 16:50, not played: see Status.** What follows is as it was written before the build.
+
+### What the 15:40 fixes did
+
+- **No runtime errors at all.** The round before had 22 from H2's null body.
+- **M1:** "Put a warrant on Pun Pun" and "Place a warrant on Marisol Burris" were both taken as warrants and read back.
+- **M3:** "Lock Pun Pun up for 10 minutes" was not understood, and the Head of Security said so and gave the wording. See M5.
+- **H4:** "no baton" went from the officer to the Head of Security to the Captain, twice. Later "no way into the Kitchen" and "no way into the Cargo Bay" went the same way.
+- **H3:** not tested. No meeting was called while the officer was on a suspect.
+- Sightings came from the Head of Personnel, the Quartermaster and a janitor, and were passed to the officer, who went to each room.
+
+### C1. The cause is found
+
+**Seen:** six trips to the lockers, each logged "found no baton", and not one of the new step lines. So every step up to picking up the belt worked: the locker unlocked, opened, and the belt came into the officer's hand.
+
+**Cause, sure:** `baton_carried` looks through everything on the body, bags inside bags. With the belt in its hand, the baton inside the belt counts as carried. `kit_from_belt` then asks "am I short of a baton?", gets no, and takes nothing out. It puts the belt back, and is short of a baton again. This path writes no log line, which is why the log showed none.
+
+**Proposed:** `kit_from_belt` works out what the body is short of before it picks the belt up, and goes by that. About five lines in `crew_npc_security.dm`. Also log when a belt is picked up and nothing is taken out of it.
+
+### C2. Nobody can be put in a cell
+
+**Seen:** the owner opened the Cargo Bay door at 22:09. The officer cuffed Marisol Burris, who stood still, took her by the arm, walked her to the Brig and set Cell 1's timer to 5 minutes. That is the first arrest the system has made. Then, a second later: "You cannot get into Cell 1 with Marisol Burris." It tried again 40 seconds later with the same result. The owner: "he failed to drop him in a cell".
+
+**Cause, likely, not proven by a log line:** the cell's glass door is shut until someone with the right ID walks into it, and then takes 0.7 seconds to open. `walk_steps` walks into it, tries the step four times at 0.2 seconds apart, and gives up at 0.6 seconds, just before the door opens. Its own comment says a door is "walked into, which opens it, and tried again"; it does not wait long enough.
+
+**Proposed:** `walk_steps` keeps trying a step for up to 3 seconds when what is in the way is a door that is opening. One number and a few lines in `crew_npc_security.dm`. The same wait covers the way back out, since the door shuts itself again after 5 seconds. Also log which step into the cell failed.
+
+### High
+
+**H10. With the cell refused, it hunts someone else and drags the prisoner along.** *Seen:* after "cannot get into Cell 1" the officer went looking for Pun Pun in the hallways with Marisol Burris still cuffed and by the arm, as far as the Medbay Lobby, then came back to try the cell again. By 22:17 it had tried Cell 1 six times, never Cell 2 or 3, and walked every main hallway with her between tries. The owner: "he keeps hauling him around everywhere". *Cause, sure:* a failed `jail` leaves the brain free to pick its next warrant. *Proposed:* while it has someone in cuffs it does nothing but put them in a cell. It tries the same cell again, then the next cell, and after every cell has refused it stands with the prisoner in the Brig and tells the Head of Security "I cannot get X into a cell".
+
+**H9. Nobody lets security into a department.** *Seen:* the officer reached the Cargo Lobby, could not get into the Cargo Bay, said "Marisol Burris, you are under arrest. Stand still." through the counter, and reported "no way into the Cargo Bay". The same for Pun Pun in the Kitchen. The owner, watching: "no one is opening the door for security". *Cause, sure:* a security officer's ID opens security's doors and no other department's, and nothing has it ask. *Proposed:* it asks to be let in, with the code janitors already use for the Cargo Bay ("I am at the X door of the Y. Could you let me in, please?"). It asks the head of that department, never the person on the warrant. For a room with no staff aboard, such as the Kitchen, it asks the Head of Personnel, then the Captain. It says the arrest line only once it is beside the suspect. It reports "no way in" only after nobody has opened the door.
+
+### Medium, easiest first
+
+**M5. "Lock Pun Pun up for 10 minutes" is not a warrant, and the owner wants loose wording and bad spelling understood.** The owner, 2026-11-18: "I do use the LLM so my spelling can incorrect and I was hoping that there could be more variations that it would understand". *Proposed,* in two layers:
+
+1. *Code reads more.* More warrant words: "lock up", "lock X up", "jail", "arrest", "brig", "detain", "bring in", "pick up". "For N minutes", "N min" and numbers in words give the time in the cell. Spelling is forgiven: a word one or two letters off a warrant word counts ("warrent", "arest"), and a name one or two letters off someone aboard counts ("Marisol Buris", "punpun").
+2. *The voice reads what code cannot.* When code still makes nothing of a message from the Captain or a head, the Head of Security's LLM is asked one narrow question: is this a warrant, a pardon or neither, for whom, and for how long. Code checks the name against who is aboard, then reads it back in the fixed words it uses now ("Captain, I have that: a warrant for Pun Pun. 10 minutes."). A wrong reading is seen in the read-back and undone with a pardon. If the LLM is down or its answer does not check out, today's "I did not follow that" goes out. It costs one LLM turn, a few seconds, and only for a message code could not read.
+
+Layer 2 is a change to a standing rule: until now every line with a name or a number has been read by code alone. If it is wanted, the same last-resort reader can serve the other heads' orders later.
+
+**Decided by the owner, 2026-11-18:** "yes, last resort works". Not built: "No code yet". With one condition from the owner: "We did find if we send to much to the LLM is shits a brick". So the last-resort question is its own small call, not the body's usual turn:
+
+- It carries the one message and the question, and nothing else: no room, no list of what is in sight, no task list, no memory of the round.
+- It does not carry the crew list. The LLM gives back the name as it read it, and code matches that to who is aboard, forgiving spelling as in layer 1.
+- The answer is one short JSON object: what it is (warrant, pardon or neither), the name, the minutes.
+- It is asked once per message. No second try on a bad answer: "I did not follow that" goes out instead.
+
+**M6. The officer's meeting report says "I need nothing" while it has no baton.** *Seen:* 22:05, three minutes after it reported "no baton". *Proposed:* an officer short of a baton or cuffs says so in its report: "I need a stun baton."
+
+**M8. The Head of Security is never told of an arrest, and was told she was lost.** *Seen:* at 22:09:20 the officer sent "I lost Marisol Burris in the Cargo Lobby" while she stood in sight behind the counter. Thirty seconds later it had her in cuffs and said nothing. At 22:16 the Head of Security's meeting report read "Still wanted: Marisol Burris, last seen in the Cargo Lobby" while the officer had been walking her round the station for seven minutes. The officer's own report, sent from the hallway with her by the arm: "Nothing done yet to speak of. I need nothing." *Proposed:* someone in sight and out of reach is not "lost". On cuffing, the officer tells the Head of Security "I have X in cuffs", the list reads "X, in cuffs", and the arrest counts in the officer's report.
+
+**M7. "No baton" is reported before anything is tried.** *Seen:* the warrant on Marisol Burris was answered with "I cannot bring in Marisol Burris: no baton" fourteen seconds after it was given, before the officer had looked for her. A crew member who stands still is cuffed without a baton. *Proposed:* "no baton" is reported only once the suspect has run or fought. Until then the officer tries the quiet arrest. C1's fix makes this rarer, not gone.
+
+### Low
+
+**L5. A head tells the wanted person about their own warrant.** *Seen:* the Quartermaster to Marisol Burris: "Security is looking for Pun Pun and Marisol Burris. If you see either of them, send security a PDA message saying where." *Proposed:* a head leaves a name off the list when passing it to that person. What a wanted crew member does about it is the reactions work the owner has put off.
+
+**L6. The officer tells everyone it meets about the warrant,** the suspect included ("I've got a warrant for you from the Captain in the cells"). L2's fix covered the fixed lines, not the voice's greetings. *Proposed:* the voice is not told who is wanted while a warrant is being served; it is told only "you are on security business".
+
+### Not security's, seen in passing
+
+- The Captain's PDA to the Chief Engineer, "There is a firelockout in the kitchen that needs to be opened", got no answer at all. That is H7, not built.
+- A janitor asked Marisol Burris to let it into the Cargo Bay six times while she was in cuffs, before it asked the other technician. Someone in cuffs cannot answer a door.
+- The Quartermaster's second meeting reported "0 of 2 there" after both technicians had answered that they were coming or already there.
 
 ## Not in this plan
 

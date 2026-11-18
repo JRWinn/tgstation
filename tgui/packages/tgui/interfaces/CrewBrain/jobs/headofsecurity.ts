@@ -33,7 +33,7 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
-  deskNotFollowed,
+  deskUnread,
   deskTakes,
   inTheCells,
   leadIsFresh,
@@ -233,9 +233,10 @@ export const HEAD_OF_SECURITY: Job = {
       }
       return;
     }
-    // Something from the Captain or a head that it can make nothing of. It says so, with the
-    // words that would have worked: nobody is left guessing.
-    deskNotFollowed(brain, from, job);
+    // Something from the Captain or a head that code can make nothing of goes to the LLM to
+    // read, as the reader of last resort. If that comes to nothing it says so, with the words
+    // that would have worked: nobody is left guessing.
+    deskUnread(brain, from, job, text);
   },
   overhears: (brain, event: SenseEvent) => {
     const heard = String(event.details.message ?? '');

@@ -177,6 +177,8 @@ export type Npc = {
     crates_out?: number;
     /** Machines an engineer has set: a pump turned on, a canister connected, an emitter switched. */
     machines_set?: number;
+    /** Arrests a security officer has made: the cuffs on, and a hold of them. */
+    arrests?: number;
   } | null;
   /** TRUE if the body carries a PDA with the custodial locator. */
   has_locator: BooleanLike;
@@ -345,6 +347,8 @@ export type SecurityState = {
   /** A stun baton in view that is not on it: on the floor, or in someone's hand, and whose. */
   baton_seen: { where: 'floor' | 'held'; by: string | null } | null;
   cells: SecurityCell[];
+  /** For each room it lately found no way into: the names of those whose ID opens one of its doors, staff first, then heads, then the Captain. */
+  keepers?: Record<string, string[]>;
 };
 
 /** Someone security is looking for, as anyone who holds the list knows them. */
@@ -356,7 +360,15 @@ export type WantedEntry = {
 
 /** How a warrant went, as whoever served it tells whoever keeps the list. */
 export type SecurityOutcome = {
-  what: 'jailed' | 'lost' | 'hurt' | 'baton' | 'attacked' | 'freed' | 'cannot';
+  what:
+    | 'jailed'
+    | 'lost'
+    | 'cuffed'
+    | 'hurt'
+    | 'baton'
+    | 'attacked'
+    | 'freed'
+    | 'cannot';
   /** Who it is about. For "attacked" and "baton", who did it. */
   name: string;
   cell?: string;
@@ -439,6 +451,22 @@ export type DeskWork = {
   arrests: number;
   /** When it last said that it did not follow something (this window's clock). No more than once a minute. */
   notFollowedAt?: number;
+  /** Who is in cuffs and on the way to a cell, by name, and when the officer said so. */
+  cuffed?: Record<string, number>;
+  /**
+   * Orders from the Captain or a head that code could make nothing of, waiting to be put to the
+   * LLM as the reader of last resort: see buildReading in jobs/security.ts. `asked` is set once
+   * the question has gone.
+   */
+  unread?: {
+    from: string;
+    fromJob: string;
+    text: string;
+    at: number;
+    asked?: boolean;
+  }[];
+  /** When it last put an order to the LLM to read (this window's clock). */
+  readingAt?: number;
 };
 
 /** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */
@@ -468,6 +496,24 @@ export type BeatWarrant = {
   cuffedByMe?: boolean;
   /** When it last saw them with its own eyes. */
   ownSeenAt?: number;
+  /** How many times running it could not get them into a cell, and when it last could not. */
+  cellTries?: number;
+  cellFailedAt?: number;
+  /** How many tries at a cell it has made for them in all. It numbers each try. */
+  cellAttempts?: number;
+  /**
+   * A room they are in that it cannot get into: who it can ask to open it, who it has asked and
+   * when it last asked, and whether it has given up asking.
+   */
+  shutOut?: {
+    place: string;
+    at: number;
+    keepers: string[];
+    asked: string[];
+    askedAt: number;
+    atDoor?: boolean;
+    gaveUp?: boolean;
+  };
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -490,7 +536,17 @@ export type BeatWork = {
   /** TRUE once it has broken off hurt. It uses no force again until it is told to. */
   hurt: boolean;
   /** Someone with no warrant on them who has just attacked it. */
-  attacker: { name: string; handle: string; at: number; stopped?: boolean } | null;
+  attacker: {
+    name: string;
+    handle: string;
+    at: number;
+    stopped?: boolean;
+    /** TRUE once whoever keeps the list has been told of the attack. */
+    told?: boolean;
+  } | null;
+  /** Who last laid a hand on it, and when. */
+  struckBy?: string;
+  struckAt?: number;
   /** Who it has put in a cell: which, when their time is up, and whether they still wear its cuffs. */
   jailed: Record<string, { cell: string; until: number; cuffsLeft: boolean }>;
   /** Who it has been told to let go. */
@@ -1276,6 +1332,8 @@ export type NpcBrain = {
     arrivedAt: number | null;
     /** Server time the server last told it that its walk to the room had got there, or null. */
     toldArrivedAt: number | null;
+    /** TRUE once it has been to the middle of the room to find its head, or tried to. */
+    wentIn?: boolean;
     /** How many times it has walked up to its head in the room, and the server time it last did. */
     walkUps: number;
     walkedUpAt: number | null;
@@ -1338,6 +1396,8 @@ export type NpcBrain = {
     orderedBy: string | null;
     /** How many lines of who security is looking for it has read out at this meeting: see jobs/wanted.ts. */
     wantedSaid?: number;
+    /** TRUE once it has been to the middle of the room, where its staff look for it, or tried to. */
+    wentIn?: boolean;
   } | null;
   /** For a head: server time the next staff meeting is due, and whether it has held one yet. */
   nextMeetingAt: number;

@@ -294,12 +294,12 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	var/mob/living/carbon/human/body = pawn
 	if(isnull(body.get_active_held_item()))
 		return TRUE
-	body.swap_hand()
+	body.swap_hand(body.get_inactive_hand_index())
 	if(isnull(body.get_active_held_item()))
 		return TRUE
 	free_a_hand()
 	if(!isnull(body.get_active_held_item()))
-		body.swap_hand()
+		body.swap_hand(body.get_inactive_hand_index())
 	return isnull(body.get_active_held_item())
 
 /// Turns a pump or a filter on or off, by the click that does that.
@@ -367,7 +367,7 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 			return list(FALSE, "You cannot get your wrench out.", FALSE)
 	// It is the hand that holds the wrench that clicks.
 	if(body.get_active_held_item() != wrench)
-		body.swap_hand()
+		body.swap_hand(body.get_inactive_hand_index())
 	var/reached = body.get_active_held_item() == wrench && click_as_body(canister)
 	var/connected = !QDELETED(canister) && !isnull(canister.connected_port)
 	// The wrench goes back where it came from, whether or not that worked.

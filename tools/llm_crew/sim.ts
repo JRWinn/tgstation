@@ -40,6 +40,8 @@
 //   bun run sim.ts quiet fight       the monkey bites: the baton comes out at once, and it gets five minutes more
 //   bun run sim.ts quiet hurt        the monkey bites hard: the officer breaks off hurt, and the Head of Security makes the arrest itself
 //   bun run sim.ts quiet nobaton     the lockers give the officer no baton: it says so, the Captain is told, and it stays with the monkey: no more trips to the lockers, and no walking off to a staff meeting
+//   bun run sim.ts quiet badcell     the first cell will not take the prisoner: the officer tries the next at once, and walks nowhere else with it by the arm
+//   bun run sim.ts quiet loose       the Captain words the warrant loosely: code cannot read it, the LLM does, and it is read back in the fixed words. With a dead LLM the Captain is told it was not followed, and says it again plainly
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
@@ -73,6 +75,7 @@ const LLM_MS = 2500;
 const CHOICE_MS = 800;
 let llmCalls = 0;
 let choiceCalls = 0;
+let readingCalls = 0;
 const choices: string[] = [];
 (globalThis as any).fetch = async (_url: string, init: any) => {
   const body = JSON.parse(init.body);
@@ -87,6 +90,16 @@ const choices: string[] = [];
     choices.push(`${stamp()} ${listed.split('\n').find((line) => line.startsWith(`${pick}: `))} (of ${properties.pick.enum.length})`);
     await new Promise((resolve) => setTimeout(resolve, CHOICE_MS));
     return { ok: true, json: async () => ({ message: { content: JSON.stringify({ why: 'that one first', pick }) }, done_reason: 'stop', prompt_eval_count: 250, eval_count: 20 }) };
+  }
+  // Asked to read an order code could not: it finds the monkey's name in it, and how long.
+  if (properties.kind) {
+    readingCalls++;
+    if (MODE === 'dead') throw new Error('Ollama is not running');
+    const asked: string = body.messages[body.messages.length - 1].content;
+    const named = asked.match(/pun pun/i)?.[0];
+    const made = named ? { kind: 'warrant', name: named, minutes: /ten minutes|10 min/i.test(asked) ? 10 : 0 } : { kind: 'neither', name: '', minutes: 0 };
+    await new Promise((resolve) => setTimeout(resolve, CHOICE_MS));
+    return { ok: true, json: async () => ({ message: { content: JSON.stringify(made) }, done_reason: 'stop', prompt_eval_count: 120, eval_count: 20 }) };
   }
   llmCalls++;
   if (MODE === 'dead') throw new Error('Ollama is not running');
@@ -285,7 +298,9 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose'].includes(process.argv[3]);
+// The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
+const refusedCells = new Set<string>();
 const SEC_OFFICE = 'Security Office';
 const HOS_OFFICE = "Head of Security's Office";
 const BRIG = 'Brig';
@@ -976,8 +991,10 @@ function toolCall(body: Body, tool: string, args: any) {
       const name = mine.holding;
       const note = (ok: boolean, extra: any = {}) => secWork.push({ at: clock, who: body.name, tool: 'jail', ok, target: name ?? undefined, ...extra });
       if (!name) { note(false, { reason: 'no_hold' }); return result(body, 'jail', false, 'You have nobody by the arm.', { reason: 'no_hold' }); }
-      const cell = cells.find((it) => !it.occupant);
+      const cell = cells.find((it) => !it.occupant && !refusedCells.has(it.name)) ?? cells.find((it) => !it.occupant);
       if (!cell) { note(false, { reason: 'no_cell' }); return result(body, 'jail', false, 'Every cell is in use.', { reason: 'no_cell' }); }
+      // In one scenario the first cell will not take anyone, as in the round of 15:52: its door did not open in time.
+      if (process.argv[3] === 'badcell' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'no_way', cell: cell.name }); result(body, 'jail', false, `You cannot get into ${cell.name} with ${name}.`, { reason: 'no_way', prisoner: name, cell: cell.name }); });
       return busy(body, 10, `taking ${name} to the brig`, true, () => {
         const minutes = Math.min(15, Math.max(1, Number(args.minutes) || 5));
         const npc = bodies.find((other) => other.name === name);
@@ -1270,7 +1287,9 @@ function securityTick(second: number) {
   if (pun && pun.route.length && !pun.cuffed && !pun.cell && !pun.busy && second >= pun.from && clock - pun.movedAt >= pun.every * 1000) { pun.room = pun.route[(pun.route.indexOf(pun.room) + 1) % pun.route.length]; pun.movedAt = clock; }
   const desk = bodies.find((other) => other.job === 'Head of Security') ?? bodies.find((other) => other.job === 'Security Officer')!;
   const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon';
-  if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
+  if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
+  // Told it was not followed, the Captain says it again in the words it was given.
+  if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
   if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
 }
@@ -1854,7 +1873,10 @@ if (SECURITY) {
   const desk = joan ?? hale;
   const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon';
   const wanted = onHead ? 'Hop Kins' : 'Pun Pun';
-  const reason = onHead ? 'theft' : 'wrecking the Custodial Closet';
+  const reason = onHead ? 'theft' : VARIANT === 'loose' ? '' : 'wrecking the Custodial Closet';
+  const forWhat = reason ? `, for ${reason}` : '';
+  const term = VARIANT === 'loose' ? 10 : 5;
+  const cellFor = VARIANT === 'badcell' ? 'Cell 2' : 'Cell 1';
   const saidBy = (who: string, words: RegExp) => spoken.filter((line) => line.who === who && words.test(line.text));
   const sentTo = (body: Body | undefined, person: string, words: RegExp) => (body?.log ?? []).filter((line) => / message /.test(line) && line.includes('"person":"' + person + '"') && words.test(line));
   const told = (body: Body | undefined, person: string, words: RegExp) => (body ? saidBy(body.name, words).length : 0) + sentTo(body, person, words).length;
@@ -1863,22 +1885,39 @@ if (SECURITY) {
   const firstHand = arrests[0];
   const listed = (work: typeof secWork) => work.map((it) => `${it.who} ${it.tool}${it.how ? ' ' + it.how : ''} ${it.ok ? 'ok' : it.reason}`).join('; ');
 
-  check('whoever declared the warrant is answered, word for word, with what was understood', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, I have that: a warrant for ${wanted}, for ${reason}\\. 5 minutes\\.`)).length === 1);
+  check('whoever declared the warrant is answered, word for word, with what was understood', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, I have that: a warrant for ${wanted}${forWhat}\\. ${term} minutes\\.`)).length === 1);
   const fetched = secWork.find((work) => work.tool === 'get_kit' && work.who === hale.name);
   check('the officer fetches its baton from the lockers before anything else', !!fetched && fetched.at - began < 60_000, fetched ? seconds(fetched.at) : 'never');
   if (joan) {
-    check('the Head of Security gives its officer the warrant, to its face or by PDA', told(joan, hale.name, new RegExp(`Hale, warrant: ${wanted}, for ${reason}\\. Bring them in, 5 minutes\\.`)) >= 1);
+    check('the Head of Security gives its officer the warrant, to its face or by PDA', told(joan, hale.name, new RegExp(`Hale, warrant: ${wanted}${forWhat}\\. Bring them in, ${term} minutes\\.`)) >= 1);
     check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name), listed(secWork.filter((work) => work.who === joan.name)));
   }
   const arrester = VARIANT === 'hurt' ? joan! : hale;
-  const toldArrest = saidBy(arrester.name, new RegExp(`^${wanted}, you are under arrest, for ${reason}\\. Stand still\\.`))[0];
+  const toldArrest = saidBy(arrester.name, new RegExp(`^${wanted}, you are under arrest${forWhat}\\. Stand still\\.`))[0];
   const ownFirst = arrests.find((work) => work.who === arrester.name);
   check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
   check('nobody is hit who was not first given the chance to stand still', firstHand?.how === 'quiet', listed(arrests));
   if (VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
-    check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === 'Cell 1', listed(secWork));
+    check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === cellFor, listed(secWork));
   }
-  const minutes = VARIANT === 'fight' ? 10 : 5;
+  const minutes = VARIANT === 'fight' ? 10 : term;
+  if (VARIANT === 'badcell') {
+    const tries = secWork.filter((work) => work.tool === 'jail');
+    const refused = tries.find((work) => !work.ok);
+    const put = tries.find((work) => work.ok);
+    check('the first cell refuses, and the officer has them in the next within half a minute', !!refused && !!put && put.at - refused.at <= 30_000, listed(tries));
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const strayed = hale.log.filter((line) => !!refused && !!put && line.slice(0, 8) > clockAt(refused.at) && line.slice(0, 8) < clockAt(put.at) && / (go_to|get_kit|explore|approach) /.test(line));
+    check('with a prisoner by the arm it goes nowhere but the cells', strayed.length === 0, strayed.join(' | '));
+  }
+  if (VARIANT === 'loose') {
+    check('an order code cannot read is put to the LLM once', readingCalls === 1, `${readingCalls} reading(s)`);
+    if (MODE === 'dead') check('with no LLM, the Captain is told it was not followed', sentTo(desk, SEC_CAPTAIN, /Captain, I did not follow that\./).length === 1);
+  }
+  if (joan && VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
+    const cuffer = VARIANT === 'hurt' ? 'I have' : 'Hale has';
+    check('the Captain is told when they are in cuffs', sentTo(joan, SEC_CAPTAIN, new RegExp(`Captain, ${cuffer} ${wanted} in cuffs\\.`)).length >= 1, sentTo(joan, SEC_CAPTAIN, /in cuffs/).join(' | '));
+  }
   if (VARIANT === 'nobaton') {
     const trips = secWork.filter((work) => work.tool === 'get_kit' && work.who === hale.name);
     check('the officer goes to the lockers no more than three times', trips.length >= 1 && trips.length <= 3, `${trips.length} trip(s)`);
@@ -1894,9 +1933,9 @@ if (SECURITY) {
     check('the Head of Security calls no staff meeting inside five minutes of a sighting', !call || callAt >= SIGHTING_AT + 295, call ? `${callAt} s in` : 'none called');
     check('called to one while it is with the monkey, the officer sends its report by PDA and stays', !call || sentTo(hale, joan!.name, /I cannot come to the meeting: I am after someone on a warrant\./).length === 1, call ? '' : 'no meeting was called in the time');
   }
-  if (VARIANT !== 'nobaton') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in Cell 1 for ${minutes} minutes${VARIANT === 'fight' ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
+  if (VARIANT !== 'nobaton') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${VARIANT === 'fight' ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
   if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton') {
-    check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in Cell 1 for ${minutes} minutes`)) >= 1);
+    check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in ${cellFor} for ${minutes} minutes`)) >= 1);
   }
 
   if (VARIANT === 'warrant') {

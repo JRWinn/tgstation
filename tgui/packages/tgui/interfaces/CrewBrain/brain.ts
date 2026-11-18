@@ -23,6 +23,8 @@ import {
   readPickup,
 } from './jobs/pickups';
 import { isWarrantOn, securityFeels } from './jobs/arrests';
+import { deskRead } from './jobs/desk';
+import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
@@ -130,6 +132,9 @@ const REPORT_MAX_LINES = 10;
 const CHOICE_MAX_TOKENS = 80;
 /** How long a call asking which job comes first may take. The body has stopped waiting well before. */
 const CHOICE_TIMEOUT_MS = 15000;
+/** Most tokens the LLM may spend reading an order code could not: three short fields. And how long that call may take. */
+const READING_MAX_TOKENS = 60;
+const READING_TIMEOUT_MS = 15000;
 
 type Act = (action: string, payload?: object) => void;
 
@@ -138,6 +143,8 @@ const brains = new Map<string, NpcBrain>();
 const queue: string[] = [];
 /** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
 const choiceQueue: string[] = [];
+/** Ids of NPCs with an order code could not read, waiting for the LLM to read it. These go first: whoever sent it is waiting. */
+const readingQueue: string[] = [];
 const listeners = new Set<() => void>();
 let version = 0;
 let act: Act | null = null;
@@ -199,6 +206,7 @@ export function stopSession(): void {
   }
   queue.length = 0;
   choiceQueue.length = 0;
+  readingQueue.length = 0;
   brains.clear();
   clearExpected();
   clearRounds();
@@ -438,6 +446,7 @@ export function ingest(npcs: Npc[], now: number): void {
       crates_in: npc.work_done?.crates_in ?? 0,
       crates_out: npc.work_done?.crates_out ?? 0,
       machines_set: npc.work_done?.machines_set ?? 0,
+      arrests: npc.work_done?.arrests ?? 0,
     };
     brain.cleanableMesses = npc.cleanable_messes ?? [];
     brain.beyondKinds = npc.beyond_kinds ?? [];
@@ -757,6 +766,14 @@ export function ingest(npcs: Npc[], now: number): void {
       logRoutine(brain, step);
       changed = true;
     }
+    // An order from the Captain or a head that code could make nothing of goes to the LLM to read.
+    if (
+      brain.desk?.unread?.some((it) => !it.asked) &&
+      !readingQueue.includes(brain.id)
+    ) {
+      readingQueue.push(brain.id);
+      changed = true;
+    }
     passRemark(brain);
     if (brain.wake && brain.awake && brain.status === 'idle') {
       brain.status = 'queued';
@@ -1035,9 +1052,86 @@ function pump(): void {
   if (running) {
     return;
   }
-  if (!startTalk()) {
+  if (!startReading() && !startTalk()) {
     startChoice();
   }
+}
+
+/** Starts the next reading of an order that some NPC is still waiting on. Returns TRUE if a call was started. */
+function startReading(): boolean {
+  while (readingQueue.length > 0) {
+    const brain = brains.get(readingQueue.shift() ?? '');
+    const asked = brain?.desk?.unread?.find((it) => !it.asked);
+    if (brain && asked) {
+      asked.asked = true;
+      running = true;
+      void readOrder(brain, asked);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Puts one order that code could not read to the LLM, as the reader of last resort, and hands
+ * what it made of it back to the code that keeps the list. The question is the message and
+ * nothing else: see buildReading. Whatever the LLM answers is checked and read back to whoever
+ * sent the order, in the fixed words. With no answer that can be used, they are told it was not
+ * followed, as they were before there was a reader of last resort.
+ */
+async function readOrder(
+  brain: NpcBrain,
+  asked: NonNullable<NonNullable<NpcBrain['desk']>['unread']>[number],
+): Promise<void> {
+  const mySession = session;
+  const call = buildReading(asked.text);
+  const started = Date.now();
+  let raw = '';
+  let error = '';
+  let promptTokens = 0;
+  let reading: Reading | null = null;
+  try {
+    const answer = await callOllama(
+      [
+        { role: 'system', content: call.system },
+        { role: 'user', content: call.user },
+      ],
+      call.schema,
+      READING_MAX_TOKENS,
+      READING_TIMEOUT_MS,
+    );
+    if (mySession !== session) {
+      return;
+    }
+    raw = answer.text;
+    promptTokens = answer.promptTokens;
+    reading = readReading(raw, asked.text);
+    if (!reading) {
+      error = 'The reply was no warrant or pardon on anyone the message names.';
+    }
+  } catch (caught) {
+    if (mySession !== session) {
+      return;
+    }
+    error = caught instanceof Error ? caught.message : String(caught);
+  }
+  const outcome = deskRead(brain, asked, reading);
+  const ms = Date.now() - started;
+  const send = act;
+  const record = {
+    npc: brain.id,
+    kind: 'decision',
+    trigger: `READING (LLM) of an order code could not read, from ${asked.from}:${NEWLINE}${call.user}`,
+    context: '',
+    reply: `${raw}${NEWLINE}${outcome}`,
+    error,
+    ms,
+    tokens: promptTokens,
+  };
+  setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
+  running = false;
+  notify();
+  pump();
 }
 
 /** Starts the next waiting NPC's talk, if it is time for it. Returns TRUE if a call was started. */

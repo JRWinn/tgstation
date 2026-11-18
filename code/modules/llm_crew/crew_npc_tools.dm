@@ -30,7 +30,7 @@
 		if(CREW_TOOL_WALK_TO)
 			tool_walk_to(arguments["person"])
 		if(CREW_TOOL_GO_TO)
-			tool_go_to(arguments["place"])
+			tool_go_to(arguments["place"], arguments["middle"])
 		if(CREW_TOOL_EXPLORE)
 			// Choosing somewhere to explore means testing routes, which takes time.
 			INVOKE_ASYNC(src, PROC_REF(tool_explore))
@@ -185,8 +185,16 @@
 
 	start_walk(person, CREW_TOOL_WALK_TO, person.name, CREW_NPC_WALK_TIMEOUT)
 
-/// Tool: walk to a room the body has been in before.
-/datum/ai_controller/crew_npc/proc/tool_go_to(place)
+/**
+ * Tool: walk to a room the body has been in before.
+ *
+ * `middle` is for a staff meeting: the body goes to the middle of the room, whether or not it is
+ * in the room already. Everyone called to a meeting makes for the same spot, so that they end up
+ * in sight of each other. In a big room each used to stop where it knew the room by: a head by its
+ * office door and its staff at their counter, eight tiles apart and out of each other's sight,
+ * and the meeting was reported as nobody there.
+ */
+/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle)
 	var/known_place = istext(place) ? find_known_place(place) : null
 	if(isnull(known_place))
 		action_result(CREW_TOOL_GO_TO, FALSE, "You do not know of anywhere aboard by that name.")
@@ -194,6 +202,15 @@
 	// Where the body stands this instant, not the room it last noted being in: pushed out of a room
 	// since its last look, it is not in it, and telling it that it is sends it nowhere.
 	var/turf/here = get_turf(pawn)
+	if(middle)
+		var/area/station/room = crew_npc_station_places()[known_place]
+		var/turf/spot = room ? middle_of(room.type) : null
+		if(spot)
+			if(get_area(here) == room && get_dist(here, spot) <= 2)
+				action_result(CREW_TOOL_GO_TO, TRUE, "You are in the middle of [known_place].", list("place" = known_place))
+				return
+			start_walk(spot, CREW_TOOL_GO_TO, known_place, known_place == get_area_name(here, TRUE) ? CREW_NPC_WALK_TIMEOUT : CREW_NPC_TRAVEL_TIMEOUT)
+			return
 	if(known_place == get_area_name(here, TRUE))
 		// In the room, but in its doorway: in the way of everyone who comes through, and one push
 		// from being out of the room again. It goes in properly. Not at its own post, though: the

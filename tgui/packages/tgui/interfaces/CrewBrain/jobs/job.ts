@@ -56,6 +56,11 @@ export type Job = {
    */
   needs?: (brain: NpcBrain) => string | null;
   /**
+   * What the NPC is short of that is not for cargo to bring: it says so in its report, and asks
+   * nobody to order it. A security officer with no stun baton says "I need a stun baton".
+   */
+  lacks?: (brain: NpcBrain) => string | null;
+  /**
    * The kinds of counted work this job reports to its head at a staff meeting, by the name the
    * server counts each under: see jobs/reports.ts. Left out, it reports every kind it has done.
    */
