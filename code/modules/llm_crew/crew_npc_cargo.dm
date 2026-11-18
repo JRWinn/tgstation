@@ -455,7 +455,7 @@
 				// The shuttle will not fly with anyone aboard, or with cargo it is not allowed to carry.
 				supply_run_active = FALSE
 				pending_order = null
-				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle will not leave to fetch [ordered_words]: someone is standing aboard it, or something aboard is not allowed to travel. The order is off until it is clear.")
+				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle will not leave to fetch [ordered_words]: [what_bars_shuttle(shuttle) || "someone is standing aboard it, or something aboard is not allowed to travel"]. The order is off until it is clear.")
 				return
 		else if(docked_at == "cargo_away")
 			SSshuttle.moveShuttle("cargo", "cargo_home", TRUE)
@@ -705,14 +705,7 @@
 		return
 
 	var/wanted = LOWER_TEXT(trim(person_name))
-	var/datum/computer_file/program/messenger/target
-	for(var/messenger_ref in GLOB.pda_messengers)
-		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
-		if(candidate == own_messenger || isnull(candidate.computer))
-			continue
-		if(LOWER_TEXT(candidate.computer.saved_identification) == wanted)
-			target = candidate
-			break
+	var/datum/computer_file/program/messenger/target = messenger_named(wanted, own_messenger)
 	// Having tried is enough. Someone with no PDA cannot be told this way, and trying again would not change that.
 	for(var/list/notice as anything in notices_owed)
 		if(LOWER_TEXT(notice["to"]) == wanted)
@@ -721,14 +714,76 @@
 	if(isnull(target))
 		action_result(CREW_TOOL_MESSAGE, FALSE, "You cannot find that person on your PDA.")
 		return
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [target.computer.saved_identification]: [text]")
+	var/to_name = target.computer.saved_identification
+	var/unsent_key = "[LOWER_TEXT(to_name)]|[text]"
 	if(!own_messenger.send_message_signal(body, text, list(target)))
-		action_result(CREW_TOOL_MESSAGE, FALSE, "Your PDA would not send the message.")
+		// Kept, and tried again until it goes. In a communications blackout every message for five
+		// minutes was lost for good, and the log said each had been sent: the Captain got no
+		// reports, and nobody was called to a meeting.
+		var/already_kept = !isnull(unsent_messages[unsent_key])
+		if(!already_kept)
+			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time)
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it. Kept to send again: [text]")
+		if(!unsent_retry_due)
+			unsent_retry_due = TRUE
+			addtimer(CALLBACK(src, PROC_REF(resend_unsent)), CREW_NPC_UNSENT_RETRY)
+		action_result(CREW_TOOL_MESSAGE, FALSE, "Your PDA would not send the message. You will try it again when your PDA is working.")
 		return
+	// The same words, kept from a try that failed, have now gone.
+	unsent_messages -= unsent_key
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name]: [text]")
 	// A message to a janitor from a post is that post's call for one: the others there need not send their own.
 	if(findtext(target.computer.saved_job, "janitor"))
 		note_janitor_called()
-	action_result(CREW_TOOL_MESSAGE, TRUE, "You send [target.computer.saved_identification] a PDA message.")
+	action_result(CREW_TOOL_MESSAGE, TRUE, "You send [to_name] a PDA message.")
+
+/// Returns the messenger of the PDA that goes by this name (lower case), other than the body's own, or null.
+/datum/ai_controller/crew_npc/proc/messenger_named(wanted, datum/computer_file/program/messenger/own_messenger)
+	for(var/messenger_ref in GLOB.pda_messengers)
+		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
+		if(candidate == own_messenger || isnull(candidate.computer))
+			continue
+		if(LOWER_TEXT(candidate.computer.saved_identification) == wanted)
+			return candidate
+	return null
+
+/**
+ * Tries again to send the PDA messages that would not go, oldest first, as anyone would press
+ * send again. One that says "now" is dropped after a minute and a half, the rest after eight
+ * minutes. While any are left it comes back to them.
+ */
+/datum/ai_controller/crew_npc/proc/resend_unsent()
+	unsent_retry_due = FALSE
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || !length(unsent_messages))
+		return
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(body.stat == DEAD || isnull(own_messenger))
+		unsent_messages.Cut()
+		return
+	var/went = FALSE
+	for(var/unsent_key in unsent_messages.Copy())
+		var/list/kept = unsent_messages[unsent_key]
+		var/text = kept["text"]
+		var/to_name = kept["to"]
+		var/datum/computer_file/program/messenger/target = messenger_named(LOWER_TEXT(to_name), own_messenger)
+		if(isnull(target) || world.time - kept["at"] > (findtext(text, " now") ? CREW_NPC_UNSENT_NOW_KEPT : CREW_NPC_UNSENT_KEPT))
+			unsent_messages -= unsent_key
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) gave up on the PDA message to [to_name] that would not send: [text]")
+			continue
+		// Still not working: the rest will not go either.
+		if(!own_messenger.send_message_signal(body, text, list(target)))
+			break
+		unsent_messages -= unsent_key
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) sent [to_name] the PDA message that would not go before: [text]")
+		if(findtext(target.computer.saved_job, "janitor"))
+			note_janitor_called()
+		// One at a time: the PDA will not send two in the same moment. The next follows shortly.
+		went = TRUE
+		break
+	if(length(unsent_messages))
+		unsent_retry_due = TRUE
+		addtimer(CALLBACK(src, PROC_REF(resend_unsent)), went ? 3 SECONDS : CREW_NPC_UNSENT_RETRY)
 
 /// Listens for PDA messages arriving on the computers the body carries.
 /datum/ai_controller/crew_npc/proc/start_pda_senses(mob/living/carbon/human/body)

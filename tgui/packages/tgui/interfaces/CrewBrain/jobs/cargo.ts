@@ -964,8 +964,8 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     // only by name, and that will do: the server finds whoever of that name is at the door.
     const wants = doorWanted(brain);
     // Which of the room's doors, if they said, or if the knock that brought it here told it.
-    // Said aloud, an ask names no room: the door they named is taken to be one of the room they
-    // are being let through.
+    // An ask that names no room: the door they named is taken to be one of the room they are
+    // being let through.
     const which =
       (brain.doorAsked?.name === wants?.name &&
       (brain.doorAsked?.room ?? wants?.room) === wants?.room
@@ -1200,6 +1200,30 @@ function seenInside(brain: NpcBrain, person: PersonInView): string | undefined {
 }
 
 /**
+ * The room of the department's that someone asking about a door means, or undefined if they name
+ * none. It is the one they name first. They may name another after it: where someone who is shut
+ * in is trying to get out to, or the mess further in that they have come about. What follows
+ * "door of the" or "let me into the" is the room, if they put it that way: a door goes by a name
+ * of its own, and that name may be another of the department's rooms.
+ */
+function roomAskedIn(brain: NpcBrain, text: string): string | undefined {
+  const said = text.toLowerCase();
+  const after = said.match(
+    /\b(?:door (?:of|out of|into|to)|(?:let|get) (?:me|us) (?:into|in to|out of)) the ([^.,!?]+)/,
+  )?.[1];
+  const named = (own: string) =>
+    after ? after.startsWith(own.toLowerCase()) : false;
+  return ownRooms(brain)
+    .filter((own) => said.includes(own.toLowerCase()))
+    .sort(
+      (a, b) =>
+        Number(named(b)) - Number(named(a)) ||
+        said.indexOf(a.toLowerCase()) - said.indexOf(b.toLowerCase()) ||
+        b.length - a.length,
+    )[0];
+}
+
+/**
  * Whether someone who has asked for a door may be let through it, and which way. Out, for anyone
  * who is inside one of its rooms and cannot get out. In, only for someone the department sent for
  * to that room, while the mess they were sent for is still there: the call is the permission. A
@@ -1225,8 +1249,10 @@ function mayPass(
   // Someone who sends word that they are at the door and asks to be let in is not inside, whatever
   // the record says. A door opened for a janitor who had walked off, or who stood at another door
   // of the room, left them down as let in: when they came back to it they were told that nobody
-  // had sent for them. The call that brought them stands again.
-  if (out === false && inside && !person && inside.room === (room ?? post)) {
+  // had sent for them. The call that brought them stands again. Only for an ask that names the
+  // room, though: one that names none was taken for the post, and wiped the record of someone who
+  // was inside it and had only said the word "door".
+  if (out === false && inside && !person && room && inside.room === room) {
     inside.inside = false;
     inside = undefined;
   }
@@ -2222,14 +2248,29 @@ export const CARGO: Job = {
       }
     }
     // Asked of someone else by name, it is theirs to see to: a workmate, or anyone at all.
+    const askedRoom = roomAskedIn(brain, heard);
+    const asker = brain.peopleInView.find((person) => person.name === speaker);
+    // Someone it can see standing in one of its rooms, who says "door" and names no room and does
+    // not ask to be let out, is not asking to be let into the post. A janitor just let into the
+    // Mining Office said "I'm already at the door; step aside", and the door behind it was opened
+    // again "to let it into the Cargo Bay": a second door opened after every one that was wanted.
+    const idleWord =
+      !askedRoom &&
+      !LET_OUT_WORDS.test(heard) &&
+      !!asker &&
+      !!seenInside(brain, asker);
     if (
       speaker &&
       event.details.said_to !== 'other' &&
-      DOOR_WORDS.test(heard)
+      DOOR_WORDS.test(heard) &&
+      !idleWord
     ) {
       brain.doorAsked = {
         name: speaker,
         at: brain.now,
+        // The room they named, if they named one of the department's. Said aloud, an ask used to
+        // carry no room, and was taken for the post whatever room it named.
+        room: askedRoom,
         out: LET_OUT_WORDS.test(heard),
         // The door they named, or failing that the door they were standing at when they said it.
         door:
@@ -2262,26 +2303,10 @@ export const CARGO: Job = {
     if (!from || !DOOR_WORDS.test(text)) {
       return;
     }
-    const said = text.toLowerCase();
-    // The room they are at the door of is the one they name first. A message may name another
-    // after it: where someone who is shut in is trying to get out to.
-    // What follows "door of the" is the room, if they put it that way: a door goes by a name of
-    // its own now, and that name may be another of the department's rooms.
-    const after = said.match(/\bdoor (?:of|out of|into) the ([^.,!?]+)/)?.[1];
-    const named = (own: string) =>
-      after ? after.startsWith(own.toLowerCase()) : false;
-    const room = ownRooms(brain)
-      .filter((own) => said.includes(own.toLowerCase()))
-      .sort(
-        (a, b) =>
-          Number(named(b)) - Number(named(a)) ||
-          said.indexOf(a.toLowerCase()) - said.indexOf(b.toLowerCase()) ||
-          b.length - a.length,
-      )[0];
     brain.doorAsked = {
       name: from,
       at,
-      room,
+      room: roomAskedIn(brain, text),
       byPda: true,
       out: LET_OUT_WORDS.test(text),
       door: doorNamed(text),

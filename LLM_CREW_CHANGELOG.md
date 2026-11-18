@@ -16,6 +16,50 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 16:15: faults from the 15:09 round: a pick-up loop, a mail crate that stopped the shuttle, a second door, lost PDA messages (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 44 scenarios with a quiet LLM. 43 passed first time. `aside` failed one timing check (the janitor stepped aside 8 seconds after being asked, against a limit of 6) and passed four times out of four when run again: I take it for chance, and have not proved that. **Not played in a round. No model tests.** The normal build was run at 16:24 with the server closed (0 errors, 0 warnings), so the next round has all of this. The simulator runs none of the server code, and most of this is server code: the spent bottle, the mail crate, what bars the shuttle, the kept PDA messages, the door held on, the crate claim and the order of who a shut-in body writes to are compile-checked only. No scenario has a spoken ask about a door from someone already inside, so the change to that is covered only by the door scenarios still passing.
+
+**Round that showed the faults:** `data/logs/2026/11/18/round-15.09.26` (MetaStation, read live from 15:09 to 15:47, on the 15:07 build of `99461136`). The numbers are the running list's, which goes on from the plan `LLM_CREW_PLAN_ROUND_1332.md`.
+
+### What the round showed working, of the 15:00 entry
+
+A crate hauled to a marked square. The shuttle called in for one empty crate. A bucket filled at a sink and refilled at a water tank. A janitor without soap or a rag declining by PDA with true words about what was left. The head passing "shut in" to the Captain. A big order that no longer needed the Captain's say once the budget grew. The Quartermaster answering a repeated order with "order 2 already". A janitor resetting a fire alarm a monkey pulled.
+
+### Two of my changes from the 15:00 entry were wrong
+
+- **"A rag it put in its bag is taken out again" took out anything by that name, spent or not.** A janitor whose space cleaner was empty put it in its bag to free a hand, was sent for "space cleaner", took the same empty one out, and was told that had gone well. It did that every three seconds from 15:28:54 until I stopped reading at 15:47: about 500 times, and no cleaning. Its head ordered a second crate of supplies for it.
+- **"Someone asking to be let in is not inside" let through an ask that named no room.** See 19.
+
+### What the crew does now
+
+- **(23) A spent spray bottle is not picked up, out of its own bag or off the floor.** `is_spent`, used in `tool_pick_up` and `free_a_hand` (`crew_npc_hands.dm`). And the brain leaves alone a pick-up that has "gone well" three times running inside two minutes, as it already did a walk: `LOOP_WATCHED` in `driver.ts`.
+- **(24) A crate with any mail in it is not empty.** `crew_npc_crate_spent`, `crew_npc_crate_has_mail` (`crew_npc_freight.dm`). A mail crate with more letters than there are players is padded with junk mail, addressed to nobody. That used to be left in the crate, the crate put aboard as an empty, and the supply shuttle will not fly with any letter aboard: it stood in the dock from 15:32 and order 2 could not be fetched. Now the technician takes the junk out as well, picks it up and drops it at its feet for the bin (`take_mail`), and a crate that still has a letter in it is hauled back off the shuttle like any crate with something in it.
+- **(24) A shuttle that will not leave says what is aboard.** "The supply shuttle will not leave: it will not carry mail, and there is a letter in the mail crate aboard it." Or "a mouse is aboard it", or "you are standing aboard it". `what_bars_shuttle`, used by the send (`send_shuttle_back`) and by an order that cannot be fetched (`supply_run_step` in `crew_npc_cargo.dm`).
+- **(19) A spoken ask about a door carries the room it names**, as a PDA one always did: `roomAskedIn` in `jobs/cargo.ts`, which now also reads "let me into the Mining Office". Said aloud, an ask had no room and was taken for the post. A janitor just let into the Mining Office who said "I'm already at the door; step aside" had the door behind it opened again "to let it into the Cargo Bay": a second door after each of three that were wanted. Someone the technician can see standing in one of its rooms, who says "door", names no room and does not ask to be let out, is no longer taken to be asking for anything. And the record of who is inside is only reset by an ask that names the room (`mayPass`).
+- **(25) A PDA message that will not send is kept and sent again.** Every 20 seconds, for 8 minutes; one that says "now" (a call to a meeting, "I am holding a staff meeting now") for a minute and a half only. `unsent_messages`, `resend_unsent`, `messenger_named` in `crew_npc_cargo.dm`. A Communications Blackout from 15:41:45 to about 15:46:50 lost every message for five minutes: three heads' meeting reports never reached the Captain. **`game.log` now tells the two apart:** "was told by its brain to PDA X: ..." is written only when it went, "... and its PDA would not send it. Kept to send again: ..." when it did not, and "sent X the PDA message that would not go before" or "gave up on" later. The brain is still told the send failed, so a job that goes on foot when a message will not send still does.
+- **(22) A held door is held a little longer for someone in sight of it who is not through:** 5 seconds more, up to three times. `watch_door` in `crew_npc_doors.dm`, `CREW_NPC_DOOR_HELD_ON`. A janitor reached the Delivery Office door five seconds after it had shut and had to ask again.
+- **(20) A body's claim on a crate is no longer thrown away by the body itself.** `crate_taken` (`crew_npc_freight.dm`) deleted the claim whenever the claimant asked about its own crate, which it does every couple of seconds, so a claim lasted about that long. Both technicians went for one crate at round start and lost their grip on it thirteen times in a minute, each in the other's way. This is older than today.
+- **(21) A body shut in writes to whoever works behind the door before a head, and to a head before the Captain.** `door_keepers` (`crew_npc_doors.dm`). The janitor shut in the Bitrunning Den wrote to the Captain first, with two technicians a room away. The other half of that fault was 19: the stray door "into the Cargo Bay" changed its note of where it had been let in, so it did not know who to ask.
+
+### Not built
+
+- **The Quartermaster telling the Captain that the shuttle is stuck.** The technician now knows why and says so, and whoever ordered is still told an order is held up after two failures, as before.
+- **Calling staff to a meeting some other way when the PDA is down.** A call is tried again for a minute and a half and then dropped. The head does not go and fetch anyone.
+- **(26) Both janitors found no route to Research Division** three times between 15:45:51 and 15:47:30, though "maintenance access at (141,90): opens for it". Not diagnosed. A fire alarm had the Central Primary Hallway shut for part of that time.
+- Still open from the list in `LLM_CREW_PLAN_ROUND_1332.md`: 8, 9, 10 (the Warehouse had no route twice more in this round), 12, 15, 18.
+
+### Known and not fixed
+
+- **A junk letter is litter on the bay floor until someone bins it.** Nothing was seen to do that: the tidying code counts it as rubbish, and I did not check that a technician or a janitor picks it up.
+- A junk letter lying loose on the shuttle's deck still stops the shuttle. The technician will say so and cannot yet act on it. So will a mouse.
+- A spray bottle that has run dry is still carried about in the bag. Nothing refills it or puts it back.
+- The pick-up loop guard is three in two minutes for any pick-up. A job that really does pick up three things of one name in two minutes by the same step would be held back for 20 seconds.
+- A message that says "now" for some other reason is dropped after a minute and a half like a meeting call.
+- A door held on for someone who is standing talking in sight of it now stays open up to 30 seconds, not 15.
+
+---
+
 ## 2026-11-18, 15:40: security bugs from the first round with a Head of Security (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), the table of cases in `tools/llm_crew/security.ts` (84 cases), simulator: all 44 scenarios with a quiet LLM pass, the new `nobaton` among them, and the seven security scenarios with a chatty and a dead LLM pass as well: 58 runs, none failing. **Not played in a round. No model tests.** A round was running, so the normal build was not run: **the game has none of this until `BUILD.cmd` is run between rounds.** The simulator runs none of the server code, so the two server changes (the locker logging and security feeling a hit) are compile-checked only.

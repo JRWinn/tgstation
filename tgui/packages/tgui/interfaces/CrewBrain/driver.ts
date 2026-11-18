@@ -124,6 +124,12 @@ function mayStepInside(brain: NpcBrain): boolean {
  */
 const LOOP_AFTER = 3;
 const LOOP_WINDOW_MS = 120000;
+/**
+ * The steps that are watched for that. Done once and gone well, neither is wanted again at once:
+ * the body is in the room, or has the thing. A janitor that took its own empty bottle out of its
+ * bag was told each time that it had picked up a space cleaner, and asked for one again.
+ */
+const LOOP_WATCHED = new Set(['go_to', 'pick_up']);
 
 /** One thing for the body to do next. */
 export type Step = {
@@ -947,7 +953,7 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     brain.repeats?.key === last.key &&
     now - brain.repeats.at < LOOP_WINDOW_MS;
   brain.repeats =
-    event.details.ok && last.act.tool === 'go_to'
+    event.details.ok && LOOP_WATCHED.has(last.act.tool)
       ? {
           key: last.key,
           count: again ? (brain.repeats?.count ?? 0) + 1 : 1,

@@ -56,6 +56,12 @@
 #define CREW_NPC_SUPPLY_HELD_UP (30 SECONDS)
 /// How close a crew NPC has to get to someone it cannot reach, such as across a counter, for that to do.
 #define CREW_NPC_NEAR_ENOUGH 4
+/// How often a crew NPC tries again to send a PDA message its PDA would not send.
+#define CREW_NPC_UNSENT_RETRY (20 SECONDS)
+/// How long it goes on trying. A communications blackout lasts some five minutes.
+#define CREW_NPC_UNSENT_KEPT (8 MINUTES)
+/// How long it goes on trying with a message that says "now": a call to a meeting is no use once the meeting is over.
+#define CREW_NPC_UNSENT_NOW_KEPT (90 SECONDS)
 /// Longest PDA message a crew NPC may send, in characters. Longer text is cut off.
 #define CREW_NPC_MESSAGE_MAX_LENGTH 200
 /// Most kinds of mess in one room that a crew NPC names when it tells a janitor of them.
@@ -184,6 +190,9 @@
 #define CREW_TOOL_TO_DOOR "go_to_door"
 /// How near a door, in tiles, a body has to be to count as standing at it.
 #define CREW_NPC_AT_DOOR 2
+/// How much longer a held door is held for someone who is in sight of it and not through when its time is up, and how many times over.
+#define CREW_NPC_DOOR_HELD_ON (5 SECONDS)
+#define CREW_NPC_DOOR_HELD_ON_TIMES 3
 /// How often a door held open for someone is checked to see whether they are through.
 #define CREW_NPC_DOOR_WATCH (0.4 SECONDS)
 /// Tool name: take someone who has no business in the body's post by the arm and walk them out.

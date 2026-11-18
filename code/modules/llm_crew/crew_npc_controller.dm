@@ -72,6 +72,10 @@
 	var/datum/weakref/crate_to_return
 	/// PDA messages the body owes about crates: each a list with to (a name), kind (CREW_NOTICE_*), numbers and, for an order that has come in, what.
 	var/list/notices_owed = list()
+	/// PDA messages its PDA would not send, kept to send again: "name|text" to a list with to, text and at (world.time it was first tried).
+	var/list/unsent_messages = list()
+	/// TRUE while a timer is running to try those again.
+	var/unsent_retry_due = FALSE
 	/// Name of whoever a held crate is being brought out to the lobby for.
 	var/release_for
 	/// The room a crate the body has collected is being taken to, by name.

@@ -18,6 +18,30 @@
 		return null
 	return shuttle
 
+/**
+ * What it is aboard the supply shuttle that stops it leaving, as words to follow "will not leave: ",
+ * or null if nothing aboard does. Anyone at the dock could find it: someone or some creature on
+ * the deck, or a thing the shuttle may not carry, lying loose or shut in a crate.
+ */
+/datum/ai_controller/crew_npc/proc/what_bars_shuttle(obj/docking_port/mobile/supply/shuttle)
+	for(var/area/shuttle_area as anything in shuttle.shuttle_areas)
+		for(var/list/zlevel_turfs as anything in shuttle_area.get_zlevel_turf_lists())
+			for(var/turf/deck as anything in zlevel_turfs)
+				for(var/atom/movable/passenger in deck.get_all_contents())
+					if(istype(passenger, /obj/docking_port))
+						continue
+					if(!is_type_in_typecache(passenger, GLOB.blacklisted_cargo_types) && !HAS_TRAIT(passenger, TRAIT_BANNED_FROM_CARGO_SHUTTLE))
+						continue
+					var/what = format_text(passenger.name)
+					if(isliving(passenger))
+						return passenger == pawn ? "you are standing aboard it" : "[what] is aboard it"
+					var/obj/structure/closet/crate/within = get(passenger, /obj/structure/closet/crate)
+					var/where = within ? "in the [format_text(within.name)] aboard it" : "lying on its deck"
+					if(istype(passenger, /obj/item/mail))
+						return "it will not carry mail, and there is a letter [where]"
+					return "it will not carry the [what] that is [where]"
+	return null
+
 /// Returns the crates aboard the supply shuttle, if it is docked at the station.
 /datum/ai_controller/crew_npc/proc/crates_aboard()
 	var/list/crates = list()
@@ -97,19 +121,18 @@
 			held += thing
 	return held
 
-/// TRUE if a crate has nothing left in it worth keeping: it is empty, or holds only mail addressed to nobody.
+/**
+ * TRUE if a crate has nothing left in it. Mail addressed to nobody used not to count, and a mail
+ * crate with a dead letter in it was put aboard as an empty. The supply shuttle will not fly with
+ * a letter of any kind aboard: it stood in the dock for the rest of the round, and no order could
+ * be fetched.
+ */
 /proc/crew_npc_crate_spent(obj/structure/closet/crate/crate)
-	for(var/obj/item/thing as anything in crew_npc_crate_holds(crate))
-		if(!istype(thing, /obj/item/mail) || crew_npc_mail_for(thing))
-			return FALSE
-	return TRUE
+	return !length(crew_npc_crate_holds(crate))
 
-/// TRUE if a crate holds mail that is addressed to someone.
+/// TRUE if a crate holds mail, addressed to someone or to nobody: all of it has to come out before the crate can go back.
 /proc/crew_npc_crate_has_mail(obj/structure/closet/crate/crate)
-	for(var/obj/item/mail/letter in crew_npc_crate_holds(crate))
-		if(crew_npc_mail_for(letter))
-			return TRUE
-	return FALSE
+	return !!(locate(/obj/item/mail) in crew_npc_crate_holds(crate))
 
 /// The crates crew NPCs have set off for, by REF: who (a weak reference to the controller), and when.
 GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
@@ -127,7 +150,13 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		return FALSE
 	var/datum/weakref/claimant_ref = claim[1]
 	var/datum/ai_controller/crew_npc/claimant = claimant_ref.resolve()
-	if(QDELETED(claimant) || claimant == src || world.time - claim[2] > CREW_NPC_CRATE_CLAIM)
+	// Its own claim is no bar to it, and stands. It used to be thrown away here the first time
+	// the claimant looked over the freight, a second or two after it was made: a workmate then
+	// set off for the same crate, and two technicians lost their grip on one crate thirteen times
+	// in the first minute of a round, each in the other's way.
+	if(claimant == src)
+		return FALSE
+	if(QDELETED(claimant) || world.time - claim[2] > CREW_NPC_CRATE_CLAIM)
 		GLOB.crew_npc_crate_claims -= REF(crate)
 		return FALSE
 	return TRUE
@@ -198,7 +227,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			crates += crate
 	return crates
 
-/// Returns the nearest mail crate in cargo's rooms that still has addressed mail in it, or null.
+/// Returns the nearest mail crate in cargo's rooms that still has mail in it, or null.
 /datum/ai_controller/crew_npc/proc/mail_crate()
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
@@ -499,22 +528,41 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/list/names = list()
 	var/taken = 0
 	var/left = 0
+	var/binned = 0
+	// Where a dead letter is dropped: at the body's feet, as long as that is neither the crate's
+	// own tile, where shutting the crate would take it back in, nor the deck of the shuttle.
+	var/turf/feet = get_turf(body)
+	var/may_drop = feet != get_turf(crate) && !istype(get_area(feet), /area/shuttle)
 	for(var/obj/item/mail/letter in crew_npc_crate_holds(crate))
 		var/whose = crew_npc_mail_for(letter)
 		if(isnull(whose))
+			// Addressed to nobody: junk. It comes out all the same, or the crate can never go
+			// back. Picked up and dropped, to be binned with the rest of the rubbish.
+			if(may_drop)
+				// With both hands full it goes straight to the floor at its feet, which is where it was going.
+				if(body.put_in_hands(letter))
+					body.dropItemToGround(letter)
+				binned++
+			else if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
+				binned++
+			else
+				left++
 			continue
 		if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
 			taken++
 			names |= whose
 		else
 			left++
-	// Shutting it takes back in whatever is still lying there: dead letters, and any mail there was no room for.
+	// Shutting it takes back in whatever is still lying there: any mail there was no room for.
 	if(crate.opened)
 		crate.close(body)
 	freight_changed()
+	var/junk_words = binned ? " You [taken ? "also " : ""]take out [binned == 1 ? "a letter" : "[binned] letters"] addressed to nobody: junk, for the bin." : ""
+	if(!taken && !binned)
+		return list(FALSE, left ? "You have no room in your bag for the mail in the [crate_name]." : "There is no mail in the [crate_name].")
 	if(!taken)
-		return list(FALSE, left ? "You have no room in your bag for the mail in the [crate_name]." : "There is no mail for anyone in the [crate_name].")
-	return list(TRUE, "You take [taken] piece[taken == 1 ? "" : "s"] of mail out of the [crate_name] and put [taken == 1 ? "it" : "them"] in your bag: for [english_list(names)].[left ? " There was no room for the rest." : ""] You will hold on to [taken == 1 ? "it" : "them"] until whoever [taken == 1 ? "it is" : "they are"] for comes to the counter.")
+		return list(TRUE, "There is no mail for anyone in the [crate_name].[junk_words][left ? " There was no room for the rest." : ""]")
+	return list(TRUE, "You take [taken] piece[taken == 1 ? "" : "s"] of mail out of the [crate_name] and put [taken == 1 ? "it" : "them"] in your bag: for [english_list(names)].[junk_words][left ? " There was no room for the rest." : ""] You will hold on to [taken == 1 ? "it" : "them"] until whoever [taken == 1 ? "it is" : "they are"] for comes to the counter.")
 
 /// Tool: hand someone in view the mail the body is holding for them. Cargo staff only.
 /datum/ai_controller/crew_npc/proc/tool_hand_mail(handle)
@@ -596,7 +644,8 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		return list(TRUE, "You call the supply shuttle in, to take [waiting] empty crate[waiting == 1 ? "" : "s"] back.")
 	if(SSshuttle.supply_blocked || !shuttle.canMove())
 		// The shuttle will not fly with anyone aboard, or with cargo it is not allowed to carry.
-		return list(FALSE, "The supply shuttle will not leave: someone is standing aboard it, or something aboard is not allowed to travel.")
+		// Which, it can see for itself: a body told only "someone or something" tried the console fifteen times.
+		return list(FALSE, "The supply shuttle will not leave: [what_bars_shuttle(shuttle) || "someone is standing aboard it, or something aboard is not allowed to travel"].")
 	var/empties = 0
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
 		empties++

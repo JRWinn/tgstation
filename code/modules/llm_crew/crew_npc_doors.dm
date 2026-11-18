@@ -133,6 +133,8 @@
  */
 /datum/ai_controller/crew_npc/proc/door_keepers()
 	var/list/names = list()
+	var/list/heads = list()
+	var/list/captains = list()
 	if(!shut_in)
 		return names
 	var/obj/machinery/door/airlock/door = trail_door()
@@ -153,9 +155,19 @@
 		if(isnull(card))
 			var/mob/living/holder = get(candidate.computer, /mob/living)
 			card = holder?.get_idcard(TRUE)
-		if(card && door.check_access(card))
+		if(!card || !door.check_access(card))
+			continue
+		// Whoever works behind that door before a head, and a head before the Captain, whose card
+		// opens every door on the station: a janitor shut in a cargo room wrote to the Captain,
+		// with two cargo technicians a room away.
+		var/datum/job/their_job = SSjob.get_job(candidate.computer.saved_job)
+		if(istype(their_job, /datum/job/captain))
+			captains += candidate.computer.saved_identification
+		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
+			heads += candidate.computer.saved_identification
+		else
 			names += candidate.computer.saved_identification
-	return names
+	return names + heads + captains
 
 /// Returns the name of whoever let the body into the room it is in, or null if nobody did.
 /datum/ai_controller/crew_npc/proc/who_let_in()
@@ -595,7 +607,7 @@
 	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].")
 
 /// Watches a door held open for someone, and lets it shut once they are through it or time is up.
-/datum/ai_controller/crew_npc/proc/watch_door(datum/weakref/door_ref, datum/weakref/person_ref, was_inside, until, area/room)
+/datum/ai_controller/crew_npc/proc/watch_door(datum/weakref/door_ref, datum/weakref/person_ref, was_inside, until, area/room, extended = 0)
 	var/obj/machinery/door/airlock/door = door_ref?.resolve()
 	if(QDELETED(door) || QDELETED(src) || isnull(room))
 		let_door_close(door_ref)
@@ -606,6 +618,19 @@
 		// Through means on the other side of it, and off the doorway itself.
 		var/now_inside = get_area(person) == room
 		through = now_inside != was_inside && get_turf(person) != get_turf(door)
+	// Time is up and they are in sight of the door and not through it: it is held a little longer,
+	// a few times over. A janitor let into the Delivery Office reached the door five seconds after
+	// it had shut, and had to ask all over again.
+	if(!through && world.time >= until && extended < CREW_NPC_DOOR_HELD_ON_TIMES && person.stat == STABLE && !IS_UNCONSCIOUS(person) && person.z == door.z && get_dist(person, door) <= CREW_NPC_VISION_RANGE)
+		until = world.time + CREW_NPC_DOOR_HELD_ON
+		extended++
+		GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], until)
+		// They are told nothing new: only that the door they were making for is open that much longer.
+		var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
+		if(istype(their_controller))
+			their_controller.door_held_until = max(their_controller.door_held_until, until)
+			if(was_inside)
+				their_controller.let_out_until = max(their_controller.let_out_until, until)
 	if(through || world.time >= until)
 		// Held for someone else too, who came to it later and is not through yet: one janitor going
 		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
@@ -614,7 +639,7 @@
 		GLOB.crew_npc_door_holds -= REF(door)
 		let_door_close(door_ref)
 		return
-	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room), CREW_NPC_DOOR_WATCH)
+	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room, extended), CREW_NPC_DOOR_WATCH)
 
 /// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
 GLOBAL_LIST_EMPTY(crew_npc_door_holds)

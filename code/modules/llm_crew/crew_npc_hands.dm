@@ -24,6 +24,11 @@
 			continue
 		if((stowed.item_flags & ABSTRACT) || !name_matches(stowed.name, wanted))
 			continue
+		// Not the spent bottle it put away a moment ago to have this hand free. A janitor after a
+		// full space cleaner took its own empty one out of its bag, was told that had gone well,
+		// and did it again every three seconds for the rest of the round.
+		if(is_spent(stowed))
+			continue
 		var/stowed_name = format_text(stowed.name)
 		if(body.put_in_hands(stowed))
 			action_result(CREW_TOOL_PICK_UP, TRUE, "You take the [stowed_name] out from where you had put it away.")
@@ -35,7 +40,7 @@
 	for(var/obj/item/candidate in oview(CREW_NPC_VISION_RANGE, body))
 		if(!isturf(candidate.loc) || candidate.anchored || (candidate.item_flags & ABSTRACT))
 			continue
-		if(!name_matches(candidate.name, wanted))
+		if(!name_matches(candidate.name, wanted) || is_spent(candidate))
 			continue
 		var/distance = get_dist(body, candidate)
 		if(distance < nearest_distance)
@@ -89,7 +94,7 @@
 		if(!is_trade_tool(held, trade_tools))
 			spare = held
 			break
-		if(istype(held, /obj/item/reagent_containers/spray) && !held.reagents?.total_volume)
+		if(is_spent(held))
 			spare ||= held
 		// A rag is spare to someone who holds a mop: the hand is better used for a bucket of water.
 		if(istype(held, /obj/item/rag) && (locate(/obj/item/mop) in body.held_items))
@@ -101,6 +106,10 @@
 		return FALSE
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
 	return !!length(body.get_empty_held_indexes())
+
+/// TRUE if a thing is used up and no good to anyone as it is: a spray bottle with nothing left in it.
+/datum/ai_controller/crew_npc/proc/is_spent(obj/item/thing)
+	return istype(thing, /obj/item/reagent_containers/spray) && !thing.reagents?.total_volume
 
 /// TRUE if a thing's name is the name being asked for, or contains it.
 /datum/ai_controller/crew_npc/proc/name_matches(thing_name, wanted)
