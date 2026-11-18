@@ -117,6 +117,8 @@ const NOTED_WAIT_DS = 1800;
 const PER_CRATE = 3;
 /** The most crates of one kind it asks for at once. Cargo will not order more than this in one go. */
 const CRATES_MAX = 4;
+/** How long (deciseconds) whoever was sent for a crate is given to collect it before someone else is sent instead. */
+const SENT_GRACE_DS = 3000;
 /** The most characters the server lets a body say at once, or send in one PDA message. Past that the end is cut off. */
 const SAID_MAX = 200;
 
@@ -277,6 +279,11 @@ function cratesIn(text: string): { number: number; kind?: string }[] {
  */
 function sendFor(brain: NpcBrain, number: number, kind?: string): void {
   const before = brain.pickups.find((pickup) => pickup.number === number);
+  // Whoever it sent has had little time to get there: a walk across the station, and a meeting
+  // perhaps in between. A second person sent on top of them is two people after one crate.
+  if (before && brain.now - before.at < SENT_GRACE_DS) {
+    return;
+  }
   const order = brain.requisition;
   const line =
     order?.lines.find((it) => it.crate === kind) ??
@@ -1090,10 +1097,16 @@ export const HEAD_OF_PERSONNEL: Job = {
       brain.requisition = null;
       return;
     }
-    // A crate nobody has come for. Someone else is sent.
+    // A crate nobody has come for. Someone else is sent, unless whoever was sent has hardly had
+    // time to get there.
     if (isCargo(job) && STILL_WAITING_WORDS.test(text)) {
       for (const number of numbersIn(text)) {
         sendFor(brain, number);
+      }
+      // A crate that is waiting is an order that has come in, whether or not word of that ever
+      // reached it. The order is done with: it is not asked for again as one that never came.
+      if (sentOrder && sentOrder.askedAt !== null) {
+        brain.requisition = null;
       }
       return;
     }

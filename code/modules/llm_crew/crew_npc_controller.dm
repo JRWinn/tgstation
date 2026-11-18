@@ -32,6 +32,10 @@
 	var/current_place
 	/// How many looks in a row the body has been in current_place.
 	var/looks_in_place = 0
+	/// What the body is inside, in words, while it is not standing on a floor: "pipes" for the disposal pipes. Null while it is on one.
+	var/off_floor_in
+	/// Whether each room it has had cause to ask about is locked to it, by name: list(locked, world.time it was worked out).
+	var/list/locked_place_cache = list()
 	/// The tool that started the walk in progress.
 	var/walk_tool
 	/// Where the walk in progress is headed, in words.

@@ -91,6 +91,14 @@ export const TAKEN_WORDS = /\border (\d+)\b[^.]*\bright away\b/i;
 export const DOCKED = 'has come in:';
 export const DOCKED_WORDS = /\border (\d+) has come in: (.+)$/i;
 
+/**
+ * The Quartermaster's word back to a technician who has told it something about a crate: that it
+ * heard. Seeing the Quartermaster is not being heard by it: there are windows, and a bay is wide.
+ * Until this comes back the technician has not passed its word on.
+ */
+export const WORD_HEARD = 'I have that';
+export const WORD_HEARD_WORDS = /\bI have that\b/i;
+
 /** The technician telling the Quartermaster that an order could not be placed. */
 export const NOT_PLACED = 'did not go through';
 export const NOT_PLACED_WORDS = /\border (\d+) did not go through\b/i;

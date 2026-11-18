@@ -349,6 +349,10 @@ export function workInOrder(
         // Then what someone is waiting on, if it can be got on with: a person who has been called
         // to a mess goes to it, and does not finish sweeping the hallway first.
         Number(isCalledFor(b)) - Number(isCalledFor(a)) ||
+        // Of those, a crate its head has sent it to collect comes first. Its whole section is
+        // waiting on what is in that crate, likely as not what it needs for the mess it was
+        // called to, and cargo goes on holding it until someone comes.
+        Number(isCollecting(b)) - Number(isCollecting(a)) ||
         // Then whatever can be done right where the NPC stands. Walking off to routine work
         // elsewhere and back again costs more than doing what is underfoot first, and an NPC sent
         // away from work in front of it by a list will be sent straight back by the same list.
@@ -364,6 +368,11 @@ export function workInOrder(
 /** TRUE if someone asked for a piece of work, or called the NPC to it, and it can be got on with now. */
 function isCalledFor(work: { task: Task; plan: Plan }): boolean {
   return work.plan.ready && work.task.urgency === 'asked';
+}
+
+/** TRUE if a piece of work is collecting a crate from cargo for its head (see jobs/pickups.ts), and can be got on with now. */
+function isCollecting(work: { task: Task; plan: Plan }): boolean {
+  return work.plan.ready && work.task.kind === 'collect';
 }
 
 /** TRUE if a piece of work is in the room the NPC is standing in and can be got on with now. */

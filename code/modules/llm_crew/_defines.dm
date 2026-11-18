@@ -32,6 +32,8 @@
 #define CREW_NPC_SHUT_IN_AFTER 2
 /// How long a crew NPC leaves alone a room it could not find a way into.
 #define CREW_NPC_BLOCKED_PLACE_TIME (5 MINUTES)
+/// How long a crew NPC goes by what it last worked out about whether a room is locked to it.
+#define CREW_NPC_LOCKED_PLACE_KEPT (1 MINUTES)
 /// The most messes a crew NPC keeps track of at once.
 #define CREW_NPC_MESSES_REMEMBERED 300
 /// How many tiles from its post a crew NPC standing at it may wander.

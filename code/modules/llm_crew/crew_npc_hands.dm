@@ -12,8 +12,8 @@
 	if(!length(wanted))
 		action_result(CREW_TOOL_PICK_UP, FALSE, "You did not decide what to pick up.")
 		return
-	if(!length(body.get_empty_held_indexes()))
-		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full. Put something down first.")
+	if(!length(body.get_empty_held_indexes()) && !free_a_hand())
+		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full of things you need. Put something down first.")
 		return
 
 	// Something lying in plain view comes first.
@@ -57,6 +57,34 @@
 		return
 
 	action_result(CREW_TOOL_PICK_UP, FALSE, "You cannot see one, and you do not remember where one is kept.")
+
+/**
+ * Frees one of the body's hands when both are full, the way anyone would before picking something
+ * up: whatever it holds that is no tool of its trade goes into its bag, or failing that onto the
+ * floor. A spray with nothing left in it goes the same way. A janitor with a bottle in one hand and
+ * a spent spray in the other could otherwise never pick up a mop.
+ *
+ * Returns TRUE if a hand is now free. FALSE if both hands hold things it needs.
+ */
+/datum/ai_controller/crew_npc/proc/free_a_hand()
+	var/mob/living/carbon/human/body = pawn
+	var/list/trade_tools = trade_tool_types()
+	var/obj/item/spare
+	for(var/obj/item/held in body.held_items)
+		if(held.item_flags & ABSTRACT)
+			continue
+		if(!is_trade_tool(held, trade_tools))
+			spare = held
+			break
+		if(istype(held, /obj/item/reagent_containers/spray) && !held.reagents?.total_volume)
+			spare ||= held
+	if(isnull(spare))
+		return FALSE
+	var/spare_name = format_text(spare.name)
+	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
+		return FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
+	return !!length(body.get_empty_held_indexes())
 
 /// TRUE if a thing's name is the name being asked for, or contains it.
 /datum/ai_controller/crew_npc/proc/name_matches(thing_name, wanted)

@@ -67,6 +67,7 @@ import {
   TAKEN,
   THROUGH_QM,
   WAITING_TOLD,
+  WORD_HEARD_WORDS,
 } from './supply';
 import {
   describeTidying,
@@ -125,6 +126,14 @@ const QM_SILENT_DS = 1200;
 const SENT_TO_QM_DS = 3000;
 /** How long (deciseconds) it waits at the Quartermaster's door, having knocked, before it sends word on by PDA itself. */
 const AT_QM_DOOR_DS = 900;
+/** How long (deciseconds) it waits, having told the Quartermaster something, to hear that it was heard. */
+const HEARD_WAIT_DS = 250;
+/** How many times it says a thing to the Quartermaster with no word back before it sends it on by PDA itself. */
+const TELL_TRIES = 2;
+/** How near (tiles) it stands to the Quartermaster to say again what was not heard the first time. */
+const TELL_DISTANCE = 2;
+/** How long (deciseconds) after opening a door for someone before it will open that door for them again. The door is held that long. */
+const DOOR_OPENED_DS = 150;
 /** How long (deciseconds) a workmate who was given a piece of the standing work can be out of sight before it is seen to for them. */
 const HOLDER_ABOUT_DS = 600;
 /** The words that mark what a head says at the counter as an order, for telling them who takes it. */
@@ -279,9 +288,11 @@ function heldInHand(brain: NpcBrain): boolean {
  * there is one: that an order has come in, that crates are still waiting, or that one is lost.
  * Nothing between a technician and the Quartermaster goes by PDA. If the Quartermaster is in
  * sight it is told, in so many words. If not, the technician goes to its office door, knocks, and
- * waits. Once told, the server is told that word has been passed on, and the Quartermaster sends
- * it to whoever the crates are for. Returns the step, or null if word goes by PDA as it always
- * did: there is no Quartermaster, or it is not to be found.
+ * waits. Said is not told: the Quartermaster answers by name that it has it, and only then is the
+ * server told that word has been passed on, and the Quartermaster sends it to whoever the crates
+ * are for. With no answer, it walks up and says it once more. Returns the step, or null if word
+ * goes by PDA as it always did: there is no Quartermaster, it is not to be found, or it has twice
+ * not answered.
  */
 function tellQuartermaster(
   brain: NpcBrain,
@@ -297,11 +308,42 @@ function tellQuartermaster(
   if (task.passedOn) {
     return {
       ready: true,
-      step: `You have told ${quartermaster.name} ${about}. They will send word to whoever it concerns.`,
+      step: `You have told ${quartermaster.name} ${about}, and they have said they have it. They will send word to whoever it concerns.`,
       act: passed,
     };
   }
-  if (brain.peopleInView.some((person) => person.name === quartermaster.name)) {
+  // Said, and not yet answered. Being in sight is not being in earshot, so word is only passed on
+  // once the Quartermaster says it has it. With nothing back in a little while, it was not heard.
+  if (task.toldAt !== undefined) {
+    if (brain.now - task.toldAt < HEARD_WAIT_DS) {
+      return {
+        ready: false,
+        wait: true,
+        step: `You have told ${quartermaster.name} ${about}, and are waiting to hear that they have it.`,
+      };
+    }
+    task.toldAt = undefined;
+    task.unheard = (task.unheard ?? 0) + 1;
+    task.walkedUp = false;
+    task.knockedAt = undefined;
+  }
+  // Said more than once with no word back: it stops trying to say it, and sends it on by PDA.
+  if ((task.unheard ?? 0) >= TELL_TRIES) {
+    task.byPda = true;
+    return null;
+  }
+  const seen = brain.peopleInView.find(
+    (person) => person.name === quartermaster.name,
+  );
+  // Not heard the first time, it does not call across the bay again: it walks up to them.
+  if (seen && task.unheard && (seen.distance ?? 0) > TELL_DISTANCE && !task.walkedUp) {
+    return {
+      ready: true,
+      step: `You told ${quartermaster.name} ${about} and they did not hear. You are walking up to them to say it again.`,
+      act: { tool: 'approach', person: seen.handle },
+    };
+  }
+  if (seen) {
     task.telling = line;
     return {
       ready: true,
@@ -684,6 +726,10 @@ function syncTasks(brain: NpcBrain): void {
   }
   const wants = doorWanted(brain);
   const asked = brain.doorAsked;
+  // Whether whoever asked may be let through at all, whoever the door is being opened for just
+  // now. One who may is not told no for having to wait a turn behind someone else.
+  const askedMayPass =
+    !!asked && !!mayPass(brain, asked.name, asked.room, asked.out);
   if (wants && !findTask(brain, DOOR, { item: wants.name, place: wants.room })) {
     // Which way they are going through it is kept with the task: someone standing in the post
     // may be asking to be let into a room that lies inside it.
@@ -694,8 +740,10 @@ function syncTasks(brain: NpcBrain): void {
       urgency: 'asked',
       source: 'own',
     }).out = wants.out;
-    // Asked by PDA, by someone a door hides, the answer goes back the same way, by name.
-    if (asked?.byPda && asked.name === wants.name) {
+    // Asked by PDA, by someone a door hides, the answer goes back the same way, by name. Once:
+    // their turn may come round a second time, and they have been told already.
+    if (asked?.byPda && asked.name === wants.name && !asked.answered) {
+      asked.answered = true;
       brain.toTell.push({
         to: wants.name,
         line: `${firstName(wants.name)}, I am coming to the door of the ${wants.room} to let you ${wants.out ? 'out' : 'in'}.`,
@@ -715,13 +763,17 @@ function syncTasks(brain: NpcBrain): void {
     }
   }
   // Someone who asked by PDA and is not being let in is told so, by name, once. Nobody sent for
-  // them, and a door locked to the crew does not open for the asking.
+  // them, and a door locked to the crew does not open for the asking. Not someone who may come
+  // in and is only waiting behind whoever the door is being opened for first, and never someone
+  // who has just been told that it is on its way to them.
   if (
     asked?.byPda &&
     !asked.refused &&
+    !asked.answered &&
     !asked.out &&
     brain.now - asked.at < DOOR_ASK_DS &&
-    wants?.name !== asked.name
+    wants?.name !== asked.name &&
+    !askedMayPass
   ) {
     asked.refused = true;
     brain.toTell.push({
@@ -1069,6 +1121,34 @@ function mayPass(
  * passing through, and a door opened for nobody lets in whoever is nearest it.
  */
 function doorWanted(brain: NpcBrain): DoorWant | null {
+  const want = doorSought(brain);
+  // A door it has only just opened for them is still being held: the server holds it until they
+  // are through, or for a quarter of a minute. Opening it again meanwhile is the same door opened
+  // over and over, for someone who is standing talking or has been taken by the arm.
+  const opened = lastOpened.get(brain.id);
+  if (
+    want &&
+    opened &&
+    opened.name === want.name &&
+    opened.room === want.room &&
+    // The same way through it, that is. Let in a moment ago and now wanting out is another matter.
+    opened.out === want.out &&
+    brain.now >= opened.at &&
+    brain.now - opened.at < DOOR_OPENED_DS
+  ) {
+    return null;
+  }
+  return want;
+}
+
+/** The door each technician last opened, for whom, which way, and when (server time), by the technician's id. */
+const lastOpened = new Map<
+  string,
+  { name: string; room: string; out: boolean; at: number }
+>();
+
+/** Who a door is wanted for, leaving aside whether it has only just been opened for them: see doorWanted. */
+function doorSought(brain: NpcBrain): DoorWant | null {
   const post = brain.post;
   if (!post) {
     return null;
@@ -1534,6 +1614,13 @@ export const CARGO: Job = {
       task.knockedAt = undefined;
       task.byPda = false;
       task.telling = undefined;
+      task.toldAt = undefined;
+      task.unheard = undefined;
+      task.walkedUp = undefined;
+    }
+    // Having walked up to the Quartermaster to say again what was not heard, near enough or not, it speaks.
+    if (task && act.tool === 'approach' && task.telling) {
+      task.walkedUp = true;
     }
     // The crate is out in the lobby for whoever came for it, and they are told so by name.
     if (task?.kind === HANDOVER && ok && task.askedBy) {
@@ -1572,6 +1659,13 @@ export const CARGO: Job = {
             stillInside(brain.post, task.place, brain.now).some(
               (entry) => entry.name === task.item,
             ));
+        // The door is being held for them now. It is not opened again, the same way, until that is over.
+        lastOpened.set(brain.id, {
+          name: task.item,
+          room: task.place,
+          out: !!wasInside,
+          at: brain.now,
+        });
         if (wasInside) {
           // Out of a room that lies inside another, they are still in the outer one.
           const outer = brain.roomsThrough[task.place];
@@ -1644,6 +1738,21 @@ export const CARGO: Job = {
       brain.peopleInView.find((person) => person.name === speaker)?.job ??
       brain.pdaPeople.find((person) => person.name === speaker)?.job ??
       '';
+    // The Quartermaster saying it has what this NPC told it, by name: "Sam, I have that." Until
+    // then word of a crate has only been said, not passed on.
+    if (
+      isQuartermaster(speakerJob) &&
+      WORD_HEARD_WORDS.test(heard) &&
+      new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard)
+    ) {
+      for (const task of brain.tasks) {
+        if (task.telling && task.toldAt !== undefined && task.state !== 'done') {
+          task.passedOn = true;
+          task.toldAt = undefined;
+        }
+      }
+      return;
+    }
     // The Quartermaster dividing the standing work, at its staff meeting: "Cora, the counter is
     // yours this shift." Everyone there hears who has what, and goes by it.
     const duty = isQuartermaster(speakerJob) ? dutiesIn(heard) : null;
@@ -1835,11 +1944,17 @@ export const CARGO: Job = {
     };
   },
   offers,
-  // Having told the Quartermaster what it had to tell it, in so many words, it is told.
+  // Having said to the Quartermaster what it had to tell it, in so many words, it waits to hear
+  // that it was heard. Said is not told: the Quartermaster may be behind a window.
   afterSaying: (brain, called) => {
     for (const task of brain.tasks) {
-      if (called && task.telling === called && task.state !== 'done') {
-        task.passedOn = true;
+      if (
+        called &&
+        task.telling === called &&
+        task.state !== 'done' &&
+        !task.passedOn
+      ) {
+        task.toldAt = brain.now;
       }
     }
   },

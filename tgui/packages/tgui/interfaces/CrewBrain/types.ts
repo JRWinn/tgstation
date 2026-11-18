@@ -432,6 +432,12 @@ export type Task = {
   byPda?: boolean;
   /** For word owed to its head face to face: the line it is saying it in, so that it is known when it has been said. */
   telling?: string;
+  /** For word owed to its head face to face: server time it said the line and began waiting to hear that it was heard. */
+  toldAt?: number;
+  /** For word owed to its head face to face: how many times it has said the line and had no word back. */
+  unheard?: number;
+  /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
+  walkedUp?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -649,6 +655,8 @@ export type NpcBrain = {
     byPda?: boolean;
     /** TRUE once they have been told no. */
     refused?: boolean;
+    /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
+    answered?: boolean;
   } | null;
   /**
    * Someone it answers to has told it to leave the room it was in: who, which room, when (this
@@ -687,6 +695,10 @@ export type NpcBrain = {
     /** If it is said out loud: what the line has to have in it. A line from the LLM without it is not used: see Plan. */
     needs?: RegExp;
     byPda?: boolean;
+    /** If it is said out loud: TRUE if the line is said word for word, at once, with no wait for the LLM to word it: see Plan. */
+    exact?: boolean;
+    /** If it is said out loud: TRUE if it is said whatever the body is in the middle of. Someone is standing waiting on it. */
+    whileBusy?: boolean;
     /** When it was thought of (this window's clock). Stale ones are dropped unsaid. */
     at: number;
   }[];

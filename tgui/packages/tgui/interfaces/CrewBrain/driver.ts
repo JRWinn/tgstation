@@ -54,6 +54,8 @@ const BREATH_MIN_MS = 1000;
 const BREATH_SPREAD_MS = 3000;
 /** How often a body that is shut in tries the way out again. */
 const TRY_LEAVING_MS = 20000;
+/** How often one that was let in by someone, and is waiting at the door it came in by, leaves that door to try another way. */
+const TRY_LEAVING_LET_IN_MS = 120000;
 /** How long the body stays where it is after saying something, before it sets off anywhere. */
 const AFTER_SAYING_MS = 2500;
 /** How long someone who was in the way of a crate is remembered as being in the way. */
@@ -410,6 +412,7 @@ export function nextStep(brain: NpcBrain): Step | null {
             text: tell.why,
             say: tell.line,
             needs: tell.needs,
+            exact: tell.exact,
             tells: tell.line,
           };
     }
@@ -620,6 +623,32 @@ export function drive(
       };
     }
   }
+  // Likewise a word someone is standing waiting to hear, such as that what they said was heard:
+  // it is said in passing, whatever the body is walking to or doing.
+  if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
+    const quick = brain.toTell.find(
+      (it) =>
+        it.whileBusy &&
+        !it.byPda &&
+        now - it.at < TELL_KEPT_MS &&
+        brain.peopleInView.some((person) => person.name === it.to),
+    );
+    const key = quick ? `tell:${quick.to}:${quick.line}` : '';
+    if (quick && !inBackoff(brain, key)) {
+      const step: Step = {
+        key,
+        text: quick.why,
+        say: quick.line,
+        needs: quick.needs,
+        exact: quick.exact,
+        tells: quick.line,
+      };
+      fail(brain, key);
+      speak(quick.line, quick.needs, undefined, quick.exact);
+      noteDone(brain, step);
+      return step;
+    }
+  }
   // In the middle of something, it carries on, unless someone it answers to has ordered otherwise.
   const busy = brain.walking || !!brain.doing || !!brain.lastAct;
   const dropFor = busy ? orderToDrop(brain) : null;
@@ -672,7 +701,12 @@ export function drive(
     if (now < brain.tryLeavingAt) {
       return null;
     }
-    brain.tryLeavingAt = now + TRY_LEAVING_MS;
+    // One that was let in through a door it cannot open knows which door it is waiting on, and
+    // has gone to stand at it. Every try takes it away from that door, to walk at some other one
+    // that is as shut, and whoever comes to let it out finds nobody there. So it tries far less
+    // often: only enough to find a wall blown open, or a door left standing that it cannot see.
+    brain.tryLeavingAt =
+      now + (brain.wantsOut ? TRY_LEAVING_LET_IN_MS : TRY_LEAVING_MS);
   }
   // Talk comes before setting off: someone has just spoken to it, it has just met someone, or it
   // has something to say and is still finding the words. Leaving first is how a greeting ends up

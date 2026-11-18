@@ -75,6 +75,8 @@ import {
   orderWritten,
   TAKEN_WORDS,
   WAITING_TOLD_WORDS,
+  WORD_HEARD,
+  WORD_HEARD_WORDS,
 } from './supply';
 
 /** Writing up what it has yet to write in its order book. */
@@ -1149,8 +1151,25 @@ export const QUARTERMASTER: Job = {
       }
       // Whatever a technician has come to tell it, it has now heard.
       ledger.cameOutAt = 0;
+      // And says so, by name. The technician cannot tell being seen from being heard, and until
+      // it has this back it goes on trying to pass its word on.
+      const heardIt = () => {
+        const line = `${firstName(speaker)}, ${WORD_HEARD}.`;
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+        brain.toTell.push({
+          to: speaker,
+          line,
+          why: `${speaker} has told you something about a crate, to your face. You are saying that you have it, so that they know they were heard.`,
+          needs: WORD_HEARD_WORDS,
+          // Word for word, and there and then: the technician is standing waiting on it.
+          exact: true,
+          whileBusy: true,
+          at: Date.now(),
+        });
+      };
       const docked = heard.match(DOCKED_WORDS);
       if (docked) {
+        heardIt();
         const order = ledger.orders.find((it) => it.n === Number(docked[1]));
         if (order && order.state !== 'docked') {
           const itemised = itemisedIn(docked[2]);
@@ -1169,6 +1188,7 @@ export const QUARTERMASTER: Job = {
       }
       const lost = heard.match(LOST_TOLD_WORDS);
       if (lost) {
+        heardIt();
         crateLost(
           brain,
           cratesTold(lost[1]).map((crate) => crate.number),
@@ -1179,6 +1199,7 @@ export const QUARTERMASTER: Job = {
       }
       const waiting = heard.match(WAITING_TOLD_WORDS);
       if (waiting) {
+        heardIt();
         const whose = waiting[2].trim();
         if (whose !== brain.name) {
           sendWord(

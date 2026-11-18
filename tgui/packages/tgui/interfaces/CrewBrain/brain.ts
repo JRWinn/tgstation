@@ -102,6 +102,8 @@ const ALARM_CAME_BACK_MS = 60000;
 const SAME_LINE_DS = 20;
 /** How long a body that has reported reaching a door is taken to be standing at it, the server not having said so. */
 const DOOR_REACHED_MS = 30000;
+/** How long (milliseconds) one newly shut in behind a door it was let through waits at that door before it tries any other way out. */
+const LET_IN_FIRST_TRY_MS = 120000;
 /** How long (milliseconds) an NPC keeps out of a room it was walked out of by the arm. */
 const PUT_OUT_KEEPS_MS = 600000;
 /** How many lines of talk, heard and said, an NPC keeps. */
@@ -424,6 +426,12 @@ export function ingest(npcs: Npc[], now: number): void {
     // A door that has only just come open has not been tried yet.
     if (!npc.shut_in || !npc.door_open) {
       brain.openDoorTries = 0;
+    }
+    // Newly shut in behind a door someone let it through: the walk that has just come to nothing
+    // was its try at leaving. It goes to that door and asks, and does not set off at once on
+    // another walk out by some other way.
+    if (npc.shut_in && !brain.shutIn && npc.wants_out) {
+      brain.tryLeavingAt = Date.now() + LET_IN_FIRST_TRY_MS;
     }
     brain.shutIn = !!npc.shut_in;
     brain.doorOpen = !!npc.door_open;

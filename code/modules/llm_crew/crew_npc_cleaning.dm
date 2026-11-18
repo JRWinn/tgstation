@@ -169,12 +169,38 @@
 		places += memory[2]
 	return places
 
-/// Returns the names of the rooms the body remembers a mess in.
+/**
+ * TRUE if the room of this name is locked to the body: none of its doors open for it. Kept for a
+ * minute, since working it out means looking at every door of the room.
+ */
+/datum/ai_controller/crew_npc/proc/place_locked_to_body(place)
+	var/list/known = locked_place_cache[place]
+	if(known && world.time - known[2] < CREW_NPC_LOCKED_PLACE_KEPT)
+		return known[1]
+	var/area/room = crew_npc_station_places()[place]
+	var/locked = !isnull(room) && locked_out_of(room)
+	locked_place_cache[place] = list(locked, world.time)
+	return locked
+
+/**
+ * Returns the names of the rooms the body remembers a mess in and could go and clean.
+ *
+ * A mess seen through the window of a room that is locked to it is not its to go to: it could not
+ * get in, and would walk at the door again and again. It goes to one of those when someone who
+ * works there sends for it, and is let in. The room it is standing in always counts.
+ */
 /datum/ai_controller/crew_npc/proc/mess_places()
 	var/list/places = list()
+	var/list/passed_over = list()
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		places |= memory[2]
+		var/place = memory[2]
+		if((place in places) || (place in passed_over))
+			continue
+		if(place != current_place && place_locked_to_body(place))
+			passed_over += place
+			continue
+		places += place
 	return places
 
 /// Returns the messes in sight that are in the body's room and that the tool it holds can shift, nearest first.

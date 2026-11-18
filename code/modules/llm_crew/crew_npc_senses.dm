@@ -7,15 +7,46 @@
 /// Starts watching and listening through the pawn. Called when the controller takes over a body.
 /datum/ai_controller/crew_npc/proc/start_senses(mob/living/carbon/human/body)
 	RegisterSignal(body, COMSIG_MOVABLE_PRE_HEAR, PROC_REF(on_pre_hear))
+	RegisterSignal(body, COMSIG_MOVABLE_MOVED, PROC_REF(mind_its_step))
 	start_pda_senses(body)
 	look_timer = addtimer(CALLBACK(src, PROC_REF(look_around)), CREW_NPC_LOOK_INTERVAL, TIMER_LOOP | TIMER_STOPPABLE)
 
 /// Stops watching and listening. Called when the controller lets go of its body.
 /datum/ai_controller/crew_npc/proc/stop_senses(mob/living/carbon/human/body)
-	UnregisterSignal(body, COMSIG_MOVABLE_PRE_HEAR)
+	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_MOVED))
 	stop_pda_senses()
 	deltimer(look_timer)
 	look_timer = null
+
+/// TRUE if a runner stepping onto this tile would slip: the floor is wet, or something lying on it is slippery.
+/proc/crew_npc_slippery_turf(turf/open/spot)
+	if(!isopenturf(spot))
+		return FALSE
+	if(spot.GetComponent(/datum/component/wet_floor))
+		return TRUE
+	for(var/atom/movable/thing as anything in spot)
+		if(thing.GetComponent(/datum/component/slippery))
+			return TRUE
+	return FALSE
+
+/**
+ * Walks, not runs, wherever its next step may be onto a tile that would slip a runner, and runs
+ * again once it is clear. This is a player holding the walk key past a wet floor, and nothing more:
+ * what cannot be walked over safely still slips it. A body that runs over oil by a mail chute is
+ * thrown down the chute and comes out behind doors it cannot open.
+ */
+/datum/ai_controller/crew_npc/proc/mind_its_step(mob/living/carbon/human/body)
+	SIGNAL_HANDLER
+	if(!isturf(body.loc))
+		return
+	var/careful = FALSE
+	// Shoes that grip need no care taken.
+	if(!HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL))
+		for(var/turf/open/spot in range(1, body))
+			if(crew_npc_slippery_turf(spot))
+				careful = TRUE
+				break
+	body.set_move_intent(careful ? MOVE_INTENT_WALK : MOVE_INTENT_RUN)
 
 /// Records a sense event and tells the owner's brain window about it.
 /datum/ai_controller/crew_npc/proc/emit_sense(kind, text, list/details)
@@ -68,6 +99,24 @@
 		cleanable_messes = list()
 		grenade_messes = 0
 		return
+	// Not standing on a floor: in a disposal pipe, a locker, a crate. It sees nothing from in there,
+	// and makes nothing of where it is until it is out again.
+	if(!isturf(body.loc))
+		people_in_view = list()
+		things_in_view = list()
+		storage_here = 0
+		cleanable_messes = list()
+		grenade_messes = 0
+		off_floor_in ||= istype(body.loc, /obj/structure/disposalholder) ? "pipes" : format_text(body.loc.name)
+		return
+	if(off_floor_in)
+		// Out again, and it knows how it got here: not by any door, so there is none to go back to.
+		var/came_out_in = get_area_name(body, TRUE)
+		emit_sense(CREW_SENSE_KNOWLEDGE, off_floor_in == "pipes" ? "You were carried through the disposal pipes and came out in [came_out_in]." : "You are out of the [off_floor_in] you were shut inside, and are in [came_out_in].", list("place" = came_out_in))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) came out of [off_floor_in == "pipes" ? "the disposal pipes" : "the [off_floor_in]"] at [AREACOORD(body)].")
+		off_floor_in = null
+		current_place = null
+		forget_trail()
 
 	drop_disguise()
 	note_place(body)

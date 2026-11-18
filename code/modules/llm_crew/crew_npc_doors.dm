@@ -457,8 +457,11 @@
 		door.autoclose = TRUE
 		return list(FALSE, "The door will not open for you.")
 	// The door shuts behind them the moment they are through, so that nobody else walks in after.
-	// Failing that, it shuts when it has been held long enough.
-	watch_door(WEAKREF(door), WEAKREF(person), inside, world.time + CREW_NPC_DOOR_HELD, room)
+	// Failing that, it shuts when it has been held long enough. If it is being held for someone
+	// else as well, whoever has longest to go is the one it shuts behind.
+	var/held_until = world.time + CREW_NPC_DOOR_HELD
+	GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+	watch_door(WEAKREF(door), WEAKREF(person), inside, held_until, room)
 	// Having opened it, the body gets out of the doorway and back to where it works.
 	addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) opened [door] to let [key_name(person)] [inside ? "out of" : "into"] [room_name].")
@@ -483,9 +486,17 @@
 		var/now_inside = get_area(person) == room
 		through = now_inside != was_inside && get_turf(person) != get_turf(door)
 	if(through || world.time >= until)
+		// Held for someone else too, who came to it later and is not through yet: one janitor going
+		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
+		if(GLOB.crew_npc_door_holds[REF(door)] > until)
+			return
+		GLOB.crew_npc_door_holds -= REF(door)
 		let_door_close(door_ref)
 		return
 	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room), CREW_NPC_DOOR_WATCH)
+
+/// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
+GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 
 /**
  * Tool: knock at the door the body is standing at. A voice does not carry through a shut door, so

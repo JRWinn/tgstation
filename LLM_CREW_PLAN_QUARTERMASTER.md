@@ -104,6 +104,7 @@ All of it is face to face. If the Quartermaster is not in sight, the technician 
 - **A crate is still waiting to be collected:** "Ada, still waiting to be collected: crate #4521 for Hop Kins." The Quartermaster reminds whoever ordered.
 - **A crate is lost:** "Ada, crate #4521 for Hop Kins is lost: it has been destroyed." The Quartermaster tells whoever ordered, writes it in the book, and has the same ordered again, once, as a new order. This settles the open question in the locked-areas plan.
 - **An order could not be placed:** the Quartermaster gives it again after two minutes.
+- **Said is not told** (added 2026-11-18, after the round below): the Quartermaster answers each of the first three by name, "Jameson, I have that." Until the technician hears that, its word is not passed on. With nothing back in 25 seconds it walks up to the Quartermaster and says it again; after two tries with no answer it sends word to whoever ordered by PDA itself. In the round the technician could see the Quartermaster through the office window, said its line in the bay, and counted it as told. The Quartermaster never heard it.
 
 ### The staff meeting
 
@@ -148,6 +149,14 @@ All of it is face to face. If the Quartermaster is not in sight, the technician 
 Built 2026-11-18. **Type check, server compile, the tables of cases and the simulator only. Not played in a round, and nothing new has been tried against the real model.**
 
 Built: everything in section 3, and the Quartermaster in the test crew that spawns at round start.
+
+Played once since, in `data/logs/2026/11/18/round-01.53.17`, on the build from before the second sitting's work. What that round showed, and what was changed for it the same night (type check, server compile and simulator only, not played):
+
+- Word that a crate had come in never reached the Quartermaster, so the head was not told for six minutes. Fixed: see "Said is not told" above.
+- The head went on asking for an order that had come, every ten minutes, because only "your order has come in" closed it. Fixed: "still waiting at cargo" closes it too (`readsMessage` in `jobs/head.ts`).
+- The head sent a second janitor for the one crate four and a half minutes after the first. Fixed: whoever was sent has five minutes before someone else is (`sendFor` in `jobs/head.ts`).
+- The janitor sent for the crate went to a mess it had been called to instead. Fixed: a crate to collect comes before a mess it was called to (`workInOrder` in `tasks.ts`).
+- The Quartermaster's book never showed the order as come in. That follows from the first fault, and should not happen now. Not checked in a round.
 
 Not built:
 
