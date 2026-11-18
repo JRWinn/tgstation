@@ -49,6 +49,11 @@ export type Moment = {
   mustSay: string | null;
   /** TRUE if this is a quiet moment in company, when it may pass a remark or not. */
   remark: boolean;
+  /**
+   * TRUE if that line is said word for word by the body, and the LLM is asked only for a short
+   * remark of its own to follow it: see Plan.exact.
+   */
+  exact?: boolean;
 };
 
 /** One call, ready to send, and what the code needs to act on the answer. */
@@ -149,7 +154,13 @@ export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const about: string[] = [];
   let sayIs: string;
   let maySaySilent: boolean;
-  if (spokenTo) {
+  if (moment.exact && mustSay !== null) {
+    // The line is the body's, and goes out as it stands. Nothing is asked of the LLM but a
+    // remark, and nothing else it might be asked at this moment is put to it.
+    about.push(MOMENTS.aside);
+    sayIs = 'your own short remark, to follow the line your body is saying.';
+    maySaySilent = true;
+  } else if (spokenTo) {
     about.push(
       MOMENTS.spokenTo,
       ...(meeting ? [MOMENTS.meetingToo] : []),

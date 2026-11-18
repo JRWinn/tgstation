@@ -127,6 +127,9 @@ export const MOMENTS = {
   meetingToo: 'You have not met them before: make sure they learn your name.',
   /** Its work calls for it to say or ask something. */
   line: 'The report gives you something to say or ask. Say it now, in your own words, to that person by name. If it is asking for something, ask outright, as a question they can say yes or no to.',
+  /** Its work calls for a line that is said word for word, and it may add to it. */
+  aside:
+    'Your body is saying a line of its own this moment, word for word: the report gives it. You do not say that line, and you do not change it. If you like, add one short remark of your own to follow it, in your own voice: how you feel about it, or about the day. No numbers or amounts, no questions, and nothing about what anyone needs. If you have nothing to add, say nothing.',
   /** A quiet moment in company. */
   remark:
     'It is a quiet moment and you have company. If you feel like it, say something to someone here: a remark on what you are doing or have noticed, or a question about them. It is small talk between people who work near each other: nothing about leaving, hurrying up, or what they ought to ask you for. Do not say again anything you have said lately. If you would sooner get on with things, say nothing.',

@@ -67,6 +67,17 @@ export function isCargo(title: string): boolean {
 const CRATE_HOLDS: Record<string, string> = {
   'Janitorial Supplies Crate':
     'what a janitor cleans with: a mop, space cleaner, buckets, a rag and cleaner grenades. It is the crate to order when a janitor asks for cleaning supplies, soap, cleaner or a mop, whatever they call it',
+  'Replacement Lights': 'light tubes and light bulbs, for lights that have gone out',
+};
+
+/**
+ * The words each kind of crate is asked for by. An order may be for several kinds at once ("two
+ * crates of janitorial supplies and a crate of light bulbs"), and which kinds, and how many of
+ * each, are read off what was said, not left to the LLM.
+ */
+const CRATE_ASKED_AS: Record<string, RegExp> = {
+  'Janitorial Supplies Crate': /janitor|cleaning|cleaner|\bmops?\b|\bsoap\b/i,
+  'Replacement Lights': /\blights?\b|\bbulbs?\b|light tubes?/i,
 };
 
 /** The kinds of task cargo staff have: an order to see through, and getting back to their post. */
@@ -531,13 +542,25 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (arrived) {
     const written = cratesWritten(arrived.numbers);
     const several = arrived.numbers.length > 1;
+    // An order of several kinds says which crate is which: each lot of numbers, then what it is.
+    const kinds = [...new Set(arrived.kinds ?? [])];
+    const itemised =
+      kinds.length > 1
+        ? kinds
+            .map(
+              (kind) =>
+                `${cratesWritten(arrived.numbers.filter((_, index) => arrived.kinds?.[index] === kind))} (${kind})`,
+            )
+            .join('; ')
+        : `${written}${(arrived.what ?? kinds[0]) ? ` (${arrived.what ?? kinds[0]})` : ''}`;
     return {
       ready: true,
-      step: `What ${arrived.to} ordered has come in: ${written}. ${several ? 'They are' : 'It is'} held in the bay until someone comes to the counter for ${several ? 'them' : 'it'}, and you are sending ${arrived.to} a PDA message with the number${several ? 's' : ''}.`,
+      step: `What ${arrived.to} ordered has come in: ${itemised}. ${several ? 'They are' : 'It is'} held in the bay until someone comes to the counter for ${several ? 'them' : 'it'}, and you are sending ${arrived.to} a PDA message with the number${several ? 's' : ''}.`,
       act: {
         tool: 'message',
         person: arrived.to,
-        text: `Your order has come in: ${written}${arrived.what ? ` (${arrived.what})` : ''}. Send someone to the Cargo Lobby counter with the number to collect ${several ? 'each one' : 'it'}.`,
+        // What cannot be done without comes first: a PDA message that runs long is cut off at the end.
+        text: `Your order has come in: ${itemised}. Send someone to the Cargo Lobby counter with the number to collect ${several ? 'each one' : 'it'}.`,
       },
     };
   }
@@ -877,6 +900,46 @@ function cratesAskedFor(said: string): number {
   return NUMBER_WORDS[asked[1]] ?? Math.max(1, Number(asked[1]) || 1);
 }
 
+/** TRUE if these words ask for this kind of crate, by the words it goes by or by its own name. */
+function asksFor(crate: string, said: string): boolean {
+  const words =
+    CRATE_ASKED_AS[crate] ??
+    new RegExp(
+      crate
+        .toLowerCase()
+        .replace(/\bcrate\b/, '')
+        .trim()
+        .replace(/[^a-z0-9 ]/g, '.'),
+    );
+  return words.test(said);
+}
+
+/**
+ * Everything an order asks for: each kind of crate named, and how many of it. "Two crates of
+ * janitorial supplies and a crate of light bulbs" is two kinds, in one order. The words must be
+ * in lower case. A kind that is only named again ("soap and mops") is not ordered twice.
+ */
+export function itemsAskedFor(
+  said: string,
+  orderable: string[],
+): { crate: string; count: number }[] {
+  const items: { crate: string; count: number }[] = [];
+  for (const part of said.split(/[,;.]|\band\b|\bplus\b|\balso\b|\bas well as\b/)) {
+    const crate = orderable.find((kind) => asksFor(kind, part));
+    if (!crate) {
+      continue;
+    }
+    const numbered = /\b(\d+|one|two|three|four|an?)\s+crates?\b/.test(part);
+    const item = items.find((it) => it.crate === crate);
+    if (!item) {
+      items.push({ crate, count: cratesAskedFor(part) });
+    } else if (numbered) {
+      item.count += cratesAskedFor(part);
+    }
+  }
+  return items;
+}
+
 /**
  * Ordering is what cargo staff can agree to, one order at a time, and only for a head of
  * department. Anyone else is not offered it at all, so the LLM cannot take their order by mistake:
@@ -898,7 +961,7 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     {
       tool: 'order',
       parameter: { name: 'crate', choices: brain.orderable },
-      text: `order at the supply console what a head of department has just asked you for, for them or their staff. How many crates, your body takes from what was said. Asking means putting it to you: "can you order...", "could I get...", "have you got any...", or telling you, by name, what they need. Someone only saying what they are off to do themselves ("I'll get some from the closet") has not asked. ${brain.orderable.map((crate) => `The ${crate} holds ${CRATE_HOLDS[crate] ?? 'what its name says'}.`).join(' ')} Not for anything else. The shuttle brings it in a minute or two.`,
+      text: `order at the supply console what a head of department has just asked you for, for them or their staff. If they ask for more than one kind of thing at once, it all goes in the one order: which kinds, and how many crates of each, your body takes from what was said. Asking means putting it to you: "can you order...", "could I get...", "have you got any...", or telling you, by name, what they need. Someone only saying what they are off to do themselves ("I'll get some from the closet") has not asked. ${brain.orderable.map((crate) => `The ${crate} holds ${CRATE_HOLDS[crate] ?? 'what its name says'}.`).join(' ')} Not for anything else. The shuttle brings it in a minute or two.`,
     },
   ];
 }
@@ -993,12 +1056,21 @@ export const CARGO: Job = {
       // Coming for a crate that is here is not asking for one to be ordered.
       !COLLECT_WORDS.test(spokenIn(heard)) &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)),
-  // How many crates, as they were asked for. Where they go is for whoever collects them.
-  fills: (_brain, action, heard) => {
+  // Which kinds of crate, and how many of each, as they were asked for: one order may be for
+  // several kinds. Where they go is for whoever collects them.
+  fills: (brain, action, heard) => {
     if (action.tool !== 'order') {
       return;
     }
-    action.count = cratesAskedFor(spokenIn(heard).toLowerCase());
+    const said = spokenIn(heard).toLowerCase();
+    const items = itemsAskedFor(said, brain.orderable);
+    if (items.length > 0) {
+      action.items = items;
+      action.crate = items[0].crate;
+      action.count = items[0].count;
+    } else {
+      action.count = cratesAskedFor(said);
+    }
   },
   // Anyone asking for a door in its hearing is noted. Whether they get it is decided from who
   // they are and where they stand, not from how they ask.

@@ -28,6 +28,7 @@ import {
 } from './jobs/orders';
 import {
   describeMeetings,
+  isMeetingOrder,
   planMeetings,
   syncMeetings,
 } from './jobs/meetings';
@@ -248,7 +249,9 @@ export function workInWords(
     .join(' ')
     .toLowerCase();
   const place = placeNamedIn(brain, heard);
-  if (!place) {
+  // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
+  // That is not an order to go and look at a room, even if one is named.
+  if (!place || (fromSuperior && isMeetingOrder(brain, heard))) {
     return null;
   }
   // The job's own work first: "check the Bar, there is blood everywhere" is a mess to a janitor.

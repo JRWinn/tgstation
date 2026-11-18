@@ -90,6 +90,8 @@ export type Step = {
   /** What that line has to have in it, and whether it still needs saying: see Plan. */
   needs?: RegExp;
   sayIf?: () => boolean;
+  /** TRUE if that line is said word for word, with only a remark from the LLM after it: see Plan. */
+  exact?: boolean;
   /** The task the step is for, if it is for one. */
   task?: number;
   /** TRUE if this is only passing the time, not work. */
@@ -367,6 +369,7 @@ export function nextStep(brain: NpcBrain): Step | null {
       say: plan.say,
       needs: plan.needs,
       sayIf: plan.sayIf,
+      exact: plan.exact,
       task: task.id,
     };
   }
@@ -435,6 +438,7 @@ export function drive(
     fallback: string,
     needs?: RegExp,
     sayIf?: () => boolean,
+    exact?: boolean,
   ) => void,
   /** Asks the LLM which of the jobs in `brain.choosing` comes first. Nothing waits on it for long. */
   choose: () => void = () => {},
@@ -460,7 +464,7 @@ export function drive(
     const key = owed ? keyOf(owed.task, undefined, owed.plan.say) : '';
     if (owed?.plan.say && !inBackoff(brain, key)) {
       fail(brain, key);
-      speak(owed.plan.say, owed.plan.needs, owed.plan.sayIf);
+      speak(owed.plan.say, owed.plan.needs, owed.plan.sayIf, owed.plan.exact);
       return {
         key,
         text: owed.plan.step,
@@ -541,7 +545,7 @@ export function drive(
   if (step.say) {
     // Asked once; if nothing comes of it, it is left a while before being asked again.
     fail(brain, step.key);
-    speak(step.say, step.needs, step.sayIf);
+    speak(step.say, step.needs, step.sayIf, step.exact);
     noteDone(brain, step);
     return step;
   }

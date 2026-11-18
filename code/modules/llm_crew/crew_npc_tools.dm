@@ -48,7 +48,7 @@
 		if(CREW_TOOL_LOCATE)
 			tool_locate()
 		if(CREW_TOOL_ORDER)
-			tool_order(arguments["crate"], arguments["for"], arguments["count"])
+			tool_order(arguments["crate"], arguments["for"], arguments["count"], arguments["items"])
 		if(CREW_TOOL_RELEASE)
 			tool_release(arguments["number"], arguments["person"])
 		if(CREW_TOOL_COLLECT)

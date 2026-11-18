@@ -36,6 +36,11 @@ export function isJanitor(title: string): boolean {
  * broom, which shifts rubbish and not what is on the floor.
  */
 const CLEANING_SUPPLY = /soap|space cleaner|mop$|\brag$/i;
+/**
+ * Those of them that are worth having. A rag is a poor tool: it shifts little, and a janitor with
+ * nothing else is short of something to clean with, the same as one with nothing at all.
+ */
+const PROPER_SUPPLY = /soap|space cleaner|mop$/i;
 
 /** How long (deciseconds) a janitor waits at a locked door for someone who could open it to turn up. */
 const WAIT_AT_COUNTER_DS = 600;
@@ -51,6 +56,8 @@ const LOOK_ABOUT_DS = 50;
 const BEYOND = 'what is left there cannot be got at, or is beyond what you are holding';
 /** What a janitor with nothing to clean with needs, in the words it asks its head for it in. */
 const NEED = 'something to clean with';
+/** What one with only a rag needs. */
+const NEED_BETTER = 'something better than a rag to clean with';
 /** The plain words a janitor asks to be let into a locked room in, by which that line is known afterwards. */
 const ASKING_IN = 'could you let me in';
 /** How long (deciseconds) it waits at the door after knocking and asking to be let in. */
@@ -74,9 +81,39 @@ const MESS_WORDS =
 const ABOUT =
   'Your job is keeping the station clean. Your body does that work by itself: it finds something to clean with, goes to the messes it knows of, and cleans them.';
 
-/** TRUE if this janitor has nothing to clean with and has not yet looked up where the supplies are. */
+/** TRUE if this janitor is short of something to clean with: it has nothing, or nothing but a rag. */
+function lacksTool(brain: NpcBrain): boolean {
+  return !brain.cleaningTool || brain.poorTool;
+}
+
+/** The cleaning gear it knows the whereabouts of that would be worth going for: anything, or with a rag in hand, anything better. */
+function knownSupply(brain: NpcBrain): string | undefined {
+  const worthHaving = brain.poorTool ? PROPER_SUPPLY : CLEANING_SUPPLY;
+  return allKnownItems(brain).find((item) => worthHaving.test(item));
+}
+
+/**
+ * TRUE if it has been told, or has seen for itself, that what it asked for has come and is waiting
+ * for it somewhere. It is still short of it until it has been to get it, but it has no more need
+ * to ask for it: asked again, its head would only order the same thing twice.
+ */
+function suppliesWaiting(brain: NpcBrain): boolean {
+  return (
+    brain.suppliesSentAt !== null &&
+    brain.now - brain.suppliesSentAt < SUPPLIES_WAIT_DS
+  );
+}
+
+/** What it is short of, as a sentence about itself: nothing to clean with, or only a rag. */
+function lack(brain: NpcBrain): string {
+  return brain.poorTool
+    ? `All you have to clean with is your ${brain.cleaningTool}, which shifts little`
+    : 'You have nothing to clean with';
+}
+
+/** TRUE if this janitor is short of something to clean with and has not yet looked up where the supplies are. */
 function mustFindSupplies(brain: NpcBrain): boolean {
-  return !brain.cleaningTool && brain.hasLocator && !brain.locatorUsed;
+  return lacksTool(brain) && brain.hasLocator && !brain.locatorUsed;
 }
 
 /**
@@ -104,13 +141,11 @@ function supplyStep(brain: NpcBrain): Plan {
           act: { tool: 'explore' },
         };
   }
-  const supply = allKnownItems(brain).find((item) =>
-    CLEANING_SUPPLY.test(item),
-  );
+  const supply = knownSupply(brain);
   if (supply) {
     return {
       ready: true,
-      step: `You have nothing to clean with, but you know where there is ${supply}, and you are going to get it.`,
+      step: `${lack(brain)}, but you know where there is ${supply}, and you are going to get it.`,
       act: { tool: 'pick_up', item: supply },
     };
   }
@@ -123,14 +158,14 @@ function supplyStep(brain: NpcBrain): Plan {
     if (brain.location !== where && knowsPlace(brain, where)) {
       return {
         ready: true,
-        step: `You have nothing to clean with, but your PDA says what you asked for has come and is in the ${where}. You are going there to get it.`,
+        step: `${lack(brain)}, but your PDA says what you asked for has come and is in the ${where}. You are going there to get it.`,
         act: { tool: 'go_to', place: where },
       };
     }
     if (brain.location === where && brain.storageHere > 0) {
       return {
         ready: true,
-        step: 'You have nothing to clean with, but what you asked for is somewhere in this room. You are looking through the storage here for it.',
+        step: `${lack(brain)}, but what you asked for is somewhere in this room. You are looking through the storage here for it.`,
         act: { tool: 'search' },
       };
     }
@@ -138,7 +173,7 @@ function supplyStep(brain: NpcBrain): Plan {
   if (mustFindSupplies(brain)) {
     return {
       ready: true,
-      step: 'You have nothing to clean with and do not know where the cleaning supplies are kept. You are checking the custodial locator on your PDA.',
+      step: `${lack(brain)}, and you do not know where the cleaning supplies are kept. You are checking the custodial locator on your PDA.`,
       act: { tool: 'find_supplies' },
     };
   }
@@ -152,27 +187,27 @@ function supplyStep(brain: NpcBrain): Plan {
   if (unsearched.includes(brain.location)) {
     return {
       ready: true,
-      step: 'You have nothing to clean with. This is where the cleaning gear is kept, and you are looking through the storage for some.',
+      step: `${lack(brain)}. This is where the cleaning gear is kept, and you are looking through the storage for some.`,
       act: { tool: 'search' },
     };
   }
   if (unsearched.length > 0) {
     return {
       ready: true,
-      step: `You have nothing to clean with. Your locator showed the cleaning gear is kept in ${unsearched[0]}, and you are going there to get some.`,
+      step: `${lack(brain)}. Your locator showed the cleaning gear is kept in ${unsearched[0]}, and you are going there to get some.`,
       act: { tool: 'go_to', place: unsearched[0] },
     };
   }
   // Nothing where the gear is kept. Cargo only takes orders from heads of department, so it takes
   // what it needs to the head it answers to, who orders for all their staff at once.
-  return needStep(brain, NEED);
+  return needStep(brain, brain.poorTool ? NEED_BETTER : NEED);
 }
 
 /** What the LLM should know about the mess in front of the janitor, so that what it says is true. */
 function cues(brain: NpcBrain): string[] {
   const lines: string[] = [];
   // Only worth saying while it is looking for something to clean with, which is when it might ask.
-  if (!brain.cleaningTool && brain.peopleInView.some((person) => isJanitor(person.job))) {
+  if (lacksTool(brain) && brain.peopleInView.some((person) => isJanitor(person.job))) {
     lines.push(
       'Other janitors have no supplies to spare. Do not ask them for theirs.',
     );
@@ -267,16 +302,26 @@ function syncTasks(brain: NpcBrain): void {
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
   }
 
+  // Getting something to clean with is on its list for as long as it is short of it. With only a
+  // rag it still cleans what a rag will shift, and gets something better when it can.
   const supplies = findTask(brain, SUPPLIES);
-  if (brain.cleaningTool) {
+  if (!lacksTool(brain)) {
     if (supplies) {
       finishTask(brain, supplies);
     }
     return;
   }
-  blockTask(
+  const task =
     supplies ??
-      addTask(brain, { kind: SUPPLIES, urgency: 'routine', source: 'own' }),
+    addTask(brain, { kind: SUPPLIES, urgency: 'routine', source: 'own' });
+  // With only a rag, and something better known to be there for the taking, it goes for that
+  // before it answers a call to a mess: the rag would likely not shift the mess anyway.
+  task.urgency =
+    brain.poorTool && (!!knownSupply(brain) || suppliesWaiting(brain))
+      ? 'asked'
+      : 'routine';
+  blockTask(
+    task,
     // Told its head and waiting to hear: nothing more to do about it for now.
     !supplyStep(brain).ready && brain.toldHeadAt !== null
       ? 'you have told your head what you need, and will hear when it has come'
@@ -442,11 +487,13 @@ export const JANITOR: Job = {
   keepsPost: false,
   cleans: true,
   about: () => ABOUT,
-  // With nothing to clean with and nowhere left to look for it, that is what it is short of.
+  // With nothing to clean with, or nothing but a rag, and nowhere it knows of to get better,
+  // that is what it is short of. Not once what it asked for has come and is only waiting for it.
   needs: (brain) =>
-    !brain.cleaningTool &&
-    !allKnownItems(brain).some((item) => CLEANING_SUPPLY.test(item))
-      ? NEED
+    lacksTool(brain) && !knownSupply(brain) && !suppliesWaiting(brain)
+      ? brain.poorTool
+        ? NEED_BETTER
+        : NEED
       : null,
   whenAsked: () => [
     'If they tell you of a mess somewhere, tell them you will see to it.',

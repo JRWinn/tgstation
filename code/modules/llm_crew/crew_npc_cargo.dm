@@ -10,7 +10,11 @@
 /// The job written on the body's ID.
 /datum/ai_controller/crew_npc/proc/job_title()
 	var/mob/living/carbon/human/body = pawn
-	return body.get_assignment(if_no_id = "", if_no_job = "")
+	// Its own job is what its own ID says, whatever it looks like to anyone else. get_assignment()
+	// answers as a stranger would see it: with its face hidden, by a potted plant held up in front of
+	// it, say, that is no job at all, and a head with no job walks off from its own staff meeting.
+	var/obj/item/card/id/card = body.get_idcard(TRUE)
+	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "")
 
 /// TRUE if the body's job is in cargo, which is what lets it order supplies.
 /datum/ai_controller/crew_npc/proc/works_in_cargo()
@@ -22,7 +26,7 @@
 	var/static/list/crates
 	if(isnull(crates))
 		crates = list()
-		for(var/pack_type in list(/datum/supply_pack/service/janitor))
+		for(var/pack_type in list(/datum/supply_pack/service/janitor, /datum/supply_pack/service/lightbulbs))
 			var/datum/supply_pack/pack = SSshuttle.supply_packs[pack_type]
 			if(pack)
 				crates[pack.name] = pack_type
@@ -262,25 +266,52 @@
 		return place_name
 	return null
 
-/// Tool: order a crate of supplies at the supply console. Cargo staff only.
-/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count)
+/// Reads how many crates were asked for from what the brain sent, which may be a number or text. At least one, and no more than cargo orders at once.
+/datum/ai_controller/crew_npc/proc/crates_wanted(count)
+	return clamp(round(isnum(count) ? count : text2num("[count]")), 1, CREW_NPC_ORDER_MAX)
+
+/// Says an order in words, as it is spoken of: "the Janitorial Supplies Crate", "2 of the Janitorial Supplies Crate and the Replacement Lights".
+/datum/ai_controller/crew_npc/proc/order_in_words(list/wanted)
+	var/list/parts = list()
+	for(var/kind in wanted)
+		parts += "[wanted[kind] > 1 ? "[wanted[kind]] of " : ""]the [kind]"
+	return english_list(parts)
+
+/**
+ * Tool: order supplies at the supply console. Cargo staff only.
+ *
+ * One order may be for several kinds of crate at once, and for several crates of each, when a head
+ * asks for everything its staff need in one go. `items` is that list, each entry a kind and a count.
+ * With no list, the order is for `count` crates of `crate_name`.
+ */
+/datum/ai_controller/crew_npc/proc/tool_order(crate_name, for_handle, count, list/items)
 	if(!works_in_cargo())
 		action_result(CREW_TOOL_ORDER, FALSE, "Ordering supplies is cargo's job. Ask the cargo technician.")
 		return
-	var/pack_type = istext(crate_name) ? orderable_crates()[crate_name] : null
-	if(isnull(pack_type))
+	var/list/known = orderable_crates()
+	var/list/wanted = list()
+	if(islist(items))
+		for(var/list/item in items)
+			var/kind = item["crate"]
+			if(!istext(kind) || isnull(known[kind]) || (isnull(wanted[kind]) && length(wanted) >= CREW_NPC_ORDER_KINDS))
+				continue
+			wanted[kind] = min(wanted[kind] + crates_wanted(item["count"]), CREW_NPC_ORDER_MAX)
+	if(!length(wanted) && istext(crate_name) && !isnull(known[crate_name]))
+		wanted[crate_name] = crates_wanted(count)
+	if(!length(wanted))
 		action_result(CREW_TOOL_ORDER, FALSE, "That is not something you can order.")
 		return
 	if(supply_run_active)
 		action_result(CREW_TOOL_ORDER, FALSE, "You already have an order on the go. See that one through first.")
 		return
-	// One order may be for several crates of the same thing, when a head asks for enough to go round.
-	var/wanted = clamp(round(isnum(count) ? count : text2num("[count]")), 1, CREW_NPC_ORDER_MAX)
 	// An order the budget cannot cover is never loaded, and the shuttle would come back without it.
-	var/datum/supply_pack/pack = SSshuttle.supply_packs[pack_type]
+	var/cost = 0
+	for(var/kind in wanted)
+		var/datum/supply_pack/pack = SSshuttle.supply_packs[known[kind]]
+		cost += pack.get_cost() * wanted[kind]
 	var/datum/bank_account/department/budget = SSeconomy.get_dep_account(ACCOUNT_CAR)
-	if(budget && !budget.has_money(pack.get_cost() * wanted))
-		action_result(CREW_TOOL_ORDER, FALSE, "There is not enough money left in the cargo budget to order the [crate_name].")
+	if(budget && !budget.has_money(cost))
+		action_result(CREW_TOOL_ORDER, FALSE, "There is not enough money left in the cargo budget to order [order_in_words(wanted)].")
 		return
 
 	var/obj/machinery/computer/cargo/nearest_console = supply_console()
@@ -291,35 +322,46 @@
 	var/datum/weakref/asker_ref = istext(for_handle) ? handle_people[for_handle] : null
 	var/mob/living/carbon/human/asker = asker_ref?.resolve()
 	order_for = QDELETED(asker) ? last_heard_speaker : asker.name
-	order_count = wanted
+	order_items = wanted
 	supply_held_up_since = 0
-	start_errand(nearest_console, CREW_TOOL_ORDER, crate_name)
+	start_errand(nearest_console, CREW_TOOL_ORDER, order_in_words(wanted))
 
-/// Places the order at the console the body is standing by, and sets the shuttle run going.
+/// Places the order at the console the body is standing by, all of it in the one visit, and sets the shuttle run going.
 /datum/ai_controller/crew_npc/proc/place_order(obj/machinery/computer/cargo/console)
 	var/mob/living/carbon/human/body = pawn
-	var/crate_name = errand_item
-	var/pack_type = orderable_crates()[crate_name]
-	if(isnull(pack_type))
+	var/list/known = orderable_crates()
+	if(!length(order_items))
 		return list(FALSE, "You forget what you came to order.")
-	var/orders_before = length(SSshuttle.shopping_list)
-	for(var/crate_number in 1 to order_count)
-		console.add_item(body, pack_type)
-	if(length(SSshuttle.shopping_list) <= orders_before)
-		return list(FALSE, "The supply console will not take the order.")
-	order_count = length(SSshuttle.shopping_list) - orders_before
 	// Each crate comes with a manifest that carries its order's number. Those numbers are how the
 	// crates are known from here on: when they dock, and when someone comes to collect them.
 	ordered_numbers = list()
-	for(var/index in orders_before + 1 to length(SSshuttle.shopping_list))
-		var/datum/supply_order/placed = SSshuttle.shopping_list[index]
-		ordered_numbers += placed.id
+	ordered_kinds = list()
+	var/list/placed_items = list()
+	for(var/kind in order_items)
+		var/pack_type = known[kind]
+		if(isnull(pack_type))
+			continue
+		var/orders_before = length(SSshuttle.shopping_list)
+		for(var/crate_number in 1 to order_items[kind])
+			console.add_item(body, pack_type)
+		for(var/index in orders_before + 1 to length(SSshuttle.shopping_list))
+			var/datum/supply_order/placed = SSshuttle.shopping_list[index]
+			ordered_numbers += placed.id
+			ordered_kinds["[placed.id]"] = kind
+		if(length(SSshuttle.shopping_list) > orders_before)
+			placed_items[kind] = length(SSshuttle.shopping_list) - orders_before
+	if(!length(ordered_numbers))
+		return list(FALSE, "The supply console will not take the order.")
+	order_items = placed_items
+	order_count = length(ordered_numbers)
+	ordered_words = order_in_words(placed_items)
+	// The last of them to be loaded is the one to watch for: when it is aboard, they all are.
 	pending_order = WEAKREF(SSshuttle.shopping_list[length(SSshuttle.shopping_list)])
-	ordered_crate_name = crate_name
+	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
 	supply_run_active = TRUE
 	addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
-	return list(TRUE, "You order [order_count > 1 ? "[order_count] of " : ""]the [crate_name][order_for ? " for [order_for]" : ""] at the supply console and call the shuttle. It will be a few minutes. You will know when it docks.")
+	return list(TRUE, "You order [ordered_words][order_for ? " for [order_for]" : ""] at the supply console and call the shuttle. It will be a few minutes. You will know when it docks.")
 
 /**
  * Sees the supply shuttle through its run: out to collect the order if it is sitting at the station,
@@ -332,7 +374,7 @@
 	if(world.time - supply_run_started_at > CREW_NPC_SUPPLY_TIMEOUT)
 		supply_run_active = FALSE
 		pending_order = null
-		action_result(CREW_TOOL_ORDER, FALSE, "The [ordered_crate_name] you ordered has still not come. Something is holding the supply shuttle up.")
+		action_result(CREW_TOOL_ORDER, FALSE, "What you ordered ([ordered_words]) has still not come. Something is holding the supply shuttle up.")
 		return
 
 	var/obj/docking_port/mobile/supply/shuttle = SSshuttle.supply
@@ -364,7 +406,7 @@
 				// The shuttle will not fly with anyone aboard, or with cargo it is not allowed to carry.
 				supply_run_active = FALSE
 				pending_order = null
-				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle will not leave to fetch the [ordered_crate_name]: someone is standing aboard it, or something aboard is not allowed to travel. The order is off until it is clear.")
+				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle will not leave to fetch [ordered_words]: someone is standing aboard it, or something aboard is not allowed to travel. The order is off until it is clear.")
 				return
 		else if(docked_at == "cargo_away")
 			SSshuttle.moveShuttle("cargo", "cargo_home", TRUE)
@@ -374,7 +416,7 @@
 /datum/ai_controller/crew_npc/proc/order_arrived()
 	supply_run_active = FALSE
 	pending_order = null
-	var/datum/supply_pack/pack = SSshuttle.supply_packs[orderable_crates()[ordered_crate_name]]
+	var/list/known = orderable_crates()
 	// The crates of the order are known by the numbers on their manifests. A workmate may have
 	// hauled one off the shuttle already, so the bay and the lobby are looked in as well.
 	var/list/aboard = crates_aboard()
@@ -391,35 +433,43 @@
 			continue
 		found[crate] = number
 		unmatched -= number
-	// A crate whose manifest has come off is known by what it is: its name starts with the pack's.
-	if(pack)
-		for(var/obj/structure/closet/crate/crate as anything in aboard)
-			if(!length(unmatched))
+	// A crate whose manifest has come off is known by what it is: its name starts with the name of
+	// the pack one of the numbers still unaccounted for was ordered as.
+	for(var/obj/structure/closet/crate/crate as anything in aboard)
+		if(!length(unmatched))
+			break
+		if(found[crate] || crew_npc_held_entry(crate))
+			continue
+		for(var/number in unmatched)
+			var/datum/supply_pack/pack = SSshuttle.supply_packs[known[ordered_kinds["[number]"] || ordered_crate_name]]
+			if(pack && findtext(crate.name, pack.crate_name) == 1)
+				found[crate] = number
+				unmatched -= number
 				break
-			if(found[crate] || crew_npc_held_entry(crate) || findtext(crate.name, pack.crate_name) != 1)
-				continue
-			found[crate] = unmatched[1]
-			unmatched.Cut(1, 2)
 	ordered_numbers = list()
 	if(!length(found))
-		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see the [ordered_crate_name] aboard.")
+		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
 		return
 	// From here they are held for collection, whoever hauls them off the shuttle.
 	var/list/numbers = list()
+	// What kind each of them is, in the same order as the numbers. Whoever ordered several kinds has to know which is which.
+	var/list/kinds = list()
 	for(var/obj/structure/closet/crate/crate as anything in found)
 		var/datum/crew_npc_held_crate/entry = new
 		entry.crate_ref = WEAKREF(crate)
 		entry.number = found[crate]
 		entry.for_name = order_for
-		entry.what = ordered_crate_name
+		entry.what = ordered_kinds["[entry.number]"] || ordered_crate_name
 		entry.post = post_place
 		GLOB.crew_npc_held_crates += entry
 		numbers += entry.number
+		kinds += entry.what
+	ordered_kinds = list()
 	if(order_for)
-		notices_owed += list(list("to" = order_for, "kind" = CREW_NOTICE_ARRIVED, "numbers" = numbers, "what" = ordered_crate_name))
+		notices_owed += list(list("to" = order_for, "kind" = CREW_NOTICE_ARRIVED, "numbers" = numbers, "what" = length(unique_list(kinds)) == 1 ? kinds[1] : null, "kinds" = kinds))
 	freight_changed()
 	var/several = length(numbers) > 1
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with [several ? "the [length(numbers)] crates of [ordered_crate_name]" : "the [ordered_crate_name]"] you ordered[order_for ? " for [order_for]" : ""]: [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[order_for ? " Send [order_for] a PDA message with the number[several ? "s" : ""]." : ""]", list("numbers" = numbers))
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[order_for ? " Send [order_for] a PDA message with the number[several ? "s" : ""]." : ""]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)

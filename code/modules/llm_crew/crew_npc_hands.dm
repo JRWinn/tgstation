@@ -245,7 +245,7 @@
 		action_result(tool, outcome[1], outcome[2])
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
-		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(cleaning_tool()) && sink_in_view)
+		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(proper_tool()) && sink_in_view)
 			addtimer(CALLBACK(src, PROC_REF(tool_clean)), 0.3 SECONDS)
 		return
 
@@ -254,6 +254,7 @@
 		messes_left = outcome[1] ? messes_to_clean(view(CREW_NPC_VISION_RANGE, pawn)) : list()
 	else if(outcome[1])
 		cleaned_count++
+		work_cleaned++
 	clean_queue = messes_left
 	// Stop if the tool has given out; otherwise carry on to the next mess.
 	if(cleaning_tool() && next_mess())

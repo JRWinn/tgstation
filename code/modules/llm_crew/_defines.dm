@@ -237,5 +237,7 @@
 #define CREW_TOOL_TAKE_BACK "take_back"
 /// The most crates of one thing a single order may be for.
 #define CREW_NPC_ORDER_MAX 4
+/// The most kinds of crate cargo staff put in one order.
+#define CREW_NPC_ORDER_KINDS 4
 /// How long after a round starts the standing test crew is spawned, so that whoever owns them has a body by then.
 #define CREW_NPC_AUTOSTART_DELAY (10 SECONDS)

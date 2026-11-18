@@ -69,6 +69,7 @@
 		grenade_messes = 0
 		return
 
+	drop_disguise()
 	note_place(body)
 	var/list/in_sight = oview(CREW_NPC_VISION_RANGE, body)
 	things_in_view = notable_things(in_sight)
@@ -163,6 +164,19 @@
 	// The spot kept for the body's post is the one it works at, so that one stays as it is.
 	if(looks_in_place == 4 && place != post_place)
 		visited_places[place] = list(here.x, here.y, here.z)
+
+/**
+ * Puts down anything in the body's hands that hides who it is: a potted plant, say, which a body
+ * catches when the bar's monkey throws one at it. It never picks such a thing up for its work,
+ * and while it holds one nobody knows it: its own staff stand waiting for a head who is there.
+ */
+/datum/ai_controller/crew_npc/proc/drop_disguise()
+	var/mob/living/carbon/human/body = pawn
+	if(!HAS_TRAIT(body, TRAIT_UNKNOWN_APPEARANCE))
+		return
+	for(var/obj/item/held in body.held_items)
+		if(held.GetComponent(/datum/component/tactical))
+			body.dropItemToGround(held)
 
 /**
  * Picks out the things in sight that a person would notice, grouped by name.

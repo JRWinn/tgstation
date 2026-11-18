@@ -52,10 +52,16 @@
 	var/last_heard_speaker
 	/// Name of whoever the supplies on order are for.
 	var/order_for
-	/// How many crates the order on the go is for.
+	/// How many crates the order on the go is for, of every kind together.
 	var/order_count = 1
+	/// What the order on the go is for: how many crates of each kind, by the name the kind is ordered under.
+	var/list/order_items = list()
+	/// The order on the go in words, as it is spoken of: "the Janitorial Supplies Crate", "2 of the Janitorial Supplies Crate and the Replacement Lights".
+	var/ordered_words
 	/// The manifest numbers of the crates of the order on the go.
 	var/list/ordered_numbers = list()
+	/// What kind each crate of the order on the go is, by its manifest number as text.
+	var/list/ordered_kinds = list()
 	/// A crate the body unpacked and has yet to take back to cargo, as a weak reference.
 	var/datum/weakref/crate_to_return
 	/// PDA messages the body owes about crates: each a list with to (a name), kind (CREW_NOTICE_*), numbers and, for an order that has come in, what.
@@ -158,6 +164,9 @@
 	var/list/clean_queue = list()
 	/// How many messes the cleaning job in progress has cleaned.
 	var/cleaned_count = 0
+	/// How many messes the body has cleaned up this shift, and how many things it has put away. Its head hears of them at staff meetings.
+	var/work_cleaned = 0
+	var/work_put_away = 0
 	/// Goes up each time an errand starts or is abandoned, so a finished step can tell whether it is still the current one.
 	var/errand_serial = 0
 	/// TRUE if the body can see a sink, where a dry mop can be wetted.

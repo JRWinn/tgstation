@@ -96,13 +96,17 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// Everything it has on it, for the window to show. The LLM is not told of this.
 			"inventory" = npc.inventory_list(),
 			"cleaning_tool" = npc.describe_cleaning_tool(),
+			// All it has to clean with is a rag, which shifts little.
+			"poor_tool" = npc.has_poor_tool(),
+			// How much of its work it has done so far this shift: messes cleaned up, and things put away.
+			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away),
 			"has_locator" = npc.has_custodial_locator(),
 			"cleanable_messes" = npc.cleanable_messes,
 			"mess_places" = npc.mess_places(),
 			// Those of them where what the body holds would do some good.
 			"workable_mess_places" = npc.workable_mess_places(),
 			// Holding a mop with no water on it and nothing else that cleans, whether or not there is a sink in sight.
-			"mop_needs_water" = !isnull(npc.dry_mop()) && isnull(npc.cleaning_tool()),
+			"mop_needs_water" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()),
 			"sink_in_view" = npc.sink_in_view,
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
@@ -150,7 +154,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// Rooms it lately found no way into.
 			"blocked_places" = npc.blocked_place_names(),
 			// Holding a mop that will not clean until it is wetted, with no sink in sight to wet it at.
-			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.working_tool()),
+			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()) && !npc.sink_in_view,
 			"place_kind" = npc.place_kind(),
 			// On the way somewhere, on an errand, or working through a room's storage.
 			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.

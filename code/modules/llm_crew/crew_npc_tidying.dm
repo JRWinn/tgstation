@@ -228,10 +228,12 @@
 				body.dropItemToGround(carried)
 				tidy_skipped[REF(carried)] = world.time
 				return list(FALSE, "You cannot get the [carried_name] into the bin.")
+			work_put_away++
 			return list(TRUE, "You put the [carried_name] in the disposal bin in [place].")
 		if(!body.transferItemToLoc(carried, get_turf(target)))
 			tidy_skipped[REF(carried)] = world.time
 			return list(FALSE, "You cannot let go of the [carried_name].")
+		work_put_away++
 		return list(TRUE, "You put the [carried_name] on the [format_text(target.name)] in [place].")
 
 	// Standing by the thing itself: pick it up and take it where it goes.

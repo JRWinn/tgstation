@@ -5,13 +5,27 @@
  * the tool first. A crew NPC with nothing to clean with can only say where the mess is.
  */
 
-/// Returns something in the body's hands that can clean right now, or null.
+/// Returns something in the body's hands that can clean right now, or null. A rag is only what it cleans with when the other hand holds nothing better.
 /datum/ai_controller/crew_npc/proc/cleaning_tool()
 	var/mob/living/carbon/human/body = pawn
+	var/obj/item/rag
 	for(var/obj/item/held in body.held_items)
-		if(can_clean_with(held))
-			return held
-	return null
+		if(!can_clean_with(held))
+			continue
+		if(istype(held, /obj/item/rag))
+			rag ||= held
+			continue
+		return held
+	return rag
+
+/// Returns something in the body's hands that cleans properly right now, or null. A rag is not that.
+/datum/ai_controller/crew_npc/proc/proper_tool()
+	var/obj/item/tool = cleaning_tool()
+	return istype(tool, /obj/item/rag) ? null : tool
+
+/// TRUE if all the body has to clean with here is a rag: a poor tool, which shifts little. It is short of something better.
+/datum/ai_controller/crew_npc/proc/has_poor_tool()
+	return istype(working_tool(), /obj/item/rag)
 
 /// TRUE if this item would clean a mess if used on one now. A mop with no water on it would not.
 /datum/ai_controller/crew_npc/proc/can_clean_with(obj/item/tool)
@@ -29,9 +43,9 @@
 			return held
 	return null
 
-/// Returns what the body can clean with here: a tool that works now, or a dry mop if there is a sink in view to wet it at.
+/// Returns what the body can clean with here: a proper tool that works now, or a dry mop if there is a sink in view to wet it at, or failing both a rag.
 /datum/ai_controller/crew_npc/proc/working_tool()
-	return cleaning_tool() || (sink_in_view ? dry_mop() : null)
+	return proper_tool() || (sink_in_view ? dry_mop() : null) || cleaning_tool()
 
 /// Says what the body has to clean with here, in words for the brain, or null if it has nothing that will work.
 /datum/ai_controller/crew_npc/proc/describe_cleaning_tool()
@@ -96,9 +110,9 @@
 		if(spot == here || (spot in in_sight))
 			remembered_messes -= key
 
-/// Returns what the body could clean with: something that works now, or a mop that would once it is wet.
+/// Returns what the body could clean with: a proper tool that works now, or a mop that would once it is wet, or failing both a rag.
 /datum/ai_controller/crew_npc/proc/tool_in_hand()
-	return cleaning_tool() || dry_mop()
+	return proper_tool() || dry_mop() || cleaning_tool()
 
 /**
  * Returns the nearest mess the body remembers in the room of this name that what it holds could shift,
@@ -195,7 +209,7 @@
 	if(errand_tool == CREW_TOOL_CLEAN && blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	var/obj/item/tool = cleaning_tool()
-	if(isnull(tool) && dry_mop())
+	if(isnull(proper_tool()) && dry_mop())
 		// A dry mop cleans nothing. Wet it first, at the nearest sink in sight.
 		var/obj/structure/sink/nearest_sink
 		var/nearest_distance = INFINITY
@@ -203,13 +217,15 @@
 			if(get_dist(body, sink) < nearest_distance)
 				nearest_distance = get_dist(body, sink)
 				nearest_sink = sink
-		if(isnull(nearest_sink))
+		if(nearest_sink)
+			clean_queue = list()
+			cleaned_count = 0
+			start_errand(nearest_sink, CREW_TOOL_CLEAN, null)
+			return
+		// With no sink in sight, a rag in the other hand will still do what a rag does.
+		if(isnull(tool))
 			action_result(CREW_TOOL_CLEAN, FALSE, "Your mop is dry, and there is no sink in sight to wet it at.")
 			return
-		clean_queue = list()
-		cleaned_count = 0
-		start_errand(nearest_sink, CREW_TOOL_CLEAN, null)
-		return
 	if(isnull(tool))
 		action_result(CREW_TOOL_CLEAN, FALSE, "You have nothing to clean with. Soap, a wet mop or space cleaner would do.")
 		return

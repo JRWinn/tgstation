@@ -149,6 +149,10 @@ export type Npc = {
   storage_here: number;
   /** Name of something in the body's hands that can clean right now, or null. */
   cleaning_tool: string | null;
+  /** TRUE if all the body has to clean with is a rag, which shifts little. */
+  poor_tool?: BooleanLike;
+  /** How much of its work the body has done so far this shift: messes cleaned up, and things put away. */
+  work_done?: { cleaned: number; put_away: number } | null;
   /** TRUE if the body carries a PDA with the custodial locator. */
   has_locator: BooleanLike;
   /** Names of the messes in view that the body could clean with what it holds. */
@@ -254,8 +258,10 @@ export type Notice = {
   kind: 'arrived' | 'waiting';
   /** The manifest numbers of the crates it is about. */
   numbers: number[];
-  /** For an order that has come in: what was ordered. */
+  /** For an order that has come in: what was ordered, if it was all one kind of crate. */
   what?: string | null;
+  /** For an order that has come in: what kind each crate is, in the same order as the numbers. */
+  kinds?: string[] | null;
 };
 
 /** One crate cargo is holding for collection. */
@@ -402,6 +408,12 @@ export type Plan = {
    * used: the plain line is said.
    */
   needs?: RegExp;
+  /**
+   * If the step is something to say: TRUE if the plain line is said word for word, because it
+   * carries numbers, or words someone else's next step is read from. The LLM is not asked to put
+   * it in its own words: only for a short remark of its own to go after it. See jobs/reports.ts.
+   */
+  exact?: boolean;
   /** If the step is something to say: FALSE once it no longer needs saying, checked just before it is said. */
   sayIf?: () => boolean;
   /** If not ready: TRUE if the thing to do meanwhile is stay put, not wander off and pass the time. */
@@ -485,6 +497,12 @@ export type NpcBrain = {
   exploredEverything: boolean;
   storageHere: number;
   cleaningTool: string | null;
+  /** TRUE if all it has to clean with is a rag, which shifts little. */
+  poorTool: boolean;
+  /** How much of each kind of counted work it has done this shift, by the kind's key: see jobs/reports.ts. */
+  workDone: Record<string, number>;
+  /** How much of each it had done when it last reported to its head. What it reports is what it has done since. */
+  workReported: Record<string, number>;
   cleanableMesses: string[];
   /** Names of the rooms the body remembers a mess in. */
   messPlaces: string[];
@@ -561,6 +579,8 @@ export type NpcBrain = {
     /** When it was thought of (this window's clock). Stale ones are dropped unsaid. */
     at: number;
   }[];
+  /** TRUE if the line its work calls for is said word for word, with only a remark from the LLM after it: see Plan. */
+  mustSayExact: boolean;
   /**
    * What it has done about being shut in the room it is in: who it has asked, and whether it has
    * knocked and sent word. It asks each person once, and again only when someone new turns up.
@@ -722,15 +742,32 @@ export type NpcBrain = {
   toldHeadAt: number | null;
   /** The room its PDA last said supplies had been left for it in, or null. */
   suppliesAt: string | null;
-  /** A staff meeting its head has called it to: who, where, when, when the head asked the room, and whether it has said its piece. */
+  /** A staff meeting its head has called it to, and how far it has got with it: see jobs/meetings.ts. */
   summons: {
     by: string;
     room: string;
+    /** Server time it was called. */
     at: number;
+    /** TRUE once it has sent word back that it is coming. */
+    answered: boolean;
+    /** Server time it got to the room, or null. */
+    arrivedAt: number | null;
+    /** Server time its head was last seen there, or null. */
+    headSeenAt: number | null;
+    /** Server time its head called on it, by name, for its report, or null. */
     askedAt: number | null;
+    /** TRUE once it has given its report: out loud at the meeting, or by PDA. */
     said: boolean;
-    /** TRUE once it has found it cannot get into the room. It sends its answer by PDA instead. */
+    /** How many walks to the room have come to nothing. */
+    tries: number;
+    /** TRUE once it has found it cannot get into the room. It sends its report by PDA instead. */
     shutOut?: boolean;
+    /** TRUE once its head has sent word that the meeting went ahead without it. It sends its report by PDA instead. */
+    missed?: boolean;
+    /** TRUE once its head has said the meeting is over. */
+    over?: boolean;
+    /** Which way of wording a report it uses, picked once so that the line does not change while it waits. */
+    wording: number;
   } | null;
   /** For a head: what its staff have asked for, and how far each has got. */
   asks: {
@@ -740,26 +777,47 @@ export type NpcBrain = {
     ordered: boolean;
     told: boolean;
   }[];
-  /** For a head: the staff meeting it is holding, who has been sent word of it, and when it asked the room. */
+  /** For a head: the staff meeting it is holding, and how far it has got: see jobs/head.ts. */
   meeting: {
     calledAt: number;
     room: string;
+    /** Who has been sent the call. */
     invited: string[];
-    askedAt: number | null;
+    /** TRUE once the Captain has been sent word that it is being held. */
+    copied: boolean;
+    /** Who has sent word back, and whether they are coming or cannot. */
+    answers: Record<string, 'coming' | 'cannot'>;
+    /** Server time it began, with whoever was there. Null while it is still waiting for them. */
+    startedAt: number | null;
+    /** Who has been called on for their report, in order, when, and whether they have been heard. */
+    turns: { who: string; askedAt: number; heard: boolean }[];
+    /** What each of them has reported, out loud or by PDA: how much work of each kind, and whether they are short of anything. */
+    reports: Record<string, { counts: Record<string, number>; need: boolean }>;
+    /** Server time it said the meeting was over, or null. */
+    closedAt: number | null;
+    /** Who ordered it held, if it was not called of its own accord. */
+    orderedBy: string | null;
   } | null;
   /** For a head: server time the next staff meeting is due, and whether it has held one yet. */
   nextMeetingAt: number;
   metOnce: boolean;
-  /** For a head: the order it is putting in with cargo for its staff. */
+  /** For a head: who has ordered it to hold a staff meeting now, if someone it answers to has. */
+  meetingOrderedBy: string | null;
+  /** For a head: work reported to it by PDA once a meeting was over, by kind. It goes into the next meeting's count. */
+  lateWork: Record<string, number>;
+  /** For a head: the order it is putting in with cargo for its staff. One order may be for several kinds of crate. */
   requisition: {
-    crate: string;
-    /** What it is, as it is said. */
-    what: string;
-    count: number;
-    /** The room its staff are to take it to when they collect it from cargo. */
-    room: string;
-    /** Who it is for. */
-    people: string[];
+    lines: {
+      /** The kind of crate, by the name cargo orders it under. */
+      crate: string;
+      /** What it is, as it is said. */
+      what: string;
+      count: number;
+      /** The room its staff are to take it to when they collect it from cargo. */
+      room: string;
+      /** Who it is for. */
+      people: string[];
+    }[];
     /** Server time it was put to cargo, or null if it has yet to be. */
     askedAt: number | null;
     /** TRUE once someone from cargo has answered since it was put to them. */

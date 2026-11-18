@@ -8,12 +8,15 @@ import { buildChoice, readChoice } from './choice';
 import { clearExpected } from './expected';
 import { guardAfterSaying, guardOverhears } from './jobs/guarding';
 import {
+  inMeeting,
+  isMeetingOrder,
   meetingsAfterSaying,
   meetingsOverhear,
   readSummons,
 } from './jobs/meetings';
 import { ordersAfterSaying } from './jobs/orders';
 import { pickupsAfterSaying, readPickup } from './jobs/pickups';
+import { withRemark } from './jobs/reports';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
 import {
@@ -232,6 +235,9 @@ export function ingest(npcs: Npc[], now: number): void {
         exploredEverything: false,
         storageHere: 0,
         cleaningTool: null,
+        poorTool: false,
+        workDone: {},
+        workReported: {},
         cleanableMesses: [],
         messPlaces: [],
         workablePlaces: [],
@@ -286,6 +292,7 @@ export function ingest(npcs: Npc[], now: number): void {
         mustSay: null,
         mustSayNeeds: null,
         mustSayIf: null,
+        mustSayExact: false,
         sayingNow: false,
         heldSince: 0,
         lastSpokenToAt: 0,
@@ -318,6 +325,8 @@ export function ingest(npcs: Npc[], now: number): void {
         meeting: null,
         nextMeetingAt: 0,
         metOnce: false,
+        meetingOrderedBy: null,
+        lateWork: {},
         requisition: null,
         blockedPlaces: [],
         janitorCalls: {},
@@ -336,7 +345,9 @@ export function ingest(npcs: Npc[], now: number): void {
       changed = true;
     }
     brain.name = npc.name;
-    brain.job = npc.job;
+    // It knows its own job. A body the server cannot put a job to for a moment, because its ID
+    // cannot be read, has not stopped being what it was: a head with no job drops its meeting.
+    brain.job = npc.job || brain.job;
     brain.awake = !!npc.awake;
     if (brain.location !== npc.location) {
       brain.inPlaceSince = now;
@@ -357,6 +368,12 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.exploredEverything = !!npc.explored_everything;
     brain.storageHere = npc.storage_here ?? 0;
     brain.cleaningTool = npc.cleaning_tool ?? null;
+    brain.poorTool = !!npc.poor_tool;
+    // The server's own count of the work done. Nothing here adds to it.
+    brain.workDone = {
+      cleaned: npc.work_done?.cleaned ?? 0,
+      put_away: npc.work_done?.put_away ?? 0,
+    };
     brain.cleanableMesses = npc.cleanable_messes ?? [];
     brain.messPlaces = npc.mess_places ?? [];
     brain.workablePlaces = npc.workable_mess_places ?? [];
@@ -433,7 +450,8 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.inHand = !!npc.in_hand;
     brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
-    if (brain.cleaningTool) {
+    // With something proper to clean with it is no longer waiting on supplies. A rag does not count.
+    if (brain.cleaningTool && !brain.poorTool) {
       brain.askedCargo = false;
       brain.suppliesSentAt = null;
     }
@@ -590,10 +608,11 @@ export function ingest(npcs: Npc[], now: number): void {
     const step = drive(
       brain,
       (action) => runTool(brain, action),
-      (fallback, needs, sayIf) => {
+      (fallback, needs, sayIf, exact) => {
         brain.mustSay = fallback;
         brain.mustSayNeeds = needs ?? null;
         brain.mustSayIf = sayIf ?? null;
+        brain.mustSayExact = !!exact;
         brain.wake = true;
       },
       () => {
@@ -681,7 +700,8 @@ function noteSaid(brain: NpcBrain, text: string): void {
  */
 function passRemark(brain: NpcBrain): void {
   const now = Date.now();
-  if (brain.peopleInView.length === 0) {
+  // Nobody passes remarks at a staff meeting: there, people speak when they are called on.
+  if (brain.peopleInView.length === 0 || inMeeting(brain)) {
     brain.nextRemarkAt = 0;
     return;
   }
@@ -759,6 +779,18 @@ function describeEvent(event: SenseEvent, brain: NpcBrain): string {
  * How the body's own actions went, and what its PDA says, is for the driver.
  */
 function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
+  // At a staff meeting people speak one at a time, when their head calls on them, and keep to
+  // the point. So the crew there do not greet each other or answer each other: what the meeting
+  // calls for is said by their work (see jobs/meetings.ts). Someone who is not one of the crew
+  // NPCs, the Captain walking in, say, is still answered.
+  const fellow = [...brains.values()].some(
+    (other) =>
+      other !== brain &&
+      other.name === (event.details.speaker ?? event.details.name),
+  );
+  if (inMeeting(brain) && fellow) {
+    return false;
+  }
   switch (event.kind) {
     case 'person_in_view':
       return line.includes('you have not seen them before');
@@ -1021,11 +1053,13 @@ async function think(brain: NpcBrain): Promise<void> {
   let mustSay = brain.mustSay;
   const mustSayNeeds = brain.mustSayNeeds;
   const mustSayIf = brain.mustSayIf;
+  // A line that carries numbers is said word for word. The LLM is asked only for a remark to follow it.
+  const exact = brain.mustSayExact && mustSay !== null;
   // A remark of its own is only for when nobody is waiting on an answer and no line is called for.
   const remark = brain.remarkDue && speakers.length === 0 && mustSay === null;
   brain.remarkDue = false;
   // What it is sent depends on what kind of moment this is: see talk.ts.
-  const call = buildTalk(brain, { report, speakers, mustSay, remark });
+  const call = buildTalk(brain, { report, speakers, mustSay, remark, exact });
   const { messages, trigger, superior, toldBy, ordered } = call;
   const { feelAbout, workTold: told } = call.parts;
   // What it heard and is now being told of becomes part of the talk so far.
@@ -1037,6 +1071,7 @@ async function think(brain: NpcBrain): Promise<void> {
   brain.mustSay = null;
   brain.mustSayNeeds = null;
   brain.mustSayIf = null;
+  brain.mustSayExact = false;
   brain.sayingNow = mustSay !== null;
   brain.status = 'thinking';
   // It may have waited its turn for the LLM a good while. It stands still from here until it has spoken.
@@ -1106,12 +1141,26 @@ async function think(brain: NpcBrain): Promise<void> {
               saidBefore(brain, String(action.text ?? ''))))
         ),
     );
-    if (mustSay && !alone && !actions.some((action) => action.tool === 'say')) {
+    if (mustSay && exact) {
+      // The line is said as it stands: the numbers in it are the server's, and whoever hears it
+      // goes by its words. Whatever the LLM gave is a remark to follow it, if it is fit to be one.
+      const given = actions.find((action) => action.tool === 'say');
+      const rest = actions.filter((action) => action.tool !== 'say');
+      actions.length = 0;
+      if (!alone) {
+        actions.push({ tool: 'say', text: withRemark(mustSay, given?.text) });
+      }
+      actions.push(...rest);
+    } else if (
+      mustSay &&
+      !alone &&
+      !actions.some((action) => action.tool === 'say')
+    ) {
       actions.unshift({ tool: 'say', text: mustSay });
     }
     // Someone else's next step hangs on hearing a name, or a plain yes, in this line. If the LLM
     // left it out, the plain line is said in its place.
-    if (mustSay && mustSayNeeds) {
+    if (mustSay && mustSayNeeds && !exact) {
       for (const action of actions) {
         if (
           action.tool === 'say' &&
@@ -1152,6 +1201,16 @@ async function think(brain: NpcBrain): Promise<void> {
         );
         continue;
       } else if (action.tool === 'work') {
+        // A head told to find out how its staff are doing calls a meeting for it. It has not been
+        // sent to look at a room, whatever the LLM makes of "find out".
+        if (
+          isMeetingOrder(
+            brain,
+            report.filter((line) => line.includes(' says: ')).join(' '),
+          )
+        ) {
+          continue;
+        }
         const task = takeToldWork(
           brain,
           action.what,
@@ -1171,30 +1230,36 @@ async function think(brain: NpcBrain): Promise<void> {
         if (action.tool === 'go_to') {
           ledSomeone = true;
         }
-        // What it agrees to has to be something that was asked for.
-        const lastHeard =
-          report
-            .filter(
-              (line) => line.includes('(person ') && line.includes(' says: '),
-            )
-            .at(-1) ?? '';
-        if (jobFor(brain.job).agrees?.(brain, action, lastHeard) === false) {
+        // What it agrees to has to be something that was asked for: by the last thing said in
+        // its hearing, or failing that by something said just before it. Two people speak at
+        // once often enough, and whoever spoke last may only have talked over the one who asked.
+        const heardLines = report.filter(
+          (line) => line.includes('(person ') && line.includes(' says: '),
+        );
+        const job = jobFor(brain.job);
+        const calledFor = job.agrees
+          ? [...heardLines]
+              .reverse()
+              .find((line) => job.agrees?.(brain, action, line) !== false)
+          : (heardLines.at(-1) ?? '');
+        if (calledFor === undefined) {
           decision.calls.push(
             `${formatAction(action)} [nothing said called for it: not done]`,
           );
           continue;
         }
-        // An order is for whoever asked. The body would otherwise take it to be for whoever it
-        // last heard, who may be someone else talking across the room.
+        // An order is for whoever asked for it: whoever said the line that called for it. The
+        // body would otherwise take it to be for whoever it last heard, who may be someone else.
         if (action.tool === 'order') {
-          const asker = brain.peopleInView.find((seen) =>
-            feelAbout.includes(seen.handle),
-          );
+          const saidBy = calledFor.match(/\(person (\w+)/)?.[1];
+          const asker =
+            brain.peopleInView.find((seen) => seen.handle === saidBy) ??
+            brain.peopleInView.find((seen) => feelAbout.includes(seen.handle));
           if (asker) {
             action.for = asker.handle;
           }
-          // How many, and where to, are read off what was said. The LLM only says yes or no.
-          jobFor(brain.job).fills?.(brain, action, lastHeard);
+          // How many, and of what, are read off what was said. The LLM only says yes or no.
+          job.fills?.(brain, action, calledFor);
         }
         runTool(brain, action);
       }
