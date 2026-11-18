@@ -36,27 +36,104 @@ function noteKey(note: string): string {
   return note.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/** How much of the shorter of two notes' wording has to be in the other for them to be the same note. */
+const SAME_NOTE_SHARE = 0.6;
+/** Most notes sent with one call. */
+const NOTES_SHOWN = 6;
+
+/** The words of a piece of text that carry what it says: the longer ones, without their plural. */
+function tellingWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length > 3)
+      .map((word) => word.replace(/s$/, '')),
+  );
+}
+
+/** TRUE if two notes say the same thing: one holds the other, or most of their wording is shared. */
+function sameNote(a: string, b: string): boolean {
+  const [keyA, keyB] = [noteKey(a), noteKey(b)];
+  if (keyA.includes(keyB) || keyB.includes(keyA)) {
+    return true;
+  }
+  const [wordsA, wordsB] = [tellingWords(a), tellingWords(b)];
+  const smaller = Math.min(wordsA.size, wordsB.size);
+  if (smaller === 0) {
+    return false;
+  }
+  const shared = [...wordsA].filter((word) => wordsB.has(word)).length;
+  return shared / smaller >= SAME_NOTE_SHARE;
+}
+
+/** TRUE if any word of a name is among these words. */
+function namedIn(words: Set<string>, name: string): boolean {
+  return [...tellingWords(name)].some((part) => words.has(part));
+}
+
 /**
- * Saves a note unless the NPC already has one saying the same thing.
- * Returns the note as saved, or '' if it was empty or a repeat.
+ * TRUE if a note only says where someone is, or that the NPC has met them. That is passing state,
+ * and the NPC has it already: where it last saw each person is kept for it, up to date, and a note
+ * of it is out of date the moment they walk off.
  */
-export function addNote(notes: string[], note: string): string {
+function isSighting(brain: NpcBrain, note: string): boolean {
+  const words = tellingWords(note);
+  const people = [
+    ...brain.people.keys(),
+    ...brain.peopleInView.map((person) => person.name),
+  ];
+  if (!people.some((name) => namedIn(words, name))) {
+    return false;
+  }
+  const said = note.toLowerCase();
+  if (/\b(met|meet|meeting|introduced)\b/.test(said)) {
+    return true;
+  }
+  return (
+    /\b(is|was|are|were|stands?|standing|saw|seen|spotted)\b/.test(said) &&
+    allPlaces(brain).some((place) => said.includes(place.toLowerCase()))
+  );
+}
+
+/**
+ * Saves a note unless the NPC already has one saying the same thing, or it is only a record of who
+ * was where. Returns the note as saved, or '' if it was not kept.
+ */
+export function addNote(brain: NpcBrain, note: string): string {
   const trimmed = note.trim().slice(0, NOTE_MAX_LENGTH);
-  const key = noteKey(trimmed);
-  if (!key) {
+  if (!noteKey(trimmed) || isSighting(brain, trimmed)) {
     return '';
   }
-  for (const existing of notes) {
-    const existingKey = noteKey(existing);
-    if (existingKey.includes(key) || key.includes(existingKey)) {
-      return '';
-    }
+  if (brain.notes.some((existing) => sameNote(existing, trimmed))) {
+    return '';
   }
-  notes.push(trimmed);
-  if (notes.length > NOTES_MAX) {
-    notes.shift();
+  brain.notes.push(trimmed);
+  if (brain.notes.length > NOTES_MAX) {
+    brain.notes.shift();
   }
   return trimmed;
+}
+
+/**
+ * The notes worth sending with a call: those about someone in view, or about what was just said,
+ * before the rest, and the newest before the oldest. They come back in the order they were written.
+ */
+export function notesFor(brain: NpcBrain, heard = ''): string[] {
+  const said = tellingWords(heard);
+  const ranked = brain.notes.map((note, index) => {
+    const words = tellingWords(note);
+    const aboutCompany = brain.peopleInView.some((person) =>
+      namedIn(words, person.name),
+    );
+    const aboutTalk = [...words].some((word) => said.has(word));
+    return { note, index, rank: (aboutCompany ? 2 : 0) + (aboutTalk ? 1 : 0) };
+  });
+  return ranked
+    .sort((a, b) => b.rank - a.rank || b.index - a.index)
+    .slice(0, NOTES_SHOWN)
+    .sort((a, b) => a.index - b.index)
+    .map(({ note }) => note);
 }
 
 /** Records what the body can see right now. Costs no LLM call. */
@@ -294,6 +371,99 @@ export function describeMemory(brain: NpcBrain, now: number): string[] {
     .slice(0, PEOPLE_SHOWN);
   if (people.length > 0) {
     lines.push('', 'Where you last saw people, and how you feel about them:');
+    for (const [name, sighting] of people) {
+      const feeling = describeFeelingWithReason(brain, name);
+      lines.push(
+        `- ${name}: ${sighting.place}, ${ago(now - sighting.at)}${feeling ? `. As for ${name}, ${feeling}.` : ''}`,
+      );
+    }
+  }
+  return lines;
+}
+
+/** Most rooms described when nothing that was said points at one. */
+const PLACES_WHEN_UNSURE = 3;
+/** The words of a question about what the NPC has seen or where things are, as against any other question. */
+const ASKS_WHAT_IT_KNOWS =
+  /\b(where|seen|saw|see|been|find|found|anything|anyone|anybody|noticed|notice|look(ed)? like|going on|happen(ed|ing)?)\b/i;
+
+/**
+ * Describes what the NPC remembers that bears on what has just been said to it: the rooms that
+ * were named, or that hold something that was named, and where it last saw anyone who was named.
+ * Everything it remembers is a long list, and most of it has nothing to do with the question. If
+ * it was asked something and nothing it remembers was named, the last few rooms it was in are
+ * given in brief, so that it can still say where it has been.
+ */
+export function describeMemoryFor(
+  brain: NpcBrain,
+  now: number,
+  heard: string,
+): string[] {
+  const said = tellingWords(heard);
+  // Short names count here too: a mop is three letters.
+  for (const word of heard.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (word.length === 3) {
+      said.add(word);
+    }
+  }
+  const names = (name: string) =>
+    name
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((part) => part.length > 2)
+      .map((part) => (part.length > 3 ? part.replace(/s$/, '') : part));
+  const named = (name: string) => names(name).some((part) => said.has(part));
+  const byVisit = [...brain.places.entries()].sort(
+    (a, b) => b[1].lastVisit - a[1].lastVisit,
+  );
+  const about = byVisit.filter(
+    ([name, place]) =>
+      named(name) ||
+      [...place.things.keys()].some(named) ||
+      [...place.storage.entries()].some(
+        ([container, memory]) =>
+          named(container) || [...memory.items.keys()].some(named),
+      ),
+  );
+  const lines: string[] = [];
+  const describe = (
+    [name, place]: (typeof byVisit)[number],
+    storage: boolean,
+  ) => {
+    const things = [...place.things.entries()]
+      .sort((a, b) => b[1].at - a[1].at)
+      .slice(0, THINGS_PER_PLACE)
+      .map(([thing, seen]) => withKind(thing, seen.kind));
+    lines.push(
+      `- ${name} (${ago(now - place.lastVisit)}): ${things.length > 0 ? things.join(', ') : 'nothing of note'}`,
+    );
+    if (storage) {
+      lines.push(...describeStorage(place.storage));
+    }
+  };
+  if (about.length > 0) {
+    lines.push('What you remember that bears on what was said:');
+    for (const place of about.slice(0, PLACES_DESCRIBED)) {
+      describe(place, true);
+    }
+  } else if (ASKS_WHAT_IT_KNOWS.test(heard)) {
+    // Rooms it saw nothing in tell the asker nothing.
+    const seen = byVisit
+      .filter(([, place]) => place.things.size > 0)
+      .slice(0, PLACES_WHEN_UNSURE);
+    if (seen.length > 0) {
+      lines.push('Where you have been lately, and what you saw there:');
+      for (const place of seen) {
+        describe(place, false);
+      }
+    }
+  }
+  const inView = new Set(brain.peopleInView.map((person) => person.name));
+  const people = [...brain.people.entries()]
+    .filter(([name]) => !inView.has(name) && named(name))
+    .slice(0, PEOPLE_SHOWN);
+  if (people.length > 0) {
+    lines.push('Where you last saw those who were named:');
     for (const [name, sighting] of people) {
       const feeling = describeFeelingWithReason(brain, name);
       lines.push(

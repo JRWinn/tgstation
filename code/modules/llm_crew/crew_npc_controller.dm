@@ -42,12 +42,24 @@
 	var/list/unreachable_places = list()
 	/// Name of the room that is the body's post, if its job has one.
 	var/post_place
+	/// Name of the room that is the body's office, if its job gives it one to go back to between errands.
+	var/office_place
+	/// Name of the room a head calls its staff together in: one that is open to all of them.
+	var/meeting_place
 	/// The spot in post_place where the body stands to do its job.
 	var/turf/post_turf
 	/// Name of whoever the body last heard speak.
 	var/last_heard_speaker
 	/// Name of whoever the supplies on order are for.
 	var/order_for
+	/// How many crates the order on the go is for.
+	var/order_count = 1
+	/// The room the order on the go is to be delivered to, by name, or null if it is left in the lobby.
+	var/order_deliver_to
+	/// Crates of the order that have come in and wait their turn to be seen out, as weak references.
+	var/list/ordered_more = list()
+	/// A crate that was tipped out at a delivery and has yet to be taken back to the bay, as a weak reference.
+	var/datum/weakref/crate_to_return
 	/// Name of whoever has yet to be told, by PDA, that the crate they asked for has been brought out.
 	var/message_owed_to
 	/// TRUE from the moment the body places an order until the shuttle docks with it or it gives up waiting.
@@ -94,6 +106,17 @@
 	/// The room the body was let into through a door it cannot open itself, and the name of whoever let it in.
 	var/let_into_place
 	var/let_in_by
+	/// The door the body was let in by, as a weak reference. It is the one it goes back to when it wants out.
+	var/datum/weakref/let_in_door
+	/// The door the body has gone to stand at because it wants through, as a weak reference.
+	var/datum/weakref/wanted_door
+	/// The room that door is the way into, or out of, and which of the two it is.
+	var/wanted_door_place
+	var/wanted_door_leaving = FALSE
+	/// The room whose door the body is on its way to open for someone: its post, or another room of its department.
+	var/door_room
+	/// Fire alarms the body set off for and could not reach, keyed by REF, with world.time it gave up on each.
+	var/list/fire_alarms_failed = list()
 	/// The last look at what is lying about in the work area, as tidy_state() gives it, and world.time it was taken.
 	var/list/tidy_cache
 	var/tidy_cached_at = 0
@@ -104,12 +127,25 @@
 	var/list/tidy_skipped = list()
 	/// The crate the body is hauling into the bay or aboard the shuttle, as a weak reference.
 	var/datum/weakref/hauled_ref
+	/// TRUE if the room the body is in is locked to it: none of its doors open for the body.
+	var/out_of_bounds = FALSE
+	/// The doors into the body's post, as weak references. Null until they have been looked for.
+	var/list/post_door_refs
+	/// Whoever the body is walking out of its post, as a weak reference.
+	var/datum/weakref/evicting
+	/// world.time until which someone has the body by the arm, and their name.
+	var/in_hand_until = 0
+	var/in_hand_of
 	/// TRUE if the body is shut in and can see a door standing open.
 	var/open_door_in_view = FALSE
 	/// Rooms the body lately failed to find a way into, by name, with the world.time it failed.
 	var/list/blocked_places = list()
 	/// Names of the rooms that are this body's to keep fit to work in: its post, and where it serves the crew.
 	var/list/work_area = list()
+	/// Names of the other rooms of its department that its own ID opens. It looks in on them when it has nothing to do.
+	var/list/look_in_rooms = list()
+	/// Names of those of its rooms, its post among them, that every door into is locked to the crew at large.
+	var/list/closed_rooms = list()
 	/// Messes the body has scrubbed at without success, keyed by REF, so it does not keep trying them.
 	var/list/stubborn_messes = list()
 	/// Names of the messes in view that the body could clean with what it holds.

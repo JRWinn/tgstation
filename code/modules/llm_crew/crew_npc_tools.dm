@@ -10,11 +10,15 @@
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
 	if(!tool_call_allowed())
 		return
-	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_BRING, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY)))
+	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_BRING, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
 		return
 	if(!can_sense())
 		action_result(tool, FALSE, "Your body is not responding.")
+		return
+	// Someone has it by the arm and is walking it out of a room. It can still speak, and that is all.
+	if(world.time < in_hand_until && tool != CREW_TOOL_SAY && tool != CREW_TOOL_HOLD)
+		action_result(tool, FALSE, "[in_hand_of] has you by the arm and is walking you out.")
 		return
 	if(!islist(arguments))
 		arguments = list()
@@ -44,7 +48,7 @@
 		if(CREW_TOOL_LOCATE)
 			tool_locate()
 		if(CREW_TOOL_ORDER)
-			tool_order(arguments["crate"], arguments["for"])
+			tool_order(arguments["crate"], arguments["for"], arguments["count"], arguments["deliver_to"])
 		if(CREW_TOOL_BRING)
 			tool_bring_out()
 		if(CREW_TOOL_UNLOAD)
@@ -60,9 +64,19 @@
 		if(CREW_TOOL_HOLD)
 			tool_hold(arguments["person"])
 		if(CREW_TOOL_DOOR)
-			tool_open_door(arguments["person"])
+			tool_open_door(arguments["person"], arguments["place"], arguments["name"])
 		if(CREW_TOOL_TIDY)
 			tool_tidy()
+		if(CREW_TOOL_TO_DOOR)
+			tool_go_to_door(arguments["place"])
+		if(CREW_TOOL_KNOCK)
+			tool_knock()
+		if(CREW_TOOL_TAKE_BACK)
+			tool_take_back()
+		if(CREW_TOOL_RESET_ALARM)
+			tool_reset_alarm(arguments["place"])
+		if(CREW_TOOL_EVICT)
+			tool_throw_out(arguments["person"])
 		if(CREW_TOOL_GRENADE)
 			tool_grenade()
 		if(CREW_TOOL_MESSAGE)
@@ -324,6 +338,19 @@
 	if(tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE)
 		freight_hauled(tool, succeeded, reason)
 		return
+	if(tool == CREW_TOOL_TAKE_BACK)
+		crate_taken_back(succeeded, reason)
+		return
+	if(tool == CREW_TOOL_EVICT)
+		put_out(succeeded, reason)
+		return
+	// A walk to a door ends at the door, whichever room that turns out to be the edge of.
+	if(tool == CREW_TOOL_TO_DOOR)
+		var/at_it = succeeded || !isnull(at_door_of())
+		var/list/door_details = list("place" = get_area_name(pawn, TRUE))
+		var/fire_doors = at_it ? "" : fire_door_report(door_details)
+		action_result(tool, at_it, at_it ? "You are at [goal]." : "You could not get to [goal]: [why].[fire_doors]", door_details)
+		return
 	// The body went back to its spot of its own accord. There is nothing to tell the brain.
 	if(tool == CREW_TOOL_RETURN)
 		return
@@ -363,7 +390,11 @@
 		// Somewhere new that turned out not to be reachable after all is not tried again.
 		if(tool == CREW_TOOL_EXPLORE && isturf(target))
 			unreachable_places[get_area_name(target, TRUE)] = TRUE
+		// Fire doors shut across the way are not a locked room. It is not shut in, only held up, and
+		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
+		var/list/stop_details = list("place" = arrived_in)
+		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
 		// Each way to a room it knows that comes to nothing adds up to being shut in.
-		else if(reason == "there is no way through")
+		if(reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)))
 			note_way_out_failed()
-		action_result(tool, FALSE, "You stop on the way to [goal]: [why]. You are in [arrived_in].", list("place" = arrived_in))
+		action_result(tool, FALSE, "You stop on the way to [goal]: [why].[fire_doors] You are in [arrived_in].", stop_details)

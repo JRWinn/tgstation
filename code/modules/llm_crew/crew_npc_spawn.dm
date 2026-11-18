@@ -35,6 +35,7 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 	var/static/list/job_outfits = list(
 		"Janitor" = /datum/outfit/job/janitor,
 		"Cargo Technician" = /datum/outfit/job/cargo_tech,
+		"Head of Personnel" = /datum/outfit/job/hop,
 	)
 	var/job = tgui_input_list(user, "Which job should the crew NPC have?", "Spawn Crew NPC", job_outfits)
 	if(isnull(job))
@@ -45,6 +46,75 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 	message_admins("[key_name_admin(user)] spawned crew NPC [ADMIN_LOOKUPFLW(npc)] at [ADMIN_VERBOSEJMP(spawn_turf)].")
 	BLACKBOX_LOG_ADMIN_VERB("Spawn Crew NPC")
 	get_crew_brain_link(user.ckey).ui_interact(user.mob)
+
+/// TRUE if the standing test crew is spawned, and the brain window opened, when a round starts.
+GLOBAL_VAR_INIT(crew_npc_autostart, TRUE)
+
+/// Sees that the standing test crew is spawned when a round starts. It does nothing else.
+SUBSYSTEM_DEF(crew_npc)
+	name = "Crew NPCs"
+	ss_flags = SS_NO_FIRE
+
+/datum/controller/subsystem/crew_npc/Initialize()
+	SSticker.OnRoundstart(CALLBACK(src, PROC_REF(round_started)))
+	return SS_INIT_SUCCESS
+
+/// Called when the round starts. The crew is spawned a few seconds in, once whoever owns them has a body.
+/datum/controller/subsystem/crew_npc/proc/round_started()
+	if(GLOB.crew_npc_autostart)
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(spawn_test_crew)), CREW_NPC_AUTOSTART_DELAY)
+
+/// Returns somewhere to stand in the first room of one of these kinds that has anywhere, or null.
+/proc/crew_npc_spawn_turf(list/area_types, z_level)
+	for(var/area_type in area_types)
+		for(var/area/station/place in GLOB.areas)
+			if(!istype(place, area_type))
+				continue
+			for(var/turf/candidate as anything in place.get_turfs_by_zlevel(z_level))
+				if(crew_npc_safe_turf(candidate) && !candidate.is_blocked_turf())
+					return candidate
+	return null
+
+/**
+ * Spawns the standing test crew and opens the brain window for whoever owns them: a Head of
+ * Personnel, two cargo technicians and three janitors, each in the room their job starts the shift in.
+ *
+ * With nobody named, the owner is the first admin connected who may spawn things.
+ */
+/proc/spawn_test_crew(client/owner)
+	if(isnull(owner))
+		for(var/client/admin as anything in GLOB.admins)
+			if(check_rights_for(admin, R_SPAWN))
+				owner = admin
+				break
+	if(isnull(owner) || isnull(owner.mob))
+		return 0
+	var/list/station_levels = SSmapping.levels_by_trait(ZTRAIT_STATION)
+	var/z_level = length(station_levels) ? station_levels[1] : owner.mob.z
+	// The outfit, the rooms to look for somewhere to stand in, and how many.
+	var/static/list/crew = list(
+		list(/datum/outfit/job/hop, list(/area/station/command/heads_quarters/hop, /area/station/hallway), 1),
+		list(/datum/outfit/job/cargo_tech, list(/area/station/cargo/storage, /area/station/cargo/lobby, /area/station/cargo), 2),
+		list(/datum/outfit/job/janitor, list(/area/station/service/janitor, /area/station/hallway), 3),
+	)
+	var/spawned = 0
+	for(var/list/entry as anything in crew)
+		var/turf/spot = crew_npc_spawn_turf(entry[2], z_level) || get_turf(owner.mob)
+		if(isnull(spot))
+			continue
+		for(var/number in 1 to entry[3])
+			create_crew_npc(spot, entry[1], owner.ckey)
+			spawned++
+	log_admin("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name(owner)].")
+	message_admins("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name_admin(owner)].")
+	get_crew_brain_link(owner.ckey).ui_interact(owner.mob)
+	return spawned
+
+ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, two cargo technicians and three janitors.", ADMIN_CATEGORY_FUN)
+	var/spawned = spawn_test_crew(user)
+	if(!spawned)
+		to_chat(user, span_warning("The test crew could not be spawned."))
+	BLACKBOX_LOG_ADMIN_VERB("Spawn Test Crew")
 
 ADMIN_VERB(jump_to_cargo_lobby, R_SPAWN, "Jump To Cargo Lobby", "Takes you to the Cargo Lobby, where crew ask the cargo technician for supplies.", ADMIN_CATEGORY_FUN)
 	var/turf/drop_location

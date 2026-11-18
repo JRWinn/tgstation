@@ -6,63 +6,100 @@
  * and its job (see jobs/).
  */
 import { jobFor } from './jobs';
-import { describePerson, PERSON_RULES, type PersonCard } from './person';
-import { WORK_NOTHING, WORK_NOWHERE } from './tasks';
+import { describePerson, type PersonCard, SPEAKING } from './person';
+import { WORK_NOTHING } from './tasks';
 import type { Action, Option } from './types';
 
 /**
- * How the LLM is told to reply.
- *
- * Each part of the reply is a tool call. The parts are fixed slots, not a free list, because a
- * free list let the model say "I'll head over" without ever calling the tool that moves it. Having
- * to fill in "move" every time makes it choose. Speech comes first so the move follows from it.
- * The moves themselves are not listed here: each report carries the ones possible at that moment.
+ * Builds the part of the prompt that is the same every time an NPC talks: who it is, what its job
+ * is, and how it speaks. It is kept to that, and kept short. A small model loses track of a long
+ * list of standing rules, so what only matters at one kind of moment is sent at that moment and
+ * not otherwise (see talk.ts), and what the body does without being asked is told in the report
+ * when it is happening.
  */
-const REPLY_FORMAT = [
-  'Every reply is one JSON object with these parts, in this order:',
-  '- "think": one short sentence to yourself, twenty words at most, heard by nobody: what has been said to you, and what you make of it.',
-  '- "feel": asked for only when someone has just spoken to you. Judge what they said, and how they said it, against who you are: "cooler" if it is the kind of thing that wears on you, "warmer" if it is the kind of thing you warm to, "same" if it is neither. Judge only what they have just said, not how you already feel about them. Give their handle, and why in a few words. Let it show in what you say next.',
-  `- "work": asked for only when someone has just spoken to you. It is what you have just been told of, not what you will do. If what they said tells you of work that is yours to do, give what it is and the room it is in, and your body will see to it when it can. For anything else, "what" is "${WORK_NOTHING}" and "where" is "${WORK_NOWHERE}".`,
-  '- "say": what you say out loud, in your own voice. When someone has just spoken to you, this is your answer, and it must not be empty unless they only thanked you, agreed or said goodbye. When a report tells you to say or ask something, this is where you say it.',
-  '- "move": what you take on for the person who spoke to you. Each report ends with the list of what you can take on. Choose exactly one of them and copy it. Most of the time it is the first: nothing, just an answer.',
-  '- "note" (optional): a short note to keep. Include it when you have just heard news, gossip or trouble. Leave it out when you learned nothing new. Never repeat a note you already have.',
-  'What you say and what you take on must match. If you say you will order something or lead someone somewhere, "move" must be that; if "move" is to take nothing on, do not say you will.',
-];
-
-/** Builds the system prompt sent with every LLM call for one NPC. */
 export function buildSystemPrompt(
   name: string,
   job: string,
   card: PersonCard,
-  notes: string[],
-  memory: string[],
   post: string | null = null,
 ): string {
-  const jobRules = jobFor(job);
-  // Putting what every NPC shares first, so the model could reuse its working from one NPC to the
-  // next, was tried and measured: it made no difference. Reading a 4000-token prompt takes about
-  // two thirds of a second either way. What a decision costs is mostly the writing of the reply.
+  const about = jobFor(job).about(post);
   const lines = [
     `You are ${name}, ${job || 'a crew member'} aboard Space Station 13. You are a person living and working there, not an assistant.`,
-    '',
     ...describePerson(card),
+    ...(about ? [about] : []),
     '',
-    'How this works:',
-    '- Your body gets on with your job by itself. It walks, fetches and works without you having to decide any of it, and each report tells you what it is doing.',
-    '- You are its voice. You decide what to say, how you feel about the people you deal with, and what to take on when someone asks you for something.',
-    '- You receive short reports of what your own body sees and hears. That is all you know.',
-    '- People are identified by a handle such as p1.',
-    '- When you speak, sound like yourself. Keep it to one or two short sentences.',
-    ...[...PERSON_RULES, ...jobRules.rules(post)].map((rule) => `- ${rule}`),
-    '',
-    ...REPLY_FORMAT,
-    '',
-    'Your notes:',
-    ...(notes.length > 0 ? notes.map((note) => `- ${note}`) : ['- (none yet)']),
-    '',
-    ...memory,
+    'How you speak:',
+    ...SPEAKING.map((rule) => `- ${rule}`),
   ];
   return lines.join('\n');
+}
+
+/**
+ * What one call asks the LLM for. Only the parts that apply to the moment are asked for: a part it
+ * has to fill in when there is nothing to put in it is one more thing for it to get wrong.
+ */
+export type ReplyParts = {
+  /**
+   * TRUE to ask for a sentence of reasoning first. It steadies what a small model says and does
+   * next, so it is asked for when someone has spoken to it and there is something to weigh.
+   */
+  think: boolean;
+  /** Handles of the people who have just spoken to it: the people it is asked how it feels about. */
+  feelAbout: string[];
+  /** The kinds of work it takes on when told of it, and the rooms such work could be in, or null. */
+  workTold: { kinds: string[]; places: string[] } | null;
+  /** How "work" is to be filled in, if it is asked for. */
+  workIs: string;
+  /** What "say" is at this moment: an answer, a greeting, a line its work calls for, a remark. */
+  sayIs: string;
+  /** TRUE if saying nothing is a fair answer this time. Silence is then a value of its own, not an empty line. */
+  maySaySilent: boolean;
+  /** What it can take on for whoever spoke. With nothing but "take nothing on" on offer, it is not asked. */
+  options: Option[];
+  /** TRUE if it may keep a note of what it was told. */
+  note: boolean;
+};
+
+/** TRUE if there is more than one thing the NPC could take on, so that there is a choice to put to the LLM. */
+function hasMoves(options: Option[]): boolean {
+  return options.length > 1;
+}
+
+/**
+ * Says, part by part, what the reply is to hold. The parts are fixed slots in a fixed order, not a
+ * free list: a free list let the model say "I'll head over" without ever taking the move on.
+ * Speech comes before the move so that the move follows from it.
+ */
+export function describeReply(parts: ReplyParts): string[] {
+  const lines = ['Reply with one JSON object, with these parts in this order:'];
+  if (parts.think) {
+    lines.push(
+      '- "think": one short sentence to yourself, heard by nobody: what was said to you, and what you make of it.',
+    );
+  }
+  if (parts.feelAbout.length > 0) {
+    lines.push(
+      '- "feel": how what they have just said, and the way they said it, sits with someone like you: "cooler" if it wears on you, "warmer" if you warm to it, "same" if neither. Judge only what was just said. Give their handle, and why in a few words.',
+    );
+  }
+  if (parts.workTold) {
+    lines.push(`- "work": ${parts.workIs}`);
+  }
+  lines.push(
+    `- "say": ${parts.sayIs}${parts.maySaySilent ? ' To say nothing, give null.' : ''}`,
+  );
+  if (hasMoves(parts.options)) {
+    lines.push(
+      '- "move": what you take on for them. Choose exactly one from the list below and copy it. Most of the time it is the first. It must match what you say: if you say you will order something or lead someone somewhere, "move" must be that, and if it is not, do not say you will.',
+    );
+  }
+  if (parts.note) {
+    lines.push(
+      '- "note" (optional): something you have just been told that you will want later and could not have seen for yourself: news, gossip, trouble, a promise. Not where people are or what is in a room, which you remember anyway. Leave it out otherwise.',
+    );
+  }
+  return lines;
 }
 
 /** Tools the server carries out through the body, by the name the server knows them by. It checks every call. */
@@ -93,7 +130,67 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   hold: 'hold',
   open_door: 'open_door',
   tidy: 'tidy',
+  go_to_door: 'go_to_door',
+  // Knocking at a door, and resetting a fire alarm someone pulled: also only ever asked for by code.
+  knock: 'knock',
+  // Taking back the crate that was tipped out at a delivery.
+  take_back: 'take_back',
+  reset_alarm: 'reset_alarm',
+  throw_out: 'throw_out',
 };
+
+/** How "my body" and "your body" are put right when they turn up in something said out loud. */
+const BODY_TALK: [RegExp, string][] = [
+  [/\bmy body (is|was)\b/gi, 'I am'],
+  [/\bmy body has\b/gi, 'I have'],
+  [/\bmy body does\b/gi, 'I do'],
+  [/\bmy body goes\b/gi, 'I go'],
+  [/\bmy body (will|can|shall|must|would|could|should|may|might)\b/gi, 'I $1'],
+  [/\bmy body ([a-z]{3,})s\b/gi, 'I $1'],
+  [/\bmy body\b/gi, 'I'],
+  [/\byour body is\b/gi, 'you are'],
+  [/\byour body has\b/gi, 'you have'],
+  [/\byour body does\b/gi, 'you do'],
+  [/\byour body goes\b/gi, 'you go'],
+  [/\byour body ([a-z]{3,})s\b/gi, 'you $1'],
+  [/\byour body\b/gi, 'you'],
+];
+
+/**
+ * Puts something the LLM wants said into the words of one person. The reports it reads speak of
+ * "your body", because that is how it is told what it is doing, and it sometimes says "my body"
+ * back out loud. Nobody talks like that.
+ */
+export function inOwnVoice(text: string): string {
+  let said = text;
+  for (const [pattern, plain] of BODY_TALK) {
+    said = said.replace(pattern, plain);
+  }
+  // A sentence that now starts with "you" still starts with a capital.
+  return said.replace(/(^|[.!?] )you\b/g, '$1You');
+}
+
+/**
+ * Takes handles out of something the LLM wants said. They are in the report so that it can say in
+ * its reply who it means, and now and then one comes out in its speech: "Hello, p1". A handle in
+ * brackets after a name is dropped, and one standing for a name is put right if that person is in view.
+ */
+export function withoutHandles(
+  text: string,
+  people: { handle: string; name: string }[],
+): string {
+  return text
+    .replace(/\s*\((?:person\s+)?p\d+\)/gi, '')
+    .replace(/\b(?:person\s+)?(p\d+)\b/gi, (_whole, handle: string) => {
+      const person = people.find(
+        (seen) => seen.handle === handle.toLowerCase(),
+      );
+      return person ? person.name.split(' ')[0] : '';
+    })
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 /** Returns the server's name for a tool the LLM chose, or null if the server has no such tool. */
 export function serverToolName(name: string): string | null {
@@ -108,17 +205,9 @@ export function serverToolName(name: string): string | null {
  * The schema is built from the same list of options the report shows the LLM, so the only moves
  * it can write are the ones it was offered, with the only values that are real.
  */
-export function buildReplySchema(
-  options: Option[],
-  withThink = true,
-  /** Handles of the people who have just spoken to the NPC: the people it is asked how it feels about. */
-  feelAbout: string[] = [],
-  /**
-   * The kinds of work the NPC takes on when told of it, and the rooms such work could be in.
-   * Given only when someone has just spoken to an NPC whose job takes work that way.
-   */
-  workTold: { kinds: string[]; places: string[] } | null = null,
-) {
+export function buildReplySchema(parts: ReplyParts) {
+  const { options, feelAbout, workTold } = parts;
+  const withThink = parts.think;
   // Asked for every time, like "feel", so that being told of work reliably puts it on the list.
   // It is one flat question. Offered as a choice between "none" and a fuller answer, the model
   // took "none" nearly every time.
@@ -183,9 +272,14 @@ export function buildReplySchema(
       // Before "say", so that how it feels shapes what it says.
       ...feel,
       ...work,
-      say: { type: 'string' },
-      move: { anyOf: moves },
-      note: { type: 'string' },
+      // Silence is a value of its own where it is allowed. Left to an empty line, the model wrote
+      // "Nothing." and the NPC said it out loud.
+      say: parts.maySaySilent
+        ? { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] }
+        : { type: 'string', minLength: 1 },
+      // With one thing on offer there is nothing to choose, so the question is not put.
+      ...(hasMoves(options) ? { move: { anyOf: moves } } : {}),
+      ...(parts.note ? { note: { type: 'string' } } : {}),
     },
     // A required note made the model write one every turn, usually a copy of its last.
     required: [
@@ -193,36 +287,21 @@ export function buildReplySchema(
       ...Object.keys(feel),
       ...Object.keys(work),
       'say',
-      'move',
+      ...(hasMoves(options) ? ['move'] : []),
     ],
   };
 }
 
 /**
- * Writes a reply the way it is kept in an NPC's history: what it said, how it moved, and a note
- * only if a new one was really saved. The model imitates its own past replies, so a note it wrote
- * once must not reappear in every later turn.
+ * TRUE if a line is the model's way of saying it has nothing to say, not something a person would
+ * say out loud: "Nothing.", "...", "(stays silent)". Only for lines nobody asked for: "Nothing." is
+ * a fair answer to "what is wrong?".
  */
-export function replyForHistory(
-  actions: Action[],
-  savedNote: string,
-  /** The change of feeling in this reply, if it was one that counted. */
-  feel: Action | null = null,
-): string {
-  const say = actions.find((action) => action.tool === 'say');
-  const move = actions.find((action) => !INWARD_TOOLS.includes(action.tool));
-  return JSON.stringify({
-    say: typeof say?.text === 'string' ? say.text : '',
-    move: move ?? { tool: 'stay' },
-    ...(savedNote ? { note: savedNote } : {}),
-    ...(feel
-      ? { feel: { person: feel.person, change: feel.change, why: feel.why } }
-      : {}),
-  });
+export function isFiller(text: string): boolean {
+  return /^[\W_]*(nothing|none|null|n\/a|no (reply|response|answer|comment|remark)|silence|silent|quiet|\(.*\)|\*.*\*)?[\W_]*$/i.test(
+    text.trim(),
+  );
 }
-
-/** Parts of a reply that are not something the body does: speech, and what the NPC keeps to itself. */
-const INWARD_TOOLS = ['say', 'remember', 'feel', 'work'];
 
 /** Reads the tool calls out of an LLM reply, in the order they should be carried out. */
 export function parseReply(reply: string): Action[] {
@@ -241,8 +320,9 @@ export function parseReply(reply: string): Action[] {
     );
   }
   const actions: Action[] = [];
-  if (typeof body.say === 'string' && body.say.trim()) {
-    actions.push({ tool: 'say', text: body.say.trim() });
+  // Silence comes as null. A line of nothing but dots or dashes is silence as well.
+  if (typeof body.say === 'string' && /[a-z0-9]/i.test(body.say)) {
+    actions.push({ tool: 'say', text: inOwnVoice(body.say.trim()) });
   }
   const move = body.move as Action | null | undefined;
   if (move && typeof move.tool === 'string' && move.tool !== 'stay') {

@@ -12,6 +12,10 @@
 	var/datum/ai_controller/crew_npc/crew_controller = living_pawn.ai_controller
 	if(istype(crew_controller) && (crew_controller.resting || crew_controller.return_to_post()))
 		return FALSE
+	// One waiting at a door to be let through stays at it. A step away and it is no longer standing
+	// at the door: it cannot knock, and whoever comes to open it finds nobody there.
+	if(istype(crew_controller) && !isnull(crew_controller.at_door_of()))
+		return FALSE
 	// Nor does one who has stopped to talk shuffle about meanwhile.
 	if(istype(crew_controller) && world.time < crew_controller.talk_hold_until)
 		return FALSE
@@ -22,6 +26,10 @@
 	var/move_dir = pick(GLOB.cardinals)
 	var/turf/destination_turf = get_step(living_pawn, move_dir)
 	if(!destination_turf?.can_cross_safely(living_pawn) || !crew_npc_safe_turf(destination_turf))
+		return FALSE
+	// Shuffling about must never open a door. Walking into one does, for anyone it opens to, and a
+	// door to a locked room that stands open lets in whoever happens to be passing.
+	if(crew_npc_steps_into_door(living_pawn, destination_turf, move_dir))
 		return FALSE
 	// Crew at their post shift about on the spot. They do not drift off across the room.
 	var/turf/post = istype(crew_controller) ? crew_controller.post_turf : null
@@ -81,17 +89,23 @@
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	// A crate that catches on someone or something is let go of. There is no hauling on without it.
 	var/mob/living/puller = controller.pawn
-	if((crew_controller.walk_tool == CREW_TOOL_BRING || crew_controller.walk_tool == CREW_TOOL_UNLOAD || crew_controller.walk_tool == CREW_TOOL_RECYCLE) && isnull(puller.pulling))
-		fail_reason = "it caught on something and you lost your grip on it"
+	if(CREW_NPC_HAULS(crew_controller.walk_tool) && isnull(puller.pulling))
+		fail_reason = crew_controller.walk_tool == CREW_TOOL_EVICT ? "they got away from you" : "it caught on something and you lost your grip on it"
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// A walk to a door is over when the body is standing at the door, and not before. Close to the
+	// spot beside it is not enough: that can be a tile too far to count as standing at the door, and
+	// the body was then told it had arrived while still being asked to go.
+	if(crew_controller.walk_tool == CREW_TOOL_TO_DOOR)
+		if(!isnull(crew_controller.at_door_of()))
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 	// For a walk to a room, standing in the room close to the remembered spot is arrival enough;
 	// the spot itself may have someone or something on it.
-	if(isturf(target) && get_dist(controller.pawn, target) <= 2 && get_area(controller.pawn) == get_area(target))
+	else if(isturf(target) && get_dist(controller.pawn, target) <= 2 && get_area(controller.pawn) == get_area(target))
 		// Hauling something, it is the load that has to be in the room, and well clear of the way
 		// in. The load trails a step behind, so a body that stops the moment it is through the door
 		// leaves it in the doorway, where nobody else can get past it.
 		var/mob/living/hauler = controller.pawn
-		var/hauling = crew_controller.walk_tool == CREW_TOOL_BRING || crew_controller.walk_tool == CREW_TOOL_UNLOAD || crew_controller.walk_tool == CREW_TOOL_RECYCLE
+		var/hauling = CREW_NPC_HAULS(crew_controller.walk_tool)
 		if(!hauling || (hauler.pulling && get_area(hauler.pulling) == get_area(target) && crew_npc_clear_of_doors(hauler.pulling)))
 			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
 	if(movement_failed)

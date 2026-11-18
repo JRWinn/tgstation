@@ -4,18 +4,19 @@
  * To add a job: write its file in this folder and add it to JOBS.
  */
 import { CARGO } from './cargo';
+import { HEAD_OF_PERSONNEL } from './head';
 import { JANITOR } from './janitor';
 import type { Job } from './job';
 
 /** Every job with duties of its own. */
-const JOBS: Job[] = [JANITOR, CARGO];
+const JOBS: Job[] = [JANITOR, CARGO, HEAD_OF_PERSONNEL];
 
 /** Crew whose job has not been given duties of its own: a person, free to walk the station. */
 const CREW: Job = {
   is: () => true,
   keepsPost: false,
   cleans: false,
-  rules: () => [],
+  about: () => '',
   cues: () => [],
 };
 

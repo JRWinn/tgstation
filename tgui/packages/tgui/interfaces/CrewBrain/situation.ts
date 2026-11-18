@@ -3,6 +3,8 @@
  *
  * The person layer says what is true for anyone. The NPC's job adds what matters about its work.
  */
+import { describeChoice } from './choice';
+import { guardCues } from './jobs/guarding';
 import { isJanitor, jobFor } from './jobs';
 import { recentlyToldOfMess, withKind } from './memory';
 import { describeFeeling } from './relationships';
@@ -54,15 +56,22 @@ function describeThing(thing: ThingInView): string {
   return thing.count > 1 ? `${name} x${thing.count}` : name;
 }
 
+/** How long (milliseconds) fire doors that stopped it, or an alarm it reset, are still worth telling the LLM of. */
+const FIRE_DOORS_TOLD_MS = 120000;
+
 /** The steps record under which asking for the door is kept, so that it is not asked too often. */
 export const SHUT_IN_KEY = 'shut-in';
 
 /**
- * Who a shut-in NPC asks for the door: each person in view in turn, one at a time. Asking the whole
- * room in a row is what a machine would do.
+ * Who a shut-in NPC asks for the door next: someone in view it has not asked yet, one at a time.
+ * Each person is asked once. Asked again and again, they would be right to call it nagging, so it
+ * asks again only when someone new turns up. Null if there is nobody left to ask.
  */
 export function whoToAskForTheDoor(brain: NpcBrain): string | null {
-  const people = brain.peopleInView;
+  const asked = brain.outAsks?.asked ?? [];
+  const people = brain.peopleInView.filter(
+    (person) => !asked.includes(person.name),
+  );
   if (people.length === 0) {
     return null;
   }
@@ -70,8 +79,7 @@ export function whoToAskForTheDoor(brain: NpcBrain): string | null {
   if (brain.letInBy && people.some((person) => person.name === brain.letInBy)) {
     return brain.letInBy;
   }
-  const asked = brain.failures.get(SHUT_IN_KEY)?.count ?? 0;
-  return people[asked % people.length].name;
+  return people[0].name;
 }
 
 /**
@@ -95,8 +103,25 @@ export function describeSituation(brain: NpcBrain): string[] {
     lines.push(`You are in the middle of ${brain.doing}.`);
   }
   lines.push(...job.cues(brain));
+  lines.push(...guardCues(brain));
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
+  }
+  // Fire doors in its way, and what it has done about them, so that it can say why it is held up.
+  const fire = brain.fireDoors;
+  if (fire && Date.now() - fire.at < FIRE_DOORS_TOLD_MS) {
+    lines.push(
+      fire.pulled
+        ? `The fire doors are shut in ${fire.place} and are in your way. Someone pulled the fire alarm there, and nothing is wrong with the air.`
+        : `The fire doors are shut in ${fire.place} because something is wrong with the air there. You are keeping out until they open.`,
+    );
+  }
+  for (const [place, at] of Object.entries(brain.alarmResets)) {
+    if (Date.now() - at < FIRE_DOORS_TOLD_MS) {
+      lines.push(
+        `You have just reset the fire alarm in ${place}, which someone had pulled for no reason you could see.`,
+      );
+    }
   }
 
   // Anyone who does not clean is only told of a mess when there is a janitor right there to tell.
@@ -121,6 +146,11 @@ export function describeSituation(brain: NpcBrain): string[] {
     if (brain.exploredEverything) {
       lines.push('You have seen every part of the station you can reach.');
     }
+  }
+  // Its own reason for doing one job before another, so that it can give it if asked.
+  const choice = describeChoice(brain);
+  if (choice) {
+    lines.push(choice);
   }
   // The work comes last of all, nearest the options, so that it is what the choice is made from.
   lines.push(...describeWork(brain));

@@ -149,6 +149,24 @@
 #define CREW_NPC_TIDY_GIVE_UP (5 MINUTES)
 /// Most things lying about that are counted. Past this it is simply a lot.
 #define CREW_NPC_TIDY_COUNTED 20
+/// Tool name: go and stand at the door into a room, or out of the room the body is in.
+#define CREW_TOOL_TO_DOOR "go_to_door"
+/// How near a door, in tiles, a body has to be to count as standing at it.
+#define CREW_NPC_AT_DOOR 2
+/// How often a door held open for someone is checked to see whether they are through.
+#define CREW_NPC_DOOR_WATCH (0.4 SECONDS)
+/// Tool name: take someone who has no business in the body's post by the arm and walk them out.
+#define CREW_TOOL_EVICT "throw_out"
+/// How far from the door, in tiles, a spot to leave them at is looked for.
+#define CREW_NPC_EVICT_REACH 5
+/// How far past the door, in tiles, they are left: they trail a step behind whoever walks them out.
+#define CREW_NPC_EVICT_PAST_DOOR 3
+/// How long walking someone out may take, and how long they go along with it.
+#define CREW_NPC_EVICT_HOLD (40 SECONDS)
+/// How long one PDA message to a janitor from a post stands as that post's call for one.
+#define CREW_NPC_CALL_STANDS (10 MINUTES)
+/// TRUE if a walk started by this tool has the body hauling something, or someone, behind it.
+#define CREW_NPC_HAULS(tool) (tool == CREW_TOOL_BRING || tool == CREW_TOOL_UNLOAD || tool == CREW_TOOL_RECYCLE || tool == CREW_TOOL_EVICT || tool == CREW_TOOL_TAKE_BACK)
 /// Tool name: send someone a PDA message.
 #define CREW_TOOL_MESSAGE "message"
 /// Tool name: throw a cleaner grenade into a thick patch of mess.
@@ -188,3 +206,19 @@
 #define CREW_SENSE_PDA_MESSAGE "pda_message"
 /// Sense event kind: something the body knows without having seen it, such as the way to its post.
 #define CREW_SENSE_KNOWLEDGE "knowledge"
+/// Tool name: knock at the door the body is standing at, for whoever is on the other side of it.
+#define CREW_TOOL_KNOCK "knock"
+/// How near a door, in tiles, a crew NPC has to be to hear someone knock at it.
+#define CREW_NPC_KNOCK_RANGE 9
+/// Tool name: go to the fire alarm of a room where someone has pulled it, and reset it.
+#define CREW_TOOL_RESET_ALARM "reset_alarm"
+/// How far, in tiles, a body looks for the fire door that has stopped it.
+#define CREW_NPC_FIRE_DOOR_RANGE 7
+/// How long a fire alarm the body could not get to is left out of its reckoning.
+#define CREW_NPC_ALARM_RETRY (5 MINUTES)
+/// Tool name: haul the crate that was tipped out at a delivery back to the bay.
+#define CREW_TOOL_TAKE_BACK "take_back"
+/// The most crates of one thing a single order may be for.
+#define CREW_NPC_ORDER_MAX 4
+/// How long after a round starts the standing test crew is spawned, so that whoever owns them has a body by then.
+#define CREW_NPC_AUTOSTART_DELAY (10 SECONDS)

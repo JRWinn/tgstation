@@ -137,6 +137,8 @@
 			return place_order(target)
 		if(CREW_TOOL_BRING)
 			return haul_crate(target)
+		if(CREW_TOOL_TAKE_BACK)
+			return haul_crate_back(target)
 		if(CREW_TOOL_UNLOAD, CREW_TOOL_RECYCLE)
 			return haul_freight(target)
 		if(CREW_TOOL_MAIL)
@@ -147,6 +149,10 @@
 			return send_shuttle_back(target)
 		if(CREW_TOOL_DOOR)
 			return hold_door_for(target)
+		if(CREW_TOOL_RESET_ALARM)
+			return reset_fire_alarm(target)
+		if(CREW_TOOL_EVICT)
+			return take_hold_of(target)
 		if(CREW_TOOL_TIDY)
 			return tidy_step(target)
 		if(CREW_TOOL_CLEAN)
@@ -290,6 +296,9 @@
 	if(istype(target, /obj/effect/decal/cleanable))
 		crew_controller.stubborn_messes[REF(target)] = TRUE
 	// Likewise something it could not get to in order to put it away.
+	// A fire alarm it could not get to is on the far side of the fire doors. The next nearest is tried instead.
+	if(crew_controller.errand_tool == CREW_TOOL_RESET_ALARM && !QDELETED(target))
+		crew_controller.fire_alarms_failed[REF(target)] = world.time
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
@@ -326,10 +335,16 @@
 				return "walking to [walk_goal]"
 			if(CREW_TOOL_BRING)
 				return "hauling a crate out to [walk_goal]"
+			if(CREW_TOOL_TAKE_BACK)
+				return "hauling an empty crate back to [walk_goal]"
 			if(CREW_TOOL_UNLOAD)
 				return "hauling a crate off the supply shuttle"
 			if(CREW_TOOL_RECYCLE)
 				return "hauling an empty crate aboard the supply shuttle"
+			if(CREW_TOOL_TO_DOOR)
+				return "walking to [walk_goal]"
+			if(CREW_TOOL_EVICT)
+				return "walking someone out of [post_place]"
 			if(CREW_TOOL_FLEE)
 				return "getting away to [walk_goal]"
 			// Stepping back to its spot is not a job to be protected from interruption.
@@ -350,6 +365,8 @@
 				return "going to the supply console to place an order"
 			if(CREW_TOOL_BRING)
 				return "going to fetch a crate off the supply shuttle"
+			if(CREW_TOOL_TAKE_BACK)
+				return "going to fetch back the crate you tipped out"
 			if(CREW_TOOL_UNLOAD)
 				return "going to unload a crate from the supply shuttle"
 			if(CREW_TOOL_RECYCLE)
@@ -362,6 +379,10 @@
 				return "going to the supply console to send the shuttle back"
 			if(CREW_TOOL_DOOR)
 				return "going to open the door for someone"
+			if(CREW_TOOL_RESET_ALARM)
+				return "going to reset a fire alarm someone has pulled"
+			if(CREW_TOOL_EVICT)
+				return "going to take hold of someone who has no business in [post_place]"
 			if(CREW_TOOL_TIDY)
 				return "putting away something that was lying about"
 	if(blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))

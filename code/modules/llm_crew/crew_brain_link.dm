@@ -93,6 +93,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"people_in_view" = npc.people_in_view,
 			"things_in_view" = npc.things_in_view,
 			"holding" = holding,
+			// Everything it has on it, for the window to show. The LLM is not told of this.
+			"inventory" = npc.inventory_list(),
 			"cleaning_tool" = npc.describe_cleaning_tool(),
 			"has_locator" = npc.has_custodial_locator(),
 			"cleanable_messes" = npc.cleanable_messes,
@@ -110,28 +112,47 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// It is being let out of the room it is in.
 			"door_held_out" = world.time < npc.let_out_until,
 			"let_in_by" = npc.let_in_by,
+			// The room whose door it is standing at, wanting through, or null.
+			"at_door_of" = npc.at_door_of(),
 			"grenade_messes" = npc.grenade_messes,
 			"doing" = npc.describe_doing(),
 			"post" = npc.post_place,
+			"office" = npc.office_place,
+			"meeting_room" = npc.meeting_place,
 			"orderable" = npc.works_in_cargo() ? assoc_to_keys(npc.orderable_crates()) : list(),
 			"order_pending" = npc.supply_run_active,
 			"crate_waiting" = npc.crate_waiting(),
 			"has_pda" = !isnull(npc.pda_messenger()),
 			"message_owed" = npc.message_owed_to,
+			// Where the order on the go is to be delivered, and whether a crate tipped out there has yet to be taken back.
+			"deliver_to" = npc.order_deliver_to,
+			"crate_to_return" = !QDELETED(npc.crate_to_return?.resolve()),
+			// Everyone its PDA lists, with their jobs: who it can send word to, and who answers to whom.
+			"pda_people" = npc.people_on_pda(),
 			// What is waiting on the supply shuttle and in the bay, for cargo staff. Null for everyone else.
 			"freight" = npc.freight_state(),
 			// How much is lying about in its work area that it could put away. Null if it has no work area.
 			"tidy" = npc.tidy_state(),
 			// Messes in the rooms it works in, and the janitors its PDA lists, so it can call one over.
 			"work_area_messes" = npc.work_area_messes(),
+			// The other rooms of its department, to look in on when it is quiet, and which of its rooms are locked to the crew.
+			"look_in_rooms" = npc.look_in_rooms,
+			"closed_rooms" = npc.closed_rooms,
 			"pda_janitors" = npc.janitors_on_pda(),
+			// Someone else at its post has lately sent for a janitor.
+			"workmate_called" = npc.workmate_called_janitor(),
+			// Someone has it by the arm and is walking it out of a room.
+			"in_hand" = world.time < npc.in_hand_until,
+			// The room it is in is locked to it.
+			"out_of_bounds" = npc.out_of_bounds,
 			// Rooms it lately found no way into.
 			"blocked_places" = npc.blocked_place_names(),
 			// Holding a mop that will not clean until it is wetted, with no sink in sight to wet it at.
 			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.working_tool()),
 			"place_kind" = npc.place_kind(),
 			// On the way somewhere, on an errand, or working through a room's storage.
-			"walking" = npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET),
+			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.
+			"walking" = (npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && npc.walk_tool != CREW_TOOL_RETURN) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET),
 			"resting" = npc.resting,
 			// Exploring still has a use while there is storage to look back in on.
 			"explored_everything" = npc.nowhere_new_left && !length(npc.room_searched_at),

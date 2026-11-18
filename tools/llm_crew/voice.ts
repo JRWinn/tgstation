@@ -1,36 +1,53 @@
 // What the real model does with the one job it has left: talking. Each case is a moment where an
 // NPC is spoken to or has something it must say, run once for every personality.
-const ROOT = `${import.meta.dir}/../../tgui/packages/tgui/interfaces/CrewBrain/`;
-const { buildReplySchema, buildSystemPrompt, parseReply } = await import(ROOT + 'prompt');
-const { PERSON_CARDS } = await import(ROOT + 'person');
-const { describeMemory, observe, recordKnownPlaces, recordStorage, setStationPlaces } = await import(ROOT + 'memory');
-// Crew know their way around: these are the rooms aboard.
-setStationPlaces(['Arrival Shuttle Hallway', 'Central Primary Hallway', 'Bar', 'Kitchen', 'Medbay Central', 'Engineering', 'Bridge', 'Custodial Closet', 'Cargo Lobby', 'Cargo Bay', 'Library', 'Dormitories', 'Security Office', 'Chapel']);
-const { describeSituation, describeView } = await import(ROOT + 'situation');
-const { availableOptions, describeOptions } = await import(ROOT + 'options');
-const { syncTasks, takeToldWork, workTold, describeWorkTold } = await import(ROOT + 'tasks');
+//
+// The cases are the fixed set every change to the prompt, and every model, is judged on:
+//
+//   bun run voice.ts                    every case, on the local model
+//   bun run voice.ts "tech:"            only the cases whose label has this in it
+//   RUN=before bun run voice.ts         the same, and keeps every prompt and reply in runs/before.json
+//   MODEL=other:tag bun run voice.ts    on another model Ollama has
+//   bun run voice.ts compare before after            two kept runs side by side
+//   bun run voice.ts compare before after "tech:"    and what was said in each, for those cases
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+
+const RUNS = `${import.meta.dir}/runs/`;
+const MODEL = process.env.MODEL ?? 'qwen3.5:9b';
+/** One call to the model, as kept in a run. */
+type Kept = { label: string; card: string; system: string; user: string; reply: string; say: string; move: string; work: string; pass: boolean; promptTokens: number; replyTokens: number; ms: number };
+if (process.argv[2] === 'compare') {
+  const load = (name: string): Kept[] => JSON.parse(readFileSync(`${RUNS}${name}.json`, 'utf8')).calls;
+  const [a, b] = [load(process.argv[3]), load(process.argv[4])];
+  const mean = (calls: Kept[], of: (call: Kept) => number) => Math.round(calls.reduce((total, call) => total + of(call), 0) / (calls.length || 1));
+  const labels = [...new Set([...a, ...b].map((call) => call.label))];
+  console.log(`${'case'.padEnd(52)} ${process.argv[3].padStart(10)} ${process.argv[4].padStart(10)}`);
+  for (const label of labels) {
+    const [ofA, ofB] = [a, b].map((calls) => calls.filter((call) => call.label === label));
+    const score = (calls: Kept[]) => (calls.length ? `${calls.filter((call) => call.pass).length}/${calls.length}` : '-').padStart(10);
+    console.log(`${label.trim().padEnd(52)} ${score(ofA)} ${score(ofB)}`);
+    if (process.argv[5] && label.includes(process.argv[5])) {
+      for (const call of ofA) {
+        const other = ofB.find((it) => it.card === call.card);
+        console.log(`    ${call.card}\n      ${call.pass ? 'ok  ' : 'FAIL'} ${call.move.padEnd(8)} "${call.say}"${other ? `\n      ${other.pass ? 'ok  ' : 'FAIL'} ${other.move.padEnd(8)} "${other.say}"` : ''}`);
+      }
+    }
+  }
+  const line = (name: string, calls: Kept[]) => `${name}: ${calls.filter((call) => call.pass).length}/${calls.length} right, prompt ${mean(calls, (call) => call.promptTokens)} tokens, reply ${mean(calls, (call) => call.replyTokens)} tokens, ${mean(calls, (call) => call.ms)} ms a call`;
+  console.log(`\n${line(process.argv[3], a)}\n${line(process.argv[4], b)}`);
+  process.exit(0);
+}
+const kept: Kept[] = [];
+// The rooms, the people and the brains are shared with the other tests of the real model.
+const { ROOT, PERSON_CARDS, at, CRATE, donna, janitor, says, tech, tolly, zim } = await import('./fixtures');
+const { parseReply, withoutHandles } = await import(ROOT + 'prompt');
+const { recordStorage } = await import(ROOT + 'memory');
+// The call is built by the same code the game builds it with, so what is tested is what is sent.
+const { buildTalk } = await import(ROOT + 'talk');
+const { syncTasks, takeToldWork } = await import(ROOT + 'tasks');
 const { nextStep } = await import(ROOT + 'driver');
 
-function makeBrain(name: string, job: string) {
-  return { name, job, location: '', placeKind: 'room', resting: false, exploredEverything: false, storageHere: 0, cleaningTool: null, cleanableMesses: [], messPlaces: [], workablePlaces: [], mopNeedsWater: false, sinkInView: false, shutIn: false, doorOpen: false, tryLeavingAt: 0, nextRemarkAt: 0, doorHeld: false, doorHeldOut: false, cameFrom: null, letInBy: null, inTheWay: null, doorAsked: null, letInAsks: {}, saidLately: [], tidyTodo: 0, freight: null, mailTold: {}, areaMesses: {}, janitorsOnPda: [], blockedPlaces: [], janitorCalls: {}, askedCargo: false, askedCargoAt: 0, suppliesSentAt: null, grenadeMesses: 0, dryMop: false, doing: null, toldOfMess: new Map(), hasLocator: true, locatorUsed: true, supplyPlaces: ['Custodial Closet'], supplyPlacesSearched: new Set(['Custodial Closet']), post: null, orderable: [], orderPending: false, crateWaiting: null, hasPda: true, messageOwed: null, holding: [], peopleInView: [], thingsInView: [], places: new Map(), people: new Map(), feelings: new Map(), tasks: [], nextTaskId: 1, inPlaceSince: 0, driveAfter: 0, lastAct: null, failures: new Map(), mustSay: null, sayingNow: false, heldSince: 0, lastSpokenToAt: 0, status: 'idle', awake: true, walking: false, now: 0 } as any;
-}
-function at(b: any, now: number, location: string, people: any[] = [], things: any[] = []) {
-  if (b.location !== location) b.inPlaceSince = now;
-  b.location = location; b.placeKind = /Hallway/.test(location) ? 'hallway' : 'room'; b.peopleInView = people; b.thingsInView = things; b.now = now;
-  observe(b, { awake: 1, location, people_in_view: people, things_in_view: things } as any, now);
-  syncTasks(b);
-}
-const know = (b: any, places: string[]) => recordKnownPlaces(b, { seq: 0, time: '', at: 100, kind: 'knowledge', text: '', details: { places: places.map((place) => ({ place, things: [] })) } } as any);
-const zim = { handle: 'p1', name: 'Zim Fire', job: 'Head of Personnel' };
-const donna = { handle: 'p2', name: 'Donna Sholl', job: 'Cargo Technician' };
-const tolly = { handle: 'p3', name: 'Tolly Field', job: 'Janitor' };
-const says = (who: any, text: string, tiles = 1) => `[22:40:32] ${who.name} says: "${text}" (person ${who.handle}, ${tiles} tiles away)`;
-const CRATE = 'Janitorial Supplies Crate';
-function tech() { const b = makeBrain('Donna Sholl', 'Cargo Technician'); b.post = 'Cargo Bay'; b.orderable = [CRATE]; know(b, ['Cargo Bay', 'Cargo Lobby']); at(b, 3000, 'Cargo Bay', [zim]); return b; }
-function janitor(tool: string | null = 'soap') { const b = makeBrain('Tolly Field', 'Janitor'); know(b, ['Cargo Lobby', 'Bar', 'Medbay Central', 'Custodial Closet']); if (tool) { b.cleaningTool = tool; b.holding = [tool]; } at(b, 3000, 'Central Primary Hallway', [zim]); return b; }
-
 type Result = { say: string; move: string; work: string; feel: string };
-type Case = { label: string; spoken?: boolean; build: () => { b: any; report: string }; want: (r: Result) => boolean };
+type Case = { label: string; spoken?: boolean; remark?: boolean; build: () => { b: any; report: string }; want: (r: Result) => boolean };
 const spoke = (r: Result) => r.say.trim().length > 0;
 const cases: Case[] = [
   // The cargo technician ignored all four of these in round 22:37.
@@ -48,16 +65,17 @@ const cases: Case[] = [
   { label: 'janitor: asked to be shown the way to the Bar  ', spoken: true, want: (r) => r.move === 'go_to Bar' && spoke(r), build: () => { const b = janitor(); return { b, report: says(zim, 'Can you show me the way to the Bar?') }; } },
   { label: 'janitor: asked the way to a room not yet been in', spoken: true, want: (r) => r.move === 'go_to Engineering' && spoke(r), build: () => { const b = janitor(); return { b, report: says(zim, 'Can you take me to Engineering?') }; } },
   { label: 'janitor: asked where to find a mop             ', spoken: true, want: (r) => /custodial|closet/i.test(r.say) && r.move === 'stay', build: () => { const b = janitor(); recordStorage(b, { seq: 0, time: '', at: 500, kind: 'storage_seen', text: '', details: { place: 'Custodial Closet', container: 'janitorial cart', state: 'open', contents: [{ name: 'mop', count: 1 }, { name: 'wet floor sign', count: 2 }] } } as any); return { b, report: says(zim, 'Do you know where I can find a mop?') }; } },
-  { label: 'janitor: asked what it is doing, mid-clean     ', spoken: true, want: (r) => /clean|scrub|mess|mop|floor|wip/i.test(r.say) && r.move === 'stay', build: () => { const b = janitor(); b.messPlaces = ['Central Primary Hallway']; b.workablePlaces = ['Central Primary Hallway']; b.cleanableMesses = ['dirt']; b.doing = 'cleaning up the mess here'; at(b, 3000, 'Central Primary Hallway', [zim], [{ name: 'dirt', count: 2, kind: 'mess' }]); return { b, report: says(zim, 'What are you up to?') }; } },
+  { label: 'janitor: asked what it is doing, mid-clean     ', spoken: true, want: (r) => /clean|scrub|mess|mop|floor|wip|dirt|sweep|stain|soap|tidy|hallway|corridor|walkway/i.test(r.say) && r.move === 'stay', build: () => { const b = janitor(); b.messPlaces = ['Central Primary Hallway']; b.workablePlaces = ['Central Primary Hallway']; b.cleanableMesses = ['dirt']; b.doing = 'cleaning up the mess here'; at(b, 3000, 'Central Primary Hallway', [zim], [{ name: 'dirt', count: 2, kind: 'mess' }]); return { b, report: says(zim, 'What are you up to?') }; } },
   { label: 'janitor: has to ask cargo for supplies         ', want: (r) => /donna/i.test(r.say) && /order|crate|suppl/i.test(r.say), build: () => { const b = janitor(null); at(b, 3000, 'Cargo Lobby', [donna]); return { b, report: '[22:42:26] You arrive in Cargo Lobby.' }; } },
   { label: 'janitor: finished what it was told of          ', want: (r) => /done|clean|sorted|taken care|dealt|spotless|finished|handled|gone|seen to/i.test(r.say), build: () => { const b = janitor(); at(b, 2500, 'Central Primary Hallway', []); takeToldWork(b, 'a mess that needs cleaning', 'Medbay Central', 'Zim Fire'); at(b, 3000, 'Medbay Central', []); at(b, 3060, 'Medbay Central', []); at(b, 3100, 'Medbay Central', [zim]); return { b, report: '[22:45:00] Zim Fire, Head of Personnel, comes into view 3 tiles away. (person p1; you have seen them before)' }; } },
 ];
-const REMARK = 'You have company and a quiet moment. If you feel like it, say something to someone here in your own voice: a remark on what you are doing, on something you have noticed, or a question for them. If you would sooner get on with things, say nothing.';
+// A quiet moment: a remark or silence are both right. What is wrong is a line that is no line: "Nothing.", said out loud.
+const realOrSilent = (r: Result) => r.say === '' || !/^[\W_]*(nothing|none|null|silence|\(.*\))?[\W_]*$/i.test(r.say);
 cases.push(
   { label: 'janitor: shut in, with someone there to ask    ', want: (r) => /door/i.test(r.say) && /zim/i.test(r.say), build: () => { const b = janitor(null); b.shutIn = true; at(b, 3000, 'Cargo Bay', [zim]); return { b, report: '[22:42:26] You stop on the way to Custodial Closet: there is no way through. You are in Cargo Bay.' }; } },
   { label: 'janitor: shut in, asked "what are you doing?"   ', spoken: true, want: (r) => /door|stuck|shut|out|way/i.test(r.say), build: () => { const b = janitor(null); b.shutIn = true; at(b, 3000, 'Cargo Bay', [zim]); return { b, report: says(zim, 'What are you doing in here?') }; } },
-  { label: 'janitor: a quiet moment, cleaning, with company', want: () => true, build: () => { const b = janitor(); b.messPlaces = ['Central Primary Hallway']; b.workablePlaces = ['Central Primary Hallway']; b.cleanableMesses = ['dirt']; b.doing = 'cleaning up the mess here'; at(b, 3000, 'Central Primary Hallway', [zim], [{ name: 'dirt', count: 2, kind: 'mess' }]); return { b, report: REMARK }; } },
-  { label: 'tech: a quiet moment at the post, with company ', want: () => true, build: () => { const b = tech(); return { b, report: REMARK }; } },
+  { label: 'janitor: a quiet moment, cleaning, with company', remark: true, want: realOrSilent, build: () => { const b = janitor(); b.messPlaces = ['Central Primary Hallway']; b.workablePlaces = ['Central Primary Hallway']; b.cleanableMesses = ['dirt']; b.doing = 'cleaning up the mess here'; at(b, 3000, 'Central Primary Hallway', [zim], [{ name: 'dirt', count: 2, kind: 'mess' }]); return { b, report: '' }; } },
+  { label: 'tech: a quiet moment at the post, with company ', remark: true, want: realOrSilent, build: () => { const b = tech(); return { b, report: '' }; } },
 );
 const REFUSES = /when you (return|get back)|not my job|cannot|can't|won't|will not|no one gets|nobody gets/i;
 cases.push(
@@ -65,33 +83,76 @@ cases.push(
   { label: 'tech: the janitor it called asks to be let in    ', spoken: true, want: (r) => spoke(r) && !REFUSES.test(r.say), build: () => { const b = tech(); b.areaMesses = { 'Cargo Bay': ['pool of oil'] }; b.janitorCalls = { 'Cargo Bay': { to: tolly.name, at: 2000, count: 1 } }; b.doorAsked = { name: tolly.name, at: 3000 }; at(b, 3000, 'Cargo Bay', [{ ...tolly, in_post: 0 }]); return { b, report: says(tolly, 'Donna, I am here about the mess in the Cargo Bay. Could you let me in, please?', 3) }; } },
   { label: 'tech: the captain asks to be let in (no business) ', spoken: true, want: (r) => spoke(r), build: () => { const b = tech(); at(b, 3000, 'Cargo Bay', [{ ...zim, in_post: 0 }]); return { b, report: says(zim, 'Let me in, would you?', 3) }; } },
 );
+// Keeping a locked room: who is asked what. In the game a line without the name or the plain words
+// in it is replaced by the plain line, so these show how often the model's own wording stands.
+const greg = { handle: 'p4', name: 'Greg Loiter', job: 'Assistant' };
+const vik = { handle: 'p5', name: 'Vik Hale', job: 'Cargo Technician', belongs: 1 };
+cases.push(
+  { label: 'guard: tech finds a stranger in the post         ', want: (r) => /greg/i.test(r.say) && /why are you in here/i.test(r.say), build: () => { const b = tech(); at(b, 3000, 'Cargo Bay', [{ ...greg, in_post: 1 }]); at(b, 3200, 'Cargo Bay', [{ ...greg, in_post: 1 }]); return { b, report: '[22:40:00] Greg Loiter, Assistant, is standing in the Cargo Bay.' }; } },
+  { label: 'guard: janitor asked why it is in the bay         ', spoken: true, want: (r) => /donna/i.test(r.say), build: () => { const b = janitor(); b.messPlaces = ['Cargo Bay']; at(b, 2900, 'Cargo Lobby', [donna]); takeToldWork(b, 'a mess that needs cleaning', 'Cargo Bay', donna.name); b.cleanableMesses = ['pool of oil']; b.challenged = { by: vik.name, at: 3000 }; at(b, 3000, 'Cargo Bay', [vik, donna], [{ name: 'pool of oil', count: 1, kind: 'mess' }]); return { b, report: says(vik, 'Tolly, why are you in here? This room is locked to the crew.') }; } },
+  { label: 'guard: nobody sent for the janitor               ', spoken: true, want: (r) => /nobody/i.test(r.say), build: () => { const b = janitor(); b.challenged = { by: donna.name, at: 3000 }; at(b, 3000, 'Cargo Bay', [donna]); return { b, report: says(donna, 'Tolly, why are you in here? This room is locked to the crew.') }; } },
+  { label: 'guard: tech asked whether it sent for the janitor ', spoken: true, want: (r) => /\byes\b/i.test(r.say), build: () => { const b = tech(); b.sentFor = { [tolly.name]: 2900 }; b.workmates.add(vik.name); b.vouchAsked = { by: vik.name, about: tolly.name, at: 3000 }; at(b, 3000, 'Cargo Bay', [vik, { ...tolly, in_post: 1 }]); return { b, report: says(vik, 'Donna, did you ask Tolly to come in here?') }; } },
+  { label: 'guard: tech asked, and it did not                 ', spoken: true, want: (r) => /\bno\b/i.test(r.say), build: () => { const b = tech(); b.workmates.add(vik.name); b.vouchAsked = { by: vik.name, about: tolly.name, at: 3000 }; at(b, 3000, 'Cargo Bay', [vik, { ...tolly, in_post: 1 }]); return { b, report: says(vik, 'Donna, did you ask Tolly to come in here?') }; } },
+);
+// Orders from those over an NPC. Only someone it answers to can give one.
+const ada = { handle: 'p6', name: 'Ada Stone', job: 'Captain', superior: 1, belongs: 1, command: 1 };
+const LOOK = 'an order to go and look at a room and report back';
+const BALKS = /not my job|not part of my job|cannot leave|can't leave|can not leave|not leaving|stationed|ask someone else/i;
+cases.push(
+  { label: 'order: the Captain sends the tech to look at the Bar ', spoken: true, want: (r) => spoke(r) && !BALKS.test(r.say) && r.move === 'stay', build: () => { const b = tech(); at(b, 3000, 'Cargo Bay', [ada]); return { b, report: says(ada, 'Donna, go and have a look at the Bar and tell me what is going on in there.') }; } },
+  { label: 'order: the Captain asks the tech how it is going   ', spoken: true, want: (r) => r.work === 'none' && spoke(r), build: () => { const b = tech(); at(b, 3000, 'Cargo Bay', [ada]); return { b, report: says(ada, 'Donna, how are things in cargo today?') }; } },
+  { label: 'order: the Captain tells the janitor of a mess    ', spoken: true, want: (r) => spoke(r) && !BALKS.test(r.say), build: () => { const b = janitor(); at(b, 3000, 'Central Primary Hallway', [ada]); return { b, report: says(ada, 'Tolly, the Bar is filthy. Go and clean it up.') }; } },
+  { label: 'order: the Captain sends the janitor to look       ', spoken: true, want: (r) => spoke(r) && !BALKS.test(r.say), build: () => { const b = janitor(); at(b, 3000, 'Central Primary Hallway', [ada]); return { b, report: says(ada, 'Tolly, go and check on the Library and report back to me.') }; } },
+  { label: 'order: the tech reports what it found              ', want: (r) => /bar/i.test(r.say) && /blood|mess/i.test(r.say), build: () => { const b = tech(); at(b, 3000, 'Cargo Bay', [ada]); const task = takeToldWork(b, LOOK, 'Bar', ada.name, true); task.found = 'There is a mess there: blood and vomit. There is nobody in there.'; at(b, 3100, 'Cargo Bay', [ada]); return { b, report: '[22:41:00] You arrive in Cargo Bay.' }; } },
+);
 const only = process.argv[2];
+const dry: { label: string; chars: number }[] = [];
 let tokens = 0; let ms = 0; let calls = 0;
 for (const c of cases) {
   if (only && !c.label.includes(only)) continue;
   const tally: Record<string, number> = {}; let right = 0; const examples: string[] = []; let shown = false;
   for (const card of PERSON_CARDS) {
     const { b, report } = c.build();
-    const options = availableOptions(b, !!c.spoken, c.spoken ? report : '');
+    b.card = card;
     const speakers = c.spoken ? b.peopleInView.map((p: any) => p.handle) : [];
-    const user = [...describeView(b), report, ...describeSituation(b), ...(c.spoken ? ['Someone has just spoken near you. If it was to you, answer in "say".', ...[describeWorkTold(b)].filter(Boolean)] : []), ...describeOptions(options)].join('\n');
-    const system = buildSystemPrompt(b.name, b.job, card, [], describeMemory(b, b.now), b.post);
-    if (!shown && process.env.SHOW) { console.log('---- system prompt: ' + system.length + ' chars\n' + (process.env.SHOW === 'all' ? system + '\n' : '') + '---- report\n' + user + '\n---- driver would: ' + JSON.stringify(nextStep(b))); shown = true; }
+    // A line its work calls for comes from the driver, as it does in the game.
+    const step = c.spoken ? null : nextStep(b);
+    const call = buildTalk(b, { report: report ? [report] : [], speakers, mustSay: step?.say ?? null, remark: !!c.remark });
+    const [system, user]: string[] = call.messages.map((message: any) => message.content);
+    if (!shown && process.env.SHOW) { console.log(`---- ${c.label.trim()}\n---- system: ${system.length} chars\n${process.env.SHOW === 'all' ? system + '\n' : ''}---- report: ${user.length} chars\n${user}\n---- reply parts: ${Object.keys((call.schema as any).properties).join(', ')}\n---- driver would: ${JSON.stringify(step)}`); shown = true; }
+    // DRY=1 builds every call and sends none: for reading the prompts, and for when the model is busy.
+    if (process.env.DRY) { dry.push({ label: c.label, chars: system.length + user.length }); break; }
     const started = Date.now();
     const r = await fetch('http://127.0.0.1:11434/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3.5:9b', stream: false, think: false, keep_alive: '30m', options: { temperature: 0.7, num_predict: 600, num_ctx: 8192 }, format: buildReplySchema(options, true, speakers, c.spoken ? workTold(b) : null),
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }) });
+      body: JSON.stringify({ model: MODEL, stream: false, think: false, keep_alive: '30m', options: { temperature: 0.7, num_predict: 600, num_ctx: 8192 }, format: call.schema, messages: call.messages }) });
     const body: any = await r.json();
     ms += Date.now() - started; calls++; tokens = Math.max(tokens, body.prompt_eval_count ?? 0);
+    if (process.env.RAW) console.log('     raw: ' + String(body.message?.content ?? '').replace(/\s+/g, ' ').slice(0, 600));
     let acts: any[] = []; try { acts = parseReply(body.message?.content ?? '{}'); } catch { acts = [{ tool: 'INVALID' }]; }
     const move = acts.find((a) => !['say', 'remember', 'feel', 'work'].includes(a.tool));
     const workAct = acts.find((a) => a.tool === 'work'); const feelAct = acts.find((a) => a.tool === 'feel');
-    const res: Result = { say: String(acts.find((a) => a.tool === 'say')?.text ?? ''), move: move ? `${move.tool}${move.place ? ' ' + move.place : ''}${move.crate ? ' ' + move.crate : ''}` : 'stay', work: workAct ? `${workAct.what}@${workAct.where}` : 'none', feel: feelAct ? String(feelAct.change) : 'same' };
+    // Handles are taken out of what is said, as the game takes them out.
+    const res: Result = { say: withoutHandles(String(acts.find((a) => a.tool === 'say')?.text ?? ''), b.peopleInView), move: move ? `${move.tool}${move.place ? ' ' + move.place : ''}${move.crate ? ' ' + move.crate : ''}` : 'stay', work: workAct ? `${workAct.what}@${workAct.where}` : 'none', feel: feelAct ? String(feelAct.change) : 'same' };
     const tag = `${res.say ? 'says' : 'SILENT'}+${res.move}`;
     tally[tag] = (tally[tag] ?? 0) + 1;
-    if (c.want(res)) right++;
+    const pass = c.want(res);
+    if (pass) right++;
+    kept.push({ label: c.label, card: card.label, system, user, reply: String(body.message?.content ?? ''), say: res.say, move: res.move, work: res.work, pass, promptTokens: body.prompt_eval_count ?? 0, replyTokens: body.eval_count ?? 0, ms: Date.now() - started });
     if (examples.length < (process.env.MORE ? 8 : 2) && res.say) examples.push(`${card.label}: "${res.say.slice(0, 140)}"`);
   }
+  if (process.env.DRY) continue;
   console.log(`${c.label} ${right}/${PERSON_CARDS.length}  [${Object.entries(tally).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k}: ${n}`).join(', ')}]${examples.map((e) => `\n      ${e}`).join('')}`);
 }
-console.log(`\n${calls} calls, ${Math.round(ms / calls)} ms each on average, biggest prompt ${tokens} tokens`);
+if (process.env.DRY) {
+  // Roughly four characters to a token.
+  for (const { label, chars } of dry) console.log(`${label.trim().padEnd(52)} ${String(chars).padStart(6)} chars, about ${Math.round(chars / 4)} tokens`);
+  console.log(`\n${dry.length} calls built, none sent. On average ${Math.round(dry.reduce((total, call) => total + call.chars, 0) / (dry.length || 1))} chars, about ${Math.round(dry.reduce((total, call) => total + call.chars, 0) / (dry.length || 1) / 4)} tokens.`);
+  process.exit(0);
+}
+const average = (of: (call: Kept) => number) => Math.round(kept.reduce((total, call) => total + of(call), 0) / (kept.length || 1));
+console.log(`\n${calls} calls on ${MODEL}: ${kept.filter((call) => call.pass).length} right, ${Math.round(ms / calls)} ms each on average, prompt ${average((call) => call.promptTokens)} tokens on average (biggest ${tokens}), reply ${average((call) => call.replyTokens)} tokens on average`);
+if (process.env.RUN) {
+  mkdirSync(RUNS, { recursive: true });
+  writeFileSync(`${RUNS}${process.env.RUN}.json`, JSON.stringify({ model: MODEL, at: new Date().toISOString(), calls: kept }, null, 1));
+  console.log(`kept as runs/${process.env.RUN}.json`);
+}

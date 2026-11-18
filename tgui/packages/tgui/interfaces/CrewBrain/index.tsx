@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  Box,
-  Button,
-  Collapsible,
-  LabeledList,
-  NoticeBox,
-  Section,
-  Stack,
-} from 'tgui-core/components';
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { Box, Button, Icon, NoticeBox } from 'tgui-core/components';
 
 import { useBackend } from '../../backend';
 import { Window } from '../../layouts';
@@ -22,12 +21,16 @@ import {
   stopSession,
   subscribe,
 } from './brain';
+import { NpcDetails } from './Details';
 import { setStationPlaces } from './memory';
-import { describeFeeling } from './relationships';
 import { describeTask } from './tasks';
-import type { Data, Npc, NpcBrain, Task } from './types';
+import type { CarriedItem, Data, Npc, NpcBrain } from './types';
 
 const OLLAMA_CHECK_TIMEOUT_MS = 5000;
+/** How many NPCs are shown side by side. */
+const CARDS_PER_ROW = 5;
+/** The colour of a tool of the NPC's trade, and of the key that says so. */
+const TRADE_COLOR = '#ffc94d';
 
 type LlmStatus =
   | { state: 'checking' }
@@ -36,10 +39,7 @@ type LlmStatus =
 
 async function fetchOllamaModels(): Promise<string[]> {
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    OLLAMA_CHECK_TIMEOUT_MS,
-  );
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_CHECK_TIMEOUT_MS);
   try {
     const response = await fetch(`${OLLAMA_URL}/api/tags`, {
       signal: controller.signal,
@@ -58,6 +58,8 @@ export const CrewBrain = () => {
   const { act, data } = useBackend<Data>();
   const npcs = data.npcs ?? [];
   const [llm, setLlm] = useState<LlmStatus>({ state: 'checking' });
+  /** The NPC whose full details are open underneath the cards, if any. */
+  const [detailsOf, setDetailsOf] = useState<string | null>(null);
   // Re-render whenever a brain changes state.
   useSyncExternalStore(subscribe, getVersion);
 
@@ -89,31 +91,82 @@ export const CrewBrain = () => {
     ingest(data.npcs ?? [], data.now);
   }, [data]);
 
+  const detailed = npcs.find((npc) => npc.id === detailsOf);
+
   return (
-    <Window title="Crew Brain" width={560} height={680}>
+    <Window title="Crew Brain" width={1360} height={780}>
       <Window.Content scrollable>
-        <Section
-          title="Local LLM"
-          buttons={
-            <Button icon="sync" onClick={checkLlm}>
-              Check again
-            </Button>
-          }
-        >
-          <LlmStatusLine status={llm} />
-          <Box color="label" mt={1}>
-            Using model {getModel()} at {OLLAMA_URL}. While this window is open
-            your NPCs think with it; close the window and they only wander.
-          </Box>
-        </Section>
+        <StatusBar status={llm} crew={npcs.length} onCheck={checkLlm} />
         {npcs.length === 0 && (
           <NoticeBox>You do not own any crew NPCs right now.</NoticeBox>
         )}
-        {npcs.map((npc) => (
-          <NpcSection key={npc.id} npc={npc} brain={getBrain(npc.id)} />
-        ))}
+        <div style={GRID_STYLE}>
+          {npcs.map((npc) => (
+            <NpcCard
+              key={npc.id}
+              npc={npc}
+              brain={getBrain(npc.id)}
+              detailsOpen={npc.id === detailsOf}
+              onDetails={() =>
+                setDetailsOf(npc.id === detailsOf ? null : npc.id)
+              }
+            />
+          ))}
+        </div>
+        {detailed && (
+          <Box mt={1}>
+            <NpcDetails
+              npc={detailed}
+              brain={getBrain(detailed.id)}
+              onClose={() => setDetailsOf(null)}
+            />
+          </Box>
+        )}
       </Window.Content>
     </Window>
+  );
+};
+
+const GRID_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: `repeat(${CARDS_PER_ROW}, minmax(0, 1fr))`,
+  gap: '8px',
+  alignItems: 'stretch',
+};
+
+const BAR_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '16px',
+  padding: '4px 8px',
+  marginBottom: '8px',
+  background: 'rgba(0, 0, 0, 0.33)',
+  borderRadius: '4px',
+};
+
+/** One line across the top: whether the LLM can be reached, how many crew there are, and the colour key. */
+const StatusBar = (props: {
+  status: LlmStatus;
+  crew: number;
+  onCheck: () => void;
+}) => {
+  const { status, crew, onCheck } = props;
+  return (
+    <div style={BAR_STYLE}>
+      <LlmStatusLine status={status} />
+      <Box color="label">
+        {crew} crew. They think only while this window is open.
+      </Box>
+      <Box style={{ marginLeft: 'auto' }}>
+        <span style={TRADE_CHIP_STYLE}>Gold</span>
+        <Box inline color="label">
+          is a tool of their trade
+        </Box>
+      </Box>
+      <Button icon="sync" onClick={onCheck}>
+        Check LLM
+      </Button>
+    </div>
   );
 };
 
@@ -121,216 +174,307 @@ const LlmStatusLine = (props: { status: LlmStatus }) => {
   const { status } = props;
   switch (status.state) {
     case 'checking':
-      return <Box color="average">Checking for Ollama…</Box>;
+      return (
+        <Box color="average">
+          <Icon name="circle-notch" spin mr={1} />
+          Checking for Ollama…
+        </Box>
+      );
     case 'ok':
       return (
         <Box color="good">
-          Ollama is reachable. Installed models:{' '}
-          {status.models.length > 0 ? status.models.join(', ') : 'none'}
+          <Icon name="circle" mr={1} />
+          Ollama ready, using {getModel()}
         </Box>
       );
     case 'error':
       return (
         <Box color="bad">
-          Could not reach Ollama from this window ({status.message}).
+          <Icon name="triangle-exclamation" mr={1} />
+          Could not reach Ollama at {OLLAMA_URL} ({status.message})
         </Box>
       );
   }
 };
 
-const BRAIN_STATUS_TEXT = {
-  idle: 'Idle',
-  queued: 'Waiting for the LLM',
-  thinking: 'Thinking…',
-} as const;
-
-/** Most tasks that cannot go on yet which are listed one by one. */
-const WAITING_TASKS_SHOWN = 2;
-
-/**
- * The tasks worth listing: everything that can be got on with or was just finished, and the first
- * few that are waiting on something. A janitor can know of a dozen rooms it cannot do anything
- * about yet, and a dozen lines saying so bury the one it is working on.
- */
-function shownTasks(tasks: Task[]): Task[] {
-  let waiting = 0;
-  return tasks.filter(
-    (task) => task.state !== 'blocked' || ++waiting <= WAITING_TASKS_SHOWN,
-  );
+/** What the dot beside an NPC's name says about its brain: the words, and the colour. */
+function brainState(
+  npc: Npc,
+  brain?: NpcBrain,
+): { text: string; color: string; busy: boolean } {
+  if (!npc.awake) {
+    return { text: 'Not sensing', color: 'bad', busy: false };
+  }
+  switch (brain?.status) {
+    case 'thinking':
+      return { text: 'Asking the LLM', color: 'blue', busy: true };
+    case 'queued':
+      return { text: 'Waiting for the LLM', color: 'average', busy: false };
+    default:
+      return { text: 'Ready', color: 'good', busy: false };
+  }
 }
 
-const NpcSection = (props: { npc: Npc; brain?: NpcBrain }) => {
-  const { npc, brain } = props;
-  const newestFirst = [...npc.events].reverse();
-  const decision = brain?.lastDecision;
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** What the body is in the middle of, in a few words. */
+function describeDoing(npc: Npc): string {
+  if (npc.doing) {
+    return capitalize(npc.doing);
+  }
+  return npc.resting ? 'Taking a break' : 'Nothing in particular';
+}
+
+/**
+ * What is on the NPC's mind: the reasoning behind the step it last took, and, if it picked one job
+ * over the others on its list, which and why.
+ */
+function describeThinking(brain?: NpcBrain): { step: string; why: string } {
+  if (!brain) {
+    return { step: '', why: '' };
+  }
+  const choice = brain.choice;
+  const chosen = choice?.why
+    ? brain.tasks.find(
+        (task) => task.id === choice.task && task.state !== 'done',
+      )
+    : undefined;
+  return {
+    step: brain.lastRoutine?.text ?? '',
+    why:
+      choice && chosen
+        ? `Chose to ${describeTask(brain, chosen)} first: "${choice.why}"`
+        : '',
+  };
+}
+
+const CARD_STYLE: CSSProperties = {
+  background: 'rgba(0, 0, 0, 0.33)',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  borderRadius: '4px',
+  padding: '8px',
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+};
+
+const CARD_OPEN_STYLE: CSSProperties = {
+  ...CARD_STYLE,
+  border: '1px solid rgba(255, 255, 255, 0.45)',
+};
+
+const HEADER_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: '6px',
+  paddingBottom: '6px',
+  marginBottom: '2px',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+};
+
+const NpcCard = (props: {
+  npc: Npc;
+  brain?: NpcBrain;
+  detailsOpen: boolean;
+  onDetails: () => void;
+}) => {
+  const { npc, brain, detailsOpen, onDetails } = props;
+  const state = brainState(npc, brain);
+  const thinking = describeThinking(brain);
+  const inventory = npc.inventory ?? [];
+  const inHands = inventory.filter((item) => item.where === 'hand');
+  const carried = inventory.filter((item) => item.where !== 'hand');
 
   return (
-    <Section
-      title={`${npc.name}${npc.job ? `, ${npc.job}` : ''} (${npc.id})`}
-      buttons={
-        <Box inline color={npc.awake ? 'good' : 'bad'}>
-          {npc.awake ? 'Sensing' : 'Not sensing'}
+    <div style={detailsOpen ? CARD_OPEN_STYLE : CARD_STYLE}>
+      <div style={HEADER_STYLE}>
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Box bold fontSize="15px">
+            {npc.name}
+          </Box>
+          <Box>{npc.job || 'No job'}</Box>
+          <Box color="label">{brain?.card.label ?? 'No personality yet'}</Box>
         </Box>
-      }
-    >
-      <LabeledList>
-        <LabeledList.Item label="Personality">
-          {brain ? brain.card.label : 'Not picked yet'}
-        </LabeledList.Item>
-        {brain && brain.feelings.size > 0 && (
-          <LabeledList.Item label="Feels">
-            {[...brain.feelings.entries()].map(([name, feeling]) => (
-              <Box key={name} color={feeling.score > 0 ? 'good' : 'bad'}>
-                {name}: {describeFeeling(brain, name)}
-                {feeling.why ? ` (${feeling.why})` : ''}
-              </Box>
-            ))}
-          </LabeledList.Item>
+        <Box textAlign="right">
+          <Button
+            icon="magnifying-glass"
+            selected={detailsOpen}
+            tooltip="Everything about this one: tasks, what the LLM was sent, sense events"
+            onClick={onDetails}
+          />
+          <Box color={state.color} fontSize="11px" mt={0.5}>
+            <Icon
+              name={state.busy ? 'circle-notch' : 'circle'}
+              spin={state.busy}
+            />{' '}
+            {state.text}
+          </Box>
+        </Box>
+      </div>
+
+      <Field icon="location-dot" label="Where">
+        <Box bold>{npc.location || 'Unknown'}</Box>
+      </Field>
+
+      <Field icon="person-walking" label="Doing">
+        {describeDoing(npc)}
+      </Field>
+
+      <Field icon="brain" label="Thinking">
+        {thinking.step ? (
+          <Clamped text={thinking.step} lines={6} />
+        ) : (
+          <Box color="label">Nothing yet</Box>
         )}
-        <LabeledList.Item label="Location">
-          {npc.location || 'Unknown'} ({npc.place_kind})
-        </LabeledList.Item>
-        <LabeledList.Item label="Doing">
-          {npc.doing || 'Nothing in particular (wandering)'}
-        </LabeledList.Item>
-        <LabeledList.Item label="Can see">
-          {[
-            ...(npc.people_in_view ?? []).map(
-              (person) =>
-                `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle})`,
-            ),
-            ...(npc.things_in_view ?? []).map((thing) =>
-              thing.count > 1 ? `${thing.name} x${thing.count}` : thing.name,
-            ),
-          ].join(', ') || <Box color="label">Nothing of note.</Box>}
-        </LabeledList.Item>
-        {/janitor|custodian/i.test(npc.job) && (
-          <LabeledList.Item label="Can clean with">
-            {npc.cleaning_tool || <Box color="bad">Nothing</Box>}
-          </LabeledList.Item>
+        {thinking.why && (
+          <Box color="label" mt={0.5}>
+            <Clamped text={thinking.why} lines={3} />
+          </Box>
         )}
-        {npc.post && (
-          <LabeledList.Item label="Post">
-            {npc.post}
-            {npc.order_pending ? ' (a crate is on order)' : ''}
-            {npc.crate_waiting
-              ? ` (${npc.crate_waiting} waiting on the shuttle)`
-              : ''}
-          </LabeledList.Item>
+      </Field>
+
+      <Field icon="comment" label="Last said" time={brain?.lastSaid?.time}>
+        {brain?.lastSaid ? (
+          <Box italic>
+            <Clamped text={`"${brain.lastSaid.text}"`} lines={4} />
+          </Box>
+        ) : (
+          <Box color="label">Nothing yet</Box>
         )}
-        {brain && brain.tasks.length > 0 && (
-          <LabeledList.Item label="Tasks">
-            {shownTasks(brain.tasks).map((task) => (
-              <Box
-                key={task.id}
-                color={
-                  task.state === 'done'
-                    ? 'good'
-                    : task.state === 'blocked'
-                      ? 'average'
-                      : undefined
-                }
-              >
-                {task.state === 'done'
-                  ? 'Done'
-                  : task.state === 'blocked'
-                    ? 'Waiting'
-                    : 'To do'}
-                {task.urgency === 'routine' ? '' : ` (${task.urgency})`}:{' '}
-                {describeTask(brain, task)}
-                {task.blockedOn ? `. ${task.blockedOn}` : ''}
-              </Box>
-            ))}
-            {brain.tasks.length > shownTasks(brain.tasks).length && (
-              <Box color="label">
-                and {brain.tasks.length - shownTasks(brain.tasks).length} more
-                waiting on something
-              </Box>
-            )}
-          </LabeledList.Item>
+      </Field>
+
+      <Field icon="check" label="Last job" time={brain?.lastJob?.time}>
+        {brain?.lastJob ? (
+          <Clamped text={capitalize(brain.lastJob.what)} lines={3} />
+        ) : (
+          <Box color="label">None finished yet</Box>
         )}
-        <LabeledList.Item label="Remembers">
-          {brain
-            ? `${brain.places.size} places, ${brain.people.size} people, ${[...brain.places.values()].reduce((total, place) => total + place.storage.size, 0)} containers`
-            : 'Nothing yet'}
-        </LabeledList.Item>
-        <LabeledList.Item label="Brain">
-          {brain ? BRAIN_STATUS_TEXT[brain.status] : 'Idle'}
-        </LabeledList.Item>
-        <LabeledList.Item label="Last step">
-          {brain?.lastRoutine ? (
-            <>
-              <Box color="label">
-                {brain.lastRoutine.time}, taken by code, with no LLM call:
-              </Box>
-              <Box>{brain.lastRoutine.text}</Box>
-              <Box color="good">{brain.lastRoutine.act}</Box>
-            </>
-          ) : (
-            'None yet'
-          )}
-        </LabeledList.Item>
-        <LabeledList.Item label="Last thing said">
-          {decision ? (
-            <>
-              <Box color="label">
-                {decision.time}, took {(decision.ms / 1000).toFixed(1)}s
-                {decision.promptTokens
-                  ? `, prompt ${decision.promptTokens} tokens`
-                  : ''}
-                , in response to:
-              </Box>
-              <Box style={{ whiteSpace: 'pre-wrap' }}>{decision.trigger}</Box>
-              {decision.error ? (
-                <Box color="bad">LLM call failed: {decision.error}</Box>
-              ) : (
-                <Box color="good" style={{ whiteSpace: 'pre-wrap' }}>
-                  {decision.calls.length > 0
-                    ? decision.calls.join('\n')
-                    : 'Chose to do nothing.'}
-                </Box>
-              )}
-            </>
-          ) : (
-            <Box color="label">None yet.</Box>
-          )}
-        </LabeledList.Item>
-        <LabeledList.Item label="Notes">
-          {brain && brain.notes.length > 0 ? (
-            brain.notes.map((note, index) => <Box key={index}>{note}</Box>)
-          ) : (
-            <Box color="label">None yet.</Box>
-          )}
-        </LabeledList.Item>
-      </LabeledList>
-      {decision && (
-        <Collapsible
-          title={`Everything the LLM was sent for that decision (${decision.sent.length} messages)`}
-        >
-          {decision.sent.map((message, index) => (
-            <Box key={index} mb={1}>
-              <Box color="label">{message.role}</Box>
-              <Box style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Box>
-            </Box>
-          ))}
-        </Collapsible>
-      )}
-      <Box bold mt={1} mb={0.5}>
-        Sense events
+      </Field>
+
+      <Field icon="hand" label="Holding">
+        <ItemChips items={inHands} empty="Empty hands" />
+      </Field>
+
+      <Field icon="box-open" label="Inventory">
+        <ItemChips items={carried} empty="Nothing" />
+      </Field>
+    </div>
+  );
+};
+
+const LABEL_STYLE: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  fontSize: '10px',
+  fontWeight: 'bold',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  marginBottom: '2px',
+};
+
+/** One labelled piece of what is known about an NPC, with the time it dates from if it has one. */
+const Field = (props: {
+  icon: string;
+  label: string;
+  time?: string;
+  children: ReactNode;
+}) => {
+  const { icon, label, time, children } = props;
+  return (
+    <Box mt={1}>
+      <Box color="label" style={LABEL_STYLE}>
+        <span>
+          <Icon name={icon} mr={0.5} />
+          {label}
+        </span>
+        {time && <span style={{ fontWeight: 'normal' }}>{time}</span>}
       </Box>
-      {newestFirst.length === 0 && (
-        <Box color="label">No sense events yet.</Box>
-      )}
-      <Stack vertical>
-        {newestFirst.map((event) => (
-          <Stack.Item key={event.seq}>
-            <Box inline color="label" mr={1}>
-              #{event.seq} {event.time}
-            </Box>
-            {event.text}
-          </Stack.Item>
-        ))}
-      </Stack>
-    </Section>
+      {children}
+    </Box>
+  );
+};
+
+/** Text cut off after so many lines, so that one long line does not stretch a whole row of cards. Hover for the rest. */
+const Clamped = (props: { text: string; lines: number }) => (
+  <div
+    title={props.text}
+    style={{
+      display: '-webkit-box',
+      WebkitBoxOrient: 'vertical',
+      WebkitLineClamp: props.lines,
+      overflow: 'hidden',
+    }}
+  >
+    {props.text}
+  </div>
+);
+
+const CHIP_STYLE: CSSProperties = {
+  display: 'inline-block',
+  padding: '1px 6px',
+  margin: '0 3px 3px 0',
+  borderRadius: '3px',
+  border: '1px solid transparent',
+  background: 'rgba(255, 255, 255, 0.08)',
+  lineHeight: '1.4',
+};
+
+const TRADE_CHIP_STYLE: CSSProperties = {
+  ...CHIP_STYLE,
+  color: TRADE_COLOR,
+  fontWeight: 'bold',
+  background: 'rgba(255, 201, 77, 0.14)',
+  border: '1px solid rgba(255, 201, 77, 0.6)',
+};
+
+/** Clothing is the least of what a body has on it, so it is shown faintest. */
+const WORN_CHIP_STYLE: CSSProperties = {
+  ...CHIP_STYLE,
+  color: 'rgba(255, 255, 255, 0.5)',
+  background: 'transparent',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+};
+
+const WHERE_TEXT: Record<CarriedItem['where'], string> = {
+  hand: 'In hand',
+  stowed: 'Put away',
+  worn: 'Worn',
+};
+
+const ItemChip = (props: { item: CarriedItem }) => {
+  const { item } = props;
+  const style = item.trade
+    ? TRADE_CHIP_STYLE
+    : item.where === 'worn'
+      ? WORN_CHIP_STYLE
+      : CHIP_STYLE;
+  return (
+    <span
+      style={style}
+      title={`${WHERE_TEXT[item.where]}${item.trade ? ', a tool of their trade' : ''}`}
+    >
+      {item.name}
+      {item.count > 1 ? ` ×${item.count}` : ''}
+    </span>
+  );
+};
+
+/** A row of things, the tools of the trade first so that they are found at a glance. */
+const ItemChips = (props: { items: CarriedItem[]; empty: string }) => {
+  const { items, empty } = props;
+  if (items.length === 0) {
+    return <Box color="label">{empty}</Box>;
+  }
+  const tradeFirst = [
+    ...items.filter((item) => item.trade),
+    ...items.filter((item) => !item.trade),
+  ];
+  return (
+    <div>
+      {tradeFirst.map((item) => (
+        <ItemChip key={`${item.where}:${item.name}`} item={item} />
+      ))}
+    </div>
   );
 };

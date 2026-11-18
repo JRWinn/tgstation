@@ -3,35 +3,43 @@
  * events from the server into prompts for the player's local Ollama, and turns the LLM's tool
  * calls into requests to the server. The server never contacts the LLM itself.
  */
+import { saidTo } from './addressing';
+import { buildChoice, readChoice } from './choice';
+import { clearExpected } from './expected';
+import { guardAfterSaying, guardOverhears } from './jobs/guarding';
+import {
+  meetingsAfterSaying,
+  meetingsOverhear,
+  readSummons,
+} from './jobs/meetings';
+import { ordersAfterSaying } from './jobs/orders';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
 import {
   addNote,
-  describeMemory,
   observe,
   recordKnownPlaces,
   recordLocator,
   recordStorage,
 } from './memory';
-import { availableOptions, describeOptions } from './options';
 import { pickPersonCard } from './person';
 import {
   buildReplySchema,
   buildSystemPrompt,
+  isFiller,
   parseReply,
-  replyForHistory,
   serverToolName,
+  withoutHandles,
 } from './prompt';
 import { describeFeeling, shiftFeeling } from './relationships';
-import { describeSituation, describeView } from './situation';
+import { buildTalk } from './talk';
 import {
   afterSaying,
   describeTask,
-  describeWorkTold,
   syncTasks,
   takeToldWork,
+  workInOrder,
   workInWords,
-  workTold,
 } from './tasks';
 import type {
   Action,
@@ -76,7 +84,18 @@ const MAX_REPLIES_PER_TALK = 6;
 const TALK_RESET_DS = 300;
 /** The server refuses speech sooner than this after the last, so wait it out before thinking again. */
 const SAY_COOLDOWN_MS = 4200;
-const HISTORY_MAX_MESSAGES = 24;
+/** How long a room is left alone because of its fire doors, when its alarm is not one to reset or cannot be got to. */
+const FIRE_CLOSED_MS = 600000;
+/** How soon (milliseconds) after a reset fire doors must shut again for it to count as the alarm coming straight back. */
+const ALARM_CAME_BACK_MS = 60000;
+/** How far apart (deciseconds) two NPCs may hear the same line and it still be the same line. */
+const SAME_LINE_DS = 20;
+/** How long a body that has reported reaching a door is taken to be standing at it, the server not having said so. */
+const DOOR_REACHED_MS = 30000;
+/** How many lines of talk, heard and said, an NPC keeps. */
+const TALK_LOG_KEPT = 16;
+/** How many remarks an NPC passes of its own accord before it waits for someone to say something back. */
+const REMARKS_UNANSWERED_MAX = 2;
 /** Higher is more varied; much above this the model starts leaving its own name out of greetings. */
 const TEMPERATURE = 0.7;
 /** Most tokens the LLM may spend on one reply. */
@@ -89,14 +108,18 @@ const REPLY_MAX_TOKENS = 600;
 const CONTEXT_TOKENS = 8192;
 /** The most lines of events sent in one report. Older ones are left out: they are stale by then. */
 const REPORT_MAX_LINES = 10;
-/** The most an NPC's kept history may come to, in characters. The oldest exchanges go first. */
-const HISTORY_MAX_CHARS = 2500;
+/** Most tokens the LLM may spend saying which job comes first: a letter and a few words of why. */
+const CHOICE_MAX_TOKENS = 80;
+/** How long a call asking which job comes first may take. The body has stopped waiting well before. */
+const CHOICE_TIMEOUT_MS = 15000;
 
 type Act = (action: string, payload?: object) => void;
 
 const brains = new Map<string, NpcBrain>();
 /** Ids of NPCs waiting for the LLM. One GPU serves one request at a time, so they take turns. */
 const queue: string[] = [];
+/** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
+const choiceQueue: string[] = [];
 const listeners = new Set<() => void>();
 let version = 0;
 let act: Act | null = null;
@@ -157,7 +180,9 @@ export function stopSession(): void {
     retryTimer = null;
   }
   queue.length = 0;
+  choiceQueue.length = 0;
   brains.clear();
+  clearExpected();
   running = false;
 }
 
@@ -187,7 +212,9 @@ export function ingest(npcs: Npc[], now: number): void {
         now,
         // Anything the server says was already dealt with is history, not news.
         lastSeq: npc.acked_seq,
-        history: [],
+        talkLog: [],
+        remarkDue: false,
+        remarksUnanswered: 0,
         notes: [],
         seenHandles: new Set(),
         pending: [],
@@ -212,12 +239,38 @@ export function ingest(npcs: Npc[], now: number): void {
         shutIn: false,
         doorOpen: false,
         doorHeld: false,
+        doorHeldFor: null,
         doorHeldOut: false,
+        doorOutTo: null,
         cameFrom: null,
         letInBy: null,
+        atDoorOf: null,
+        doorReached: null,
+        lookInRooms: [],
+        closedRooms: [],
+        lookedIn: {},
+        lastArrivalAt: 0,
         inTheWay: null,
         doorAsked: null,
+        knockAt: null,
+        handles: {},
+        inTalkWith: null,
+        toTell: [],
+        outAsks: null,
+        fireDoors: null,
+        alarmResets: {},
+        fireClosed: {},
         letInAsks: {},
+        strangers: {},
+        workmates: new Set(),
+        sentFor: {},
+        challenged: null,
+        vouchAsked: null,
+        verifyHeard: null,
+        workmateCalled: false,
+        inHand: false,
+        outOfBounds: false,
+        openDoorTries: 0,
         saidLately: [],
         tryLeavingAt: 0,
         nextRemarkAt: 0,
@@ -225,8 +278,13 @@ export function ingest(npcs: Npc[], now: number): void {
         suppliesSentAt: null,
         driveAfter: 0,
         lastAct: null,
+        choice: null,
+        choosing: null,
+        lastChoiceAt: 0,
         failures: new Map(),
         mustSay: null,
+        mustSayNeeds: null,
+        mustSayIf: null,
         sayingNow: false,
         heldSince: 0,
         lastSpokenToAt: 0,
@@ -243,6 +301,20 @@ export function ingest(npcs: Npc[], now: number): void {
         mailTold: {},
         areaMesses: {},
         janitorsOnPda: [],
+        office: null,
+        meetingRoom: null,
+        pdaPeople: [],
+        deliverTo: null,
+        crateToReturn: false,
+        bornAt: now,
+        toldHeadAt: null,
+        suppliesAt: null,
+        summons: null,
+        asks: [],
+        meeting: null,
+        nextMeetingAt: 0,
+        metOnce: false,
+        requisition: null,
         blockedPlaces: [],
         janitorCalls: {},
         askedCargo: false,
@@ -264,10 +336,15 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.awake = !!npc.awake;
     if (brain.location !== npc.location) {
       brain.inPlaceSince = now;
+      brain.outAsks = null;
       brain.cameFrom = brain.location || brain.cameFrom;
     }
     brain.location = npc.location;
     brain.peopleInView = npc.people_in_view ?? [];
+    // Kept by name, so that someone a door now hides can still be pointed at.
+    for (const person of brain.peopleInView) {
+      brain.handles[person.name] = person.handle;
+    }
     brain.thingsInView = npc.things_in_view ?? [];
     brain.holding = npc.holding ?? [];
     brain.placeKind = npc.place_kind;
@@ -281,11 +358,38 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.workablePlaces = npc.workable_mess_places ?? [];
     brain.mopNeedsWater = !!npc.mop_needs_water;
     brain.sinkInView = !!npc.sink_in_view;
+    // Shut in, every step that meant going somewhere came to nothing. Once it is out, none of
+    // that says anything about what it can do now, so nothing is held back on account of it.
+    if (brain.shutIn && !npc.shut_in) {
+      brain.failures.clear();
+    }
+    // A door that has only just come open has not been tried yet.
+    if (!npc.shut_in || !npc.door_open) {
+      brain.openDoorTries = 0;
+    }
     brain.shutIn = !!npc.shut_in;
     brain.doorOpen = !!npc.door_open;
     brain.doorHeld = !!npc.door_held;
+    if (!brain.doorHeld) {
+      brain.doorHeldFor = null;
+    }
     brain.doorHeldOut = !!npc.door_held_out;
     brain.letInBy = npc.let_in_by ?? null;
+    // The server says which door it is standing at. If it has just reported reaching one and the
+    // server does not yet say so, the report is taken at its word for a little while: sent back to
+    // the same door, it would be told it had arrived, over and over, and never get round to asking.
+    const reached = brain.doorReached;
+    const stillThere =
+      !!reached &&
+      reached.from === npc.location &&
+      Date.now() - reached.at < DOOR_REACHED_MS;
+    if (!stillThere) {
+      brain.doorReached = null;
+    }
+    brain.atDoorOf =
+      npc.at_door_of ?? (stillThere && reached ? reached.place : null);
+    brain.lookInRooms = npc.look_in_rooms ?? [];
+    brain.closedRooms = npc.closed_rooms ?? [];
     brain.grenadeMesses = npc.grenade_messes ?? 0;
     brain.doing = npc.doing ?? null;
     brain.dryMop = !!npc.dry_mop;
@@ -308,6 +412,14 @@ export function ingest(npcs: Npc[], now: number): void {
       : null;
     brain.areaMesses = npc.work_area_messes ?? {};
     brain.janitorsOnPda = npc.pda_janitors ?? [];
+    brain.office = npc.office ?? null;
+    brain.meetingRoom = npc.meeting_room ?? null;
+    brain.pdaPeople = npc.pda_people ?? [];
+    brain.deliverTo = npc.deliver_to ?? null;
+    brain.crateToReturn = !!npc.crate_to_return;
+    brain.workmateCalled = !!npc.workmate_called;
+    brain.inHand = !!npc.in_hand;
+    brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
     if (brain.cleaningTool) {
       brain.askedCargo = false;
@@ -333,22 +445,98 @@ export function ingest(npcs: Npc[], now: number): void {
         recordLocator(brain, event);
       }
       if (event.kind === 'pda_message') {
-        // What a message means depends on whose PDA it is.
-        jobFor(brain.job).readsMessage?.(
+        const from = String(event.details.speaker ?? '');
+        const text = String(event.details.message ?? '');
+        const theirJob = String(event.details.job ?? '');
+        // A call to a staff meeting from its head is read the same by everyone. Anything else
+        // means what it means to whoever's PDA it is.
+        if (!readSummons(brain, from, text, event.at, theirJob)) {
+          jobFor(brain.job).readsMessage?.(brain, from, text, event.at, theirJob);
+        }
+      }
+      // Who a line was said to is worked out once, here, before anything acts on it or answers it.
+      if (event.kind === 'speech_heard' && event.details.source === 'person') {
+        const others = [...brains.values()].map((other) => other.name);
+        const said = saidTo(
           brain,
-          String(event.details.speaker ?? ''),
-          String(event.details.message ?? ''),
-          event.at,
-          String(event.details.job ?? ''),
+          event,
+          others,
+          nearestToSpeaker(npc, event, npcs),
         );
+        event.details.said_to = said.to;
+        event.details.nearest_bot = nearestToSpeaker(npc, event, npcs);
+        event.details.said_to_name = said.name;
+      }
+      // A knock at the door of one of its rooms. It says where, and from which side, and not who.
+      if (typeof event.details.knock === 'string') {
+        brain.knockAt = {
+          room: event.details.knock,
+          at: event.at,
+          inside: !!event.details.knock_from_inside,
+        };
+      }
+      // Fire doors that stopped it, and whether the alarm that shut them was only pulled by hand.
+      if (typeof event.details.fire_doors === 'string') {
+        brain.fireDoors = {
+          place: event.details.fire_doors,
+          pulled: !!event.details.alarm_pulled,
+          at: Date.now(),
+        };
+        // Shut again straight after it reset the alarm: it is real, or someone is pulling it again.
+        // Either way that room is left alone for a good while.
+        const resetAt = brain.alarmResets[event.details.fire_doors] ?? 0;
+        if (Date.now() - resetAt < ALARM_CAME_BACK_MS) {
+          brain.fireClosed[event.details.fire_doors] =
+            Date.now() + FIRE_CLOSED_MS;
+        }
+      }
+      // An alarm that is not its to reset, or that it cannot get to: that room is left alone a while.
+      for (const closed of [
+        event.details.real_alarm,
+        event.details.alarm_out_of_reach,
+      ]) {
+        if (typeof closed === 'string') {
+          brain.fireClosed[closed] = Date.now() + FIRE_CLOSED_MS;
+        }
+      }
+      if (event.kind === 'person_in_view') {
+        brain.lastArrivalAt = Date.now();
+        const name = String(event.details.name ?? '');
+        if (name && typeof event.details.handle === 'string') {
+          brain.handles[name] = event.details.handle;
+        }
+        // Someone new turning up is the one reason to ask again for something nobody answered.
+        jobFor(brain.job).meets?.(brain, name, String(event.details.job ?? ''));
       }
       if (event.kind === 'speech_heard' && event.details.source === 'person') {
         jobFor(brain.job).overhears?.(brain, event);
+        guardOverhears(brain, event);
+        meetingsOverhear(brain, event);
+        logTalk(
+          brain,
+          String(event.details.speaker ?? 'Someone'),
+          String(event.details.message ?? ''),
+          false,
+        );
+      }
+      // Someone new to talk to is a reason to speak up again.
+      if (event.kind === 'person_in_view') {
+        brain.remarksUnanswered = 0;
       }
       // A door is being held open for it: whatever it had given up on is worth trying this instant.
       if (event.details.door_held) {
         brain.failures.clear();
         brain.tryLeavingAt = 0;
+        // Which room the door is the door of, so that it goes through that one and no other. A
+        // door held to let it out of the room it is in is not a way into anywhere: where that
+        // one leads is where it goes.
+        const room = event.details.places?.[0]?.place ?? null;
+        const lettingOut = room === brain.location;
+        brain.doorHeldFor = lettingOut ? null : room;
+        brain.doorOutTo =
+          lettingOut && typeof event.details.out_to === 'string'
+            ? event.details.out_to
+            : null;
       }
       if (event.details.in_the_way) {
         brain.inTheWay = {
@@ -374,13 +562,21 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     // With the body's state and the latest events folded in, the task list is brought up to date.
     syncTasks(brain);
-    // The body gets on with its work. Nothing here waits on the LLM.
+    // The body gets on with its work. The one thing it asks the LLM is which job comes first, when
+    // there is more than one, and it does not wait long for the answer.
+    const chooser = brain.id;
     const step = drive(
       brain,
       (action) => runTool(brain, action),
-      (fallback) => {
+      (fallback, needs, sayIf) => {
         brain.mustSay = fallback;
+        brain.mustSayNeeds = needs ?? null;
+        brain.mustSayIf = sayIf ?? null;
         brain.wake = true;
+      },
+      () => {
+        choiceQueue.push(chooser);
+        changed = true;
       },
     );
     if (step) {
@@ -481,16 +677,18 @@ function passRemark(brain: NpcBrain): void {
     return;
   }
   brain.nextRemarkAt = now + remarkGap();
-  brain.pending.push(
-    `You have company and a quiet moment. If you feel like it, say something to someone here in your own voice: a remark on what you are doing, on something you have noticed, or a question about them. It is small talk between people who work near each other: do not tell them to leave, to hurry up, or to ask you for something. Do not introduce yourself to anyone you have already met.${
-      brain.saidLately.length > 0
-        ? ` You have already said: ${brain.saidLately
-            .slice(-3)
-            .map((said) => `"${said.text}"`)
-            .join(' ')} Say nothing like any of that again.`
-        : ''
-    } If you would sooner get on with things, say nothing.`,
+  // Whether the moment is worth asking the LLM about at all is decided here. Small talk is for
+  // company it does not mind: left to find something to say to someone it dislikes, it told them
+  // what was wrong with the room. And having spoken up twice with nothing said back, it lets the
+  // quiet be until someone speaks to it or someone new comes in.
+  const company = brain.peopleInView.some(
+    (person) => (brain.feelings.get(person.name)?.score ?? 0) >= 0,
   );
+  if (!company || brain.remarksUnanswered >= REMARKS_UNANSWERED_MAX) {
+    return;
+  }
+  // What it is asked, and what it has said lately, go with the call: see talk.ts.
+  brain.remarkDue = true;
   brain.wake = true;
 }
 
@@ -516,7 +714,16 @@ function describeEvent(event: SenseEvent, brain: NpcBrain): string {
     if (event.details.source === 'device') {
       line += ` (a machine, ${where})`;
     } else if (handle) {
-      line += ` (person ${handle}, ${where})`;
+      const to = event.details.said_to;
+      const toWhom =
+        to === 'me'
+          ? ', speaking to you'
+          : to === 'other'
+            ? `, speaking to ${String(event.details.said_to_name)}`
+            : to === 'group'
+              ? ', speaking to everyone there'
+              : '';
+      line += ` (person ${handle}, ${where}${toWhom})`;
     } else {
       line += ` (someone you cannot see, ${where})`;
     }
@@ -533,69 +740,57 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
   switch (event.kind) {
     case 'person_in_view':
       return line.includes('you have not seen them before');
+    case 'knowledge':
+      // Being walked out of a room by the arm is something to have a word about.
+      return !!event.details.put_out_of && brain.peopleInView.length > 0;
     case 'speech_heard':
       // Machines chatter constantly; their words are kept for context only.
       if (event.details.source !== 'person') {
         return false;
       }
-      // Speech wakes the LLM when it is plainly meant for this NPC: its name was used, the speaker
-      // is right beside it, or the speaker is the only other person there. In a group, unnamed
-      // talk is heard and remembered but not answered. Without this a roomful of NPCs never
-      // stops talking.
-      if (!mentionsName(brain, event) && brain.peopleInView.length > 1) {
+      // Speech wakes the LLM when it was said to this NPC, or put to several people of whom it is
+      // the nearest. What was said to someone else, or to nobody in particular, is heard and
+      // remembered but not answered: see addressing.ts. Without this a roomful of NPCs never
+      // stops talking, and answers for each other.
+      if (
+        event.details.said_to !== 'me' &&
+        !(event.details.said_to === 'group' && event.details.nearest_bot)
+      ) {
         return false;
       }
       brain.lastSpokenToAt = Date.now();
+      brain.remarksUnanswered = 0;
       return hearSpeaker(brain, event);
     default:
       return false;
   }
 }
 
-/** The words of a name or job title that are long enough to pick out in speech. */
-function nameParts(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((part) => part.length > 2);
-}
-
-/** How close (in tiles) a speaker must be for unnamed talk to count as said to this NPC. */
-const SPOKEN_TO_DISTANCE = 1;
-
-/**
- * TRUE if what was said is addressed to this NPC. It is if it includes the NPC's first or last
- * name. Failing that, and provided nobody else in view is named, it is if the speaker is standing
- * right beside the NPC, or, for crew who serve at a post, if it uses their job ("Hey, cargo
- * technician").
- */
-function mentionsName(brain: NpcBrain, event: SenseEvent): boolean {
-  const heard = String(event.details.message ?? '').toLowerCase();
-  if (nameParts(brain.name).some((part) => heard.includes(part))) {
-    return true;
+/** TRUE if no other NPC that heard this line is nearer whoever said it. Of two as near, the first goes. */
+function nearestToSpeaker(npc: Npc, event: SenseEvent, npcs: Npc[]): boolean {
+  const distanceOf = (heard: SenseEvent) =>
+    typeof heard.details.distance === 'number' ? heard.details.distance : 99;
+  const mine = distanceOf(event);
+  for (const other of npcs) {
+    if (other.id === npc.id) {
+      continue;
+    }
+    const same = other.events.find(
+      (heard) =>
+        heard.kind === 'speech_heard' &&
+        heard.details.speaker === event.details.speaker &&
+        heard.details.message === event.details.message &&
+        Math.abs(heard.at - event.at) <= SAME_LINE_DS,
+    );
+    if (!same) {
+      continue;
+    }
+    const theirs = distanceOf(same);
+    if (theirs < mine || (theirs === mine && other.id < npc.id)) {
+      return false;
+    }
   }
-  if (namesSomeoneElse(brain, event)) {
-    return false;
-  }
-  // Someone standing right beside the NPC and talking, with nobody else named, is talking to it.
-  // Left unanswered because a third person happened to be in view, they would be right to feel ignored.
-  const distance = event.details.distance;
-  if (typeof distance === 'number' && distance <= SPOKEN_TO_DISTANCE) {
-    return true;
-  }
-  return (
-    !!brain.post && nameParts(brain.job).some((part) => heard.includes(part))
-  );
-}
-
-/** TRUE if what was said names someone in view other than this NPC and the speaker. */
-function namesSomeoneElse(brain: NpcBrain, event: SenseEvent): boolean {
-  const heard = String(event.details.message ?? '').toLowerCase();
-  return brain.peopleInView.some(
-    (person) =>
-      person.name !== event.details.speaker &&
-      nameParts(person.name).some((part) => heard.includes(part)),
-  );
+  return true;
 }
 
 /** Notes that a person spoke and returns whether this NPC is still willing to be woken by them. */
@@ -616,21 +811,37 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
     return false;
   }
   brain.pendingSpeakers.add(speaker);
+  // What they say next, with no name in it, is still for this NPC.
+  brain.inTalkWith = {
+    name: String(event.details.speaker ?? ''),
+    at: Date.now(),
+  };
   return true;
 }
 
 // --- LLM calls out ----------------------------------------------------------
 
-/** Starts the next waiting NPC's LLM call, if the LLM is free. */
+/**
+ * Starts the next LLM call, if the LLM is free. Talk comes first, because someone is waiting on an
+ * answer. A choice between jobs goes when no talk is ready to.
+ */
 function pump(): void {
-  if (running || queue.length === 0) {
+  if (running) {
     return;
+  }
+  if (!startTalk()) {
+    startChoice();
+  }
+}
+
+/** Starts the next waiting NPC's talk, if it is time for it. Returns TRUE if a call was started. */
+function startTalk(): boolean {
+  while (queue.length > 0 && !brains.get(queue[0])) {
+    queue.shift();
   }
   const brain = brains.get(queue[0]);
   if (!brain) {
-    queue.shift();
-    pump();
-    return;
+    return false;
   }
   const wait =
     Math.max(
@@ -644,16 +855,136 @@ function pump(): void {
         pump();
       }, wait);
     }
-    return;
+    return false;
   }
   queue.shift();
   running = true;
   void think(brain);
+  return true;
+}
+
+/** Starts the next choice between jobs that some NPC is still waiting on. */
+function startChoice(): void {
+  while (choiceQueue.length > 0) {
+    const brain = brains.get(choiceQueue.shift() ?? '');
+    // The body may have stopped waiting and gone on with the code's own order.
+    if (brain?.choosing) {
+      running = true;
+      void chooseJob(brain);
+      return;
+    }
+  }
+}
+
+/**
+ * Asks the LLM which of an NPC's jobs it does first, and keeps the answer as its choice. The
+ * question is small and stands by itself: see choice.ts. If the LLM gives no answer that can be
+ * used, the code's own order is taken, and if the body has stopped waiting the answer is dropped.
+ */
+async function chooseJob(brain: NpcBrain): Promise<void> {
+  const mySession = session;
+  const asked = brain.choosing;
+  // The jobs as they stand now, in the code's own order: some may have gone while it waited its turn.
+  const options = workInOrder(brain).filter(
+    ({ task, plan }) => plan.ready && !!asked?.options.includes(task.id),
+  );
+  const settle = (task: number | undefined, why: string): boolean => {
+    if (brain.choosing !== asked) {
+      return false;
+    }
+    brain.choosing = null;
+    if (task !== undefined) {
+      brain.choice = { task, why, at: Date.now() };
+    }
+    return true;
+  };
+  if (options.length < 2) {
+    settle(options[0]?.task.id, '');
+    running = false;
+    pump();
+    return;
+  }
+  const call = buildChoice(brain, options);
+  const started = Date.now();
+  let raw = '';
+  let error = '';
+  let promptTokens = 0;
+  let picked: { task: number; why: string } | null = null;
+  try {
+    const answer = await callOllama(
+      [
+        { role: 'system', content: call.system },
+        { role: 'user', content: call.user },
+      ],
+      call.schema,
+      CHOICE_MAX_TOKENS,
+      CHOICE_TIMEOUT_MS,
+    );
+    if (mySession !== session) {
+      return;
+    }
+    raw = answer.text;
+    promptTokens = answer.promptTokens;
+    picked = readChoice(raw, call.letters);
+    if (!picked) {
+      error = 'The reply named none of the jobs.';
+    }
+  } catch (caught) {
+    if (mySession !== session) {
+      return;
+    }
+    error = caught instanceof Error ? caught.message : String(caught);
+  }
+  const own = options[0].task;
+  const chosen = options.find(({ task }) => task.id === picked?.task)?.task;
+  const inTime = settle((chosen ?? own).id, chosen ? (picked?.why ?? '') : '');
+  const outcome = !inTime
+    ? `Too late: the body had already gone on with its work.${chosen ? ` The answer was to ${describeTask(brain, chosen)}.` : ''}`
+    : chosen
+      ? `Chose to ${describeTask(brain, chosen)}${picked?.why ? `: "${picked.why}"` : ''}${chosen === own ? '' : ` (the code's own order had ${describeTask(brain, own)} first)`}`
+      : `No answer, so the code's own order stands: ${describeTask(brain, own)}.`;
+  const ms = Date.now() - started;
+  brain.lastChoice = {
+    time: new Date().toLocaleTimeString(),
+    asked: call.user,
+    outcome,
+    ms,
+    promptTokens,
+    error: error || undefined,
+  };
+  const send = act;
+  const record = {
+    npc: brain.id,
+    kind: 'decision',
+    trigger: `CHOICE (LLM) between jobs:${NEWLINE}${call.user}`,
+    context: '',
+    reply: `${raw}${NEWLINE}${outcome}`,
+    error,
+    ms,
+    tokens: promptTokens,
+  };
+  setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
+  running = false;
+  notify();
+  pump();
 }
 
 /** Asks the LLM what one NPC does about its pending sense reports, then carries out its tool calls. */
 async function think(brain: NpcBrain): Promise<void> {
   const mySession = session;
+  // A line its work called for may have stopped needing to be said while it waited its turn: a
+  // workmate asked the question first, say. With nothing else to answer, it says nothing at all.
+  if (brain.mustSay !== null && brain.mustSayIf && !brain.mustSayIf()) {
+    brain.mustSay = null;
+    if (brain.pending.length === 0 && brain.pendingSpeakers.size === 0) {
+      brain.wake = false;
+      brain.status = 'idle';
+      running = false;
+      notify();
+      pump();
+      return;
+    }
+  }
   const everything = brain.pending.splice(0);
   // A long backlog is mostly things that no longer matter. Only the latest of it is sent.
   const report =
@@ -664,51 +995,32 @@ async function think(brain: NpcBrain): Promise<void> {
         ]
       : everything;
   const speakers = [...brain.pendingSpeakers];
-  // Every report opens with where the body is and what it can see, and ends with what it can do.
-  const options = availableOptions(
-    brain,
-    speakers.length > 0,
-    report.filter((line) => line.includes(' says: ')).join(' '),
-  );
-  const trigger = [
-    ...describeView(brain),
-    ...report,
-    ...describeSituation(brain),
-    ...(speakers.length > 0
-      ? [
-          'Someone has just spoken near you. If it was to you, answer in "say".',
-          ...[describeWorkTold(brain)].filter(Boolean),
-        ]
-      : []),
-    ...describeOptions(options),
-  ].join(NEWLINE);
+  // A line the driver needs said this turn. If the LLM gives none, this is said as it stands.
+  let mustSay = brain.mustSay;
+  const mustSayNeeds = brain.mustSayNeeds;
+  const mustSayIf = brain.mustSayIf;
+  // A remark of its own is only for when nobody is waiting on an answer and no line is called for.
+  const remark = brain.remarkDue && speakers.length === 0 && mustSay === null;
+  brain.remarkDue = false;
+  // What it is sent depends on what kind of moment this is: see talk.ts.
+  const call = buildTalk(brain, { report, speakers, mustSay, remark });
+  const { messages, trigger, superior, toldBy, ordered } = call;
+  const { feelAbout, workTold: told } = call.parts;
+  // What it heard and is now being told of becomes part of the talk so far.
+  for (const said of brain.talkLog) {
+    said.reported = true;
+  }
   brain.pendingSpeakers.clear();
   brain.wake = false;
-  // A line the driver needs said this turn. If the LLM gives none, this is said as it stands.
-  const mustSay = brain.mustSay;
   brain.mustSay = null;
+  brain.mustSayNeeds = null;
+  brain.mustSayIf = null;
   brain.sayingNow = mustSay !== null;
   brain.status = 'thinking';
   // It may have waited its turn for the LLM a good while. It stands still from here until it has spoken.
   stopToTalk(brain);
   notify();
 
-  const userMessage: ChatMessage = { role: 'user', content: trigger };
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: buildSystemPrompt(
-        brain.name,
-        brain.job,
-        brain.card,
-        brain.notes,
-        describeMemory(brain, brain.now),
-        brain.post,
-      ),
-    },
-    ...brain.history,
-    userMessage,
-  ];
   const started = Date.now();
   const decision: Decision = {
     time: new Date().toLocaleTimeString(),
@@ -720,17 +1032,7 @@ async function think(brain: NpcBrain): Promise<void> {
 
   let rawReply = '';
   try {
-    // How it feels is asked about whoever has just spoken to it, and nobody else: someone merely
-    // walking into view has done nothing to like or dislike.
-    const feelAbout = brain.peopleInView
-      .map((person) => person.handle)
-      .filter((handle) => speakers.includes(handle));
-    // Likewise it is asked whether it has been told of work only when someone has spoken to it.
-    const told = feelAbout.length > 0 ? workTold(brain) : null;
-    let answer = await callOllama(
-      messages,
-      buildReplySchema(options, true, feelAbout, told),
-    );
+    let answer = await callOllama(messages, call.schema);
     let reply = answer.text;
     decision.promptTokens = answer.promptTokens;
     if (mySession !== session) {
@@ -741,7 +1043,7 @@ async function think(brain: NpcBrain): Promise<void> {
     if (!isCompleteReply(reply)) {
       answer = await callOllama(
         messages,
-        buildReplySchema(options, false, feelAbout, told),
+        buildReplySchema({ ...call.parts, think: false }),
       );
       reply = answer.text;
       if (mySession !== session) {
@@ -754,28 +1056,61 @@ async function think(brain: NpcBrain): Promise<void> {
     const alone = brain.peopleInView.length === 0 && speakers.length === 0;
     // Nor is anything said of its own accord that it has said before: a remark made twice is a
     // broken record. An answer to someone, or a line its work calls for, is said regardless.
+    // The same goes for the seconds the LLM took: if the line no longer needs saying, it is not
+    // said, and nor is whatever the LLM made of it.
+    const dropped = mustSay !== null && !!mustSayIf && !mustSayIf();
+    if (dropped) {
+      mustSay = null;
+    }
+    // Nor is a line said that is only the model's way of saying it has nothing to say.
     const unprompted = speakers.length === 0 && !mustSay;
-    const actions = parseReply(reply).filter(
+    const replied = parseReply(reply);
+    for (const action of replied) {
+      if (action.tool === 'say') {
+        action.text = withoutHandles(
+          String(action.text ?? ''),
+          brain.peopleInView,
+        );
+      }
+    }
+    const actions = replied.filter(
       (action) =>
         action.tool !== 'say' ||
-        !(alone || (unprompted && saidBefore(brain, String(action.text ?? '')))),
+        !(
+          alone ||
+          (dropped && speakers.length === 0) ||
+          (unprompted &&
+            (isFiller(String(action.text ?? '')) ||
+              saidBefore(brain, String(action.text ?? ''))))
+        ),
     );
     if (mustSay && !alone && !actions.some((action) => action.tool === 'say')) {
       actions.unshift({ tool: 'say', text: mustSay });
     }
-    let savedNote = '';
-    let feltChange: Action | null = null;
-    // Whoever spoke is who told it of any work, and who will want to hear when it is done.
-    const toldBy = brain.peopleInView.find((seen) =>
-      feelAbout.includes(seen.handle),
-    )?.name;
-    let tookWork = false;
+    // Someone else's next step hangs on hearing a name, or a plain yes, in this line. If the LLM
+    // left it out, the plain line is said in its place.
+    if (mustSay && mustSayNeeds) {
+      for (const action of actions) {
+        if (
+          action.tool === 'say' &&
+          !mustSayNeeds.test(String(action.text ?? ''))
+        ) {
+          action.text = mustSay;
+        }
+      }
+    }
+    let tookWork = !!ordered;
+    if (ordered) {
+      decision.calls.push(
+        `work(${describeTask(brain, ordered)}) [an order, made out from what was said]`,
+      );
+    }
     let ledSomeone = false;
     for (const action of actions) {
       if (action.tool === 'remember') {
-        // A note that repeats one the NPC already has is dropped, and not shown as a decision.
-        savedNote = addNote(brain.notes, String(action.note ?? ''));
-        if (!savedNote) {
+        // A note that repeats one the NPC already has, or only says who was where, is dropped,
+        // and not shown as a decision.
+        if (!addNote(brain, String(action.note ?? ''))) {
           continue;
         }
       } else if (action.tool === 'feel') {
@@ -790,13 +1125,18 @@ async function think(brain: NpcBrain): Promise<void> {
         if (!person || !feeling) {
           continue;
         }
-        feltChange = action;
         decision.calls.push(
           `feel(${person.name}: ${action.change}, now "${describeFeeling(brain, person.name)}"; ${feeling.why})`,
         );
         continue;
       } else if (action.tool === 'work') {
-        const task = takeToldWork(brain, action.what, action.where, toldBy);
+        const task = takeToldWork(
+          brain,
+          action.what,
+          action.where,
+          toldBy,
+          !!superior,
+        );
         // Work that is not this job's, or is not in any room aboard, is not taken on.
         if (task) {
           tookWork = true;
@@ -831,6 +1171,8 @@ async function think(brain: NpcBrain): Promise<void> {
           if (asker) {
             action.for = asker.handle;
           }
+          // How many, and where to, are read off what was said. The LLM only says yes or no.
+          jobFor(brain.job).fills?.(brain, action, lastHeard);
         }
         runTool(brain, action);
       }
@@ -838,7 +1180,7 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // If it was told of work in so many words and did not say so, the work goes on its list anyway.
     if (told && !tookWork) {
-      const caught = workInWords(brain, report, toldBy);
+      const caught = workInWords(brain, report, toldBy, !!superior);
       if (caught) {
         tookWork = true;
         decision.calls.push(
@@ -851,22 +1193,30 @@ async function think(brain: NpcBrain): Promise<void> {
     if (ledSomeone && !tookWork) {
       brain.driveAfter = Date.now() + LEAD_PAUSE_MS;
     }
-    // History keeps what happened, not the snapshot of surroundings, which is stale by the next turn.
-    brain.history.push(
-      { role: 'user', content: report.join('\n') },
-      {
-        role: 'assistant',
-        content: replyForHistory(actions, savedNote, feltChange),
-      },
-    );
     if (actions.some((action) => action.tool === 'say')) {
       brain.lastSayAt = Date.now();
+      // A remark nobody asked for counts against the next one, until someone answers.
+      if (unprompted) {
+        brain.remarksUnanswered++;
+      }
       for (const action of actions) {
         if (action.tool === 'say') {
-          noteSaid(brain, String(action.text ?? ''));
+          const text = String(action.text ?? '');
+          noteSaid(brain, text);
+          // Whoever it has just spoken to by name is who it is talking with: what they say next,
+          // with no name in it, is meant for this NPC.
+          const spokeTo = brain.peopleInView.find((person) =>
+            new RegExp(`\\b${person.name.split(' ')[0]}\\b`, 'i').test(text),
+          );
+          if (spokeTo) {
+            brain.inTalkWith = { name: spokeTo.name, at: Date.now() };
+          }
         }
       }
       jobFor(brain.job).afterSaying?.(brain, mustSay);
+      guardAfterSaying(brain, mustSay);
+      meetingsAfterSaying(brain, mustSay);
+      ordersAfterSaying(brain, mustSay);
       // Anyone in view who was waiting to hear that a task was done has now been told.
       afterSaying(brain);
       // Having spoken up about a mess here, it need not be prompted to again for a while.
@@ -881,7 +1231,6 @@ async function think(brain: NpcBrain): Promise<void> {
         }
       }
     }
-    trimHistory(brain);
   } catch (error) {
     if (mySession !== session) {
       return;
@@ -903,10 +1252,23 @@ async function think(brain: NpcBrain): Promise<void> {
       if (request.tool === 'order' && asker) {
         request.for = asker.handle;
       }
+      // How many, and where to, are read off what was said, as they are when the LLM agrees.
+      if (request.tool === 'order') {
+        jobFor(brain.job).fills?.(brain, request, heard);
+      }
       runTool(brain, request);
       runTool(brain, { tool: 'say', text: 'I will see to it.' });
       decision.calls.push(`${formatAction(request)} [made out without the LLM]`);
       brain.lastSayAt = Date.now();
+    }
+    // Likewise work it was plainly told of, or ordered to do, still goes on its list.
+    if (speakers.length > 0 && !ordered) {
+      const caught = workInWords(brain, report, toldBy, !!superior);
+      if (caught) {
+        decision.calls.push(
+          `work(${describeTask(brain, caught)}) [made out without the LLM]`,
+        );
+      }
     }
     // The LLM being down must not leave the body dumb: what had to be said is said plainly.
     if (mustSay && brain.peopleInView.length > 0) {
@@ -914,6 +1276,9 @@ async function think(brain: NpcBrain): Promise<void> {
       decision.calls.push(`say(${JSON.stringify(mustSay)}) [the LLM gave none]`);
       brain.lastSayAt = Date.now();
       jobFor(brain.job).afterSaying?.(brain, mustSay);
+      guardAfterSaying(brain, mustSay);
+      meetingsAfterSaying(brain, mustSay);
+      ordersAfterSaying(brain, mustSay);
       afterSaying(brain);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment
@@ -947,13 +1312,11 @@ function logDecision(
   decision: Decision,
   rawReply: string,
 ): void {
-  // The fixed part of the prompt is long and rarely changes, so it is logged only when it does.
+  // The fixed part of the prompt rarely changes, so it is logged only when it does.
   const card = buildSystemPrompt(
     brain.name,
     brain.job,
     brain.card,
-    [],
-    [],
     brain.post,
   );
   if (card !== brain.loggedCard) {
@@ -966,11 +1329,8 @@ function logDecision(
     npc: brain.id,
     kind: 'decision',
     trigger: decision.trigger,
-    // What the NPC had in mind at the time: its notes and what it remembers of the station.
-    context: [
-      ...brain.notes.map((note) => `note: ${note}`),
-      ...describeMemory(brain, brain.now),
-    ].join(NEWLINE),
+    // What went with the fixed part this time: the notes, memory and earlier talk it was sent.
+    context: (decision.sent[0]?.content ?? '').slice(card.length).trim(),
     reply: rawReply,
     error: decision.error ?? '',
     ms: decision.ms,
@@ -993,10 +1353,13 @@ function isCompleteReply(reply: string): boolean {
 async function callOllama(
   messages: ChatMessage[],
   schema: object,
+  /** Most tokens the reply may run to, and how long the call may take. */
+  maxTokens = REPLY_MAX_TOKENS,
+  timeoutMs = THINK_TIMEOUT_MS,
 ): Promise<{ text: string; promptTokens: number }> {
   const controller = new AbortController();
   inFlight = controller;
-  const timeout = setTimeout(() => controller.abort(), THINK_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
@@ -1010,7 +1373,7 @@ async function callOllama(
         keep_alive: '30m',
         options: {
           temperature: TEMPERATURE,
-          num_predict: REPLY_MAX_TOKENS,
+          num_predict: maxTokens,
           num_ctx: CONTEXT_TOKENS,
         },
         messages,
@@ -1033,7 +1396,7 @@ async function callOllama(
     // Asking again would only do the same, so it is reported as what it is.
     if (
       body.done_reason === 'length' &&
-      (body.eval_count ?? 0) < REPLY_MAX_TOKENS
+      (body.eval_count ?? 0) < maxTokens
     ) {
       throw new Error(
         `The reply was cut off after ${body.eval_count ?? 0} tokens: the prompt came to ${promptTokens} tokens, which leaves no room in the model's ${CONTEXT_TOKENS}-token context window.`,
@@ -1065,6 +1428,11 @@ function runTool(brain: NpcBrain, action: Action): string | null {
   const serverTool = serverToolName(tool);
   if (!serverTool || !act) {
     return null;
+  }
+  if (tool === 'say') {
+    const text = String(action.text ?? '');
+    logTalk(brain, brain.name, text, true);
+    brain.lastSaid = { time: new Date().toLocaleTimeString(), text };
   }
   act('tool_call', { npc: brain.id, tool: serverTool, args });
   return serverTool;
@@ -1103,22 +1471,14 @@ function formatAction(action: Action): string {
   return `${tool}(${values})`;
 }
 
-/** Drops the oldest exchanges, always cutting at the start of a sense report. */
-function trimHistory(brain: NpcBrain): void {
-  let start = brain.history.length - HISTORY_MAX_MESSAGES;
-  if (start > 0) {
-    while (
-      start < brain.history.length &&
-      brain.history[start].role !== 'user'
-    ) {
-      start++;
-    }
-    brain.history.splice(0, start);
-  }
-  // Long reports make for long history. Whole exchanges are dropped, oldest first, until it fits.
-  const size = () =>
-    brain.history.reduce((total, message) => total + message.content.length, 0);
-  while (brain.history.length > 2 && size() > HISTORY_MAX_CHARS) {
-    brain.history.splice(0, 2);
+/**
+ * Keeps something that was said, by the NPC or in its hearing. The talk so far is sent to the LLM
+ * as plain lines of who said what. Its own earlier replies are not sent back to it as they were
+ * written: a small model copies the shape of what it wrote before, mistakes and all.
+ */
+function logTalk(brain: NpcBrain, who: string, text: string, own: boolean): void {
+  brain.talkLog.push({ who, text, own, reported: own, at: Date.now() });
+  if (brain.talkLog.length > TALK_LOG_KEPT) {
+    brain.talkLog.shift();
   }
 }

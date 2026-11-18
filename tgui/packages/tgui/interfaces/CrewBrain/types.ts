@@ -44,8 +44,41 @@ export type PersonInView = {
   name: string;
   /** The job shown on their ID, or '' if none can be seen. */
   job: string;
+  /** The room this person is standing in. Seeing someone does not put them in the room with you: there are windows. */
+  place?: string;
   /** For an observer with a post: TRUE if this person is standing inside it. */
   in_post?: BooleanLike;
+  /** For an observer with a post: TRUE if a door into it opens for this person, so they have a right to be in it. */
+  belongs?: BooleanLike;
+  /** TRUE if this person is the Captain or a head of staff, going by their ID. */
+  command?: BooleanLike;
+  /** TRUE if the observer answers to this person: the Captain, or the head of its own department. */
+  superior?: BooleanLike;
+};
+
+/**
+ * Someone in an NPC's post who has no right of their own to be there, and where things stand with
+ * them. All times are server time.
+ */
+export type Stranger = {
+  /** When they were first, and last, seen in there. */
+  seenAt: number;
+  lastSeenAt: number;
+  /** When they were last asked why they are there, and how many times they have been. */
+  askedAt?: number;
+  asks: number;
+  /** Who they say sent for them, if they named someone who works there. */
+  voucher?: string;
+  /** When that person was last asked whether they did, and how many times they have been. */
+  verifyAskedAt?: number;
+  verifyAsks: number;
+  /** How it came out: they may stay, or they have to go. */
+  verdict?: 'stay' | 'go';
+  /** When they were told they were being walked out. */
+  toldOutAt?: number;
+  /** The workmate who is seeing to them, and when that was last heard. */
+  handledBy?: string;
+  handledAt?: number;
 };
 
 /** A kind of thing the body can see right now, grouped by name. */
@@ -81,10 +114,22 @@ export type PersonSighting = {
   at: number;
 };
 
+/** One kind of thing a body has on it, for the window to show. The LLM is not told of these. */
+export type CarriedItem = {
+  name: string;
+  count: number;
+  /** In a hand; put away on the belt, the back, in a pocket or a bag; or worn as clothing. */
+  where: 'hand' | 'stowed' | 'worn';
+  /** TRUE if it is a tool of the body's trade. */
+  trade: BooleanLike;
+};
+
 export type Npc = {
   id: string;
   name: string;
   job: string;
+  /** Everything the body has on it. */
+  inventory?: CarriedItem[];
   awake: BooleanLike;
   /** Name of the room or area the body is standing in. */
   location: string;
@@ -126,6 +171,8 @@ export type Npc = {
   door_held_out: BooleanLike;
   /** Name of whoever let it into the room it is in, through a door it cannot open, or null. */
   let_in_by: string | null;
+  /** The room whose door it is standing at, wanting through, or null. */
+  at_door_of: string | null;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
   grenade_messes: number;
   /** What the body is in the middle of, in words, or null if it is free. */
@@ -159,6 +206,26 @@ export type Npc = {
   work_area_messes: Record<string, string[]> | null;
   /** Names of the janitors its PDA lists. */
   pda_janitors: string[] | null;
+  /** The room that is its office, if its job gives it one to go back to between errands. */
+  office?: string | null;
+  /** For a head: the room it calls its staff together in, one that is open to all of them. */
+  meeting_room?: string | null;
+  /** Everyone its PDA lists, with the job the PDA shows for each. */
+  pda_people?: { name: string; job: string }[] | null;
+  /** The room the order it has on the go is to be delivered to, or null if it is left in the lobby. */
+  deliver_to?: string | null;
+  /** TRUE if a crate it tipped out at a delivery has yet to be taken back to the bay. */
+  crate_to_return?: BooleanLike;
+  /** The rooms of its department, beyond its post and where it serves, that its own ID opens. */
+  look_in_rooms?: string[] | null;
+  /** Those of its rooms, its post among them, that every door into is locked to the crew at large. */
+  closed_rooms?: string[] | null;
+  /** TRUE if someone else at its post has lately sent for a janitor. */
+  workmate_called?: BooleanLike;
+  /** TRUE while someone has it by the arm and is walking it out of a room. */
+  in_hand?: BooleanLike;
+  /** TRUE if the room it is in is locked to it: none of its doors open for it. */
+  out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
   blocked_places: string[] | null;
   /** Highest event number this window has already told the server it dealt with. */
@@ -242,6 +309,12 @@ export type Task = {
   doneAt?: number;
   /** TRUE once whoever asked has been told it is done. */
   reported?: boolean;
+  /** For an order: the room the NPC was in when it was given, which is where it goes back to report. */
+  from?: string;
+  /** For an order to go and look: what it found, in the words it will report it in. */
+  found?: string;
+  /** For an order: TRUE if a PDA message to whoever gave it could not be sent. */
+  pdaFailed?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -273,6 +346,14 @@ export type Plan = {
   act?: Action;
   /** If ready and the step is something to say: the plain line used if the LLM comes up with none. */
   say?: string;
+  /**
+   * If the step is something to say: what the line has to have in it, a name or a plain yes, say,
+   * because someone else's next step hangs on hearing it. A line from the LLM without it is not
+   * used: the plain line is said.
+   */
+  needs?: RegExp;
+  /** If the step is something to say: FALSE once it no longer needs saying, checked just before it is said. */
+  sayIf?: () => boolean;
   /** If not ready: TRUE if the thing to do meanwhile is stay put, not wander off and pass the time. */
   wait?: boolean;
 };
@@ -315,7 +396,22 @@ export type NpcBrain = {
   now: number;
   /** Highest event number already folded into this brain. */
   lastSeq: number;
-  history: ChatMessage[];
+  /**
+   * What has been said lately in its hearing, and by it, oldest first. `reported` is FALSE for
+   * something it heard that has yet to go to the LLM as news: that goes in the report, not here.
+   */
+  talkLog: {
+    who: string;
+    text: string;
+    own: boolean;
+    reported: boolean;
+    /** When it was said, in this window's clock (milliseconds). */
+    at: number;
+  }[];
+  /** TRUE when it has a quiet moment in company and may pass a remark, if it has one. */
+  remarkDue: boolean;
+  /** How many remarks it has passed of its own accord since anyone last spoke to it or came into view. */
+  remarksUnanswered: number;
   notes: string[];
   /** Handles of people this NPC has seen come into view before. */
   seenHandles: Set<string>;
@@ -353,18 +449,109 @@ export type NpcBrain = {
   doorOpen: boolean;
   /** TRUE while someone is holding a door open for it. */
   doorHeld: boolean;
+  /** The room a door is being held open for it to go into, or null: a door held for one room is no way into another. */
+  doorHeldFor: string | null;
   /** TRUE while a door is being held open to let it out of the room it is in. */
   doorHeldOut: boolean;
+  /** Where the door being held to let it out leads, if the server said: that is where it goes. */
+  doorOutTo: string | null;
   /** The room it was in before the one it is in now, or null. The way back out. */
   cameFrom: string | null;
   /** Name of whoever let it into the room it is in, through a door it cannot open, or null. */
   letInBy: string | null;
+  /** The room whose door it is standing at, wanting through, or null. */
+  atDoorOf: string | null;
+  /**
+   * The door the body last reported reaching: the room it is the door of, the room the body was
+   * in, and when (this window's clock). Kept so that a body told it has arrived is not sent to the
+   * same door again because the server has yet to say it is standing there.
+   */
+  doorReached: { place: string; from: string; at: number } | null;
+  /** The rooms of its department, beyond its post, that it looks in on when it has nothing to do. */
+  lookInRooms: string[];
+  /** Those of its rooms that are behind doors the crew at large cannot open. */
+  closedRooms: string[];
+  /** When someone last came into its view, in this window's clock (milliseconds). */
+  lastArrivalAt: number;
+  /** When it last looked in on, or gave up on reaching, each of those rooms (server time). */
+  lookedIn: Record<string, number>;
   /** Who was standing in the way of something it was hauling, and when (this window's clock). */
   inTheWay: { handle: string; at: number } | null;
   /** Who last asked, in its hearing, for a door to be opened, and when (server time). */
-  doorAsked: { name: string; at: number } | null;
+  doorAsked: {
+    name: string;
+    at: number;
+    /** The room whose door they mean, if they said: by PDA they do. */
+    room?: string;
+    /** TRUE if they asked to be let out, FALSE if in. */
+    out?: boolean;
+    /** TRUE if they asked by PDA, so that the answer goes back the same way. */
+    byPda?: boolean;
+    /** TRUE once they have been told no. */
+    refused?: boolean;
+  } | null;
+  /** The door of one of its rooms that someone has knocked at, and when (server time). A knock does not say who. */
+  knockAt: { room: string; at: number; inside: boolean } | null;
+  /** The handle the server knows each person it has seen by, by name: a door hides someone it must still point at. */
+  handles: Record<string, string>;
+  /** Who it was last talking with, and when (this window's clock): what they say next is for it. */
+  inTalkWith: { name: string; at: number } | null;
+  /**
+   * Things it means to tell someone, in order. Each is said out loud when they are in view, or
+   * sent by PDA if it is marked for that, and then dropped.
+   */
+  toTell: {
+    to: string;
+    line: string;
+    /** Why it is saying it, for the report. */
+    why: string;
+    byPda?: boolean;
+    /** When it was thought of (this window's clock). Stale ones are dropped unsaid. */
+    at: number;
+  }[];
+  /**
+   * What it has done about being shut in the room it is in: who it has asked, and whether it has
+   * knocked and sent word. It asks each person once, and again only when someone new turns up.
+   */
+  outAsks: { room: string; asked: string[]; knocked: boolean; messaged: boolean } | null;
+  /** Fire doors that stopped it: the room whose alarm shut them, whether that alarm was only pulled, and when (this window's clock). */
+  fireDoors: { place: string; pulled: boolean; at: number } | null;
+  /** When it last reset the fire alarm of each room (this window's clock). */
+  alarmResets: Record<string, number>;
+  /** Rooms it is keeping out of because of their fire doors, and until when (this window's clock). */
+  fireClosed: Record<string, number>;
   /** When it last asked to be let into each room that is locked to it (server time), and how many times. */
-  letInAsks: Record<string, { at: number; count: number }>;
+  letInAsks: Record<
+    string,
+    {
+      at: number;
+      count: number;
+      /** What it has done to be let in: knocked, sent word, and said so to someone in sight. */
+      knocked?: boolean;
+      messaged?: boolean;
+      said?: boolean;
+    }
+  >;
+  /** People in its post with no right of their own to be there, by name. */
+  strangers: Record<string, Stranger>;
+  /** Names of the people it has seen who have a right to be in its post: those it works with, and its betters. */
+  workmates: Set<string>;
+  /** Who it has sent for or let into its post, by name, and when (server time). */
+  sentFor: Record<string, number>;
+  /** Who has asked it why it is in the room it is in, and when (server time). */
+  challenged: { by: string; at: number } | null;
+  /** Who has asked it whether it sent for someone, whom, and when (server time). */
+  vouchAsked: { by: string; about: string; at: number } | null;
+  /** A workmate's question it overheard, about whether someone sent for a stranger: whom, who was asked, and when. */
+  verifyHeard: { about: string; voucher: string | null; at: number } | null;
+  /** TRUE if someone else at its post has lately sent for a janitor. */
+  workmateCalled: boolean;
+  /** TRUE while someone has it by the arm and is walking it out of a room. */
+  inHand: boolean;
+  /** TRUE if the room it is in is locked to it: none of its doors open for it. */
+  outOfBounds: boolean;
+  /** How many walks out have failed while it was shut in and a door stood open. */
+  openDoorTries: number;
   /** The last few things it said, so that it does not say them again. */
   saidLately: { text: string; at: number }[];
   /** While shut in, the driver does not try the door again before this time (milliseconds). */
@@ -386,10 +573,37 @@ export type NpcBrain = {
     act: Action;
     task?: number;
   } | null;
+  /**
+   * The job it has chosen to do first out of its routine work, why, and when (this window's
+   * clock). It stands until that job is done or can no longer be got on with. `why` is '' when the
+   * LLM gave no answer and the code's own order was taken.
+   */
+  choice: { task: number; why: string; at: number } | null;
+  /**
+   * A choice the LLM has been asked for and has not yet answered: the tasks it is between, by id,
+   * and when the body stops waiting for the answer (this window's clock).
+   */
+  choosing: { options: number[]; until: number } | null;
+  /** When the LLM was last asked to choose between its jobs, in this window's clock (milliseconds). */
+  lastChoiceAt: number;
+  /** The last choice the LLM was asked for, for the window to show. */
+  lastChoice?: {
+    time: string;
+    /** What it was asked. */
+    asked: string;
+    /** What came of it, in words. */
+    outcome: string;
+    ms: number;
+    promptTokens: number;
+    error?: string;
+  };
   /** Steps that came to nothing lately, by key, and when each may be tried again. */
   failures: Map<string, { count: number; until: number }>;
   /** A line the NPC has to say this turn: used as it stands if the LLM comes up with none. */
   mustSay: string | null;
+  /** What that line has to have in it, and whether it still needs saying: see Plan. */
+  mustSayNeeds: RegExp | null;
+  mustSayIf: (() => boolean) | null;
   /** TRUE while the LLM is being asked to put that line in the NPC's own words. */
   sayingNow: boolean;
   /** When the body first held still for someone talking to it, or 0 if it is not doing so. */
@@ -398,6 +612,10 @@ export type NpcBrain = {
   lastSpokenToAt: number;
   /** The last step the driver took, for the window to show. */
   lastRoutine?: { time: string; text: string; act: string };
+  /** The last thing it said out loud, for the window to show. */
+  lastSaid?: { time: string; text: string };
+  /** The last piece of work it finished, for the window to show: a finished task is soon dropped from the list. */
+  lastJob?: { time: string; what: string };
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
   grenadeMesses: number;
   /** TRUE if the body holds a mop that is dry, with no sink in sight to wet it at. */
@@ -419,6 +637,66 @@ export type NpcBrain = {
   areaMesses: Record<string, string[]>;
   /** Names of the janitors its PDA lists. */
   janitorsOnPda: string[];
+  /** The room that is its office, if its job gives it one to go back to between errands. */
+  office: string | null;
+  /** For a head: the room it calls its staff together in, as the server names it, or null to go by its department's. */
+  meetingRoom: string | null;
+  /** Everyone its PDA lists, with the job the PDA shows for each. */
+  pdaPeople: { name: string; job: string }[];
+  /** The room the order it has on the go is to be delivered to, or null if it is left in the lobby. */
+  deliverTo: string | null;
+  /** TRUE if a crate it tipped out at a delivery has yet to be taken back to the bay. */
+  crateToReturn: boolean;
+  /** Server world time (deciseconds) this NPC was first heard of: the start of its shift. */
+  bornAt: number;
+  /** Server world time (deciseconds) it last told its head what it needs for its work, or null. */
+  toldHeadAt: number | null;
+  /** The room its PDA last said supplies had been left for it in, or null. */
+  suppliesAt: string | null;
+  /** A staff meeting its head has called it to: who, where, when, when the head asked the room, and whether it has said its piece. */
+  summons: {
+    by: string;
+    room: string;
+    at: number;
+    askedAt: number | null;
+    said: boolean;
+    /** TRUE once it has found it cannot get into the room. It sends its answer by PDA instead. */
+    shutOut?: boolean;
+  } | null;
+  /** For a head: what its staff have asked for, and how far each has got. */
+  asks: {
+    who: string;
+    what: string;
+    at: number;
+    ordered: boolean;
+    told: boolean;
+  }[];
+  /** For a head: the staff meeting it is holding, who has been sent word of it, and when it asked the room. */
+  meeting: {
+    calledAt: number;
+    room: string;
+    invited: string[];
+    askedAt: number | null;
+  } | null;
+  /** For a head: server time the next staff meeting is due, and whether it has held one yet. */
+  nextMeetingAt: number;
+  metOnce: boolean;
+  /** For a head: the order it is putting in with cargo for its staff. */
+  requisition: {
+    crate: string;
+    /** What it is, as it is said. */
+    what: string;
+    count: number;
+    /** The room it is to be delivered to. */
+    room: string;
+    /** Who it is for. */
+    people: string[];
+    /** Server time it was put to cargo, or null if it has yet to be. */
+    askedAt: number | null;
+    /** TRUE once someone from cargo has answered since it was put to them. */
+    heardBack: boolean;
+    startedAt: number;
+  } | null;
   /** Names of the rooms it lately found no way into. */
   blockedPlaces: string[];
   /** The janitor it last called to each room, when (server time), and how many times it has called. */

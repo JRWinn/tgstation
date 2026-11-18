@@ -1,9 +1,10 @@
 /**
  * The janitor: keeps the station clean, and has to find something to clean with before it can.
  *
- * All of the work is decided here, in code: where the supplies are, which tool to take, wetting a
- * mop, which mess comes next. The LLM is only asked to speak: to answer people, to take note of a
- * mess it is told of, and to ask cargo for supplies when the code says it is time to.
+ * How the work is done is decided here, in code: where the supplies are, which tool to take,
+ * wetting a mop. The LLM is asked to speak: to answer people, to take note of a mess it is told
+ * of, and to ask cargo for supplies when the code says it is time to. And with several messes it
+ * could go to, it is asked which comes first (see choice.ts).
  */
 import { allKnownItems, CARGO_LOBBY, knowsPlace } from '../memory';
 import {
@@ -17,6 +18,7 @@ import {
 import type { NpcBrain, Plan, Task } from '../types';
 import { isCargo } from './cargo';
 import type { Job } from './job';
+import { needStep } from './meetings';
 
 /** The kinds of task a janitor has: a mess to clean, and getting something to clean it with. */
 const CLEAN = 'clean';
@@ -27,13 +29,16 @@ export function isJanitor(title: string): boolean {
   return /janitor|custodian/i.test(title);
 }
 
-/** Items that will clean, by name. A cleaner grenade is not one: it is only for a big mess. */
-const CLEANING_SUPPLY = /soap|space cleaner|mop$/i;
+/**
+ * Items that will clean, by name. A damp rag is one: it comes in every crate of janitorial supplies,
+ * and with only a mop and a spray counted, a crate was good for two janitors and the rest stood
+ * round it empty-handed. A cleaner grenade is not one: it is only for a big mess. Nor is a push
+ * broom, which shifts rubbish and not what is on the floor.
+ */
+const CLEANING_SUPPLY = /soap|space cleaner|mop$|\brag$/i;
 
-/** How long (deciseconds) a janitor waits at the cargo counter for someone to turn up. */
+/** How long (deciseconds) a janitor waits at a locked door for someone who could open it to turn up. */
 const WAIT_AT_COUNTER_DS = 600;
-/** How long (deciseconds) a janitor waits on cargo before it asks again. */
-const ASK_AGAIN_DS = 2400;
 /** How long (deciseconds) a PDA message saying supplies are waiting is acted on. */
 const SUPPLIES_WAIT_DS = 6000;
 /** How long (deciseconds) a janitor must be in a room it was told is messy before it can say it saw no mess. */
@@ -44,17 +49,19 @@ const LOOK_ABOUT_DS = 50;
  * come off, or is somewhere the body could not get to. The body knows which; this only says so.
  */
 const BEYOND = 'what is left there cannot be got at, or is beyond what you are holding';
-/** The plain words a janitor asks cargo for supplies in, by which that line is known afterwards. */
-const ASKING_CARGO = 'could you order me a crate of janitorial supplies';
+/** What a janitor with nothing to clean with needs, in the words it asks its head for it in. */
+const NEED = 'something to clean with';
 /** The plain words a janitor asks to be let into a locked room in, by which that line is known afterwards. */
 const ASKING_IN = 'could you let me in';
-/** How long (deciseconds) it waits at the door after asking to be let in, and how many times it asks. */
-const LET_IN_WAIT_DS = 400;
-const LET_IN_ASKS = 2;
-/** How long (deciseconds) after nobody let it in before it comes back to try again. */
-const LET_IN_RETRY_DS = 3000;
+/** How long (deciseconds) it waits at the door after knocking and asking to be let in. */
+const LET_IN_WAIT_DS = 600;
+/** How long (deciseconds) after asking before someone who works there turning up is a reason to ask again. */
+const ASK_AGAIN_AFTER_DS = 600;
 /** What a mess task is waiting on when nobody came to let the body in. */
-const NOT_LET_IN = 'nobody let you in, and you will come back and ask again later';
+const NOT_LET_IN =
+  'nobody let you in, and you will ask again when someone who works there turns up';
+/** The words of a message that says no to letting it in. */
+const REFUSED_WORDS = /cannot let you in|can't let you in|nobody (here )?sent for you/i;
 /** What a mess task is waiting on when the body could not get into the room. */
 const NO_WAY_IN = 'you could not find a way in, and will try again later';
 /** What the LLM is given for the work a janitor takes on when told of it. */
@@ -63,18 +70,9 @@ const A_MESS = 'a mess that needs cleaning';
 const MESS_WORDS =
   /\b(mess|messy|blood|bloody|vomit|threw up|thrown up|puke|spill|spilled|spilt|oil|dirt|dirty|filth|filthy|stain|grime|ash|ashes)\b/;
 
-/** What a janitor is told about its job. The work itself needs no telling: the body does it. */
-const RULES = [
-  'Your job is keeping the station clean. Your body does that work by itself: it finds something to clean with, goes to the messes it knows of, and cleans them. Each report says what it is doing.',
-  'When someone tells you about a mess somewhere, tell them you will see to it and put it in "work", with the room it is in.',
-  'When a report tells you to ask someone for something, ask them: by name, outright, as a question.',
-  'Other janitors have no supplies to spare. Do not ask them for theirs.',
-];
-
-/** The name of someone in view who works in cargo, and so can be asked for supplies, if there is one. */
-function cargoStaffInView(brain: NpcBrain): string | null {
-  return brain.peopleInView.find((person) => isCargo(person.job))?.name ?? null;
-}
+/** What a janitor is told about its job, every time. The work itself needs no telling: the body does it. */
+const ABOUT =
+  'Your job is keeping the station clean. Your body does that work by itself: it finds something to clean with, goes to the messes it knows of, and cleans them.';
 
 /** TRUE if this janitor has nothing to clean with and has not yet looked up where the supplies are. */
 function mustFindSupplies(brain: NpcBrain): boolean {
@@ -121,17 +119,18 @@ function supplyStep(brain: NpcBrain): Plan {
     brain.suppliesSentAt !== null &&
     brain.now - brain.suppliesSentAt < SUPPLIES_WAIT_DS
   ) {
-    if (brain.location !== CARGO_LOBBY && knowsPlace(brain, CARGO_LOBBY)) {
+    const where = brain.suppliesAt ?? CARGO_LOBBY;
+    if (brain.location !== where && knowsPlace(brain, where)) {
       return {
         ready: true,
-        step: 'You have nothing to clean with, but your PDA says the supplies you asked for are waiting in the Cargo Lobby. You are going there to look in the crate.',
-        act: { tool: 'go_to', place: CARGO_LOBBY },
+        step: `You have nothing to clean with, but your PDA says what you asked for has come and is in the ${where}. You are going there to get it.`,
+        act: { tool: 'go_to', place: where },
       };
     }
-    if (brain.location === CARGO_LOBBY && brain.storageHere > 0) {
+    if (brain.location === where && brain.storageHere > 0) {
       return {
         ready: true,
-        step: 'You have nothing to clean with, but the supplies you asked for are in a crate in this room. You are looking through it.',
+        step: 'You have nothing to clean with, but what you asked for is somewhere in this room. You are looking through the storage here for it.',
         act: { tool: 'search' },
       };
     }
@@ -164,74 +163,36 @@ function supplyStep(brain: NpcBrain): Plan {
       act: { tool: 'go_to', place: unsearched[0] },
     };
   }
-  if (!knowsPlace(brain, CARGO_LOBBY)) {
-    return {
-      ready: true,
-      step: 'You have nothing to clean with and have not found any yet. You are looking round the station for some.',
-      act: { tool: 'explore' },
-    };
-  }
-  if (brain.askedCargo) {
-    return {
-      ready: false,
-      step: 'You have nothing to clean with, and you have asked cargo for supplies. Your PDA will tell you when they arrive.',
-    };
-  }
-  if (brain.location !== CARGO_LOBBY) {
-    return {
-      ready: true,
-      step: 'You have nothing to clean with and have found nothing where the supplies are kept. You are going to the Cargo Lobby to ask the cargo technician for some.',
-      act: { tool: 'go_to', place: CARGO_LOBBY },
-    };
-  }
-  // Supplies ordered for the janitors are left in the lobby, so anything unopened there comes first.
-  if (brain.storageHere > 0) {
-    return {
-      ready: true,
-      step: 'You have nothing to clean with. Supplies ordered for the janitors are left in this room, and you are looking through the storage here before you ask for more.',
-      act: { tool: 'search' },
-    };
-  }
-  const technician = cargoStaffInView(brain);
-  if (!technician) {
-    // Nobody at the counter. It waits a while, and then comes back later as if it had asked.
-    if (brain.now - brain.inPlaceSince > WAIT_AT_COUNTER_DS) {
-      brain.askedCargo = true;
-      brain.askedCargoAt = brain.now;
-      return {
-        ready: false,
-        step: 'You have nothing to clean with, and nobody from cargo came to the counter. You will try again later.',
-      };
-    }
-    return {
-      ready: false,
-      wait: true,
-      step: 'You have nothing to clean with. You are in the Cargo Lobby, waiting at the counter for someone from cargo to ask.',
-    };
-  }
-  return {
-    ready: true,
-    step: `You have nothing to clean with. ${technician}, who works in cargo, is here: in "say", ask ${technician} outright, as a question, to order you a crate of janitorial supplies.`,
-    say: `${technician.split(' ')[0]}, ${ASKING_CARGO}, please?`,
-  };
+  // Nothing where the gear is kept. Cargo only takes orders from heads of department, so it takes
+  // what it needs to the head it answers to, who orders for all their staff at once.
+  return needStep(brain, NEED);
 }
 
 /** What the LLM should know about the mess in front of the janitor, so that what it says is true. */
 function cues(brain: NpcBrain): string[] {
+  const lines: string[] = [];
+  // Only worth saying while it is looking for something to clean with, which is when it might ask.
+  if (!brain.cleaningTool && brain.peopleInView.some((person) => isJanitor(person.job))) {
+    lines.push(
+      'Other janitors have no supplies to spare. Do not ask them for theirs.',
+    );
+  }
   const messes = brain.thingsInView.filter((thing) => thing.kind === 'mess');
   if (messes.length === 0) {
-    return [];
+    return lines;
   }
   if (brain.cleanableMesses.length > 0 && brain.cleaningTool) {
-    return [
+    lines.push(
       `There is a mess here (${brain.cleanableMesses.join(', ')}), and it is yours to clean with your ${brain.cleaningTool}.`,
-    ];
+    );
+    return lines;
   }
-  return [
+  lines.push(
     brain.cleaningTool
       ? `There is a mess here that your ${brain.cleaningTool} will not shift. It needs soap or a wet mop.`
       : 'There is a mess here, but you have nothing to clean it with yet.',
-  ];
+  );
+  return lines;
 }
 
 /**
@@ -283,30 +244,27 @@ function syncTasks(brain: NpcBrain): void {
       messy.has(task.place) &&
       !workable.has(task.place);
     // A room it could not get into is left alone until the body is ready to try the way again.
+    // A door being held open for it is a way in, whatever it found a moment ago.
     const noWayIn =
-      task.place !== brain.location && brain.blockedPlaces.includes(task.place);
+      !brain.doorHeld &&
+      task.place !== brain.location &&
+      brain.blockedPlaces.includes(task.place);
     // A room it has been called to and has to be let into is another matter: the way in is to go
     // and ask. It is only left alone once it has asked and nobody came.
     if (task.via && task.place !== task.via && task.place !== brain.location) {
+      // It asks once: a knock, word to whoever called it, and a word to anyone in sight. There is
+      // no asking again on a timer. Someone who works there turning up is what starts it again.
       const asks = brain.letInAsks[task.place];
-      if (asks && brain.now - asks.at >= LET_IN_RETRY_DS) {
-        delete brain.letInAsks[task.place];
-      }
       const givenUp =
         !!asks &&
-        asks.count >= LET_IN_ASKS &&
+        hasAsked(brain, task, asks) &&
         brain.now - asks.at > LET_IN_WAIT_DS &&
-        brain.now - asks.at < LET_IN_RETRY_DS &&
         !brain.doorHeld;
       blockTask(task, givenUp ? NOT_LET_IN : null);
       continue;
     }
     blockTask(task, noWayIn ? NO_WAY_IN : beyondIt ? BEYOND : null);
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
-  }
-  // Having asked cargo and heard nothing in a good while, it is time to ask again.
-  if (brain.askedCargo && brain.now - brain.askedCargoAt > ASK_AGAIN_DS) {
-    brain.askedCargo = false;
   }
 
   const supplies = findTask(brain, SUPPLIES);
@@ -319,8 +277,9 @@ function syncTasks(brain: NpcBrain): void {
   blockTask(
     supplies ??
       addTask(brain, { kind: SUPPLIES, urgency: 'routine', source: 'own' }),
-    brain.askedCargo
-      ? 'you have asked cargo, and your PDA will tell you when the supplies come'
+    // Told its head and waiting to hear: nothing more to do about it for now.
+    !supplyStep(brain).ready && brain.toldHeadAt !== null
+      ? 'you have told your head what you need, and will hear when it has come'
       : null,
   );
 }
@@ -374,7 +333,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
 
 /**
  * Getting to a mess in a room that is locked to the janitor, which someone who works there called
- * it to: it goes to where they serve the crew, asks to be let in, and waits at the door. Once the
+ * it to: it goes and stands at the door, asks to be let in, and waits there. Once the
  * door is held for it, it goes through.
  */
 function letInStep(
@@ -383,52 +342,92 @@ function letInStep(
   place: string,
   via: string,
 ): Plan {
-  if (brain.doorHeld) {
+  // A door held open for it is the way in, if it is the door into this room: not the door of
+  // some other room, and not one being held to let it out of the room it is in.
+  if (brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === place) {
     return {
       ready: true,
       step: `The door into the ${place} is being held open for you, and you are going through to clean up the mess there.`,
       act: { tool: 'go_to', place },
     };
   }
-  if (brain.location !== via) {
-    return knowsPlace(brain, via)
-      ? {
-          ready: true,
-          step: `${task.askedBy ?? 'Someone'} called you to a mess in the ${place}, which is locked to you. You are going to the ${via} to be let in.`,
-          act: { tool: 'go_to', place: via },
-        }
-      : { ready: false, step: 'You do not know the way there.' };
-  }
-  const asks = brain.letInAsks[place];
-  if (asks && brain.now - asks.at < LET_IN_WAIT_DS) {
+  // It goes and stands at the door it wants through, so that whoever opens it knows which one.
+  if (brain.atDoorOf !== place) {
     return {
-      ready: false,
-      wait: true,
-      step: `You have asked to be let into the ${place}, and are waiting by the door.`,
+      ready: true,
+      step: `${task.askedBy ?? 'Someone'} called you to a mess in the ${place}, which is locked to you. You are going to stand at its door to be let in.`,
+      act: { tool: 'go_to_door', place },
     };
   }
-  if (asks && asks.count >= LET_IN_ASKS) {
-    return { ready: false, step: `Nobody has let you into the ${place}.` };
+  // A voice does not carry through a shut door, and whoever is inside may not be in sight. So it
+  // knocks, sends word to whoever called it, and says so to anyone it can see who works there:
+  // each of those once.
+  const asks = brain.letInAsks[place];
+  if (!asks?.knocked) {
+    return {
+      ready: true,
+      step: `You are at the door of the ${place}, which is locked to you. You are knocking, for whoever is inside.`,
+      act: { tool: 'knock' },
+    };
+  }
+  if (!asks.messaged && task.askedBy && brain.hasPda) {
+    return {
+      ready: true,
+      step: `You have knocked at the door of the ${place}. You are sending ${task.askedBy}, who called you, a PDA message to say you are there.`,
+      act: {
+        tool: 'message',
+        person: task.askedBy,
+        text: `I am at the door of the ${place} about the mess. C${ASKING_IN.slice(1)}, please?`,
+      },
+    };
   }
   const caller =
     brain.peopleInView.find((person) => person.name === task.askedBy) ??
     brain.peopleInView.find((person) => isCargo(person.job));
-  if (!caller) {
-    // Nobody to ask. It waits a while, and then gets on with other work and comes back later.
-    if (brain.now - brain.inPlaceSince > WAIT_AT_COUNTER_DS) {
-      brain.letInAsks[place] = { at: brain.now, count: LET_IN_ASKS };
-    }
+  if (!asks.said && caller) {
+    return {
+      ready: true,
+      step: `${caller.name} called you to clean up a mess in the ${place}, which is locked to you. You are standing at its door, and ${caller.name} is in sight: in "say", ask ${caller.name} outright to let you in.`,
+      say: `${caller.name.split(' ')[0]}, I am at the door about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
+      needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
+      // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
+      // for it would only get it opened a second time.
+      sayIf: () => !brain.doorHeld,
+    };
+  }
+  if (brain.now - asks.at < LET_IN_WAIT_DS) {
     return {
       ready: false,
       wait: true,
-      step: `You are waiting in the ${via} for someone to let you into the ${place}.`,
+      step: `You have knocked and asked to be let into the ${place}, and are waiting by the door.`,
     };
   }
   return {
-    ready: true,
-    step: `${caller.name} called you to clean up a mess in the ${place}, which is locked to you. ${caller.name} is here: in "say", ask ${caller.name} outright to let you in.`,
-    say: `${caller.name.split(' ')[0]}, I am here about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
+    ready: false,
+    step: `Nobody has let you into the ${place}. You will ask again when someone who works there turns up.`,
   };
+}
+
+/** TRUE once the body has done all it can to be let in: knocked, and sent word if there is anyone to send it to. */
+function hasAsked(
+  brain: NpcBrain,
+  task: Task,
+  asks: NpcBrain['letInAsks'][string],
+): boolean {
+  return !!asks.knocked && (!!asks.messaged || !task.askedBy || !brain.hasPda);
+}
+
+/** Notes one of the things the body has done to be let into a room, and when. */
+function noteAsked(
+  brain: NpcBrain,
+  place: string,
+  what: 'knocked' | 'messaged' | 'said',
+): void {
+  const asks = brain.letInAsks[place] ?? { at: brain.now, count: 0 };
+  asks[what] = true;
+  asks.at = brain.now;
+  asks.count++;
+  brain.letInAsks[place] = asks;
 }
 
 function describeTask(task: Task): string | null {
@@ -442,11 +441,31 @@ export const JANITOR: Job = {
   is: isJanitor,
   keepsPost: false,
   cleans: true,
-  rules: () => RULES,
+  about: () => ABOUT,
+  // With nothing to clean with and nowhere left to look for it, that is what it is short of.
+  needs: (brain) =>
+    !brain.cleaningTool &&
+    !allKnownItems(brain).some((item) => CLEANING_SUPPLY.test(item))
+      ? NEED
+      : null,
+  whenAsked: () => [
+    'If they tell you of a mess somewhere, tell them you will see to it.',
+  ],
   cues,
   syncTasks,
   plan,
   describeTask,
+  // What the mess is, as far as it remembers. Blood on the floor of the Bar is not dust in a tunnel.
+  weighs: (brain, task) => {
+    const seen =
+      task.kind === CLEAN && task.place
+        ? brain.places.get(task.place)?.things
+        : undefined;
+    const messes = [...(seen?.entries() ?? [])]
+      .filter(([, thing]) => thing.kind === 'mess')
+      .map(([name]) => name);
+    return messes.length > 0 ? `What you saw there: ${messes.join(', ')}.` : null;
+  },
   // A cleaner grenade is only ever for a spot with a lot of mess close together. The body knows
   // when it is standing by one, and that is the moment to use it.
   reflex: (brain) =>
@@ -492,8 +511,53 @@ export const JANITOR: Job = {
         return;
       }
     }
-    brain.askedCargo = false;
+    // Word back about a door it is waiting at: someone is coming, or it is not being let in.
+    if (/\bdoor\b|let you (in|out)|sent for you/i.test(text)) {
+      for (const [place, asks] of Object.entries(brain.letInAsks)) {
+        if (!heard.includes(place.toLowerCase())) {
+          continue;
+        }
+        if (REFUSED_WORDS.test(text)) {
+          // Told no. That mess is not its to get to, and it does not stand at the door for it.
+          brain.tasks = brain.tasks.filter(
+            (task) => !(task.kind === CLEAN && task.place === place && !!task.via),
+          );
+          delete brain.letInAsks[place];
+        } else {
+          // Someone is on the way. It waits by the door a while longer.
+          asks.at = at;
+        }
+      }
+      return;
+    }
+    // Word that what it asked for has come, and where it is.
     brain.suppliesSentAt = at;
+    brain.suppliesAt = placeNamedIn(brain, heard) ?? CARGO_LOBBY;
+    brain.toldHeadAt = null;
+  },
+  // Someone who works behind a door it is waiting at has turned up: the one reason to ask again.
+  meets: (brain, _name, job) => {
+    if (!isCargo(job)) {
+      return;
+    }
+    for (const [place, asks] of Object.entries(brain.letInAsks)) {
+      if (brain.now - asks.at > ASK_AGAIN_AFTER_DS) {
+        delete brain.letInAsks[place];
+      }
+    }
+  },
+  // What it has done to be let into a locked room, each thing once.
+  afterActing: (brain, act, task, ok) => {
+    if (task?.kind !== CLEAN || !task.place || !task.via) {
+      return;
+    }
+    // A knock that did not land is not a knock. It is tried again once it is back at the door.
+    if (act.tool === 'knock' && ok) {
+      noteAsked(brain, task.place, 'knocked');
+    }
+    if (act.tool === 'message') {
+      noteAsked(brain, task.place, 'messaged');
+    }
   },
   // Whoever told it of a mess hears that the mess is gone, which is true whoever cleaned it.
   sayDone: (task) =>
@@ -501,23 +565,16 @@ export const JANITOR: Job = {
   // Having asked cargo for supplies, it waits to hear. Only that line counts: anything else said
   // at the counter, a greeting or an answer, is not asking.
   afterSaying: (brain, called) => {
-    if (called?.includes(ASKING_CARGO)) {
-      brain.askedCargo = true;
-      brain.askedCargoAt = brain.now;
-    }
-    // Likewise, having asked to be let in somewhere, it waits by the door.
+    // Likewise, having asked out loud to be let in somewhere, it waits by the door.
     if (called?.toLowerCase().includes(ASKING_IN)) {
       for (const task of brain.tasks) {
         if (
           task.kind === CLEAN &&
           task.state !== 'done' &&
-          task.via === brain.location &&
+          brain.atDoorOf === task.place &&
           task.place
         ) {
-          brain.letInAsks[task.place] = {
-            at: brain.now,
-            count: (brain.letInAsks[task.place]?.count ?? 0) + 1,
-          };
+          noteAsked(brain, task.place, 'said');
         }
       }
     }

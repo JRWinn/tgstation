@@ -73,7 +73,7 @@
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		if(crate == ordered || crate.anchored || crew_npc_crate_spent(crate))
+		if(crate == ordered || crew_npc_crate_on_order(crate) || crate.anchored || crew_npc_crate_spent(crate))
 			continue
 		var/distance = get_dist(pawn, crate)
 		if(distance < nearest_distance)
@@ -87,7 +87,7 @@
 	var/list/crates = list()
 	for(var/area/room as anything in freight_rooms())
 		for(var/obj/structure/closet/crate/crate in room)
-			if(crate != ordered && !crate.anchored && isturf(crate.loc))
+			if(crate != ordered && !crew_npc_crate_on_order(crate) && !crate.anchored && isturf(crate.loc))
 				crates += crate
 	return crates
 
@@ -130,7 +130,7 @@
 	var/to_unload = 0
 	var/empties_aboard = 0
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		if(crate == ordered || crate.anchored)
+		if(crate == ordered || crew_npc_crate_on_order(crate) || crate.anchored)
 			continue
 		if(crew_npc_crate_spent(crate))
 			empties_aboard++

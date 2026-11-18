@@ -80,8 +80,12 @@
 	// Shut in, the thing to watch for is a door standing open: that is the moment to go.
 	open_door_in_view = FALSE
 	if(is_shut_in())
+		var/area/room = get_area(body)
 		for(var/obj/machinery/door/door in in_sight)
-			if(!door.density && (istype(door, /obj/machinery/door/airlock) || istype(door, /obj/machinery/door/window)))
+			if(door.density || !(istype(door, /obj/machinery/door/airlock) || istype(door, /obj/machinery/door/window)))
+				continue
+			// Only a door on the edge of the room is a way out of it. One inside it leads nowhere.
+			if(crew_npc_leads_out(door, room))
 				open_door_in_view = TRUE
 				break
 	cleanable_messes = list()
@@ -90,7 +94,8 @@
 	people_in_view = list()
 	for(var/mob/living/carbon/human/person in in_sight)
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf)))
+		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person)))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)
@@ -137,6 +142,8 @@
 	if(place != current_place)
 		current_place = place
 		looks_in_place = 0
+		// Whether it has any right of its own to be in here: worked out once, on the way in.
+		out_of_bounds = locked_out_of(get_area(here))
 		// It has got somewhere else, so it was not shut in, or is not any more.
 		ways_out_failed = 0
 		shut_in = FALSE
@@ -144,6 +151,10 @@
 		if(let_into_place && place != let_into_place)
 			let_into_place = null
 			let_in_by = null
+			let_in_door = null
+		// Through the door it was waiting at, it is waiting at it no longer.
+		if(wanted_door && (place == wanted_door_place) != wanted_door_leaving)
+			wanted_door = null
 		if(isnull(visited_places[place]))
 			visited_places[place] = list(here.x, here.y, here.z)
 		return
@@ -288,6 +299,11 @@
 		"source" = isliving(speaker) ? "person" : "device",
 		"distance" = get_dist(body, speaker),
 	)
+	// Whether the speaker is turned towards the body. People face who they are talking to, and with
+	// several in the room and no name used, that is the best sign of who was meant.
+	if(isliving(speaker))
+		var/mob/living/talker = speaker
+		details["facing"] = !!(get_dir(talker, body) & talker.dir)
 	// Only tie the voice to a person the body has just been looking at.
 	if(ishuman(speaker) && recently_saw(speaker))
 		details["handle"] = handle_for(speaker)

@@ -17,6 +17,7 @@ import type {
   Action,
   NpcBrain,
   Option,
+  PersonInView,
   Plan,
   SenseEvent,
   Task,
@@ -29,8 +30,18 @@ export type Job = {
   keepsPost: boolean;
   /** TRUE if messes are this job's to deal with. Everyone else only mentions them to someone who cleans. */
   cleans: boolean;
-  /** The job's standing rules, for the prompt. They are about talk: the work needs no rules. */
-  rules: (post: string | null) => string[];
+  /**
+   * What the job is, in a sentence or two, for the part of the prompt that goes with every call.
+   * '' if there is nothing to say. What the body does by itself is not listed here: it is told in
+   * `cues` when it is happening.
+   */
+  about: (post: string | null) => string;
+  /**
+   * What the NPC should bear in mind when someone has just spoken to it, and only then: what it
+   * agrees to and what it turns down. Sent with that call and no other. `heard` is what was said,
+   * so that what has nothing to do with it can be left out.
+   */
+  whenAsked?: (brain: NpcBrain, heard: string) => string[];
   /** What the LLM should know about the work in front of the NPC, for the end of a report. */
   cues: (brain: NpcBrain) => string[];
   /** Opens, blocks and closes this job's tasks from what the body senses. */
@@ -39,13 +50,28 @@ export type Job = {
   plan?: (brain: NpcBrain, task: Task) => Plan | null;
   /** Says one of this job's tasks in a few words, or null if the task is not this job's. */
   describeTask?: (task: Task) => string | null;
+  /**
+   * What the NPC is short of for its work right now, in the words it would ask for it in, or null.
+   * It takes that to the head it answers to: see jobs/meetings.ts.
+   */
+  needs?: (brain: NpcBrain) => string | null;
+  /**
+   * Fills in the rest of something the LLM has agreed to do, from what was said: how many, and
+   * where to. The LLM says yes or no. The particulars are read off the words, not left to it.
+   */
+  fills?: (brain: NpcBrain, action: Action, heard: string) => void;
+  /**
+   * What the NPC knows of one of this job's tasks that bears on whether to do it before its other
+   * work, as a sentence, or null. For when it is choosing between jobs: see choice.ts.
+   */
+  weighs?: (brain: NpcBrain, task: Task) => string | null;
   /** Something the body should do at once, ahead of its task list, or null. */
   reflex?: (brain: NpcBrain) => { act: Action; text: string } | null;
   /**
    * What the NPC can agree to do when someone has just asked it, for the LLM to choose from. The LLM
    * hears the request and decides whether it was one; the body then does it.
    */
-  offers?: (brain: NpcBrain) => Option[];
+  offers?: (brain: NpcBrain, askers: PersonInView[]) => Option[];
   /**
    * The kinds of work this job takes on when someone tells the NPC of it, each with the words the
    * LLM is given for it.
@@ -82,6 +108,11 @@ export type Job = {
     /** The sender's job, as the PDA shows it. */
     job: string,
   ) => void;
+  /**
+   * Called when someone comes into the NPC's view, with their name and job, to note what that means
+   * for its work. Someone new turning up is the one reason to ask again for what nobody answered.
+   */
+  meets?: (brain: NpcBrain, name: string, job: string) => void;
   /**
    * Called for everything a person says in the NPC's hearing, whoever it was said to, to note what
    * it means for its work. No LLM is asked.
