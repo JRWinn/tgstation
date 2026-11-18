@@ -33,6 +33,7 @@ import type {
   Task,
 } from '../types';
 import { jobFor } from './index';
+import { KEPT_AWAY } from './security';
 import {
   needWords,
   noteReported,
@@ -301,6 +302,16 @@ export function readSummons(
 /** Keeps the meeting task true to whether it has been called to one, and whether that one is over for it. */
 export function syncMeetings(brain: NpcBrain): void {
   const summons = brain.summons;
+  // Its own work may be something it cannot leave: an officer with the person it is after in
+  // sight does not walk off to a meeting. It sends its report by PDA and stays at its work.
+  const kept =
+    summons && !summons.said
+      ? (jobFor(brain.job).keptFromMeeting?.(brain) ?? null)
+      : null;
+  if (summons && kept) {
+    summons.shutOut = true;
+    summons.kept = kept;
+  }
   if (summons) {
     const there = atMeeting(brain, summons);
     if (there) {
@@ -379,13 +390,17 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       ready: true,
       step: summons.missed
         ? `${by}'s staff meeting went ahead without you. You are sending ${by} your report by PDA instead: what you have done, and what you need.`
-        : `${by} has called a staff meeting in the ${room}, and you cannot get in there. You are sending ${by} your report by PDA instead: what you have done, and what you need.`,
+        : summons.kept
+          ? `${by} has called a staff meeting in the ${room}, and you cannot leave what you are doing: ${summons.kept}. You are sending ${by} your report by PDA instead, and staying at your work.`
+          : `${by} has called a staff meeting in the ${room}, and you cannot get in there. You are sending ${by} your report by PDA instead: what you have done, and what you need.`,
       act: {
         tool: 'message',
         person: by,
         text: summons.missed
           ? `${MISSED} ${report}`
-          : `${SHUT_OUT} the ${room} for the meeting. ${report}`,
+          : summons.kept
+            ? `${KEPT_AWAY}: ${summons.kept}. ${report}`
+            : `${SHUT_OUT} the ${room} for the meeting. ${report}`,
       },
     };
   }
@@ -648,7 +663,13 @@ export function meetingsAfterActing(
     summons.answered = true;
   }
   // Its report, sent because it could not be there.
-  if (summons && ok && (text.startsWith(SHUT_OUT) || text.startsWith(MISSED))) {
+  if (
+    summons &&
+    ok &&
+    (text.startsWith(SHUT_OUT) ||
+      text.startsWith(MISSED) ||
+      text.startsWith(KEPT_AWAY))
+  ) {
     noteGiven(brain, text);
   }
   if (ok && text.toLowerCase().includes(ASKING_HEAD)) {

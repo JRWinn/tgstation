@@ -39,6 +39,7 @@
 //   bun run sim.ts quiet arresthead  the Captain declares a warrant on a head of department: it stands still, is not hit, and sits out its time (pardon: the Captain pardons it, and its cell is opened)
 //   bun run sim.ts quiet fight       the monkey bites: the baton comes out at once, and it gets five minutes more
 //   bun run sim.ts quiet hurt        the monkey bites hard: the officer breaks off hurt, and the Head of Security makes the arrest itself
+//   bun run sim.ts quiet nobaton     the lockers give the officer no baton: it says so, the Captain is told, and it stays with the monkey: no more trips to the lockers, and no walking off to a staff meeting
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
@@ -284,7 +285,7 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton'].includes(process.argv[3]);
 const SEC_OFFICE = 'Security Office';
 const HOS_OFFICE = "Head of Security's Office";
 const BRIG = 'Brig';
@@ -929,6 +930,8 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!isSecurityJob(body.job)) return result(body, 'get_kit', false, 'The security lockers are not yours to open.');
       const mine = kitOf(body);
       if (mine.baton && mine.cuffs) return result(body, 'get_kit', true, 'You have your baton and your cuffs.', { has_baton: 1, has_cuffs: 1 });
+      // In one scenario the lockers give it nothing, as they did in the round of 14:28.
+      if (process.argv[3] === 'nobaton') return busy(body, 8, 'going to the security lockers', true, () => { moveTo(body, SEC_OFFICE); secWork.push({ at: clock, who: body.name, tool: 'get_kit', ok: false, reason: 'nothing' }); result(body, 'get_kit', false, 'You find no baton there.', { has_baton: 0, has_cuffs: mine.cuffs ? 1 : 0, reason: 'nothing' }); });
       // One trip to the lockers fetches one thing.
       return busy(body, 8, 'fetching your kit from the security lockers', true, () => {
         moveTo(body, SEC_OFFICE);
@@ -1256,7 +1259,7 @@ function spawnSecurity() {
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'arresthead' ? 480 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'arresthead' || VARIANT === 'nobaton' ? 480 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
@@ -1872,12 +1875,27 @@ if (SECURITY) {
   const ownFirst = arrests.find((work) => work.who === arrester.name);
   check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
   check('nobody is hit who was not first given the chance to stand still', firstHand?.how === 'quiet', listed(arrests));
-  if (VARIANT !== 'pardon') {
+  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
     check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === 'Cell 1', listed(secWork));
   }
   const minutes = VARIANT === 'fight' ? 10 : 5;
-  check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in Cell 1 for ${minutes} minutes${VARIANT === 'fight' ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
-  if (joan && VARIANT !== 'hurt') {
+  if (VARIANT === 'nobaton') {
+    const trips = secWork.filter((work) => work.tool === 'get_kit' && work.who === hale.name);
+    check('the officer goes to the lockers no more than three times', trips.length >= 1 && trips.length <= 3, `${trips.length} trip(s)`);
+    check('it tells the Head of Security why it cannot serve the warrant, once', told(hale, joan!.name, /Joan, I cannot bring in Pun Pun: no baton\./) === 1, `${told(hale, joan!.name, /I cannot bring in/)} time(s)`);
+    check('and the Captain is told', sentTo(joan, SEC_CAPTAIN, /Captain, Hale cannot bring in Pun Pun: no baton\./).length === 1);
+    const reached = arrests[0]?.at ?? 0;
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const leftAfter = hale.log.filter((line) => line.slice(0, 8) > clockAt(reached) && / (go_to|get_kit|explore) /.test(line));
+    check('having reached the monkey, it stays with it: no trip to the lockers, and no walking off', !!reached && hale.room === 'Bar' && leftAfter.length === 0, leftAfter.join(' | ') || `ends in ${hale.room}`);
+    check('with no baton it tries the cuffs once, and hits nobody', arrests.length === 1 && arrests[0].how === 'quiet', listed(arrests));
+    const call = joan!.log.find((line) => / message /.test(line) && /Staff meeting in the Security Office now/.test(line) && line.slice(0, 8) > clockAt(began + WARRANT_AT * 1000));
+    const callAt = call ? call.slice(0, 8).split(':').reduce((total, part) => total * 60 + Number(part), 0) - clockAt(began).split(':').reduce((total, part) => total * 60 + Number(part), 0) : 0;
+    check('the Head of Security calls no staff meeting inside five minutes of a sighting', !call || callAt >= SIGHTING_AT + 295, call ? `${callAt} s in` : 'none called');
+    check('called to one while it is with the monkey, the officer sends its report by PDA and stays', !call || sentTo(hale, joan!.name, /I cannot come to the meeting: I am after someone on a warrant\./).length === 1, call ? '' : 'no meeting was called in the time');
+  }
+  if (VARIANT !== 'nobaton') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in Cell 1 for ${minutes} minutes${VARIANT === 'fight' ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
+  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton') {
     check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in Cell 1 for ${minutes} minutes`)) >= 1);
   }
 

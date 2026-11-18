@@ -76,12 +76,12 @@
 	var/cuff_tries = 0
 
 /// TRUE if the body is the Head of Security, who heads the security staff.
-/datum/ai_controller/crew_npc/proc/is_head_of_security()
-	return !!findtext(job_title(), "Head of Security")
+/datum/ai_controller/crew_npc/proc/is_head_of_security(mob/living/carbon/human/body = pawn)
+	return !!findtext(job_title(body), "Head of Security")
 
 /// TRUE if the body is security staff who make arrests: the Head of Security, or a security officer.
-/datum/ai_controller/crew_npc/proc/works_in_security()
-	return is_head_of_security() || !!findtext(job_title(), "Security Officer")
+/datum/ai_controller/crew_npc/proc/works_in_security(mob/living/carbon/human/body = pawn)
+	return is_head_of_security(body) || !!findtext(job_title(body), "Security Officer")
 
 /**
  * Gives security staff what they arrive knowing: for the Head of Security its office and the
@@ -460,12 +460,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) has its baton and cuffs.")
 		return list(TRUE, "You have your baton and your cuffs.", details)
 	var/short = "[has_baton ? "" : "a baton"][!has_baton && !has_cuffs ? " or " : ""][has_cuffs ? "" : "cuffs"]"
+	// The same, as it reads after "no".
+	var/lacking = "[has_baton ? "" : "baton"][!has_baton && !has_cuffs ? " or " : ""][has_cuffs ? "" : "cuffs"]"
 	if(gained)
 		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) took some of its kit at [AREACOORD(pawn)], and is still short of [short].")
-		return list(TRUE, "You take what you can use. You still have no [short].", details)
+		return list(TRUE, "You take what you can use. You still have no [lacking].", details)
 	details["reason"] = "nothing"
-	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found no [short] at [AREACOORD(pawn)].")
-	return list(FALSE, "You find no [short] there.", details)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found no [lacking] at [AREACOORD(pawn)].")
+	return list(FALSE, "You find no [lacking] there.", details)
 
 /// Picks a baton or a pair of cuffs up off the floor, by a click, and puts it in the bag. Returns TRUE if the body now has it.
 /datum/ai_controller/crew_npc/proc/pick_up_kit(obj/item/thing)
@@ -487,18 +489,27 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/kit_from_locker(obj/structure/closet/locker)
 	if(!empty_clicking_hand())
+		log_kit_step(locker, "it has no free hand to open the locker with")
 		return FALSE
 	if(!locker.opened)
 		if(locker.locked)
-			click_as_body(locker)
+			var/clicked = click_as_body(locker)
+			if(!QDELETED(locker) && locker.locked)
+				log_kit_step(locker, clicked ? "the locker is still locked after a click to unlock it" : "it could not reach the locker to unlock it")
 		if(QDELETED(locker) || locker.locked)
 			return FALSE
 		if(!locker.opened)
-			click_as_body(locker)
+			var/clicked = click_as_body(locker)
+			if(!QDELETED(locker) && !locker.opened)
+				log_kit_step(locker, clicked ? "the locker is unlocked and still shut after a click to open it" : "it could not reach the locker to open it")
 		if(QDELETED(locker) || !locker.opened)
 			return FALSE
 	var/turf/spill = locker.drop_location()
 	var/gained = FALSE
+	// What the open locker has put on its tile, for the log: a trip that comes away with nothing says what it had to choose from.
+	var/list/spilled = list()
+	for(var/obj/item/thing in spill)
+		spilled += thing.name
 	for(var/go in 1 to 4)
 		var/need_baton = isnull(baton_carried(TRUE))
 		var/need_cuffs = isnull(cuffs_carried())
@@ -518,20 +529,32 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 					break
 		if(loose)
 			if(!pick_up_kit(loose))
+				log_kit_step(locker, "it could not pick up [loose] from the locker's tile")
 				break
 			gained = TRUE
 			continue
-		if(isnull(belt) || !kit_from_belt(belt, locker))
+		if(isnull(belt))
+			if(!gained)
+				log_kit_step(locker, "nothing the open locker put down is what it is short of, loose or in a security belt. On the tile: [length(spilled) ? english_list(spilled) : "nothing"]")
+			break
+		if(!kit_from_belt(belt, locker))
 			break
 		gained = TRUE
 	if(!QDELETED(locker) && !QDELETED(pawn) && locker.opened && empty_clicking_hand())
 		click_as_body(locker)
 	return gained
 
+/// Writes to the round's game log which step at a locker came to nothing, and why. The body learns nothing from it.
+/datum/ai_controller/crew_npc/proc/log_kit_step(obj/structure/closet/locker, why)
+	if(QDELETED(pawn))
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) at the [QDELETED(locker) ? "locker" : "[locker.name] at ([locker.x],[locker.y])"]: [why]. It stands at [AREACOORD(pawn)].")
+
 /// Picks a security belt up, takes what the body is short of out of it into its bag, and puts the belt back in the open locker. Returns TRUE if it took anything.
 /datum/ai_controller/crew_npc/proc/kit_from_belt(obj/item/storage/belt/security/belt, obj/structure/closet/locker)
 	var/mob/living/carbon/human/body = pawn
 	if(!empty_clicking_hand() || !click_as_body(belt) || QDELETED(belt) || !body.is_holding(belt))
+		log_kit_step(locker, "it could not pick up the [belt.name] from the locker's tile")
 		return FALSE
 	var/took = FALSE
 	for(var/obj/item/thing as anything in belt.contents.Copy())
@@ -541,8 +564,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			continue
 		// The hand that is not holding the belt takes it out.
 		if(!empty_clicking_hand() || !click_as_body(thing) || QDELETED(thing) || !body.is_holding(thing))
+			log_kit_step(locker, "it could not take the [thing.name] out of the belt in its hand")
 			continue
-		stow_in_bag(thing)
+		if(!stow_in_bag(thing))
+			log_kit_step(locker, "the [thing.name] would not go into its bag, and stays in its hand")
 		took = TRUE
 	// A click on an open locker with something in hand puts it down inside.
 	if(!QDELETED(belt) && !QDELETED(locker) && body.is_holding(belt) && hand_to(belt))
@@ -1169,7 +1194,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 /// Starts noticing who lays a hand on the body. Security staff only: nobody else has anything to do about it yet.
 /datum/ai_controller/crew_npc/proc/start_security_senses(mob/living/carbon/human/body)
-	if(security_senses_on || !works_in_security())
+	// This runs while the controller is being given its body, before it has one of its own to ask:
+	// the job is read from the body handed in. Read from its own, it was nobody's, the listening
+	// never began, and an officer being hit was told nothing of it.
+	if(security_senses_on || !works_in_security(body))
 		return
 	security_senses_on = TRUE
 	if(!HAS_TRAIT(body, TRAIT_RELAYING_ATTACKER))

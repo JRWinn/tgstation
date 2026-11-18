@@ -16,6 +16,59 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 15:40: security bugs from the first round with a Head of Security (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), the table of cases in `tools/llm_crew/security.ts` (84 cases), simulator: all 44 scenarios with a quiet LLM pass, the new `nobaton` among them, and the seven security scenarios with a chatty and a dead LLM pass as well: 58 runs, none failing. **Not played in a round. No model tests.** A round was running, so the normal build was not run: **the game has none of this until `BUILD.cmd` is run between rounds.** The simulator runs none of the server code, so the two server changes (the locker logging and security feeling a hit) are compile-checked only.
+
+**Round that showed the bugs:** `data/logs/2026/11/18/round-14.28.06` (MetaStation, read live for its first 25 minutes, on `3c948542`). It was the first round with security staff.
+
+**Plan:** `LLM_CREW_PLAN_ROUND_1428_SECURITY.md`: seventeen bugs by severity, each with a proposed change, and the owner's decisions about fire doors and weapons. The numbers below are the plan's. The owner said "lets go" after "no code until I say".
+
+### What the round showed working
+
+The warrant was answered in the same second. All three other heads got the notice and answered. The warrant and three sightings reached the officer. All three heads read the list out. A head and two janitors sent sightings. The game logged "attempted to handcuff", so a body with no player can apply cuffs.
+
+### What the crew does now
+
+- **(C1, logging only) Every trip to a locker that comes to nothing says which step failed**, in `game.log`: "at the security officer's locker at (110,174): the locker is still locked after a click to unlock it", and the like, with what the open locker put on its tile. `log_kit_step`, `kit_from_locker`, `kit_from_belt` in `crew_npc_security.dm`. **The fault itself is not fixed: its cause is not known.**
+- **(H1) Security feels being hit.** The job is read from the body that is handed in while the controller is being given it, not from the controller's own, which is not set yet. `start_security_senses`; `job_title`, `works_in_security` take the body. This also clears 22 runtime errors at spawn.
+- **(H2) The officer does not go to the lockers while it is after someone**: in sight, by the arm, or seen by it in the last two minutes. After three trips with nothing it waits five minutes, not two. `onLead`, `wantsKit` in `jobs/arrests.ts`.
+- **(H3) The officer does not leave for a staff meeting while it is after someone.** It sends its report by PDA and stays: "I cannot come to the meeting: I am after someone on a warrant. I have nothing to show yet. I need nothing." `keptFromMeeting` on the job (`jobs/job.ts`), read in `syncMeetings` and `planMeetings` (`jobs/meetings.ts`). The Head of Security takes that report by PDA, and holds off its meeting for five minutes after a sighting, not two. `leadIsFresh` in `jobs/desk.ts`.
+- **(H4) An officer that cannot serve a warrant says why, once for each reason:** "Joan, I cannot bring in Pun Pun: no baton." or "... no way into the Bar." The Head of Security tells the Captain: "Captain, Hale cannot bring in Pun Pun: no baton." `syncBeat` in `jobs/arrests.ts`; `deskOutcome`.
+- **(H5) Seeing someone it has a warrant on is a sighting.** The room and the time are noted while they are in view. And a walk to look for them is broken off the moment they are in sight. `dropsWalk` on the plan, honoured in `orderToDrop` (`driver.ts`), which every job shares: it applies only where a job sets it, and only to a walk.
+- **(M1) More wordings declare a warrant:** "put out an APB on Pun Pun", "Pun Pun is wanted", "Dana Reyes is wanted for theft", "Wanted: Pun Pun". `WARRANT_WORDS`, `WANTED_AFTER` in `jobs/security.ts`.
+- **(M2) A sighting of someone with no warrant on them is answered:** "Captain, there is no warrant on Pun Pun. To declare one, say: Warrant for Pun Pun." From the Captain or a head only.
+- **(M3) A PDA message from the Captain or a head that security can make nothing of is answered,** once a minute at most: "Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name." `deskNotFollowed`.
+- **(M4, voice only)** The officer and the Head of Security are told they cannot follow anyone, and to say so. There is still no follow order.
+- **(L1)** The log and the brain read "no baton", not "no a baton".
+- **(L2) Security does not greet someone it has a warrant on.** `isWarrantOn`, in `shouldWake` (`brain.ts`).
+
+### Corrections to the entry of 14:15
+
+- **"Nothing aboard heals security" is wrong.** A Medibot healed the officer from 70 to 90 in the round.
+- **"The officer fetches a baton from a locker" did not happen.** It went thirteen times and came away with nothing.
+
+### Short of the no-cheats rule
+
+- **Found in older code, not changed:** a body stopped by fire doors is told by the server whether the alarm was pulled by hand, for the whole room, and resets only one that was. `crew_npc_alarm_was_pulled` in `crew_npc_doors.dm`. The owner ruled the same knowledge out for engineering on 2026-11-18 ("thats cheating"). The plan proposes dropping it. It is the owner's to say.
+
+### Not built
+
+- **C1's fix.** The cause is not known. The next round's log should say.
+- **H6:** stepping back from someone it cannot arrest. **H7:** asking engineering to open fire doors, up the chain and back, as the owner laid it out. **H8:** getting into the Bar. **M4:** a follow order. **L3**, **L4**.
+- **Handing weapons out,** the owner's ideas: in the plan under C1.
+
+### Known and not fixed
+
+- **The officer still cannot make an arrest by force.** With no baton it tries the cuffs once and then stands by the suspect. It now says so, and stays.
+- An officer with no baton that is being hit still stands there.
+- The officer told to follow will now say it cannot, if the model does as it is told.
+- "Wanted: Pun Pun" is also how the notice to the heads begins. Only whoever keeps the list reads warrants, and it does not read its own notice, so nothing comes of that today.
+- A message to the Head of Security from the Captain that is only talk now gets "I did not follow that".
+- The new scenario's monkey sits still. The walk broken off when someone comes into sight (H5) has no scenario that walks it.
+
+---
+
 ## 2026-11-18, 15:00: faults and alterations from the 13:32 round (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 42 scenarios with a quiet LLM pass, the six security ones among them, and `nested` and `qm` with a chatty LLM and `qm` and `crew` with a dead one pass. The change of mop and bucket for a rag was added after that run: type check, compile, and the twelve scenarios with janitors in them again, all passing. **Not played in a round. No model tests. No new simulator scenarios.** A round (`round-14.28.06`, on `3c948542`) was running while this was built, so the normal build was left until the owner had closed the server: it was run at 15:07 (0 errors, 0 warnings, the bundle rebuilt), and the next round has all of this and the security work of the entry below. The simulator runs none of the server code and knows nothing of marked squares, door scores, kinds of mess or the brain window, so everything in a `.dm` file below is compile-checked only. On the brain side the new paths (a knock from inside with nobody on record, a head passing on "I am shut in", a call that names only cobwebs, the shuttle called in for empties) have no scenario that walks them: the old scenarios show only that nothing they cover broke. The brain window's new section was never drawn: it is type-checked only.

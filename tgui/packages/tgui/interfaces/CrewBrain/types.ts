@@ -437,6 +437,8 @@ export type DeskWork = {
   officerOut: string | null;
   /** How many arrests have been made on its warrants. */
   arrests: number;
+  /** When it last said that it did not follow something (this window's clock). No more than once a minute. */
+  notFollowedAt?: number;
 };
 
 /** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */
@@ -464,6 +466,8 @@ export type BeatWarrant = {
   noCellAt?: number;
   /** TRUE once it has put its own cuffs on them. Someone in cuffs it did not put on is another's prisoner. */
   cuffedByMe?: boolean;
+  /** When it last saw them with its own eyes. */
+  ownSeenAt?: number;
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -499,6 +503,8 @@ export type BeatWork = {
   round: { next: number; at: number };
   /** TRUE once it has told whoever keeps the list that someone has its baton. */
   batonTold?: boolean;
+  /** Why it has said it cannot bring someone in, and when (server time), by "name|why". Each is said once. */
+  cannotTold?: Record<string, number>;
 };
 
 /**
@@ -835,6 +841,12 @@ export type Plan = {
    * when they do. That wait comes before its other work, short of an emergency: see workInOrder.
    */
   asked?: boolean;
+  /**
+   * If the step is something the body does: TRUE if it is worth breaking off a walk for, even a
+   * walk that is part of the same job. A walk of the hallways to look for someone is dropped the
+   * moment they are in sight: see orderToDrop in driver.ts.
+   */
+  dropsWalk?: boolean;
 };
 
 /** How an NPC feels about one person it has met. */
@@ -1277,6 +1289,8 @@ export type NpcBrain = {
     tries: number;
     /** TRUE once it has found it cannot get into the room. It sends its report by PDA instead. */
     shutOut?: boolean;
+    /** What keeps it from the meeting, if its own work does: it sends its report by PDA and stays at that work. */
+    kept?: string;
     /** TRUE once its walk to the room has kept arriving and kept leaving it outside. It stays where it stands, and takes that for being there. */
     fromHere?: boolean;
     /** TRUE once its head has sent word that the meeting went ahead without it. It sends its report by PDA instead. */

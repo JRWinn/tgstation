@@ -8,8 +8,10 @@
  */
 
 /// The job written on the body's ID.
-/datum/ai_controller/crew_npc/proc/job_title()
-	var/mob/living/carbon/human/body = pawn
+/datum/ai_controller/crew_npc/proc/job_title(mob/living/carbon/human/body = pawn)
+	// Asked while it is still being given its body, it has none of its own to read: whoever asks hands the body in.
+	if(isnull(body))
+		return ""
 	// Its own job is what its own ID says, whatever it looks like to anyone else. get_assignment()
 	// answers as a stranger would see it: with its face hidden, by a potted plant held up in front of
 	// it, say, that is no job at all, and a head with no job walks off from its own staff meeting.

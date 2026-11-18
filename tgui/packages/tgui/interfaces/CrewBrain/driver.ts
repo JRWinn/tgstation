@@ -627,7 +627,16 @@ function orderToDrop(brain: NpcBrain): Task | null {
     ({ task, plan }) =>
       task.urgency === 'emergency' && plan.ready && !!plan.act,
   );
-  if (!order || brain.lastAct?.task === order.task.id) {
+  if (!order) {
+    return null;
+  }
+  // Already about that job, as a rule, it carries on. The one case it does not: a walk somewhere
+  // that is part of the job, when the job's next step is one worth breaking the walk off for. An
+  // officer walking the hallways for someone drops the walk the moment they are in sight.
+  if (
+    brain.lastAct?.task === order.task.id &&
+    !(order.plan.dropsWalk && brain.lastAct.act.tool === 'go_to')
+  ) {
     return null;
   }
   return inBackoff(brain, keyOf(order.task, order.plan.act)) ? null : order.task;

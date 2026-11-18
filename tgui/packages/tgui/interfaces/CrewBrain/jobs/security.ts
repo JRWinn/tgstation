@@ -118,10 +118,13 @@ export function tidyReason(raw: string): string {
 
 /** The words by which the Captain or a head declares a warrant: what follows them is who it is on. */
 const WARRANT_WORDS =
-  /\b(?:warrant\s+(?:out\s+)?(?:for|on)|arrest|bring\s+in|lock\s+up)\s+(.+)/is;
+  /\b(?:warrant\s+(?:out\s+)?(?:for|on)|apb\s+(?:out\s+)?(?:on|for)|wanted:|arrest|bring\s+in|lock\s+up)\s+(.+)/is;
+/** The other way round: "Pun Pun is wanted", "Joan, Dana Reyes is wanted for theft". Who it is on comes first. */
+const WANTED_AFTER =
+  /^(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|are)\s+wanted\b[\s,]*(.*)$/is;
 /** What follows those words when nobody was named. */
 const NOT_A_NAME =
-  /^(?:him|her|them|that|this|it|the|a|an|any|anyone|someone|somebody|people|everyone|nobody|me|you|us|warrants?)\b/i;
+  /^(?:him|her|them|that|this|it|the|a|an|any|anyone|someone|somebody|people|everyone|nobody|no|who|what|which|me|you|us|warrants?)\b/i;
 const NUMBER_WORDS = [
   'one',
   'two',
@@ -155,10 +158,16 @@ export function readWarrant(
   known: string[],
 ): { name: string; reason: string; minutes: number | null } | null {
   const found = text.match(WARRANT_WORDS);
-  if (!found) {
+  const turned = found ? null : text.trim().match(WANTED_AFTER);
+  if (!found && !turned) {
     return null;
   }
-  const rest = found[1].trim();
+  // "Pun Pun is wanted for theft" is read as "Pun Pun, for theft".
+  const rest = (
+    found
+      ? found[1]
+      : `${turned?.[1] ?? ''}${turned?.[2] ? `, ${turned[2]}` : ''}`
+  ).trim();
   if (NOT_A_NAME.test(rest)) {
     return null;
   }
@@ -377,6 +386,29 @@ export function sightLine(name: string, place: string): string {
 /** The words that mark what someone says or sends as telling where a person is. */
 export const SIGHTING_WORDS =
   /\b(?:is in|is at|are in|in the|at the|saw|seen|spotted|hiding)\b/i;
+
+/** Who word of a sighting is about, when they are nobody on the list: the words before "is in". '' if it cannot tell. */
+export function sightedName(text: string): string {
+  const found = text
+    .trim()
+    .match(
+      /^(?:security:\s*)?(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|was|are|has been)\s+(?:in|at|by|near|outside)\b/i,
+    );
+  return found ? tidyName(found[1].split(/\s+/).slice(-4).join(' ')) : '';
+}
+
+/** Security's answer to word of where someone is who is not wanted: there is nothing it can do with it. */
+export function noWarrantLine(to: string, name: string): string {
+  return `${to}, there is no warrant on ${name}. To declare one, say: Warrant for ${name}.`;
+}
+
+/** Security's answer to the Captain or a head whose message it could make nothing of. Nobody is left guessing at the words. */
+export function notFollowedLine(to: string): string {
+  return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.`;
+}
+
+/** How a report begins that is sent by PDA by someone whose own work keeps them from a staff meeting. */
+export const KEPT_AWAY = 'I cannot come to the meeting';
 
 // ---- the Head of Security to its officer
 

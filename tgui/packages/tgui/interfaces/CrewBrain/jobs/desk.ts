@@ -62,8 +62,10 @@ import {
   MINUTES_USUAL,
   NOTICE_ACK_WORDS,
   nameIn,
+  notFollowedLine,
   nothingAgainstLine,
   noticeLines,
+  noWarrantLine,
   outcomeLine,
   PARDON_WORDS,
   pardonedLine,
@@ -76,6 +78,7 @@ import {
   SIGHTING_WORDS,
   sameName,
   seenLine,
+  sightedName,
   TRY_AGAIN_WORDS,
   takenLine,
   WARRANT_ACK_WORDS,
@@ -95,8 +98,11 @@ const TAKEN_WAIT_DS = 600;
 const GIVE_TRIES = 3;
 /** How far off (tiles) its officer has to be standing before it walks up to them to speak. */
 const SPEAKING_DISTANCE = 2;
-/** How long (deciseconds) a new warrant, or a sighting, keeps its officer out and no staff meeting called. */
-const LEAD_FRESH_DS = 1200;
+/** How long (deciseconds) a new warrant, and how long a sighting, keeps its officer out and no staff meeting called. */
+const NEW_WARRANT_DS = 1200;
+const LEAD_FRESH_DS = 3000;
+/** How often (milliseconds), at most, it says that it did not follow something. */
+const NOT_FOLLOWED_EVERY_MS = 60000;
 /** How long (deciseconds) before a sighting in the same room is passed on again. */
 const PASS_AGAIN_DS = 1200;
 /** The most characters a body can say at once, or send in one PDA message. */
@@ -223,7 +229,7 @@ export function stillWanted(brain: NpcBrain): string {
 export function leadIsFresh(brain: NpcBrain): boolean {
   return deskOf(brain).warrants.some(
     (warrant) =>
-      brain.now - warrant.at < LEAD_FRESH_DS ||
+      brain.now - warrant.at < NEW_WARRANT_DS ||
       (!!warrant.lastSeen && brain.now - warrant.lastSeen.at < LEAD_FRESH_DS),
   );
 }
@@ -513,7 +519,49 @@ export function deskTakes(
     }
     return true;
   }
+  // Word from the Captain or a head of where someone is who is not on the list. There is nothing
+  // to follow it with, and they are told so, with the words that would put them on it.
+  const stranger =
+    declarer && SIGHTING_WORDS.test(text) ? sightedName(text) : '';
+  if (stranger && placeNamedIn(brain, text.toLowerCase())) {
+    reply(
+      brain,
+      from,
+      noWarrantLine(to, stranger),
+      aloud,
+      `${from} has sent word of where ${stranger} is, and there is no warrant on them. You are telling ${from} so, and how to declare one.`,
+    );
+    return true;
+  }
   return false;
+}
+
+/**
+ * Answers a PDA message from the Captain or a head that it could make nothing of, so that they
+ * are not left guessing at the words: once a minute at most. Returns TRUE if it answered.
+ */
+export function deskNotFollowed(
+  brain: NpcBrain,
+  from: string,
+  fromJob: string,
+): boolean {
+  const desk = deskOf(brain);
+  if (
+    !isHead(fromJob) ||
+    isSecurity(fromJob) ||
+    Date.now() - (desk.notFollowedAt ?? 0) < NOT_FOLLOWED_EVERY_MS
+  ) {
+    return false;
+  }
+  desk.notFollowedAt = Date.now();
+  reply(
+    brain,
+    from,
+    notFollowedLine(addressOf(from, fromJob)),
+    false,
+    `${from} has sent you a PDA message you could make nothing of. You are saying so, and how a warrant or a pardon is worded.`,
+  );
+  return true;
 }
 
 /** Takes what was said in its hearing, if it is security's business. Returns TRUE if it was. */
@@ -642,7 +690,7 @@ export function deskOutcome(
     default:
       tellCaptain(
         brain,
-        `Captain, ${outcome.name} cannot be brought in: ${outcome.why}.`,
+        `Captain, ${own ? 'I' : firstName(from)} cannot bring in ${outcome.name}: ${outcome.why}.`,
         `${outcome.name} cannot be brought in. You are telling the Captain by PDA.`,
       );
   }

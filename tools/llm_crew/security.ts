@@ -28,6 +28,13 @@ add('nobody named is no warrant', S.readWarrant('Did you arrest him?', KNOWN), n
 add('talk about warrants is no warrant', S.readWarrant('How many warrants are there?', KNOWN), null);
 add('as a head declares one for trespass, read back', S.readWarrant(S.warrantLine('Pun Pun', 'trespass in the Cargo Bay'), KNOWN), { name: 'Pun Pun', reason: 'trespass in the Cargo Bay', minutes: null });
 
+// The wordings the Captain tried in the round of 14:28, which did nothing then.
+add('"put out an APB on"', S.readWarrant('I want to put out an APB on Pun Pun', KNOWN), { name: 'Pun Pun', reason: '', minutes: null });
+add('"is wanted"', S.readWarrant('Pun Pun is wanted', KNOWN), { name: 'Pun Pun', reason: '', minutes: null });
+add('"is wanted for", said to someone by name', S.readWarrant('Joan, Dana Reyes is wanted for theft', KNOWN), { name: 'Dana Reyes', reason: 'theft', minutes: null });
+add('"Nobody is wanted" declares nothing', S.readWarrant('Nobody is wanted. The meeting is over, thank you.', KNOWN), null);
+add('nor does "Who is wanted?"', S.readWarrant('Who is wanted?', KNOWN), null);
+
 // ---- names
 add('a warrant for Pun Pun names Pun Pun III', S.sameName('Pun Pun', 'Pun Pun III'), true);
 add('and not Pun Punch', S.sameName('Pun Pun', 'Pun Punch'), false);
@@ -147,6 +154,31 @@ b.pdaPeople = PDA.filter((person) => person.job !== 'Security Officer');
 deskTakes(b, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
 syncDesk(b);
 add('with no officer aboard the warrant goes into its own hands', beatOf(b).warrants.map((w: any) => w.name), ['Pun Pun']);
+
+// ---- the desk says so when it cannot use what it is sent
+const { jobFor } = await import(ROOT + 'jobs/index');
+const HOS = jobFor('Head of Security');
+b = head();
+deskTakes(b, 'Zim Fire', 'Captain', 'Pun Pun is in the bar', false);
+add('a sighting of someone with no warrant on them is answered, with the words that would declare one', said(b), ['PDA to Zim Fire: Captain, there is no warrant on Pun Pun. To declare one, say: Warrant for Pun Pun.']);
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
+add('a message from the Captain it can make nothing of is answered, with how a warrant is worded', said(b), ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.']);
+HOS.readsMessage(b, 'Zim Fire', 'Hello?', 0, 'Captain');
+add('once a minute at most', b.toTell.length, 1);
+b = head();
+HOS.readsMessage(b, 'Dana Reyes', 'How are things over there today', 0, 'Janitor');
+add('and not to someone who could not declare one anyway', b.toTell.length, 0);
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'I want to put out an APB on Pun Pun', 0, 'Captain');
+add('the wording that got no answer in the round is now a warrant', [deskOf(b).warrants.map((w: any) => w.name), said(b)], [['Pun Pun'], ['PDA to Zim Fire: Captain, I have that: a warrant for Pun Pun. 5 minutes. I do not know that name yet.']]);
+b.toTell = [];
+deskTakes(b, 'Hale Stone', 'Security Officer', 'Joan, I cannot bring in Pun Pun: no baton.', false);
+add('an officer that cannot serve a warrant says why, and the Captain is told', said(b), ['PDA to Zim Fire: Captain, Hale cannot bring in Pun Pun: no baton.']);
+b = head();
+b.meeting = { calledAt: 3000, room: 'Security Office', invited: ['Hale Stone'], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null };
+HOS.readsMessage(b, 'Hale Stone', 'I cannot come to the meeting: I am after someone on a warrant. I have made 1 arrest. I need nothing.', 0, 'Security Officer');
+add('an officer kept from the meeting by a warrant has its report taken by PDA', b.meeting.reports['Hale Stone'], { counts: { arrests: 1 }, need: false });
 
 // ---- everyone else: keeping the list, and saying where
 const hop = makeBrain('Walker Wolfe', 'Head of Personnel');

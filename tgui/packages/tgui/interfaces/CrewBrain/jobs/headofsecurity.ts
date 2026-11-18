@@ -33,6 +33,7 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
+  deskNotFollowed,
   deskTakes,
   inTheCells,
   leadIsFresh,
@@ -53,8 +54,14 @@ import {
 } from './head';
 import type { Job } from './job';
 import { isMeetingOrder } from './meetings';
-import { totalWords } from './reports';
-import { isHeadOfSecurity, isOfficer } from './security';
+import { addCounts, readReport, totalWords } from './reports';
+import { isHeadOfSecurity, isOfficer, KEPT_AWAY } from './security';
+
+/** How a report begins that an officer sends by PDA because it could not be at the meeting. */
+const REPORT_BY_PDA = new RegExp(
+  `^(I could not get into|Sorry I missed the meeting|${KEPT_AWAY})`,
+  'i',
+);
 
 /** Going back to its office when there is nothing else to see to. */
 const OFFICE = 'security_office';
@@ -188,6 +195,7 @@ export const HEAD_OF_SECURITY: Job = {
   whenAsked: (brain, heard) => [
     'A warrant, a pardon, or word of where someone wanted is: your body takes it and answers it in so many words, at once. Add nothing of your own about who is wanted, what for, or how long: that is told to you here, and you never say more about it than that.',
     'There are no written laws yet. You act on warrants the Captain or a head of department declares, and on nothing else: asked to arrest someone by anyone else, say that it is for their head to declare.',
+    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot.',
     ...(isMeetingOrder(brain, heard)
       ? [
           brain.meeting && !brain.meeting.orderedBy
@@ -206,11 +214,28 @@ export const HEAD_OF_SECURITY: Job = {
     if (deskTakes(brain, from, job, text, false)) {
       return;
     }
+    // Its officer's report, sent by PDA because it could not be at the meeting: shut out of the
+    // room, or after someone and not to be called off. During a meeting it counts as given. After
+    // one, the work in it goes into the next one's count.
+    if (isOfficer(job)) {
+      const report = REPORT_BY_PDA.test(text) ? readReport(text) : null;
+      if (report && brain.meeting) {
+        brain.meeting.reports[from] = report;
+        brain.meeting.answers[from] = 'cannot';
+      } else if (report) {
+        addCounts(brain.lateWork, report.counts);
+      }
+      return;
+    }
     if (answersTo(brain.job, job) && isMeetingOrder(brain, text)) {
       if (!brain.meeting) {
         brain.meetingOrderedBy = from;
       }
+      return;
     }
+    // Something from the Captain or a head that it can make nothing of. It says so, with the
+    // words that would have worked: nobody is left guessing.
+    deskNotFollowed(brain, from, job);
   },
   overhears: (brain, event: SenseEvent) => {
     const heard = String(event.details.message ?? '');

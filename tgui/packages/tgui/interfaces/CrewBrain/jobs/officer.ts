@@ -33,6 +33,7 @@ import {
   dropWarrant,
   giveWarrant,
   noteSeen,
+  onLead,
   planBeat,
   syncBeat,
   takeOutcomes,
@@ -43,6 +44,7 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
+  deskNotFollowed,
   deskTakes,
   planDesk,
   syncDesk,
@@ -399,6 +401,7 @@ export const OFFICER: Job = {
   whenAsked: () => [
     'You arrest people on a warrant and on nothing else. There are no written laws yet. Asked to arrest someone, say that a warrant is for the Captain or a head of department to declare to the Head of Security.',
     'Who you have a warrant on, where they were last seen, and who is in the cells is told to you here: never say more about it than that. What your body does about a warrant it does by itself.',
+    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell the Head of Security where the person you are after is.',
   ],
   cues,
   syncTasks,
@@ -411,11 +414,19 @@ export const OFFICER: Job = {
       return;
     }
     if (!headAboard(brain)) {
-      deskTakes(brain, from, job, text, false);
+      // Keeping the list itself, it says so when the Captain or a head sends it something it
+      // can make nothing of.
+      if (!deskTakes(brain, from, job, text, false)) {
+        deskNotFollowed(brain, from, job);
+      }
       return;
     }
     sendOn(brain, from, job, text, false);
   },
+  // With the person it is after in sight, by the arm, or seen in the last two minutes, it does
+  // not leave for a staff meeting.
+  keptFromMeeting: (brain) =>
+    onLead(brain) ? 'I am after someone on a warrant' : null,
   overhears: (brain, event: SenseEvent) => {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');

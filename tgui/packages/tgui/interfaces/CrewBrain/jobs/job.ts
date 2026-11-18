@@ -132,6 +132,11 @@ export type Job = {
    * plain line its work called for, if the work called for one: what it said may be in other words.
    */
   afterSaying?: (brain: NpcBrain, called: string | null) => void;
+  /**
+   * What keeps the NPC from a staff meeting its head has called, in a few words, or null if it can
+   * go. It then sends its report by PDA and stays at its work: see jobs/meetings.ts.
+   */
+  keptFromMeeting?: (brain: NpcBrain) => string | null;
   /** How the NPC says, in plain words, that one of this job's tasks someone was waiting on is done. */
   sayDone?: (task: Task) => string | null;
 };

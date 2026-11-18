@@ -59,7 +59,9 @@ const STOP = 'stop_attacker';
 
 /** How many times it goes for its kit and comes back short before it leaves that a while, and how long (deciseconds) a while is. */
 const KIT_TRIES = 3;
-const KIT_AGAIN_DS = 1200;
+const KIT_AGAIN_DS = 3000;
+/** How long (deciseconds) having seen someone it has a warrant on keeps it after them: no trip for its kit, and no staff meeting. */
+const OWN_SIGHT_DS = 1200;
 /** How near (tiles) it stands to someone before it tells them they are under arrest. */
 const NEAR = 2;
 /** How long (deciseconds) having told someone they are under arrest stands before it is said again. */
@@ -124,6 +126,13 @@ export function giveWarrant(
     resisted: false,
     restUntil: 0,
   });
+}
+
+/** TRUE if it has a warrant in its hands that names someone seen under this name. */
+export function isWarrantOn(brain: NpcBrain, seenAs: string): boolean {
+  return (
+    !!seenAs && !!brain.beat?.warrants.some((it) => sameName(it.name, seenAs))
+  );
 }
 
 /** TRUE if it has a warrant on this person in its hands. */
@@ -251,6 +260,17 @@ function keep(
   }
 }
 
+/** TRUE while someone it has a warrant on is in its sight, by the arm, or was seen by it in the last two minutes. */
+export function onLead(brain: NpcBrain): boolean {
+  return beatOf(brain).warrants.some(
+    (warrant) =>
+      holds(brain, warrant) ||
+      !!target(brain, warrant) ||
+      (warrant.ownSeenAt !== undefined &&
+        brain.now - warrant.ownSeenAt < OWN_SIGHT_DS),
+  );
+}
+
 /** TRUE if it is short of a baton or cuffs and it is worth going for them now. */
 function wantsKit(brain: NpcBrain): boolean {
   const beat = beatOf(brain);
@@ -259,6 +279,8 @@ function wantsKit(brain: NpcBrain): boolean {
     !!security &&
     (!security.has_baton || !security.has_cuffs) &&
     !security.holding &&
+    // Not while it is after someone: a trip to the lockers is a minute with its back to them.
+    !onLead(brain) &&
     (beat.kitTries < KIT_TRIES || brain.now - beat.kitAt > KIT_AGAIN_DS)
   );
 }
@@ -278,6 +300,47 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
       beat.warrants.find((it) => target(brain, it) || holds(brain, it)) ??
       beat.warrants[0];
     beat.outcomes.push({ what: 'hurt', name: about?.name ?? '' });
+  }
+  // Seeing someone it has a warrant on is a sighting like any other: where, and when. Left to
+  // word from others alone, it saw the monkey across a hallway, walked on, and did not know
+  // where to go back to.
+  for (const warrant of beat.warrants) {
+    const seen = target(brain, warrant);
+    if (seen) {
+      warrant.ownSeenAt = brain.now;
+      warrant.lastSeen = { place: seen.place ?? brain.location, at: brain.now };
+    }
+  }
+  // What stops it serving a warrant is word for whoever keeps the list, once for each reason:
+  // three trips for a baton that came to nothing, and a room they were seen in that it cannot
+  // get into. Left unsaid, the Captain waits on an arrest that is not coming.
+  beat.cannotTold ??= {};
+  const told = beat.cannotTold;
+  const cannot = (name: string, why: string) => {
+    const key = `${name}|${why}`;
+    if (told[key] === undefined) {
+      told[key] = brain.now;
+      beat.outcomes.push({ what: 'cannot', name, why });
+    }
+  };
+  for (const warrant of beat.warrants) {
+    // No baton: after three trips for one, or after one trip once they have shown they will not
+    // stand still for the cuffs. From then on there is nothing it can do about them.
+    if (
+      security &&
+      !security.has_baton &&
+      (beat.kitTries >= KIT_TRIES || (warrant.force && beat.kitTries >= 1))
+    ) {
+      cannot(warrant.name, 'no baton');
+    }
+    const last = warrant.lastSeen;
+    if (
+      last &&
+      brain.now - last.at < SIGHTING_STALE_DS &&
+      brain.blockedPlaces.includes(last.place)
+    ) {
+      cannot(warrant.name, `no way into the ${last.place}`);
+    }
   }
   // Someone has its baton in their hand. That is told once.
   const baton = security?.baton_seen;
@@ -437,6 +500,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
           ready: true,
           step: `There is a warrant on ${name}${why}, and ${seen.name} is in sight. You are walking up to them.`,
           act: { tool: 'approach', person: seen.handle },
+          dropsWalk: true,
         };
       }
       if (
@@ -462,6 +526,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         person: seen.handle,
         how: force ? 'force' : 'quiet',
       },
+      dropsWalk: true,
     };
   }
   // Not in sight. Where they were last seen, if that is fresh and it has not looked there since.

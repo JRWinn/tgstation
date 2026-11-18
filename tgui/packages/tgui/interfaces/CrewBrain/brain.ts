@@ -22,7 +22,7 @@ import {
   pickupsOverhear,
   readPickup,
 } from './jobs/pickups';
-import { securityFeels } from './jobs/arrests';
+import { isWarrantOn, securityFeels } from './jobs/arrests';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
 import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
@@ -928,7 +928,12 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
   }
   switch (event.kind) {
     case 'person_in_view':
-      return line.includes('you have not seen them before');
+      // Someone security has a warrant on is not greeted. The first thing they hear is that
+      // they are under arrest: see jobs/arrests.ts.
+      return (
+        line.includes('you have not seen them before') &&
+        !isWarrantOn(brain, String(event.details.name ?? ''))
+      );
     case 'knowledge':
       // Being walked out of a room by the arm is something to have a word about.
       return !!event.details.put_out_of && brain.peopleInView.length > 0;
