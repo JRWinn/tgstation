@@ -7,46 +7,75 @@
 /// Starts watching and listening through the pawn. Called when the controller takes over a body.
 /datum/ai_controller/crew_npc/proc/start_senses(mob/living/carbon/human/body)
 	RegisterSignal(body, COMSIG_MOVABLE_PRE_HEAR, PROC_REF(on_pre_hear))
-	RegisterSignal(body, COMSIG_MOVABLE_MOVED, PROC_REF(mind_its_step))
+	// Before each step, not after it: the base controller already listens for the body having moved,
+	// and two listeners for one signal on one body cannot both stand. The later one replaces the first.
+	RegisterSignal(body, COMSIG_MOVABLE_PRE_MOVE, PROC_REF(mind_its_step))
 	start_pda_senses(body)
 	look_timer = addtimer(CALLBACK(src, PROC_REF(look_around)), CREW_NPC_LOOK_INTERVAL, TIMER_LOOP | TIMER_STOPPABLE)
 
 /// Stops watching and listening. Called when the controller lets go of its body.
 /datum/ai_controller/crew_npc/proc/stop_senses(mob/living/carbon/human/body)
-	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_MOVED))
+	UnregisterSignal(body, list(COMSIG_MOVABLE_PRE_HEAR, COMSIG_MOVABLE_PRE_MOVE))
 	stop_pda_senses()
 	deltimer(look_timer)
 	look_timer = null
 
-/// TRUE if a runner stepping onto this tile would slip: the floor is wet, or something lying on it is slippery.
-/proc/crew_npc_slippery_turf(turf/open/spot)
-	if(!isopenturf(spot))
-		return FALSE
-	if(spot.GetComponent(/datum/component/wet_floor))
-		return TRUE
+/// TRUE if this thing lying on the floor would slip a runner, and can be seen for what it is: oil, a peel, soap, foam.
+/proc/crew_npc_slippery_thing(atom/movable/thing)
+	return isturf(thing.loc) && !thing.invisibility && thing.alpha > 0 && !isnull(thing.GetComponent(/datum/component/slippery))
+
+/// Keeps in mind each slippery thing the body can see lying about, so that it knows of it when it comes to step there.
+/datum/ai_controller/crew_npc/proc/remember_slippery(list/in_sight)
+	for(var/obj/thing in in_sight)
+		if(crew_npc_slippery_thing(thing))
+			slippery_seen[REF(thing)] = WEAKREF(thing)
+	if(length(slippery_seen) <= CREW_NPC_SLIPPERY_REMEMBERED)
+		return
+	// Too many to keep: those that are gone are forgotten.
+	for(var/key in slippery_seen)
+		var/datum/weakref/thing_ref = slippery_seen[key]
+		if(QDELETED(thing_ref.resolve()))
+			slippery_seen -= key
+
+/// TRUE if the body knows of something slippery lying on this tile: it has seen it there before, or can see it now.
+/datum/ai_controller/crew_npc/proc/knows_slippery(turf/spot)
+	var/list/in_reach
 	for(var/atom/movable/thing as anything in spot)
-		if(thing.GetComponent(/datum/component/slippery))
+		var/datum/weakref/seen_ref = slippery_seen[REF(thing)]
+		if(seen_ref?.resolve() == thing)
+			return TRUE
+		if(!crew_npc_slippery_thing(thing))
+			continue
+		// Not seen before. The tile in front of it is in plain sight, unless it is too dark to see.
+		in_reach ||= oview(1, pawn)
+		if(thing in in_reach)
+			slippery_seen[REF(thing)] = WEAKREF(thing)
 			return TRUE
 	return FALSE
 
 /**
- * Walks, not runs, wherever its next step may be onto a tile that would slip a runner, and runs
- * again once it is clear. This is a player holding the walk key past a wet floor, and nothing more:
- * what cannot be walked over safely still slips it. A body that runs over oil by a mail chute is
- * thrown down the chute and comes out behind doors it cannot open.
+ * Walks, not runs, for a step onto a tile where it knows something slippery lies, and runs again
+ * once it is off. This is a player holding the walk key past a pool of oil, and nothing more.
+ *
+ * It goes by sight alone. A thing it has seen, or can see on the tile in front of it, it knows of.
+ * A floor that is only wet from a mop it does not: there is nothing lying there to see, and it
+ * slips on that like anyone, unless its shoes grip. A body that runs over the oil by the mail
+ * chute is thrown down the chute and comes out behind doors it cannot open.
  */
-/datum/ai_controller/crew_npc/proc/mind_its_step(mob/living/carbon/human/body)
+/datum/ai_controller/crew_npc/proc/mind_its_step(mob/living/carbon/human/body, atom/new_loc)
 	SIGNAL_HANDLER
-	if(!isturf(body.loc))
+	if(!isturf(body.loc) || !isturf(new_loc))
 		return
-	var/careful = FALSE
 	// Shoes that grip need no care taken.
-	if(!HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL))
-		for(var/turf/open/spot in range(1, body))
-			if(crew_npc_slippery_turf(spot))
-				careful = TRUE
-				break
-	body.set_move_intent(careful ? MOVE_INTENT_WALK : MOVE_INTENT_RUN)
+	var/careful = !HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL) && knows_slippery(new_loc)
+	if(!careful)
+		body.set_move_intent(MOVE_INTENT_RUN)
+		return
+	if(body.move_intent == MOVE_INTENT_WALK)
+		return
+	// It slows to a walk first, and takes the step at that pace: this one, begun at a run, is not taken.
+	body.set_move_intent(MOVE_INTENT_WALK)
+	return COMPONENT_MOVABLE_BLOCK_PRE_MOVE
 
 /// Records a sense event and tells the owner's brain window about it.
 /datum/ai_controller/crew_npc/proc/emit_sense(kind, text, list/details)
@@ -107,7 +136,11 @@
 		storage_here = 0
 		cleanable_messes = list()
 		grenade_messes = 0
-		off_floor_in ||= istype(body.loc, /obj/structure/disposalholder) ? "pipes" : format_text(body.loc.name)
+		// A bin, a chute, a pipe or what carries it along one: all of that is the disposal pipes.
+		if(istype(body.loc, /obj/structure/disposalholder) || istype(body.loc, /obj/machinery/disposal) || istype(body.loc, /obj/structure/disposalpipe) || istype(body.loc, /obj/structure/disposaloutlet))
+			off_floor_in = "pipes"
+		else
+			off_floor_in ||= format_text(body.loc.name)
 		return
 	if(off_floor_in)
 		// Out again, and it knows how it got here: not by any door, so there is none to go back to.
@@ -127,6 +160,7 @@
 	grenade_messes = grenade_spot ? grenade_spot[2] : 0
 	storage_here = length(storage_to_search(in_sight))
 	remember_messes(in_sight)
+	remember_slippery(in_sight)
 	// Shut in, the thing to watch for is a door standing open: that is the moment to go.
 	open_door_in_view = FALSE
 	if(is_shut_in())

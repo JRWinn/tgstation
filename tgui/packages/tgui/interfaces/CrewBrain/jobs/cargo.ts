@@ -796,19 +796,33 @@ function syncTasks(brain: NpcBrain): void {
   // Opening a door for someone is not the same as their going through it. Anyone it took to be
   // inside one of its rooms and can see is somewhere else, is not inside.
   if (brain.post) {
+    const post = brain.post;
     for (const person of brain.peopleInView) {
+      // Every room it takes them to be in. A door may have been opened for them that they never
+      // went through, so there can be more than one.
       const believed = ownRooms(brain)
-        .flatMap((room) => stillInside(brain.post ?? '', room, brain.now))
-        .find((entry) => entry.name === person.name);
-      // Where they stand, if the server says. Failing that, for its post, whether they are in it.
-      const elsewhere = !believed
-        ? false
-        : person.place !== undefined
-          ? person.place !== believed.room
-          : believed.room === brain.post && !person.in_post;
-      // Not straight away: for a moment after the door opens they are still on the way in.
-      if (believed && elsewhere && brain.now - believed.at > GONE_THROUGH_DS) {
-        noteLetOut(brain.post, person.name);
+        .flatMap((room) => stillInside(post, room, brain.now))
+        .filter((entry) => entry.name === person.name);
+      if (believed.length === 0) {
+        continue;
+      }
+      // Seen standing in another of its locked rooms than any it had them down for: that is where
+      // they are, and it is noted, so that they are let out of that one.
+      const seenIn = seenInside(brain, person);
+      if (seenIn && !believed.some((entry) => entry.room === seenIn)) {
+        noteLetIn(post, person.name, seenIn, believed[0].by, brain.now);
+      }
+      for (const entry of believed) {
+        // Where they stand, if the server says. Failing that, for its post, whether they are in it.
+        const elsewhere =
+          person.place !== undefined
+            ? person.place !== entry.room
+            : entry.room === post && !person.in_post;
+        // Not straight away: for a moment after the door opens they are still on the way in. And
+        // out of that room only: seen in the room beyond it, they are still in that one.
+        if (elsewhere && brain.now - entry.at > GONE_THROUGH_DS) {
+          noteLetOut(post, person.name, entry.room);
+        }
       }
     }
   }
@@ -1158,9 +1172,11 @@ function mayPass(
     return null;
   }
   const person = brain.peopleInView.find((seen) => seen.name === name);
-  const inside = ownRooms(brain)
+  // The room it has them down as being in: the one they named, if it has them down for that one.
+  const insides = ownRooms(brain)
     .flatMap((own) => stillInside(post, own, brain.now))
-    .find((entry) => entry.name === name);
+    .filter((entry) => entry.name === name);
+  const inside = insides.find((entry) => entry.room === room) ?? insides[0];
   // Asking to be let out, or standing inside the post where it can be seen.
   if (out !== false) {
     // Someone it can see standing inside one of its rooms, who cannot let themselves out.
@@ -1249,6 +1265,17 @@ function doorSought(brain: NpcBrain): DoorWant | null {
     const want = mayPass(brain, asked.name, asked.room, asked.out);
     if (want) {
       return want;
+    }
+    // Word by PDA from someone who says they are shut in one of its locked rooms, and names it.
+    // It has no note of letting them in and cannot see them, but it goes by what it is told and
+    // goes to that door. The door is only opened if they are found standing inside it.
+    if (
+      asked.out &&
+      asked.byPda &&
+      asked.room &&
+      brain.closedRooms.includes(asked.room)
+    ) {
+      return { name: asked.name, room: asked.room, out: true };
     }
   }
   // A knock says which door, and not who. If someone is expected there, or was let in there and

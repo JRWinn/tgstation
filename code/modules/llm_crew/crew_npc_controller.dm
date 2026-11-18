@@ -36,6 +36,8 @@
 	var/off_floor_in
 	/// Whether each room it has had cause to ask about is locked to it, by name: list(locked, world.time it was worked out).
 	var/list/locked_place_cache = list()
+	/// The slippery things it has seen lying about, by REF, as weakrefs: what it knows to walk over and not run.
+	var/list/slippery_seen = list()
 	/// The tool that started the walk in progress.
 	var/walk_tool
 	/// Where the walk in progress is headed, in words.
@@ -234,6 +236,8 @@
 	var/resting = FALSE
 	/// TRUE while the body is working out where to explore.
 	var/choosing_where_to_explore = FALSE
+	/// TRUE while the body is working out which door of a room it can walk up to.
+	var/finding_door = FALSE
 	/// Highest sense event sequence number the brain window says it has dealt with.
 	var/acked_seq = 0
 	/// world.time the current tool call counting window started.

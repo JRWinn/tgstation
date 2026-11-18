@@ -279,7 +279,13 @@ export function nextStep(brain: NpcBrain): Step | null {
 
   // Shut in, it goes and stands at the door first. Whoever can open it then knows which door is
   // wanted, and it is there to go through when it opens.
-  if (brain.shutIn && !wayOutOpen(brain) && !brain.atDoorOf) {
+  // The door out, that is. Standing at some other door, one it had asked to be let in at, is not
+  // standing at the way out: a knock there says "let me in" to whoever hears it.
+  if (
+    brain.shutIn &&
+    !wayOutOpen(brain) &&
+    brain.atDoorOf !== brain.location
+  ) {
     const act = { tool: 'go_to_door' };
     const key = keyOf(null, act);
     if (!inBackoff(brain, key)) {
@@ -315,7 +321,7 @@ export function nextStep(brain: NpcBrain): Step | null {
   }
   // Nobody in sight to ask, or nobody left it has not asked. A voice does not carry through a
   // shut door, so it knocks, once, and sends word, once, to whoever let it in.
-  if (stuck && !helper && brain.atDoorOf) {
+  if (stuck && !helper && brain.atDoorOf === brain.location) {
     if (!brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
       return {
         key: KNOCK_OUT_KEY,

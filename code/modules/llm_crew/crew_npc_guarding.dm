@@ -116,7 +116,12 @@
 	if(!istype(room, /area/station) || istype(room, /area/station/hallway) || istype(room, /area/station/maintenance))
 		return FALSE
 	var/mob/living/carbon/human/body = pawn
-	var/list/doors = crew_npc_doors_of(room, body.z)
+	// The level is the floor's under the body, not the body's own: that is nothing at all while it
+	// is inside a pipe or a locker, and there is no telling from in there anyway.
+	var/turf/here = get_turf(body)
+	if(isnull(here) || !isturf(body.loc))
+		return FALSE
+	var/list/doors = crew_npc_doors_of(room, here.z)
 	if(!length(doors))
 		return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)

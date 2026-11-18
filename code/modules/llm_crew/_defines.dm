@@ -32,6 +32,10 @@
 #define CREW_NPC_SHUT_IN_AFTER 2
 /// How long a crew NPC leaves alone a room it could not find a way into.
 #define CREW_NPC_BLOCKED_PLACE_TIME (5 MINUTES)
+/// How many slippery things a crew NPC keeps in mind before it forgets those that are gone.
+#define CREW_NPC_SLIPPERY_REMEMBERED 60
+/// How many doors into a room a crew NPC tries for a way to before it gives up on reaching any.
+#define CREW_NPC_DOORS_TRIED 3
 /// How long a crew NPC goes by what it last worked out about whether a room is locked to it.
 #define CREW_NPC_LOCKED_PLACE_KEPT (1 MINUTES)
 /// The most messes a crew NPC keeps track of at once.

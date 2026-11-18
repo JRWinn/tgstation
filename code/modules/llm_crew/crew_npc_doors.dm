@@ -222,6 +222,9 @@
  */
 /proc/crew_npc_doors_of(area/room, z_level)
 	var/list/doors = list()
+	// Asked from no level at all, by a body that is not standing on a floor: there are none to find.
+	if(!isnum(z_level) || z_level < 1)
+		return doors
 	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
 		// A door may stand on the last tile of the room, or on the first tile outside it.
 		var/obj/machinery/door/airlock/own_door = locate() in room_turf
@@ -257,6 +260,9 @@
 	if(named && isnull(known))
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You do not know of anywhere aboard by that name.")
 		return
+	// Already looking for a way to a door: the routes are still being tested.
+	if(finding_door)
+		return
 	var/leaving = isnull(known)
 	var/area/room = leaving ? get_area(body) : crew_npc_station_places()[known]
 	var/room_name = leaving ? current_place : known
@@ -265,9 +271,9 @@
 		return
 	var/list/doors = crew_npc_doors_of(room, body.z)
 	var/obj/machinery/door/airlock/came_in_by = leaving ? trail_door() : null
-	var/obj/machinery/door/airlock/best
-	var/turf/best_spot
-	var/best_score = INFINITY
+	// Every door it could make for, each with how good a choice it is: the lower the better.
+	var/list/scores = list()
+	var/list/spots = list()
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		var/list/sides = doors[door]
 		var/turf/spot = leaving ? sides[1] : sides[2]
@@ -289,23 +295,52 @@
 		// The door it came in by is the one it goes back to: that is the way it knows leads out.
 		if(leaving && came_in_by == door)
 			score -= 100
-		if(score < best_score)
-			best_score = score
-			best = door
-			best_spot = spot
+		scores[door] = score
+		spots[door] = spot
 	var/goal = "the door [leaving ? "out of" : "into"] [room_name]"
-	if(isnull(best))
+	if(!length(scores))
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find [goal].")
 		return
-	// A locked room inside a locked room: the door it wants opens from a room it cannot get into
-	// either. It is told which, so that it goes and asks at that one first.
-	if(!leaving)
-		var/list/best_sides = doors[best]
-		var/area/outer = get_area(best_sides[2])
+	// The best of them, and for a door into a room, the best of them that it can walk up to. A door
+	// may open from somewhere it has no way to: the far side of a security post, say. Making for
+	// that one gets it nowhere, however near it lies, so each is tried for a way to it, best first.
+	var/obj/machinery/door/airlock/best
+	var/turf/best_spot
+	var/tries_left = CREW_NPC_DOORS_TRIED
+	finding_door = TRUE
+	while(length(scores) && tries_left > 0)
+		tries_left--
+		var/obj/machinery/door/airlock/nearest
+		for(var/obj/machinery/door/airlock/door as anything in scores)
+			if(isnull(nearest) || scores[door] < scores[nearest])
+				nearest = door
+		scores -= nearest
+		var/turf/spot = spots[nearest]
+		if(leaving || get_dist(body, nearest) <= CREW_NPC_AT_DOOR)
+			best = nearest
+			best_spot = spot
+			break
+		// A locked room inside a locked room: the door it wants opens from a room it cannot get into
+		// either. It is told which, so that it goes and asks at that one first.
+		var/list/nearest_sides = doors[nearest]
+		var/area/outer = get_area(nearest_sides[2])
 		if(outer != get_area(body) && locked_out_of(outer))
+			finding_door = FALSE
 			var/outer_name = format_text(outer.name)
 			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
 			return
+		var/list/route = get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+		if(QDELETED(src) || QDELETED(body))
+			return
+		if(length(route))
+			best = nearest
+			best_spot = spot
+			break
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door into [room_name], and looks for another.")
+	finding_door = FALSE
+	if(isnull(best))
+		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find a way to [goal].")
+		return
 	wanted_door = WEAKREF(best)
 	wanted_door_place = room_name
 	wanted_door_leaving = leaving

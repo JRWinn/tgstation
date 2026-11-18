@@ -103,9 +103,17 @@ export function noteLetIn(
  * they have not yet been let into still stands: sent for to two rooms, they are not turned away
  * from the second for having finished in the first.
  */
-export function noteLetOut(post: string, name: string): void {
+export function noteLetOut(post: string, name: string, room?: string): void {
+  // Out of one room, if it is said which: someone seen to have left the bay may still be in the
+  // room beyond it, and striking them from both leaves them behind a door nobody knows to open.
   list = list.filter(
-    (it) => !(it.post === post && it.name === name && it.inside),
+    (it) =>
+      !(
+        it.post === post &&
+        it.name === name &&
+        it.inside &&
+        (room === undefined || it.room === room)
+      ),
   );
 }
 

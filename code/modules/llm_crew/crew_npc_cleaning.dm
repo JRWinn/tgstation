@@ -177,6 +177,9 @@
 	var/list/known = locked_place_cache[place]
 	if(known && world.time - known[2] < CREW_NPC_LOCKED_PLACE_KEPT)
 		return known[1]
+	// Inside a pipe or a locker there is no working it out. It goes by what it last knew, and that is not kept as new.
+	if(!isturf(pawn.loc))
+		return known ? known[1] : FALSE
 	var/area/room = crew_npc_station_places()[place]
 	var/locked = !isnull(room) && locked_out_of(room)
 	locked_place_cache[place] = list(locked, world.time)
