@@ -242,6 +242,21 @@
 			doors[door] = list(inside, outside)
 	return doors
 
+/**
+ * What a door of a room is called, to tell it from the room's other doors: the name on the door.
+ * A door that only carries the name of the room it leads into is called by where it opens from:
+ * the door "Cargo Bay" in the lobby is the Cargo Lobby door of the Cargo Bay.
+ */
+/proc/crew_npc_door_label(obj/machinery/door/airlock/door, area/room, turf/outside)
+	var/own_name = format_text(door.name)
+	if(LOWER_TEXT(own_name) != LOWER_TEXT(format_text(room.name)))
+		return own_name
+	return outside ? get_area_name(outside, TRUE) : own_name
+
+/// Returns what the door the body is standing at is called, or null if it is at none.
+/datum/ai_controller/crew_npc/proc/at_door_label()
+	return isnull(at_door_of()) ? null : wanted_door_label
+
 /// Returns the name of the room whose door the body is standing at, wanting through, or null.
 /datum/ai_controller/crew_npc/proc/at_door_of()
 	var/obj/machinery/door/airlock/door = wanted_door?.resolve()
@@ -344,6 +359,8 @@
 	wanted_door = WEAKREF(best)
 	wanted_door_place = room_name
 	wanted_door_leaving = leaving
+	var/list/best_sides = doors[best]
+	wanted_door_label = crew_npc_door_label(best, room, best_sides ? best_sides[2] : null)
 	if(get_dist(body, best) <= CREW_NPC_AT_DOOR)
 		action_result(CREW_TOOL_TO_DOOR, TRUE, "You are at [goal].", list("place" = current_place))
 		return
@@ -354,15 +371,29 @@
  * open, or null. The door they are standing at is the one. If they are not at any, it is the nearest
  * to them, with a door onto the lobby chosen ahead of one that leads anywhere else.
  */
-/datum/ai_controller/crew_npc/proc/room_door_for(mob/living/carbon/human/person, area/room)
+/datum/ai_controller/crew_npc/proc/room_door_for(mob/living/carbon/human/person, area/room, room_name, door_label)
 	var/mob/living/carbon/human/body = pawn
 	var/list/doors = crew_npc_doors_of(room, body.z)
+	// The door they named is the one, if the room has a door of that name that the body can open.
+	// That is what a name is for: a room with three doors was opened at the wrong one for a janitor
+	// who was standing in the lobby.
+	if(istext(door_label) && length(trim(door_label)))
+		var/wanted_label = LOWER_TEXT(trim(door_label))
+		for(var/obj/machinery/door/airlock/door as anything in doors)
+			var/list/sides = doors[door]
+			// By what it is called among the room's doors, or by the name on it: a door someone was
+			// only heard to be standing at is known by the name on it.
+			if((LOWER_TEXT(crew_npc_door_label(door, room, sides[2])) == wanted_label || LOWER_TEXT(format_text(door.name)) == wanted_label) && door.allowed(pawn))
+				return door
 	// The door they have gone to stand at, and knocked on, is the one they want. Opening another
 	// that happens to be as near lets them out into the wrong place, or leaves them where they are.
+	// A door of this room, that is, and one they are still standing at. The door they wanted out
+	// of the room before, which is a door of this room too if the one opens off the other, is not it:
+	// let out of the Delivery Office into the Cargo Bay, they do not want the Delivery Office again.
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	if(istype(their_controller))
+	if(istype(their_controller) && (isnull(room_name) || their_controller.wanted_door_place == room_name))
 		var/obj/machinery/door/airlock/wanted = their_controller.wanted_door?.resolve()
-		if(!QDELETED(wanted) && doors[wanted] && wanted.allowed(pawn))
+		if(!QDELETED(wanted) && doors[wanted] && wanted.allowed(pawn) && get_dist(person, wanted) <= CREW_NPC_AT_DOOR)
 			return wanted
 	var/obj/machinery/door/airlock/best
 	var/best_score = INFINITY
@@ -411,7 +442,7 @@
  * locked to the rest of the crew for a reason. Whether this janitor was sent for is the brain's to
  * know. Someone standing at the door, or shut inside, need not be in sight: a door hides them.
  */
-/datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name)
+/datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name, door_label)
 	if(!works_in_cargo() || isnull(post_turf))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no door of your own to open for anyone.")
 		return
@@ -432,7 +463,7 @@
 		action_result(CREW_TOOL_DOOR, FALSE, "You do not know who that is, and there is nobody of that name at the door of [room_name].")
 		return
 	var/inside = get_area(person) == room
-	var/obj/machinery/door/airlock/door = room_door_for(person, room)
+	var/obj/machinery/door/airlock/door = room_door_for(person, room, room_name, door_label)
 	var/at_the_door = !isnull(door) && get_dist(person, door) <= CREW_NPC_AT_DOOR
 	if(!recently_saw(person) && !inside && !at_the_door)
 		action_result(CREW_TOOL_DOOR, FALSE, "You cannot see that person, and they are not at the door of [room_name].")
@@ -554,7 +585,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 			continue
 		var/datum/ai_controller/crew_npc/their_controller = listener.ai_controller
 		if(istype(their_controller) && their_controller.can_sense())
-			their_controller.emit_sense(CREW_SENSE_KNOWLEDGE, "Someone is knocking at the door of [place], from [wanted_door_leaving ? "inside" : "outside"].", list("knock" = place, "knock_from_inside" = wanted_door_leaving))
+			their_controller.emit_sense(CREW_SENSE_KNOWLEDGE, "Someone is knocking at the [wanted_door_label ? "[wanted_door_label] " : ""]door of [place], from [wanted_door_leaving ? "inside" : "outside"].", list("knock_door" = wanted_door_label,"knock" = place, "knock_from_inside" = wanted_door_leaving))
 	action_result(CREW_TOOL_KNOCK, TRUE, "You knock at the door [wanted_door_leaving ? "out of" : "into"] [place].")
 
 /// TRUE if a room's fire alarm is on because someone pulled it, and no fire door there has found anything wrong with the air.
@@ -647,7 +678,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	alarm.reset(body)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reset the fire alarm in [errand_item].")
 	// The way is open again, so nothing it gave up on because of the fire doors stands.
-	blocked_places = list()
+	ways_reopened()
 	ways_out_failed = 0
 	return list(TRUE, "You reset the fire alarm in [errand_item]. The fire doors there are opening.")
 
@@ -671,7 +702,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 /// Someone has opened a door for this body and is holding it. It learns the way through and that it had better go now.
 /datum/ai_controller/crew_npc/proc/door_opened_for(mob/living/carbon/human/opener, place, turf/spot, obj/machinery/door/airlock/door)
 	var/inside = get_area(pawn) == get_area(spot)
-	blocked_places = list()
+	ways_reopened()
 	ways_out_failed = 0
 	shut_in = FALSE
 	door_held_until = world.time + CREW_NPC_DOOR_HELD

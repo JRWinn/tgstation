@@ -108,6 +108,11 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// Holding a mop with no water on it and nothing else that cleans, whether or not there is a sink in sight.
 			"mop_needs_water" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()),
 			"sink_in_view" = npc.sink_in_view,
+			// What that water is in, a bucket it holds that wants filling with water in sight to fill it at,
+			// and whether it holds a mop and no bucket to carry water for it.
+			"water_from" = npc.water_from,
+			"bucket_to_fill" = npc.bucket_to_fill,
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()),
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
 			"door_open" = npc.open_door_in_view,
@@ -123,6 +128,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"door_keepers" = npc.door_keepers(),
 			// The room whose door it is standing at, wanting through, or null.
 			"at_door_of" = npc.at_door_of(),
+			// What that door is called, to tell it from the room's other doors.
+			"at_door_label" = npc.at_door_label(),
 			// It is standing in a doorway or right beside a door, in the way of anyone coming through.
 			"in_doorway" = !crew_npc_clear_of_doors(body),
 			"grenade_messes" = npc.grenade_messes,

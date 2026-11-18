@@ -145,6 +145,12 @@
 	var/turf/here = get_turf(body)
 	var/turf/lies = get_turf(crate)
 	var/list/in_sight = view(CREW_NPC_CLEAR_REACH, body)
+	// Someone else's crate, moved because it shut the body's way, stays in the room or tunnel it lay
+	// in. Hauled to the nearest clear spot on the body's own side, a stray crate from the tunnel
+	// went into the Custodial Closet the body had just stepped out of: three tiles square, with a
+	// cart and a tank in it. With one more crate unpacked there, a janitor was shut in for a
+	// quarter of an hour and the other two could not get to their supplies.
+	var/area/stays_in = after_clearing ? get_area(lies) : null
 	// Two tiles from any door if there is such a spot, so that the crate behind the body is a tile from one.
 	for(var/clearance in list(2, 1))
 		var/turf/best
@@ -152,6 +158,8 @@
 		for(var/turf/candidate in in_sight)
 			var/distance = get_dist(candidate, here)
 			if(distance < 2 || distance >= best_distance || distance >= get_dist(candidate, lies))
+				continue
+			if(stays_in && get_area(candidate) != stays_in)
 				continue
 			if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
 				continue
@@ -165,7 +173,7 @@
 	// away from the crate, is where that room is. Doors on the way open to the body or they do not;
 	// if not, the walk finds no way and pushing is what is left.
 	var/back = get_dir(lies, here)
-	if(!(back in GLOB.cardinals))
+	if(stays_in || !(back in GLOB.cardinals))
 		return null
 	for(var/clearance in list(2, 1))
 		var/turf/spot = here
@@ -358,6 +366,11 @@
 			return TRUE
 	if(crew_npc_clear_of_doors(crate))
 		return FALSE
+	// Square in front of a door: the one tile that door can be walked into from, on this side of
+	// it. However much room there is to either side of the crate, nobody gets through that door.
+	for(var/direction in GLOB.cardinals)
+		if(locate(/obj/machinery/door/airlock) in get_step(lies, direction))
+			return TRUE
 	if(crew_npc_shut_turf(get_step(lies, NORTH)) && crew_npc_shut_turf(get_step(lies, SOUTH)))
 		return TRUE
 	return crew_npc_shut_turf(get_step(lies, EAST)) && crew_npc_shut_turf(get_step(lies, WEST))
@@ -367,8 +380,13 @@
  * able to see the crate, or the door it lies by: it has just found there is no way through, and
  * a door it is looking at with a crate jammed behind it is where anyone would look next.
  */
-/datum/ai_controller/crew_npc/proc/crate_in_the_way()
+/datum/ai_controller/crew_npc/proc/crate_in_the_way(atom/heading_for)
 	var/mob/living/carbon/human/body = pawn
+	// Where the body was making for, if that is on this level: a crate that lies no nearer to it
+	// than the body does is not what stands between them.
+	var/turf/making_for = heading_for ? get_turf(heading_for) : null
+	if(making_for && making_for.z != body.z)
+		making_for = null
 	var/list/seen = view(CREW_NPC_VISION_RANGE, body)
 	var/obj/structure/closet/crate/own = hauled_ref?.resolve()
 	var/obj/structure/closet/crate/nearest
@@ -379,15 +397,18 @@
 		var/distance = get_dist(body, crate)
 		if(distance >= nearest_distance || !crew_npc_crate_shuts_way(crate))
 			continue
+		if(making_for && get_dist(crate, making_for) >= get_dist(body, making_for))
+			continue
 		var/in_sight = (crate in seen)
 		// The door it lies by has to be one the body's own ID opens. A door that is locked to it is
 		// what stops it, crate or no crate, and shifting someone's crate about gets it nowhere: a
 		// janitor shut in the Mining Office hauled a crate across the room for a door it could
 		// never have gone through. Anyone knows what their own card opens.
+		// An airlock, that is. Shutters and blast doors open for a button, not a card, and have no
+		// access set, so every card "opens" them: a janitor shut in the Cargo Bay went off to shift a
+		// crate that lay by the Warehouse shutters.
 		var/own_door = FALSE
-		for(var/obj/machinery/door/door in range(1, crate))
-			if(istype(door, /obj/machinery/door/firedoor))
-				continue
+		for(var/obj/machinery/door/airlock/door in range(1, crate))
 			if(door.allowed(body))
 				own_door = TRUE
 			if(door in seen)
@@ -419,7 +440,7 @@
 		if(QDELETED(target))
 			return FALSE
 		back_to = list("target" = isturf(target) ? target : WEAKREF(target), "tool" = tool, "goal" = goal, "timeout" = walk_timeout)
-	var/obj/structure/closet/crate/crate = crate_in_the_way()
+	var/obj/structure/closet/crate/crate = crate_in_the_way(target)
 	if(isnull(crate))
 		return FALSE
 	way_cleared_at = world.time

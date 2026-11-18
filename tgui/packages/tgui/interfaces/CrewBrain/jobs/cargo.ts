@@ -44,7 +44,7 @@ import {
   syncFreight,
 } from './freight';
 import { noteSentFor, stagger } from './guarding';
-import { beyondRoom, isJanitor, NEEDS_SCRUBBING } from './janitor';
+import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
 import { COLLECT_WORDS, crateNumberIn } from './pickups';
 import {
@@ -162,7 +162,7 @@ const LET_OUT_ASK_DS = 3000;
 /** How long (deciseconds) a request for the door stands. */
 const DOOR_ASK_DS = 600;
 /** How long (deciseconds) the technician who has the rooms is given to answer a door, when they are out of sight, before the other goes. */
-const KEEPER_WAIT_DS = 150;
+const KEEPER_WAIT_DS = 450;
 /** How long (deciseconds) someone must have been inside a room, with the mess there gone and no word from them, before the door is opened for them unasked. */
 const LEFT_INSIDE_DS = 1800;
 /** How long (deciseconds) a mess is left before a janitor is called to it: one may be on the way already. */
@@ -171,6 +171,8 @@ const NOTICE_DS = 600;
 const CALL_AGAIN_DS = 6000;
 /** How many janitors may send word that they cannot shift a mess before it is left alone for that long. */
 const JANITORS_TRIED = 2;
+/** How long "your crate is out in the lobby" is worth saying for, in milliseconds. */
+const LOBBY_LINE_KEPT_MS = 20000;
 /** The most (deciseconds) one of them waits longer than another before calling, so that two do not call at once. */
 const CALL_STAGGER_DS = 300;
 
@@ -852,9 +854,11 @@ function syncTasks(brain: NpcBrain): void {
     // their turn may come round a second time, and they have been told already.
     if (asked?.byPda && asked.name === wants.name && !asked.answered) {
       asked.answered = true;
+      // The door they named is named back, so that both know it is the same one.
+      const which = asked.door && asked.room === wants.room ? `${asked.door} ` : '';
       brain.toTell.push({
         to: wants.name,
-        line: `${firstName(wants.name)}, I am coming to the door of the ${wants.room} to let you ${wants.out ? 'out' : 'in'}.`,
+        line: `${firstName(wants.name)}, I am coming to the ${which}door of the ${wants.room} to let you ${wants.out ? 'out' : 'in'}.`,
         why: `${wants.name} has sent word that they are at the door of the ${wants.room}. You are sending back that you are on your way to let them ${wants.out ? 'out' : 'in'}.`,
         byPda: true,
         at: Date.now(),
@@ -955,10 +959,19 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     // The body knows by a handle anyone it has seen. Someone a door has always hidden it knows
     // only by name, and that will do: the server finds whoever of that name is at the door.
     const wants = doorWanted(brain);
+    // Which of the room's doors, if they said, or if the knock that brought it here told it.
+    // Said aloud, an ask names no room: the door they named is taken to be one of the room they
+    // are being let through.
+    const which =
+      (brain.doorAsked?.name === wants?.name &&
+      (brain.doorAsked?.room ?? wants?.room) === wants?.room
+        ? brain.doorAsked?.door
+        : undefined) ??
+      (brain.knockAt?.room === wants?.room ? brain.knockAt?.door : undefined);
     return wants && wants.name === task.item
       ? {
           ready: true,
-          step: `${doorCue(wants)} You are going to open the door for them.`,
+          step: `${doorCue(wants)} You are going to open the ${which ? `${which} ` : ''}door for them.`,
           act: {
             tool: 'open_door',
             ...(brain.handles[wants.name]
@@ -966,6 +979,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
               : {}),
             name: wants.name,
             place: wants.room,
+            ...(which ? { door: which } : {}),
           },
         }
       : { ready: false, step: `${task.item} has gone.` };
@@ -1200,7 +1214,16 @@ function mayPass(
   const insides = ownRooms(brain)
     .flatMap((own) => stillInside(post, own, brain.now))
     .filter((entry) => entry.name === name);
-  const inside = insides.find((entry) => entry.room === room) ?? insides[0];
+  let inside: (typeof insides)[number] | undefined =
+    insides.find((entry) => entry.room === room) ?? insides[0];
+  // Someone who sends word that they are at the door and asks to be let in is not inside, whatever
+  // the record says. A door opened for a janitor who had walked off, or who stood at another door
+  // of the room, left them down as let in: when they came back to it they were told that nobody
+  // had sent for them. The call that brought them stands again.
+  if (out === false && inside && !person && inside.room === (room ?? post)) {
+    inside.inside = false;
+    inside = undefined;
+  }
   // Asking to be let out, or standing inside the post where it can be seen.
   if (out !== false) {
     // Someone it can see standing inside one of its rooms, who cannot let themselves out.
@@ -1453,6 +1476,17 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     return {
       ready: false,
       step: `There is a mess in the ${place}, and no janitor on your PDA to call to it.`,
+    };
+  }
+  // Once the Quartermaster has divided the work, sending for a janitor goes with the rooms. Each
+  // technician keeps its own note of who it called and who said they could not shift it, so two
+  // who both called sent the same janitor the same five calls four times over, and one called
+  // again to a mess two janitors had already told the other was beyond them.
+  const keeper = roomsKeeper(brain);
+  if (keeper && keeper !== brain.name) {
+    return {
+      ready: false,
+      step: `There is a mess in the ${place}. ${keeper} has the rooms this shift, and sends for a janitor when one is wanted.`,
     };
   }
   // One call from a post is enough. Whoever is slower to it leaves it a while longer when a
@@ -1859,6 +1893,10 @@ export const CARGO: Job = {
         // Which crate, and where it is: they have to hear both.
         needs: new RegExp(`\\b${task.item}\\b.*\\blobby\\b`, 'i'),
         at: Date.now(),
+        // Said while they are still standing there, or not at all. Whoever came for it can see
+        // the crate come out, and may be off with it before a word is said: kept the usual two
+        // minutes, the line was said to a janitor walking back in with the crate empty.
+        keepMs: LOBBY_LINE_KEPT_MS,
       });
       if (brain.pickupAsked?.name === task.askedBy) {
         brain.pickupAsked = null;
@@ -1900,6 +1938,25 @@ export const CARGO: Job = {
           noteLetOut(brain.post, task.item);
           if (outer) {
             noteLetIn(brain.post, task.item, outer, brain.name, brain.now);
+            // One asking takes them all the way out. The outer room is locked to them as well:
+            // let out of the Delivery Office into the Cargo Bay, a janitor was shut in a second
+            // time, and had to find that out, go to a door, knock and send word all over again.
+            // So the next door is opened for them unasked, as if they had asked for it. Not if
+            // there is a mess in the outer room that they have not said is beyond them: then
+            // they have work there, and ask when they are done with it.
+            const workThere =
+              !!brain.areaMesses[outer] &&
+              !brain.janitorCalls[outer]?.declined?.includes(task.item);
+            if (!workThere) {
+              brain.doorAsked = {
+                name: task.item,
+                at: brain.now,
+                room: outer,
+                out: true,
+                byPda: true,
+                answered: true,
+              };
+            }
           }
         } else {
           noteLetIn(brain.post, task.item, task.place, brain.name, brain.now);
@@ -2044,6 +2101,12 @@ export const CARGO: Job = {
           line: `Order ${n}, ${TAKEN}.`,
           why: `${speaker}, the Quartermaster, has given you order ${n} to place: ${orderWritten(items)}, for ${whoFor}. You are saying that you have it.`,
           needs: new RegExp(`\\border ${n}\\b.*\\b${TAKEN}\\b`, 'i'),
+          // Said at once and word for word, whatever it is doing: the Quartermaster is standing
+          // there waiting to hear it, and gives the order to someone else if it does not. Left to
+          // its turn, it was said eighty seconds late, after the order was placed, and the same
+          // order was bought a second time by the other technician.
+          exact: true,
+          whileBusy: true,
           at: Date.now(),
         });
       }
@@ -2143,6 +2206,12 @@ export const CARGO: Job = {
         name: speaker,
         at: brain.now,
         out: LET_OUT_WORDS.test(heard),
+        // The door they named, or failing that the door they were standing at when they said it.
+        door:
+          doorNamed(heard) ??
+          (typeof event.details.near_door === 'string'
+            ? event.details.near_door
+            : undefined),
       };
     }
   },
@@ -2168,10 +2237,16 @@ export const CARGO: Job = {
     const said = text.toLowerCase();
     // The room they are at the door of is the one they name first. A message may name another
     // after it: where someone who is shut in is trying to get out to.
+    // What follows "door of the" is the room, if they put it that way: a door goes by a name of
+    // its own now, and that name may be another of the department's rooms.
+    const after = said.match(/\bdoor (?:of|out of|into) the ([^.,!?]+)/)?.[1];
+    const named = (own: string) =>
+      after ? after.startsWith(own.toLowerCase()) : false;
     const room = ownRooms(brain)
       .filter((own) => said.includes(own.toLowerCase()))
       .sort(
         (a, b) =>
+          Number(named(b)) - Number(named(a)) ||
           said.indexOf(a.toLowerCase()) - said.indexOf(b.toLowerCase()) ||
           b.length - a.length,
       )[0];
@@ -2181,6 +2256,7 @@ export const CARGO: Job = {
       room,
       byPda: true,
       out: LET_OUT_WORDS.test(text),
+      door: doorNamed(text),
     };
   },
   offers,

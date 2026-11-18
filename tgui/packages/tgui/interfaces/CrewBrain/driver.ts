@@ -29,6 +29,7 @@ import {
 } from './situation';
 import { ASIDE_HOLD_MS, ASIDE_STEP_KEY, asideStep } from './jobs/aside';
 import { barred, leavingStep } from './jobs/guarding';
+import { doorCalled } from './jobs/janitor';
 import { meetingsAfterActing } from './jobs/meetings';
 import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
@@ -351,7 +352,7 @@ export function nextStep(brain: NpcBrain): Step | null {
         act: {
           tool: 'message',
           person: brain.letInBy,
-          text: `I am done in the ${brain.location} and am at the door. Could you let me out${outTo}, please?`,
+          text: `I am done in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
         },
       };
     }
@@ -367,7 +368,7 @@ export function nextStep(brain: NpcBrain): Step | null {
           person: next.name,
           text: next.head
             ? `I am shut in the ${brain.location} and nobody has come to the door. Could you send someone to let me out${outTo}, please?`
-            : `I am shut in the ${brain.location} and am at the door. Could you let me out${outTo}, please?`,
+            : `I am shut in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
         },
         writes: next.name,
       };
@@ -405,7 +406,7 @@ export function nextStep(brain: NpcBrain): Step | null {
   // Something it means to tell someone: said when they are in view, or sent by PDA if it is that
   // kind of word. Told once, and dropped if the moment for it has passed.
   brain.toTell = brain.toTell.filter(
-    (tell) => Date.now() - tell.at < TELL_KEPT_MS,
+    (tell) => Date.now() - tell.at < (tell.keepMs ?? TELL_KEPT_MS),
   );
   const tell = brain.toTell.find((it) =>
     it.byPda
@@ -645,7 +646,7 @@ export function drive(
       (it) =>
         it.whileBusy &&
         !it.byPda &&
-        now - it.at < TELL_KEPT_MS &&
+        now - it.at < (it.keepMs ?? TELL_KEPT_MS) &&
         brain.peopleInView.some((person) => person.name === it.to),
     );
     const key = quick ? `tell:${quick.to}:${quick.line}` : '';

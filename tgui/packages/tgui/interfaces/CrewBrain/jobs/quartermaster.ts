@@ -804,8 +804,12 @@ function syncTasks(brain: NpcBrain): void {
       order.givenAt !== null &&
       brain.now - order.givenAt > TAKEN_WAIT_DS
     ) {
+      // To the same technician, who may have it in hand and only not have been heard: `givenTo`
+      // is kept, and giveStep goes by it. Given to whoever was free instead, order 2 was placed
+      // by both of them and two crates came. Only word that it could not be placed frees it for
+      // someone else.
       order.state = 'cleared';
-      order.pick = null;
+      order.pick = order.givenTo;
       order.walkedUp = false;
     }
   }
@@ -956,7 +960,14 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
   // Whoever it settled on, if they are still free. Failing that whoever has the shuttle, which
   // is where what is ordered comes in. Failing that one who is in sight, and failing that they
   // take turns, by the order's number.
-  if (!order.pick || !free.includes(order.pick)) {
+  // An order it has given once and not heard back about goes to the same technician again.
+  const again =
+    order.givenTo && technicians(brain).includes(order.givenTo)
+      ? order.givenTo
+      : null;
+  if (again) {
+    order.pick = again;
+  } else if (!order.pick || !free.includes(order.pick)) {
     order.pick =
       free.find((name) => (ledger.duties[name] ?? []).includes('shuttle')) ??
       free.find((name) => inView(name)) ??
@@ -964,7 +975,7 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
     order.walkedUp = false;
   }
   let seen: PersonInView | undefined = inView(order.pick);
-  if (!seen && brain.location === brain.staffPost) {
+  if (!again && !seen && brain.location === brain.staffPost) {
     // It is where they work, another of them is here and the one it meant is not: this one will do.
     const here = free.find((name) => inView(name));
     if (here) {

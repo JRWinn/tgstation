@@ -23,7 +23,8 @@ export type SenseEvent = {
     ok?: BooleanLike;
     /** For heard speech: the voice's name, and whether it came from a living thing or a machine. */
     speaker?: string;
-    source?: 'person' | 'device';
+    /** Who or what spoke: one of the crew or a player, an animal or robot (a parrot, a cleaning bot), or a machine. Only a person is answered. */
+    source?: 'person' | 'animal' | 'device';
     distance?: number;
     /** For storage: the room, the container, what the body found, and what was inside. */
     place?: string;
@@ -181,8 +182,14 @@ export type Npc = {
   workable_mess_places: string[];
   /** TRUE if all the body has to clean with is a mop with no water on it, sink in sight or not. */
   mop_needs_water: BooleanLike;
-  /** TRUE if the body can see a sink. */
+  /** TRUE if the body has water to hand to wet a mop with: a sink in sight, a mop bucket or cart with water in it, or a bucket of water it holds. */
   sink_in_view: BooleanLike;
+  /** What that water is in, by name: "sink", "bucket", "janitorial cart". */
+  water_from?: string | null;
+  /** TRUE if it holds a bucket that is under half full and can see a water tank or a sink to fill it at. */
+  bucket_to_fill?: BooleanLike;
+  /** TRUE if it holds a mop and no bucket to carry water for it. */
+  wants_bucket?: BooleanLike;
   /** TRUE if the body has tried more than once to leave the room it is in and found no way out. */
   shut_in: BooleanLike;
   /** TRUE if the body is shut in and can see a door standing open. */
@@ -201,6 +208,8 @@ export type Npc = {
   door_keepers?: string[];
   /** The room whose door it is standing at, wanting through, or null. */
   at_door_of: string | null;
+  /** What that door is called, to tell it from the room's other doors: the name on it, or where it opens from. */
+  at_door_label?: string | null;
   /** TRUE if it is standing in a doorway or right beside a door, where it is in the way of anyone coming through. */
   in_doorway?: BooleanLike;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
@@ -617,6 +626,11 @@ export type Plan = {
    * wait is like that: someone waiting to be let through a door stands at it on purpose.
    */
   inside?: boolean;
+  /**
+   * If it is waiting: TRUE if it has just asked someone to come to it, and so has to be there
+   * when they do. That wait comes before its other work, short of an emergency: see workInOrder.
+   */
+  asked?: boolean;
 };
 
 /** How an NPC feels about one person it has met. */
@@ -710,6 +724,12 @@ export type NpcBrain = {
   /** TRUE if all it has to clean with is a dry mop. */
   mopNeedsWater: boolean;
   sinkInView: boolean;
+  /** What the water it has to hand is in, by name, or null if it has none: see `water_from`. */
+  waterFrom: string | null;
+  /** TRUE if it holds a bucket that wants filling and can see water to fill it at. */
+  bucketToFill: boolean;
+  /** TRUE if it holds a mop and no bucket to carry water for it. */
+  wantsBucket: boolean;
   /** TRUE if it cannot find a way out of the room it is in. */
   shutIn: boolean;
   /** TRUE if it is shut in and can see a door standing open. */
@@ -744,6 +764,8 @@ export type NpcBrain = {
   doorKeepers: string[];
   /** The room whose door it is standing at, wanting through, or null. */
   atDoorOf: string | null;
+  /** What that door is called, to tell it from the room's other doors, or null. Said when it asks for the door. */
+  atDoorLabel: string | null;
   /**
    * The door the body last reported reaching: the room it is the door of, the room the body was
    * in, and when (this window's clock). Kept so that a body told it has arrived is not sent to the
@@ -799,6 +821,8 @@ export type NpcBrain = {
     refused?: boolean;
     /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
     answered?: boolean;
+    /** Which of the room's doors they are at, by what it is called, if they said. */
+    door?: string;
   } | null;
   /**
    * Someone it answers to has told it to leave the room it was in: who, which room, when (this
@@ -820,7 +844,7 @@ export type NpcBrain = {
    */
   asideAsked: { by: string; handle: string; at: number; done: boolean } | null;
   /** The door of one of its rooms that someone has knocked at, and when (server time). A knock does not say who. */
-  knockAt: { room: string; at: number; inside: boolean } | null;
+  knockAt: { room: string; at: number; inside: boolean; door?: string } | null;
   /** The handle the server knows each person it has seen by, by name: a door hides someone it must still point at. */
   handles: Record<string, string>;
   /** Who it was last talking with, and when (this window's clock): what they say next is for it. */
@@ -843,6 +867,8 @@ export type NpcBrain = {
     whileBusy?: boolean;
     /** When it was thought of (this window's clock). Stale ones are dropped unsaid. */
     at: number;
+    /** How long it is worth saying for, in milliseconds, if that is less than the usual: see TELL_KEPT_MS. */
+    keepMs?: number;
   }[];
   /** TRUE if the line its work calls for is said word for word, with only a remark from the LLM after it: see Plan. */
   mustSayExact: boolean;

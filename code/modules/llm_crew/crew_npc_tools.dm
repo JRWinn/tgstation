@@ -82,7 +82,7 @@
 		if(CREW_TOOL_HOLD)
 			tool_hold(arguments["person"])
 		if(CREW_TOOL_DOOR)
-			tool_open_door(arguments["person"], arguments["place"], arguments["name"])
+			tool_open_door(arguments["person"], arguments["place"], arguments["name"], arguments["door"])
 		if(CREW_TOOL_TIDY)
 			tool_tidy()
 		if(CREW_TOOL_TO_DOOR)
@@ -210,13 +210,19 @@
 	var/wanted = LOWER_TEXT(trim(place))
 	if(!length(wanted))
 		return null
+	// A room that goes by exactly that name is the one meant, whether or not the body has been in it.
+	// Looking among the rooms it had visited first, and loosely, took "Atmospherics" for the
+	// Atmospherics Gas Storage it had just been in, and an engineer stood there for three minutes
+	// being told it had arrived.
+	for(var/list/names as anything in list(visited_places, crew_npc_station_places()))
+		for(var/known_place in names)
+			if(LOWER_TEXT(known_place) == wanted)
+				return known_place
 	for(var/list/names as anything in list(visited_places, crew_npc_station_places()))
 		var/partial_match
 		var/unclear = FALSE
 		for(var/known_place in names)
 			var/known_lower = LOWER_TEXT(known_place)
-			if(known_lower == wanted)
-				return known_place
 			if(findtext(known_lower, wanted) || findtext(wanted, known_lower))
 				// Two rooms fit a loose name, so it is not clear which is meant.
 				if(partial_match)
@@ -436,11 +442,14 @@
 			return
 	if(succeeded)
 		blocked_places -= arrived_in
+		blocked_tries -= arrived_in
 		action_result(tool, TRUE, "You arrive in [arrived_in].", list("place" = arrived_in))
 	else
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
 		if(tool == CREW_TOOL_GO_TO && goal)
 			blocked_places[goal] = world.time
+			if(reason == CREW_NPC_NO_WAY)
+				blocked_tries[goal]++
 		// The spot a head holds its meetings at is picked from a map, not walked to. If there turns
 		// out to be no way to it, it takes another in the same room, the way anyone else would.
 		if(tool == CREW_TOOL_GO_TO && goal && goal == meeting_place && reason == "there is no way through")

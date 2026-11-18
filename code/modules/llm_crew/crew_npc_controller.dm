@@ -141,6 +141,8 @@
 	/// The room that door is the way into, or out of, and which of the two it is.
 	var/wanted_door_place
 	var/wanted_door_leaving = FALSE
+	/// What that door is called, to tell it from the room's other doors: see crew_npc_door_label.
+	var/wanted_door_label
 	/// The room whose door the body is on its way to open for someone: its post, or another room of its department.
 	var/door_room
 	/// Fire alarms the body set off for and could not reach, keyed by REF, with world.time it gave up on each.
@@ -186,6 +188,8 @@
 	var/open_door_in_view = FALSE
 	/// Rooms the body lately failed to find a way into, by name, with the world.time it failed.
 	var/list/blocked_places = list()
+	/// How many times running the body has found no way into each of those rooms, by name.
+	var/list/blocked_tries = list()
 	/// Names of the rooms that are this body's to keep fit to work in: its post, and where it serves the crew.
 	var/list/work_area = list()
 	/// Names of the other rooms of its department that its own ID opens. It looks in on them when it has nothing to do.
@@ -224,8 +228,12 @@
 	var/work_machines_set = 0
 	/// Goes up each time an errand starts or is abandoned, so a finished step can tell whether it is still the current one.
 	var/errand_serial = 0
-	/// TRUE if the body can see a sink, where a dry mop can be wetted.
+	/// TRUE if the body has water to hand that a dry mop can be wetted with: a sink in sight, a mop bucket or cart in sight with water in it, or a bucket of water in its other hand.
 	var/sink_in_view = FALSE
+	/// What that water is in, by name: "sink", "bucket", "janitorial cart". Null if there is none to hand.
+	var/water_from
+	/// TRUE if the body holds a bucket that is under half full and can see a water tank or a sink to fill it at.
+	var/bucket_to_fill = FALSE
 	/// The tool that started the errand in progress.
 	var/errand_tool
 	/// The name of the item the errand in progress is after, in lower case.

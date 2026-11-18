@@ -32,6 +32,8 @@
 #define CREW_NPC_SHUT_IN_AFTER 2
 /// How long a crew NPC leaves alone a room it could not find a way into.
 #define CREW_NPC_BLOCKED_PLACE_TIME (5 MINUTES)
+/// How long it leaves that room alone once it has found no way into it twice.
+#define CREW_NPC_BLOCKED_PLACE_LONG (15 MINUTES)
 /// How many slippery things a crew NPC keeps in mind before it forgets those that are gone.
 #define CREW_NPC_SLIPPERY_REMEMBERED 60
 /// How many doors into a room a crew NPC tries for a way to before it gives up on reaching any.
@@ -68,6 +70,10 @@
 #define CREW_NPC_MESSES_PER_CLEAN 8
 /// The most messes a crew NPC tries and cannot shift, or cannot get to, in one go before it reports.
 #define CREW_NPC_MESSES_FAILED_PER_CLEAN 12
+/// The most times a crew NPC holds a mop to a sink or a bucket to soak it: each click gives 5 units, and a mop holds 15.
+#define CREW_NPC_MOP_DIPS 4
+/// The most clicks a crew NPC makes to fill a bucket at a tank or a sink: each gives 20 units, and a bucket holds 70.
+#define CREW_NPC_BUCKET_FILLS 5
 /// How long a crew NPC scrubs at one mess before giving up on it.
 #define CREW_NPC_CLEAN_TIME (8 SECONDS)
 /// The most containers a crew NPC looks inside in one search of a room.

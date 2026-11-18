@@ -78,6 +78,9 @@
 			break
 		if(istype(held, /obj/item/reagent_containers/spray) && !held.reagents?.total_volume)
 			spare ||= held
+		// A rag is spare to someone who holds a mop: the hand is better used for a bucket of water.
+		if(istype(held, /obj/item/rag) && (locate(/obj/item/mop) in body.held_items))
+			spare ||= held
 	if(isnull(spare))
 		return FALSE
 	var/spare_name = format_text(spare.name)
@@ -151,6 +154,10 @@
 	// A grenade is thrown from a few tiles off; everything else is done from beside the thing.
 	if(errand_tool == CREW_TOOL_GRENADE)
 		return QDELETED(target) ? list(FALSE, "The mess you meant to throw it at is gone.") : throw_grenade(target)
+	// Wetting the mop from the bucket in its other hand: the errand was to where it stands, and
+	// there is nothing to reach for.
+	if(errand_tool == CREW_TOOL_CLEAN && isturf(target))
+		return wet_mop(held_bucket())
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
 		return list(FALSE, "You could not get to it.")
 	body.face_atom(target)
@@ -196,7 +203,11 @@
 		if(CREW_TOOL_TIDY)
 			return tidy_step(target)
 		if(CREW_TOOL_CLEAN)
-			if(istype(target, /obj/structure/sink))
+			// A water tank is only ever gone to with a bucket to fill. A sink is gone to for that,
+			// or to wet the mop at; a mop bucket or a cart, to wet the mop.
+			if(istype(target, /obj/structure/reagent_dispensers) || (istype(target, /obj/structure/sink) && bucket_wants_filling()))
+				return fill_bucket(target)
+			if(istype(target, /obj/structure/sink) || istype(target, /obj/structure/mop_bucket))
 				return wet_mop(target)
 			return clean_mess(target)
 	return list(FALSE, "You forget what you came to do.")

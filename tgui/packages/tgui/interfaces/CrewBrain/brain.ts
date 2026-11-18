@@ -256,6 +256,9 @@ export function ingest(npcs: Npc[], now: number): void {
         workablePlaces: [],
         mopNeedsWater: false,
         sinkInView: false,
+        waterFrom: null,
+        bucketToFill: false,
+        wantsBucket: false,
         shutIn: false,
         doorOpen: false,
         doorHeld: false,
@@ -271,6 +274,7 @@ export function ingest(npcs: Npc[], now: number): void {
         wayOutTo: null,
         doorKeepers: [],
         atDoorOf: null,
+        atDoorLabel: null,
         doorReached: null,
         lookInRooms: [],
         roomsThrough: {},
@@ -428,6 +432,9 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.workablePlaces = npc.workable_mess_places ?? [];
     brain.mopNeedsWater = !!npc.mop_needs_water;
     brain.sinkInView = !!npc.sink_in_view;
+    brain.waterFrom = npc.water_from ?? null;
+    brain.bucketToFill = !!npc.bucket_to_fill;
+    brain.wantsBucket = !!npc.wants_bucket;
     // Shut in, every step that meant going somewhere came to nothing. Once it is out, none of
     // that says anything about what it can do now, so nothing is held back on account of it.
     if (brain.shutIn && !npc.shut_in) {
@@ -467,6 +474,7 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     brain.atDoorOf =
       npc.at_door_of ?? (stillThere && reached ? reached.place : null);
+    brain.atDoorLabel = npc.at_door_of ? (npc.at_door_label ?? null) : null;
     brain.lookInRooms = npc.look_in_rooms ?? [];
     brain.closedRooms = npc.closed_rooms ?? [];
     brain.roomsThrough = npc.rooms_through ?? {};
@@ -582,6 +590,10 @@ export function ingest(npcs: Npc[], now: number): void {
           room: event.details.knock,
           at: event.at,
           inside: !!event.details.knock_from_inside,
+          door:
+            typeof event.details.knock_door === 'string'
+              ? event.details.knock_door
+              : undefined,
         };
       }
       // Fire doors that stopped it, and whether the alarm that shut them was only pulled by hand.
@@ -855,6 +867,8 @@ function describeEvent(event: SenseEvent, brain: NpcBrain): string {
       typeof distance === 'number' ? `${distance} tiles away` : 'nearby';
     if (event.details.source === 'device') {
       line += ` (a machine, ${where})`;
+    } else if (event.details.source === 'animal') {
+      line += ` (an animal or a robot, not one of the crew, ${where})`;
     } else if (handle) {
       const to = event.details.said_to;
       const toWhom =

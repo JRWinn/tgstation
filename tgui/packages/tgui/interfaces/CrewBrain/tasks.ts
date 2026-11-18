@@ -346,6 +346,11 @@ export function workInOrder(
         // An emergency comes before everything.
         Number(b.task.urgency === 'emergency') -
           Number(a.task.urgency === 'emergency') ||
+        // Then a wait it has asked for: it has knocked at a door and sent word that it is there,
+        // and whoever comes to open it has to find it standing there. Ranked with its other
+        // calls, the wait lost to every one of them that it could walk to, so a janitor with
+        // two calls asked at each door in turn and was never at either when it was opened.
+        Number(isAskedWait(b)) - Number(isAskedWait(a)) ||
         // Then what someone is waiting on, if it can be got on with: a person who has been called
         // to a mess goes to it, and does not finish sweeping the hallway first.
         Number(isCalledFor(b)) - Number(isCalledFor(a)) ||
@@ -363,6 +368,11 @@ export function workInOrder(
         Number(isBackwater(a.task)) - Number(isBackwater(b.task)) ||
         a.task.createdAt - b.task.createdAt,
     );
+}
+
+/** TRUE if a piece of work has the NPC waiting where it asked someone to come to it: see Plan. */
+function isAskedWait(work: { task: Task; plan: Plan }): boolean {
+  return !work.plan.ready && !!work.plan.wait && !!work.plan.asked;
 }
 
 /** TRUE if someone asked for a piece of work, or called the NPC to it, and it can be got on with now. */

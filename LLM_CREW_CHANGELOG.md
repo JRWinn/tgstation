@@ -16,6 +16,71 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 13:30: faults from the 12:23 round, door names, and water carried in a bucket (the commit that added this entry)
+
+**Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 36 scenarios with a quiet LLM passed, and `nested` and `qm` with a chatty and a dead LLM. Three of those four passed. `nested` with a dead LLM failed "the cargo technician ends at the post", the check the entry below lists as flaky on the committed code. **Not played in a round. No model tests. No new simulator scenarios.** The full build was run at 13:31, after the round had ended (0 errors, 0 warnings, the bundle rebuilt), so the next round has all of this. The simulator runs none of the server code and knows nothing of buckets, door names or crates in doorways, so everything in a `.dm` file below is compile-checked only, and on the brain side the new paths (a door named, a bucket fetched and filled, the next door opened unasked, an order given again to the same technician) have no scenario that walks them. Lint still reports the folder's old formatting findings, in files this work did not touch as well.
+
+**Round that showed the faults:** `data/logs/2026/11/18/round-12.23.07` (MetaStation, read live from 12:24 to 12:58, on `5df46541`). It was the first round in which the engine was lit and an order went from a staff meeting to an unpacked crate. There is no plan file for this work: the owner asked for a numbered list of the faults with a fix under each, and then "get started on all of them". The numbers below are the ones in that list.
+
+### What the crew does now
+
+Waiting at a door, and cargo's doors:
+
+- **(1) A janitor that has knocked and sent word waits at that door**, for a minute, whatever other calls it has. `asked` on the plan from `letInStep` in `jobs/janitor.ts`, and `isAskedWait` in `workInOrder` (`tasks.ts`), which puts that wait ahead of everything but an emergency. Before, the wait ranked below every other call it could walk to, so with two calls it asked at each door in turn and was at neither when it was opened.
+- **(9) A door is called by its name.** The server works out what each door of a room is called: the name on it, or, where that is only the room's name, where it opens from ("the Cargo Lobby door of the Cargo Bay"). `crew_npc_door_label` in `crew_npc_doors.dm`. A janitor says it in its PDA message and aloud ("I am at the Quartermaster Maintenance door of the Cargo Bay about the mess..."), a knock carries it, the technician says it back ("I am coming to the Quartermaster Maintenance door of the Cargo Bay") and opens that door. `doorCalled` and `doorNamed` in `jobs/janitor.ts`; `readsMessage` and the `DOOR` step in `jobs/cargo.ts`; `room_door_for`.
+- **(9) Speech carries the door the speaker is standing at.** Anyone, a player too, who asks for a door while within two tiles of one is heard as asking for that one, by the name on it. This was the owner's idea. `near_door` in `on_pre_hear` (`crew_npc_senses.dm`); read where a door is asked for aloud in `jobs/cargo.ts`.
+- The technician no longer goes by the door an NPC last meant to stand at unless it is a door of the room asked about and the NPC is still at it. `room_door_for`.
+- **(8) One asking takes a visitor all the way out.** Let out of a room that lies inside another locked room, the next door is opened for them unasked, unless there is a mess in the outer room that they have not said is beyond them. `afterActing` in `jobs/cargo.ts`.
+- **(19) Someone who sends word that they are at the door, asking to be let in, is not taken to be inside.** A door opened for a janitor who had walked off left them down as let in, and they were told "nobody here sent for you" when they came back. `mayPass`.
+- **(4) Only the technician who has the rooms sends for janitors**, once the Quartermaster has divided the work. `tidyStep`. The other waits 45 seconds, not 15, before answering a door that is the keeper's (`KEEPER_WAIT_DS`).
+
+Crates:
+
+- **(17) A crate moved because it shut the body's way stays in the room or tunnel it lay in.** `clear_spot_for` in `crew_npc_grip.dm`. A stray crate from the tunnel had been hauled into the Custodial Closet.
+- **(17) A crate square in front of a door shuts that door**, however much room there is beside it. `crew_npc_crate_shuts_way`.
+- **(3) Only an airlock counts as a door the body's own ID opens.** Shutters did, having no access set. `crate_in_the_way`.
+- **(6) A crate is only moved if it lies nearer to where the body was going than the body does.** `crate_in_the_way(heading_for)`.
+
+Rooms and names:
+
+- **(2) A room that goes by exactly the name asked for is the one meant**, visited or not. `find_known_place` in `crew_npc_tools.dm`.
+- **(6) A room it has twice found no way into is left for fifteen minutes**, and a door being opened for it does not wipe that. `blocked_tries`, `is_blocked_place`, `ways_reopened`.
+
+Cleaning and water:
+
+- **(10) Giving up a kind of mess is counted per room.** `stubborn_kinds` in `clean_mess` is keyed by room and kind. This was my fault from the 12:00 entry: counted for the whole station, two failures anywhere meant one miss wrote off a room.
+- **(7) Wetting is honest.** The mop is held to the sink a click at a time until it is full or no more comes. The `add_reagent` top-up is gone. `wet_mop` in `crew_npc_cleaning.dm`.
+- **(7) A janitor with a mop goes for a bucket it knows of**, fills it at a water tank or a sink (20 units a click, 70 in all), carries it in its other hand, and wets the mop from it (5 units a click). A rag is put away to make the hand free. `held_bucket`, `fill_bucket`, `water_for_bucket`, `water_to_hand`; the `wantsBucket` and `bucketToFill` steps in `jobs/janitor.ts`; `free_a_hand`.
+- **(7) A mop bucket or a janitorial cart with water in it, in sight, is used to wet the mop**: one right-click.
+- **(16) A dry mop is not "only a rag".** `has_poor_tool`. A janitor holding a dry mop and a rag told its head it needed something better than a rag, and a second crate was ordered.
+
+Orders and speech:
+
+- **(15) An order given and not acknowledged is given again to the same technician.** `giveStep` in `jobs/quartermaster.ts`. The technician's "Order N, right away." is said at once, word for word (`exact`, `whileBusy`).
+- **(12) "Crate N is out in the lobby for you" is kept 20 seconds**, not two minutes. `keepMs` on `toTell`.
+- **(5) Only a person is answered.** Speech from an animal or a robot with no player behind it is marked `animal` and never wakes the LLM. `on_pre_hear` in `crew_npc_senses.dm`.
+
+### Not built
+
+- **(7) The cart is not pulled about.** A janitor uses a cart's water only where the cart stands, and does not fill one. Pulling it needs what crates have: taking hold again when it catches, and parking it clear of doors. The "my mop has run dry, I will be back" line and the door reopened without a second call (plan 4.3) are not built either. Being short of a bucket is not yet told to the head.
+- **(8) A janitor does not yet finish all its calls inside a department before leaving it.**
+- **(9) The call does not name the door to come to**, and the janitor still chooses its own: "Come to the Cargo Lobby" was answered at a tunnel door in the round.
+- **(17) A head told "I am shut in" by one of its staff does nothing about it.**
+- **(13)** Idle chatter: left for later, on the owner's word. **(14)** "placed by \*null\*": nothing to fix.
+
+### Known and not fixed
+
+- **None of the server side has been seen in the game.** In particular: that a held bucket can be clicked with the mop in the other hand; that a click on a water tank with a bucket fills it; that the right-click on a cart wets the mop; that an errand to the body's own tile ends at once; and that the door a label names is found.
+- **(11)** A janitor went back to a room seven seconds after a clean failed there. Cause not found.
+- **(18)** A crate was dropped five times at the Cargo Lobby shutters with someone standing beside it. Not looked into.
+- A janitor swapped between two doors every three seconds for half a minute (12:34:13). Fix 1 should stop it once it has asked at one. Why two calls it has not yet asked about alternate is not known.
+- A call to the Bitrunning Den, asked for at the Cargo Bay door, was refused. It looks as though the janitor and the technician do not agree on which room the Den is reached through. Not run down.
+- A body shut in a small room by a crate in front of the door may still have nowhere to put it: the closet in the round had a cart, a tank and two crates in nine tiles.
+- The Chief Engineer's coded lines and the parrot: Poly had learned them and was saying them back by the end. Nothing to do about that.
+- With both hands taken by a mop and a bucket, anything that needs a free hand puts the bucket away or down first. It then goes for a bucket again. Not seen, but likely.
+
+---
+
 ## 2026-11-18, 12:00: eleven faults from the 09:12 round (the commit that added this entry)
 
 **Tested:** type check, server compile to a side copy (0 errors, 0 warnings), simulator: all 37 scenarios with a quiet LLM, and eight of them (`crew`, `qm`, `nested`, `office`, `vouch`, `qmbig`, `qmquiet`, `qmpaper`) with a chatty and a dead LLM. 54 of 56 runs passed. `nested` with a dead LLM failed "the cargo technician ends at the post", the check the entries below list as flaky: the committed code failed it in three runs of four here. `qm` with a chatty LLM failed "no janitor keeps walking at a room it cannot get into" once (four tries at the Cargo Bay where three are allowed), then passed three times out of three, as the committed code did. I did not run that one down. It may be mine: a janitor that drops a call now keeps the mess as its own, and the simulator, unlike the server, goes on listing a locked room as messy. **Not played in a round. No model tests. No new simulator scenarios.** The simulator runs none of the server code, so everything in a `.dm` file below is compile-checked only. On the brain side the new paths (a clean that fails, a meeting call not heard, the Captain's unclear answer, the Quartermaster's own crate by PDA, "I cannot shift it") have no scenario that walks them: the old scenarios show only that nothing they cover broke. The new wordings were checked against the lines from the round by a throwaway script (21 cases), which is not kept.

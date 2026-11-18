@@ -443,16 +443,43 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     return { ready: false, step: 'You need something to clean with first.' };
   }
   const toldBy = task.askedBy ? ` (${task.askedBy} told you of it)` : '';
-  // A dry mop with a sink in sight: wetting it comes before anything, wherever the mess is.
+  // Water comes before anything, wherever the mess is. A bucket that is running low is filled
+  // while there is a tank or a sink in sight: it is the water the body carries to where there is
+  // none, and a mop wetted from it saves a walk back across the station.
+  if (brain.bucketToFill) {
+    return {
+      ready: true,
+      step: `Your bucket is low and there is water here to fill it at. You are filling it before you set off for the mess in ${task.place}${toldBy}.`,
+      act: { tool: 'clean' },
+    };
+  }
+  // A dry mop with water to hand: its own bucket, a mop bucket or cart with water in, or a sink.
   if (brain.mopNeedsWater) {
+    const water = brain.waterFrom ?? 'sink';
+    const from = /^bucket$/i.test(water)
+      ? 'you have water in your bucket'
+      : `there is a ${water} right here`;
     return {
       ready: true,
       step:
         task.place === brain.location
-          ? `Your mop is dry and there is a sink here. You are wetting it, and then cleaning up the mess here in ${task.place}${toldBy}.`
-          : `Your mop is dry and there is a sink right here. You are wetting it before you set off for the mess in ${task.place}${toldBy}.`,
+          ? `Your mop is dry and ${from}. You are wetting it, and then cleaning up the mess here in ${task.place}${toldBy}.`
+          : `Your mop is dry and ${from}. You are wetting it before you set off for the mess in ${task.place}${toldBy}.`,
       act: { tool: 'clean' },
     };
+  }
+  // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
+  // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
+  // somewhere else: one in the room it stands in is cleaned first.
+  if (brain.wantsBucket && task.place !== brain.location) {
+    const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
+    if (bucket) {
+      return {
+        ready: true,
+        step: `You have a mop and nothing to carry water in, and you know where there is a bucket. You are going to get it before you set off for the mess in ${task.place}${toldBy}.`,
+        act: { tool: 'pick_up', item: bucket },
+      };
+    }
   }
   if (task.place === brain.location) {
     // A mess it remembers further off in the room counts: the body walks over to it.
@@ -514,6 +541,9 @@ function letInStep(
   // knocks, sends word to whoever called it, and says so to anyone it can see who works there:
   // each of those once.
   const asks = brain.letInAsks[door];
+  // Which of the room's doors it is standing at, said in every asking. A room may have three, and
+  // "the door of the Cargo Bay" had a technician open the tunnel door for a janitor in the lobby.
+  const which = doorCalled(brain, door);
   if (!asks?.knocked) {
     return {
       ready: true,
@@ -529,7 +559,7 @@ function letInStep(
         tool: 'message',
         person: task.askedBy,
         // The door it is at is named first: that is the one whoever reads it goes to.
-        text: `I am at the door of the ${door} about the mess${within ? ` in the ${place}` : ''}. C${ASKING_IN.slice(1)}, please?`,
+        text: `I am at the ${which}door of the ${door} about the mess${within ? ` in the ${place}` : ''}. C${ASKING_IN.slice(1)}, please?`,
       },
     };
   }
@@ -541,7 +571,7 @@ function letInStep(
     return {
       ready: true,
       step: `${caller.name} called you to clean up a mess in the ${place}${within}, which is locked to you. You are standing at the door of the ${door}, and ${caller.name} is in sight: in "say", ask ${caller.name} outright to let you in.`,
-      say: `${caller.name.split(' ')[0]}, I am at the door${within ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
+      say: `${caller.name.split(' ')[0]}, I am at the ${which}door${within || which ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
       needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
       // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
       // for it would only get it opened a second time.
@@ -552,6 +582,7 @@ function letInStep(
     return {
       ready: false,
       wait: true,
+      asked: true,
       step: `You have knocked and asked to be let into the ${door}, and are waiting by the door.`,
     };
   }
@@ -559,6 +590,23 @@ function letInStep(
     ready: false,
     step: `Nobody has let you into the ${door}. You will ask again when someone who works there turns up.`,
   };
+}
+
+/**
+ * What the door the body is standing at is called, as words to go before "door": "Quartermaster
+ * Maintenance " or "Cargo Lobby ". Empty if it is at no door of this room, or the door has no name
+ * of its own to go by. See `doorNamed`, which reads it back out of what was said.
+ */
+export function doorCalled(brain: NpcBrain, room: string): string {
+  const label = brain.atDoorOf === room ? brain.atDoorLabel : null;
+  return label && label.toLowerCase() !== room.toLowerCase() ? `${label} ` : '';
+}
+
+/** The door someone says they are at, by what it is called, or undefined if they did not say: "I am at the Deliveries door of the Cargo Bay". */
+export function doorNamed(text: string): string | undefined {
+  return text
+    .match(/\bat the ((?:(?! of )[^.,!?])+?) door\b/i)?.[1]
+    ?.trim();
 }
 
 /** TRUE once the body has done all it can to be let in: knocked, and sent word if there is anyone to send it to. */

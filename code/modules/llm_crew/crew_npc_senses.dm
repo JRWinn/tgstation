@@ -157,7 +157,11 @@
 	note_place(body)
 	var/list/in_sight = oview(CREW_NPC_VISION_RANGE, body)
 	things_in_view = notable_things(in_sight)
-	sink_in_view = !!(locate(/obj/structure/sink) in in_sight)
+	// Water to wet a mop with: the bucket it carries, a mop bucket or cart with water in, or a sink.
+	var/atom/water = water_to_hand(in_sight)
+	sink_in_view = !isnull(water)
+	water_from = water ? format_text(water.name) : null
+	bucket_to_fill = bucket_wants_filling() && !isnull(water_for_bucket(in_sight))
 	var/list/grenade_spot = held_grenade() ? best_grenade_spot(in_sight) : null
 	grenade_messes = grenade_spot ? grenade_spot[2] : 0
 	storage_here = length(storage_to_search(in_sight))
@@ -396,14 +400,19 @@
 
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
 	var/whispered = !!message_mods[WHISPER_MODE]
-	if(isliving(speaker))
+	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
+	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
+	// the parrot's "CRYSTAL DELAMINATION IMMINENT" twenty-nine times in half an hour.
+	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
+	var/someone = living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
+	if(someone)
 		last_heard_speaker = speaker_name
 	var/list/details = list(
 		"speaker" = speaker_name,
 		"message" = message,
 		"whispered" = whispered,
-		// A body can tell a living voice from a machine's.
-		"source" = isliving(speaker) ? "person" : "device",
+		// A body can tell a person's voice from an animal's or a robot's, and those from a machine's.
+		"source" = someone ? "person" : (living_speaker ? "animal" : "device"),
 		"distance" = get_dist(body, speaker),
 	)
 	// Whether the speaker is turned towards the body. People face who they are talking to, and with
@@ -411,6 +420,18 @@
 	if(isliving(speaker))
 		var/mob/living/talker = speaker
 		details["facing"] = !!(get_dir(talker, body) & talker.dir)
+	// The door the speaker is standing at, if they are at one. "Could you let me in?" said at a
+	// door means that door, and whoever hears it can see or guess as much: it goes with what was
+	// said, so that a room with three doors is opened at the right one.
+	if(someone)
+		var/obj/machinery/door/airlock/near_door
+		var/near_distance = INFINITY
+		for(var/obj/machinery/door/airlock/door in range(CREW_NPC_AT_DOOR, living_speaker))
+			if(get_dist(living_speaker, door) < near_distance)
+				near_distance = get_dist(living_speaker, door)
+				near_door = door
+		if(near_door)
+			details["near_door"] = format_text(near_door.name)
 	// Only tie the voice to a person the body has just been looking at.
 	if(ishuman(speaker) && recently_saw(speaker))
 		details["handle"] = handle_for(speaker)

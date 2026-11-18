@@ -25,7 +25,10 @@
 
 /// TRUE if all the body has to clean with here is a rag: a poor tool, which shifts little. It is short of something better.
 /datum/ai_controller/crew_npc/proc/has_poor_tool()
-	return istype(working_tool(), /obj/item/rag)
+	// A mop that has run dry is short of water, not of a mop. With a dry mop in one hand and a rag
+	// in the other, away from any sink, a janitor told its head at the staff meeting that it needed
+	// something better than a rag, and a second crate of supplies was ordered for it.
+	return istype(working_tool(), /obj/item/rag) && isnull(dry_mop())
 
 /// TRUE if this item would clean a mess if used on one now. A mop with no water on it would not.
 /datum/ai_controller/crew_npc/proc/can_clean_with(obj/item/tool)
@@ -57,25 +60,117 @@
  *
  * Returns a list: whether it worked, the words for the brain if it did not, and a marker that this was wetting, not cleaning.
  */
-/datum/ai_controller/crew_npc/proc/wet_mop(obj/structure/sink/sink)
+/datum/ai_controller/crew_npc/proc/wet_mop(atom/source)
 	var/mob/living/carbon/human/body = pawn
 	var/obj/item/mop/mop = dry_mop()
 	if(isnull(mop))
 		return list(!isnull(cleaning_tool()), "You have no mop to wet.", TRUE)
+	if(QDELETED(source))
+		return list(FALSE, "There is nothing here to wet your mop at.", TRUE)
+	var/source_name = format_text(source.name)
 	var/mop_hand = body.get_held_index_of_item(mop)
 	if(mop_hand && mop_hand != body.active_hand_index)
 		body.swap_hand(mop_hand)
-	body.ClickOn(sink)
-	sleep(1 SECONDS)
-	if(QDELETED(body) || QDELETED(mop))
-		return list(FALSE, "You could not get to it.", TRUE)
+	// Every drop comes out of the thing it is wetted at, by the clicks a player would make. A sink
+	// or a bucket gives a little at a click, so the mop is held to it until it is full or no more
+	// comes. A mop bucket or a janitorial cart soaks it in one go, with the other button. Nothing
+	// is topped up by code: a sink that has run dry is a sink that has run dry.
+	var/one_go = istype(source, /obj/structure/mop_bucket)
+	for(var/dip in 1 to (one_go ? 1 : CREW_NPC_MOP_DIPS))
+		var/before = mop.reagents.total_volume
+		if(before >= mop.reagents.maximum_volume)
+			break
+		if(!click_as_body(source, one_go ? "right=1" : null))
+			break
+		if(QDELETED(src) || QDELETED(body) || QDELETED(mop) || QDELETED(source))
+			return list(FALSE, "You could not get to it.", TRUE)
+		if(mop.reagents.total_volume <= before)
+			break
 	if(!can_clean_with(mop))
-		return list(FALSE, "You could not wet your mop at the sink.", TRUE)
-	// One dip holds enough for a handful of messes, and then it is a walk back to the sink. Anyone
-	// would hold it under the tap until it was full.
-	var/room_left = mop.reagents.maximum_volume - mop.reagents.total_volume
-	if(room_left > 0)
-		mop.reagents.add_reagent(/datum/reagent/water, room_left)
+		return list(FALSE, "You could not wet your mop at the [source_name]: it has run dry.", TRUE)
+	return list(TRUE, null, TRUE)
+
+/// Returns a bucket the body is holding, or null.
+/datum/ai_controller/crew_npc/proc/held_bucket()
+	var/mob/living/carbon/human/body = pawn
+	for(var/obj/item/reagent_containers/cup/bucket/held in body.held_items)
+		return held
+	return null
+
+/// TRUE if the body holds a bucket that is under half full: worth filling while there is water in sight.
+/datum/ai_controller/crew_npc/proc/bucket_wants_filling()
+	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
+	return bucket && bucket.reagents.total_volume < bucket.reagents.maximum_volume / 2
+
+/**
+ * Returns the nearest thing to hand that a mop can be wetted at, or null: the bucket in the body's
+ * other hand if there is water in it, then a mop bucket or janitorial cart in sight with water in
+ * it, then a sink in sight. Water it has carried with it comes before a walk to a sink.
+ */
+/datum/ai_controller/crew_npc/proc/water_to_hand(list/in_sight)
+	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
+	if(bucket && bucket.reagents.total_volume >= 1)
+		return bucket
+	var/atom/nearest
+	var/nearest_distance = INFINITY
+	for(var/obj/structure/mop_bucket/tub in in_sight)
+		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance)
+			nearest_distance = get_dist(pawn, tub)
+			nearest = tub
+	if(nearest)
+		return nearest
+	for(var/obj/structure/sink/sink in in_sight)
+		if(get_dist(pawn, sink) < nearest_distance)
+			nearest_distance = get_dist(pawn, sink)
+			nearest = sink
+	return nearest
+
+/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink.
+/datum/ai_controller/crew_npc/proc/water_for_bucket(list/in_sight)
+	var/atom/nearest
+	var/nearest_distance = INFINITY
+	for(var/obj/structure/reagent_dispensers/watertank/tank in in_sight)
+		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance)
+			nearest_distance = get_dist(pawn, tank)
+			nearest = tank
+	if(nearest)
+		return nearest
+	for(var/obj/structure/sink/sink in in_sight)
+		if(get_dist(pawn, sink) < nearest_distance)
+			nearest_distance = get_dist(pawn, sink)
+			nearest = sink
+	return nearest
+
+/**
+ * Fills the bucket the body is holding at a water tank or a sink it is standing by, a click at a
+ * time, until it is full or no more comes. A dry mop is then wetted from it. Sleeps while it does.
+ *
+ * Returns a list, as wet_mop does: whether it worked, the words for the brain if not, and a marker that this was about water, not cleaning.
+ */
+/datum/ai_controller/crew_npc/proc/fill_bucket(atom/source)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
+	if(isnull(bucket) || QDELETED(source))
+		return list(!isnull(cleaning_tool()), "You have no bucket to fill.", TRUE)
+	var/source_name = format_text(source.name)
+	var/bucket_hand = body.get_held_index_of_item(bucket)
+	if(bucket_hand && bucket_hand != body.active_hand_index)
+		body.swap_hand(bucket_hand)
+	for(var/go in 1 to CREW_NPC_BUCKET_FILLS)
+		var/before = bucket.reagents.total_volume
+		if(before >= bucket.reagents.maximum_volume)
+			break
+		if(!click_as_body(source))
+			break
+		if(QDELETED(src) || QDELETED(body) || QDELETED(bucket) || QDELETED(source))
+			return list(FALSE, "You could not get to it.", TRUE)
+		if(bucket.reagents.total_volume <= before)
+			break
+	if(bucket.reagents.total_volume < 1)
+		return list(!isnull(cleaning_tool()), "You could not fill your bucket at the [source_name]: it has run dry.", TRUE)
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) filled its bucket at the [source_name] at [AREACOORD(source)]: it holds [round(bucket.reagents.total_volume)] units.")
+	if(dry_mop() && isnull(proper_tool()))
+		return wet_mop(bucket)
 	return list(TRUE, null, TRUE)
 
 /// TRUE if this tool can shift this mess. A spray only washes; cobwebs, rubble and the like need scrubbing.
@@ -156,10 +251,19 @@
 	var/blocked_at = blocked_places[place]
 	if(isnull(blocked_at))
 		return FALSE
-	if(world.time - blocked_at > CREW_NPC_BLOCKED_PLACE_TIME)
+	// Twice with no way in, it is left a good while. A mess seen through the window of a room that
+	// is locked to the body, or in a walled-off corner of a tunnel, was set off for every five
+	// minutes by each janitor in turn, and a crate was shifted for it each time.
+	if(world.time - blocked_at > (blocked_tries[place] >= 2 ? CREW_NPC_BLOCKED_PLACE_LONG : CREW_NPC_BLOCKED_PLACE_TIME))
 		blocked_places -= place
 		return FALSE
 	return TRUE
+
+/// A door has been opened for the body, or fire doors have lifted: rooms it failed to reach once may be worth another try. Those it has failed twice are not.
+/datum/ai_controller/crew_npc/proc/ways_reopened()
+	for(var/place in blocked_places.Copy())
+		if(blocked_tries[place] < 2)
+			blocked_places -= place
 
 /// Returns the names of the rooms the body lately failed to find a way into.
 /datum/ai_controller/crew_npc/proc/blocked_place_names()
@@ -255,19 +359,27 @@
 	if(errand_tool == CREW_TOOL_CLEAN && blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	var/obj/item/tool = cleaning_tool()
-	if(isnull(proper_tool()) && dry_mop())
-		// A dry mop cleans nothing. Wet it first, at the nearest sink in sight.
-		var/obj/structure/sink/nearest_sink
-		var/nearest_distance = INFINITY
-		for(var/obj/structure/sink/sink in view(CREW_NPC_VISION_RANGE, body))
-			if(get_dist(body, sink) < nearest_distance)
-				nearest_distance = get_dist(body, sink)
-				nearest_sink = sink
-		if(nearest_sink)
+	var/list/around = view(CREW_NPC_VISION_RANGE, body)
+	// Water first. A bucket that is running low is filled while there is a tank or a sink in sight:
+	// that is the water it carries to where there is none.
+	if(bucket_wants_filling())
+		var/atom/filling_at = water_for_bucket(around)
+		if(filling_at)
 			clean_queue = list()
 			cleaned_count = 0
 			clean_failed_count = 0
-			start_errand(nearest_sink, CREW_TOOL_CLEAN, null)
+			start_errand(filling_at, CREW_TOOL_CLEAN, null)
+			return
+	if(isnull(proper_tool()) && dry_mop())
+		// A dry mop cleans nothing. Wet it first: from the bucket it carries, at a mop bucket or a
+		// cart with water in it, or at the nearest sink in sight.
+		var/atom/water = water_to_hand(around)
+		if(water)
+			clean_queue = list()
+			cleaned_count = 0
+			clean_failed_count = 0
+			// The bucket in its other hand is not somewhere to walk to. The errand is to where it stands.
+			start_errand(water.loc == body ? get_turf(body) : water, CREW_TOOL_CLEAN, null)
 			return
 		// With no sink in sight, a rag in the other hand will still do what a rag does.
 		if(isnull(tool))
@@ -277,7 +389,7 @@
 		action_result(CREW_TOOL_CLEAN, FALSE, "You have nothing to clean with. Soap, a wet mop or space cleaner would do.")
 		return
 	// The body's own tile counts: a mess underfoot is still a mess.
-	var/list/messes = messes_to_clean(view(CREW_NPC_VISION_RANGE, body))
+	var/list/messes = messes_to_clean(around)
 	// None in sight is not none in the room. One it remembers further off in the room will do to start on.
 	if(!length(messes))
 		var/obj/effect/decal/cleanable/remembered = remembered_mess_in(get_area_name(body, TRUE))
@@ -358,9 +470,14 @@
 	stubborn_messes[REF(mess)] = TRUE
 	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
 	// does not scrub at every other one in the room to find out. Once could be a slip of the hand.
-	stubborn_kinds[mess.type]++
-	if(stubborn_kinds[mess.type] >= 2)
-		var/place = get_area_name(mess, TRUE)
+	// Counted for the room it is in, not for the whole station. Counted once for everywhere, two
+	// slips of the hand in the first ten minutes meant that from then on a single miss in any room
+	// wrote off all the dirt in it, and a janitor with a full bottle walked the station with every
+	// room it knew marked as beyond it.
+	var/place = get_area_name(mess, TRUE)
+	var/kind_here = "[place]|[mess.type]"
+	stubborn_kinds[kind_here]++
+	if(stubborn_kinds[kind_here] >= 2)
 		for(var/key in remembered_messes)
 			var/list/memory = remembered_messes[key]
 			var/datum/weakref/other_ref = memory[1]
