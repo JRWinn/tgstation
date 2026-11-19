@@ -642,7 +642,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
   // somewhere else: one in the room it stands in is cleaned first.
-  if (brain.wantsBucket && task.place !== brain.location) {
+  if (brain.wantsBucket && task.place !== brain.location && !task.noBucket) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
       return {
@@ -980,6 +980,16 @@ export const JANITOR: Job = {
     ) {
       task.wantsScrub = false;
       puttingBack.delete(task.id);
+    }
+    // A bucket it could not pick up, its hands full of what it needs most often: it sets off for
+    // the mess without one rather than try again before it goes (DESK-10).
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'pick_up' &&
+      !ok &&
+      /^bucket$/i.test(String(act.item ?? ''))
+    ) {
+      task.noBucket = true;
     }
     // Having cleaned something in a room, what it says of that room afterwards allows for it.
     if (act.tool === 'clean' && ok) {

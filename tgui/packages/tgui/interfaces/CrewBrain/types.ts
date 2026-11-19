@@ -862,6 +862,8 @@ export type Task = {
   unheard?: number;
   /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
   walkedUp?: boolean;
+  /** For a mess: TRUE once picking up a bucket for it has failed, so it sets off without one. */
+  noBucket?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
