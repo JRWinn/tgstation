@@ -29,7 +29,8 @@ import { addTask, findTask, finishTask } from '../tasks';
 import type { ChiefWork, NpcBrain, Plan, SenseEvent, Task } from '../types';
 import { batterySteps } from './engine';
 import {
-  ENGINE_TAKEN_WORDS,
+  beginsWith,
+  ENGINE_TAKEN,
   engineersAboard,
   firstName,
   HEARD_WORDS,
@@ -38,12 +39,13 @@ import {
   isEngineer,
   isLightAgainOrder,
   LIGHT_WORDS,
-  LIT_WORDS,
   lightLine,
+  litLine,
+  matchAfterName,
   NOT_OFF_WORDS,
   NOT_ON_WORDS,
-  OFF_WORDS,
-  ON_AGAIN_WORDS,
+  offLine,
+  onAgainLine,
   RELIGHT_WORDS,
   relightLine,
   SHUT_WORDS,
@@ -629,11 +631,11 @@ function hearEngineer(
       at: Date.now(),
     });
   };
-  if (ENGINE_TAKEN_WORDS.test(text)) {
+  if (beginsWith(text, ENGINE_TAKEN)) {
     chief.lightTaken = true;
     return;
   }
-  if (LIT_WORDS.test(text)) {
+  if (beginsWith(text, litLine(brain.name))) {
     heardIt();
     chief.litAt = brain.now;
     chief.lightTaken = true;
@@ -646,7 +648,7 @@ function hearEngineer(
     }
     return;
   }
-  const stuck = text.match(STUCK_WORDS);
+  const stuck = matchAfterName(text, brain.name, STUCK_WORDS);
   if (stuck) {
     heardIt();
     const what = stuck[1].trim();
@@ -660,7 +662,7 @@ function hearEngineer(
     }
     return;
   }
-  if (OFF_WORDS.test(text)) {
+  if (beginsWith(text, offLine(brain.name))) {
     heardIt();
     // They are off. An order for them to go off that it had yet to give again is not given.
     if (chief.order?.what === 'shut') {
@@ -677,7 +679,7 @@ function hearEngineer(
     }
     return;
   }
-  const notOff = text.match(NOT_OFF_WORDS);
+  const notOff = matchAfterName(text, brain.name, NOT_OFF_WORDS);
   if (notOff) {
     heardIt();
     if (chief.order?.what === 'shut') {
@@ -695,11 +697,11 @@ function hearEngineer(
     chief.notOff = what;
     return;
   }
-  if (NOT_ON_WORDS.test(text)) {
+  if (matchAfterName(text, brain.name, NOT_ON_WORDS)) {
     heardIt();
     return;
   }
-  if (ON_AGAIN_WORDS.test(text)) {
+  if (beginsWith(text, onAgainLine(brain.name))) {
     heardIt();
     // Give the crystal time to take the beams before reading it as stopped again.
     chief.litAt = brain.now;

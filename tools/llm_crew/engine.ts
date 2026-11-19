@@ -231,6 +231,17 @@ ENGINEER.readsMessage(sam, 'Ada Volt', relightLine('Sam Rees'), 0, 'Chief Engine
 acts = work(sam, 'emitters_on');
 add('told by PDA the emitters have stopped, it switches each on again', acts.map((act: any) => act.how), ['switch_on', 'switch_on', 'switch_on']);
 add('and says so', sam.engine.words.map((it: any) => it.line), ['Ada, the emitters are on again.']);
+// ENG-06: told to switch them on again while still lighting it, it carries on lighting.
+sam = engineer();
+said(sam, 'Ada Volt', lightLine('Sam Rees'));
+work(sam, 'light_engine', () => true, 8);
+said(sam, 'Ada Volt', relightLine('Sam Rees'));
+ENGINEER.syncTasks(sam);
+add('a relight order while the engine is still being lit is not taken', [sam.engine.lit, !!open(sam, 'emitters_on')], [false, false]);
+{
+  const forced = { kind: 'emitters_on', urgency: 'asked', state: 'open', source: 'asked', id: 999 };
+  add('nor, with one forced in, does it switch an emitter on', ENGINEER.plan(sam, forced as any)?.act ?? null, null);
+}
 // Someone else's order is not its order.
 sam = engineer();
 ENGINEER.overhears(sam, { details: { message: lightLine('Sam Rees'), speaker: 'Jan Itor' } } as any);
@@ -327,6 +338,29 @@ CHIEF_ENGINEER.syncTasks(ada);
 add('an engine it shut off is not lit again by itself', ada.chief.order, null);
 CHIEF_ENGINEER.readsMessage(ada, 'Cap Tain', 'Chief, light the engine again when you are ready.', 0, 'Captain');
 add('the Captain says light the engine: it gives its engineer the engine again', [ada.chief.shut, ada.chief.order?.what], [false, 'light']);
+
+// ENG-06: the engineer's set words are taken only as its set lines, not from its chat.
+for (const [line, want] of [
+  ["I'll tell you when the engine is lit.", null],
+  ["Ada, I'll let you know once the engine is lit.", null],
+  ['Ada, the engine is lit. All done in there.', 'lit'],
+] as [string, string | null][]) {
+  const it = chief();
+  heardBy(it, 'Sam Rees', line);
+  add(`overheard "${line}": ${want ? 'the engine is lit' : 'not taken'}`, it.chief.litAt !== null, want === 'lit');
+}
+{
+  const it = chief();
+  heardBy(it, 'Sam Rees', "The engine, right away. I'll tell you when the engine is lit.");
+  add('"The engine, right away." with a remark after it: taken, and not as lit', [it.chief.lightTaken, it.chief.litAt], [true, null]);
+  it.engineReading = { integrity: 90, energy: 500 };
+  CHIEF_ENGINEER.syncTasks(it);
+  it.toTell = [];
+  heardBy(it, 'Sam Rees', 'The emitters are off until the cooling is running.');
+  add('in a shut-off, "The emitters are off until ..." is not taken, and the Captain is told nothing', [it.chief.emittersOff, it.toTell.filter((tell: any) => tell.to === 'Cap Tain').length], [false, 0]);
+  CHIEF_ENGINEER.readsMessage(it, 'Sam Rees', offLine('Ada Volt'), 0, 'Station Engineer');
+  add('the set line by PDA is still taken', it.chief.emittersOff, true);
+}
 
 // ENG-08: shut off, then lit again by someone else.
 const shutOff = () => {

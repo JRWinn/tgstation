@@ -57,6 +57,33 @@ export function saidTo(brain: NpcBrain, line: string): boolean {
   return new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(line.trim());
 }
 
+/**
+ * TRUE if a line begins with the whole of a set line, whatever remark may follow it: "Ada, the
+ * engine is lit. All done in there." begins with litLine('Ada'). Not "Ada, I'll let you know once
+ * the engine is lit."
+ */
+export function beginsWith(text: string, line: string): boolean {
+  return text.trim().toLowerCase().startsWith(line.toLowerCase());
+}
+
+/**
+ * The set words with a reason in them, matched only straight after the listener's first name at
+ * the start of the line: "Ada, I cannot light the engine: the nitrogen canister will not connect."
+ */
+export function matchAfterName(
+  text: string,
+  name: string,
+  words: RegExp,
+): RegExpMatchArray | null {
+  const said = text.trim();
+  const prefix = `${firstName(name)}, `;
+  if (!said.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return null;
+  }
+  const found = said.slice(prefix.length).match(words);
+  return found && found.index === 0 ? found : null;
+}
+
 /** The Chief Engineer giving an engineer the engine, to its face: "Sam, the engine is yours. Light it now, please." */
 export function lightLine(to: string): string {
   return `${firstName(to)}, the engine is yours. Light it now, please.`;
