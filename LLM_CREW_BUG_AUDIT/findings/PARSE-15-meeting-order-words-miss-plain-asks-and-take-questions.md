@@ -1,0 +1,92 @@
+---
+id: PARSE-15
+title: Status report on your department and gather your staff call no meeting, while did you hold a meeting and check the bar, no need for a meeting each call one and drop the order
+kind: bug
+severity: medium
+effort: small
+confidence: sure
+status: found
+found_by: Opus 5.5
+area: head
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:83, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:127, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:257, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1452
+fix: Refuse MEETING_ORDER_WORDS in a question or after a negation, add the plain asks for a report and for gathering staff, and test it per clause so an order in another clause still stands
+---
+
+## What is wrong
+
+`isMeetingOrder` decides, by one regular expression, whether the Captain has told a head to find out how its staff are doing, which makes the head call a staff meeting. It is read by code for spoken lines and PDA messages (`chiefengineer.ts`, `head.ts`), and a match also **wipes any other order in the same line**: `workInWords` returns null for a superior's line that matches (`tasks.ts:257`), and `brain.ts:1452` drops the model's `work` answer when it matches.
+
+Run with a Head of Personnel (a head with staff):
+
+| The Captain says | isMeetingOrder |
+| --- | --- |
+| hold a meeting | true |
+| call a staff meeting | true |
+| find out how your people are doing | true |
+| check on your janitors | true |
+| meeting pls | false |
+| hold a meetin | false |
+| gather your staff | false |
+| get your team together | false |
+| status report on your department please | false |
+| give me a report on your section | false |
+| I want a report from your department | false |
+| have your staff report in | false |
+| how are your guys doing | false |
+| how is service doing | false |
+| did you hold a meeting? | **true** |
+| get the janitors to clean the bar, no need for a meeting | **true** |
+
+The last two are a question and a "no need". For the last, the head calls a meeting the Captain said was not needed. If the line were "check the bar, no need for a meeting", the look order would be dropped as well: `workInWords` returns null for any superior's line that `isMeetingOrder` matches.
+
+A missed ask is not silent: the model is told nothing of a meeting, may say it will hold one, and none is held.
+
+## Where
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:83`:
+
+    const MEETING_ORDER_WORDS =
+      /\b(hold|call|have|run|convene|get)\b[^.?!]*\bmeeting\b|\bhow\b[^.?!]*\b(section|department|staff|team|people|janitors|lot)\b[^.?!]*\b(doing|getting on|going|coping|managing)\b|\b(check|check in|look in) (on|with) your (section|department|staff|team|people|janitors)\b/i;
+
+`meetings.ts:127`:
+
+    export function isMeetingOrder(brain: NpcBrain, heard: string): boolean {
+      return (
+        (departmentHeadedBy(brain.job)?.jobs.length ?? 0) > 0 &&
+        !/captain/i.test(brain.job) &&
+        MEETING_ORDER_WORDS.test(heard)
+      );
+    }
+
+`tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:257`, in `workInWords`:
+
+    if (!place || (fromSuperior && isMeetingOrder(brain, heard))) {
+      return null;
+    }
+
+`tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1452`:
+
+    if (
+      isMeetingOrder(
+        brain,
+        report.filter((line) => line.includes(' says: ')).join(' '),
+      )
+    ) {
+      continue;
+    }
+
+## How it was found
+
+Run. A throwaway script (`parse/meet.ts` in the scratchpad) called `isMeetingOrder` on a fixture Head of Personnel for each line above; the table is its output. That a match drops the other order is read from the code. Not seen in a round log.
+
+## How to fix it
+
+1. Test per clause (split on `.`, `?`, `!`, `,`, " but ", " and "), and refuse a clause that ends in `?` or has `\b(no need|don'?t|do not|not|never mind|no)\b` before "meeting".
+2. Add the plain asks: `\b(status|progress)\s+report\b`, `\breport\s+(on|from)\s+(your|the)\s+(section|department|staff|team|people)\b`, `\b(gather|round up|get together|assemble)\b[^.?!]*\b(staff|team|people|section|department|janitors)\b`, `\bhave\s+your\s+(staff|team|people)\s+report\b`, `\bhow\s+(is|are)\s+(service|supply|engineering|security|your\s+\w+)\s+(doing|going|getting on)\b`, and a misspelt "meetin(g)?".
+3. In `workInWords` and `brain.ts:1452`, drop only the clause that is the meeting order, not the whole line: test `isMeetingOrder` on the clause that named the room.
+4. Keep `bun tools/llm_crew/sim.ts quiet captain` passing (the Captain's "find out how your section is doing").
+
+## How to test the fix
+
+- A table in `tools/llm_crew/` with the rows above, wanting true for every ask and false for the question and the "no need".
+- `quiet captain` and `quiet engine` scenarios.
