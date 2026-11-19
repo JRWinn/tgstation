@@ -1,0 +1,94 @@
+---
+id: SEC-01
+title: An officer that is stunned, out cold or dead keeps stepping after its target and across a cell
+kind: bug
+severity: high
+effort: small
+confidence: sure
+status: found
+area: security
+files: code/modules/llm_crew/crew_npc_security.dm:373, code/modules/llm_crew/crew_npc_security.dm:410, code/modules/mob/living/living.dm:1046
+fix: Before every body.Move in close_with and walk_steps, stop unless the body is awake, not immobilised and not buckled, the check the wander and the walk loops already make
+---
+
+## What is wrong
+
+`close_with` (the steps after someone it means to hit or cuff) and `walk_steps` (the steps into and out of a cell) move the body with a bare `body.Move(next, dir)` in a loop with a `sleep` between steps. Neither looks at the state of the body before a step. The only checks are that the body, the controller and the target still exist and stand on a floor.
+
+`/mob/living/Move` does not refuse a mob that cannot move. Being unable to move is enforced by whoever asks for the step: the player's key press (`/client/Move`), and the AI walk loop. A bare `Move` on a paralysed, unconscious, cuffed-and-buckled or dead human goes through, at the same pace as a run.
+
+So a body that is knocked out or killed in the middle of a chase goes on sliding along the floor after its target, a tile every 0.2 seconds, for up to 12 steps and for each of up to 8 swings. No player could do that. It is a cheat by the project's own rule, and it is what a player watching would call a bug at once.
+
+One concrete case, from the kind of fight round-19.33.50 had (the officer "bitten and tackled ten times" by Pun Pun):
+
+1. The officer is in `baton_hits`, in the `while` loop, and calls `close_with(person, CREW_NPC_CHASE_STEPS)`. Pun Pun is three tiles off.
+2. During the `sleep(max(movement_delay, 0.2 SECONDS))` between steps the monkey tackles it a second time. `human_defense.dm` `attack_paw`: `Paralyze(40)`. The officer is on the floor and cannot move for four seconds.
+3. `close_with` wakes, sees that the officer and the monkey both exist and are on turfs, and calls `body.Move(next, get_dir(body, next))`. The paralysed officer slides a tile. And again, until it is next to the monkey.
+4. The swing itself does fail (`click_as_body` asks `can_perform_action`), so `baton_hits` goes round its loop, and each time `close_with` slides the body after the monkey again.
+
+The same holds if the officer is beaten unconscious or dies mid-chase: `QDELETED(body)` is false for a corpse, `view()` still works from it, and it follows.
+
+`walk_steps` has the same hole: an officer stunned on the way into a cell keeps being moved toward the far tile for 3 seconds a step.
+
+A second thing wrong in the same loops: `baton_hits` reports the wrong reason for it. A stunned officer's swings all fail in `click_as_body`, so `baton_stopped` is set to "they stepped out of reach of every swing", the arrest comes back with reason `moved`, and the brain (`arrests.ts`, `beatAfterActing`) sets `warrant.force = true` and counts a try against someone who never moved.
+
+## Where
+
+`code/modules/llm_crew/crew_npc_security.dm:373`, in `close_with`:
+
+    for(var/taken in 0 to most)
+        if(QDELETED(person) || QDELETED(body) || QDELETED(src) || !isturf(person.loc) || !isturf(body.loc))
+            return FALSE
+        if(can_reach_target_now(person))
+            body.face_atom(person)
+            return TRUE
+        ...
+        var/turf/next = get_step_towards(body, person)
+        if(!isnull(next) && crew_npc_safe_turf(next))
+            body.Move(next, get_dir(body, next))
+
+and further down the same loop:
+
+            body.Move(next, get_dir(body, next))
+            if(get_turf(body) == from)
+                return FALSE
+        sleep(max(movement_delay, 0.2 SECONDS))
+
+`code/modules/llm_crew/crew_npc_security.dm:410`, in `walk_steps`:
+
+    while(get_turf(body) != next && world.time - tried_from < CREW_NPC_STEP_WAIT)
+        body.Move(next, get_dir(body, next))
+        sleep(max(movement_delay, 0.2 SECONDS))
+        if(QDELETED(src) || QDELETED(body))
+            return FALSE
+
+The base proc, `code/modules/mob/living/living.dm:1046`. Nothing in it, or in `/mob/living/carbon/Move` or `/mob/living/carbon/human/Move`, looks at `mobility_flags`, `stat` or `TRAIT_IMMOBILIZED`:
+
+    /mob/living/Move(atom/newloc, direct, glide_size_override)
+        if(lying_angle != 0)
+            lying_angle_on_movement(direct)
+        if (buckled && buckled.loc != newloc) //not updating position
+            ...
+        . = ..()
+
+The crew's own wander does make the check before its bare `Move` (`code/modules/llm_crew/crew_npc_motor.dm:22`, `can_move(living_pawn)`), which is why the rest of the crew do not do this.
+
+## How it was found
+
+Read from the code. Not seen in a round: nobody has looked for it, and the log would only show the officer's position changing while `attack.log` says it was pinned.
+
+## How to fix it
+
+1. Add one small proc beside `close_with`, for example `/datum/ai_controller/crew_npc/proc/can_step()`, that returns FALSE when the body is `QDELETED`, `body.stat != STABLE` (this tree has no `CONSCIOUS` define, `crew_npc_person_down` in the same file uses `STABLE`), `IS_UNCONSCIOUS(body)`, `!(body.mobility_flags & MOBILITY_MOVE)`, `body.buckled`, or `HAS_TRAIT(body, TRAIT_IMMOBILIZED)`. Look at what `can_move` in `code/datums/ai/` idle walk checks and match it, so there is one rule.
+2. In `close_with`, call it at the top of the loop, next to the `QDELETED` line, and return FALSE if it fails. A body knocked to the floor (`TRAIT_FLOORED` only) can crawl, as a player can: let that through, but then wait the crawling pace, not 0.2 seconds. `movement_delay` already follows `cached_multiplicative_slowdown`, so `sleep(max(movement_delay, 0.2 SECONDS))` is right once the stunned case is out.
+3. In `walk_steps`, call it inside the `while`, before `body.Move`, and return FALSE.
+4. In `baton_hits`, when `close_with` or `click_as_body` fails and `can_step()` is false (or the body `INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_GRAB)`), set `baton_stopped = "it was knocked down itself"` and `break`, so the loop does not burn its 8 swings in 1.6 seconds. In `make_arrest`, send that back with a reason of its own (for example `"down"`), not `moved`. The window then needs one line in `beatAfterActing` (`arrests.ts`) so that `down` does not set `warrant.force` or count as a try. Until the window knows the new reason, sending `lost` is wrong too (it posts "I lost them"): leave the reason out and it falls to the plain "one try" count, which is the least harm.
+5. Do the same check in `put_in_cell` after each `walk_steps` that fails: "You were knocked down" is not "the cell will not take them", and `cell_refuses` should not be called for it.
+
+Keep: a body that is only cuffed or held by the arm must still be able to take these steps if it otherwise could (it cannot arrest anyone cuffed, so this hardly matters). Do not use `forceMove` or change the pace.
+
+## How to test the fix
+
+- Server compile on a side copy (see README).
+- No simulator scenario covers this: the simulator does not run server code.
+- In a round: have a monkey or the player shove an officer down against a wall, or slip it on a wet floor, while it is chasing someone on a warrant. It must stay where it fell. In `game.log` the "hit ... with its baton 0 times" line should give the new reason, and there should be no "could not put X in Cell N" line from a fall inside a cell.
