@@ -193,6 +193,10 @@
 			return TRUE
 		if(pass_info.can_ventcrawl && pass_info.mob_size != MOB_SIZE_TINY)
 			return FALSE
+		// Anything living that is on its feet and not tiny is turned back by the flaps: see CanAllowThrough().
+		// A route planned through them is one the body can never walk, and it walks at them until it gives up.
+		if(pass_info.mob_size != MOB_SIZE_TINY && !pass_info.can_ventcrawl && !(pass_info.pass_flags & PASSFLAPS))
+			return FALSE
 	if(pass_info.pass_flags & PASSFLAPS)
 		return TRUE
 	if(pass_info.pulling_info)

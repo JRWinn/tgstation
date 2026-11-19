@@ -1,0 +1,235 @@
+/**
+ * Looking inside storage: closets, lockers and crates.
+ *
+ * What a container holds cannot be seen from outside, so the body does what a person would: it
+ * walks up, opens it, looks, and shuts it again. Each look is reported to the brain as a sense
+ * event, which is how a crew NPC learns where things are kept.
+ */
+
+/// Returns the storage in sight that is in the body's room and has not been looked inside lately, nearest first.
+/datum/ai_controller/crew_npc/proc/storage_to_search(list/in_sight)
+	var/static/list/ignored_types = typecacheof(list(
+		/obj/structure/closet/body_bag,
+		/obj/structure/closet/cardboard,
+		/obj/structure/closet/crate/coffin,
+		/obj/structure/closet/supplypod,
+	))
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	var/list/found = list()
+	for(var/obj/structure/closet/container in in_sight)
+		if(ignored_types[container.type] || get_area(container) != here)
+			continue
+		var/last_checked = storage_checked_at[REF(container)]
+		if(last_checked && world.time - last_checked < CREW_NPC_STORAGE_RECHECK)
+			continue
+		found += container
+
+	// Nearest first, so the body works its way through the room without doubling back.
+	var/list/nearest_first = list()
+	while(length(found))
+		var/obj/structure/closet/nearest
+		var/nearest_distance = INFINITY
+		for(var/obj/structure/closet/container as anything in found)
+			var/distance = get_dist(body, container)
+			if(distance < nearest_distance)
+				nearest_distance = distance
+				nearest = container
+		found -= nearest
+		nearest_first += nearest
+	return nearest_first
+
+/// Tool: look inside the storage in the room the body is in.
+/datum/ai_controller/crew_npc/proc/tool_search()
+	var/mob/living/carbon/human/body = pawn
+	var/list/found = storage_to_search(oview(CREW_NPC_VISION_RANGE, body))
+	if(!length(found))
+		action_result(CREW_TOOL_SEARCH, FALSE, "There is no storage here that you have not already looked inside.")
+		return
+	start_search(found, CREW_TOOL_SEARCH)
+
+/// Sets the body looking through these containers one by one. The storage leaves report back through storage_done().
+/datum/ai_controller/crew_npc/proc/start_search(list/containers, tool)
+	if(!can_sense())
+		return
+	storage_queue = containers.Copy(1, min(length(containers), CREW_NPC_STORAGE_PER_SEARCH) + 1)
+	search_tool = tool
+	search_count = 0
+	resting = FALSE
+	next_storage()
+
+/// Abandons the search in progress without reporting on it. Used when the body is sent somewhere else.
+/datum/ai_controller/crew_npc/proc/cancel_search()
+	storage_queue = list()
+	search_tool = null
+	clear_blackboard_key(BB_CREW_NPC_STORAGE_TARGET)
+
+/// Points the body at the next container still to be looked inside, or ends the search if there are none.
+/datum/ai_controller/crew_npc/proc/next_storage()
+	while(length(storage_queue))
+		var/obj/structure/closet/container = storage_queue[1]
+		storage_queue.Cut(1, 2)
+		if(QDELETED(container))
+			continue
+		set_blackboard_key(BB_CREW_NPC_STORAGE_TARGET, container)
+		return
+	finish_search()
+
+/// Ends the search and tells the brain how it went.
+/datum/ai_controller/crew_npc/proc/finish_search()
+	clear_blackboard_key(BB_CREW_NPC_STORAGE_TARGET)
+	var/tool = search_tool
+	if(isnull(tool))
+		return
+	search_tool = null
+	var/place = get_area_name(pawn, TRUE)
+	room_searched_at[place] = world.time
+	var/arrival = tool == CREW_TOOL_EXPLORE ? "You arrive in [place]. " : ""
+	if(search_count)
+		action_result(tool, TRUE, "[arrival]You have looked through the storage in [place].", list("place" = place))
+	else
+		action_result(tool, TRUE, "[arrival]You could not get into any of the storage in [place].", list("place" = place))
+
+/**
+ * Opens a container, sees what is in it, and shuts it again. Sleeps while the body looks.
+ *
+ * Returns a list with "state" ("looked", "open", "locked" or "unreached") and, when the body
+ * could see inside, "contents": item names with how many of each.
+ */
+/datum/ai_controller/crew_npc/proc/look_inside(obj/structure/closet/container)
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(container) || QDELETED(body) || !can_reach_target_now(container))
+		return list("state" = "unreached")
+	body.face_atom(container)
+	// Already standing open: whatever it held is lying about in plain view.
+	if(container.opened)
+		return list("state" = "open", "contents" = list())
+
+	// Opening a container tips what it holds out onto its tile, and a container that has never been
+	// opened does not even have its contents until then. So note what is lying there first, open it,
+	// and whatever is newly there is what was inside.
+	var/atom/spill = container.drop_location()
+	var/list/already_there = list()
+	for(var/obj/item/thing in spill)
+		already_there[thing] = TRUE
+	if(!container.open(body))
+		return list("state" = "locked")
+	var/list/inside = list()
+	for(var/obj/item/thing in spill)
+		if(!already_there[thing])
+			inside[format_text(thing.name)]++
+	sleep(CREW_NPC_LOOK_TIME)
+	if(!QDELETED(container) && container.opened)
+		container.close(body)
+	return list("state" = "looked", "contents" = inside)
+
+/// Called by the storage leaves when the body has finished with a container, whether or not it saw inside.
+/datum/ai_controller/crew_npc/proc/storage_done(obj/structure/closet/container, list/result)
+	if(!QDELETED(container))
+		// Recorded even on failure, so a locked or blocked container is not tried again straight away.
+		storage_checked_at[REF(container)] = world.time
+		var/state = result?["state"] || "unreached"
+		if(state != "unreached")
+			report_storage(container, state, result["contents"])
+		if(state == "looked")
+			search_count++
+	next_storage()
+
+/// Tells the brain what the body found on looking at a container.
+/datum/ai_controller/crew_npc/proc/report_storage(obj/structure/closet/container, state, list/inside)
+	var/container_name = format_text(container.name)
+	var/place = get_area_name(container, TRUE)
+	var/list/contents = list()
+	var/list/described = list()
+	for(var/item_name in inside)
+		var/count = inside[item_name]
+		contents += list(list("name" = item_name, "count" = count))
+		described += count > 1 ? "[item_name] x[count]" : item_name
+
+	// The body's own memory of the container, used when it is later asked to fetch something.
+	if(state != "locked")
+		var/list/item_names = list()
+		for(var/item_name in inside)
+			item_names += item_name
+		storage_memory[REF(container)] = list("container" = WEAKREF(container), "items" = item_names)
+
+	var/text
+	switch(state)
+		if("looked")
+			text = "You look inside the [container_name] in [place]: [length(described) ? described.Join(", ") : "it is empty"]."
+		if("open")
+			text = "The [container_name] in [place] is standing open with nothing left inside."
+		if("locked")
+			text = "The [container_name] in [place] is locked."
+	emit_sense(CREW_SENSE_STORAGE_SEEN, text, list(
+		"place" = place,
+		"container" = container_name,
+		"state" = state,
+		"contents" = contents,
+	))
+
+/// Returns a spot in the room whose storage was looked through longest ago and is due a second look, or null.
+/datum/ai_controller/crew_npc/proc/stalest_storage_room()
+	var/stalest_place
+	var/stalest_time = world.time - CREW_NPC_STORAGE_RECHECK
+	for(var/place in room_searched_at)
+		if(place == current_place)
+			continue
+		if(room_searched_at[place] < stalest_time)
+			stalest_time = room_searched_at[place]
+			stalest_place = place
+	if(isnull(stalest_place))
+		return null
+	var/list/spot = visited_places[stalest_place]
+	return isnull(spot) ? null : locate(spot[1], spot[2], spot[3])
+
+/// Walks to something with a time limit, so one that cannot be reached does not hold the body up for ever.
+/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach
+	/// How long the walk may take.
+	var/time_limit = CREW_NPC_REACH_TIMEOUT
+	/// world.time this walk started.
+	var/started_at = 0
+
+/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/setup(datum/ai_controller/controller)
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	required_dist = crew_controller.reach_distance(controller.blackboard[target_key])
+	. = ..()
+	if(.)
+		started_at = world.time
+
+/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/perform(seconds_per_tick, datum/ai_controller/controller)
+	if(world.time - started_at > time_limit)
+		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	return ..()
+
+/// Opens the container the body is standing by, looks inside and shuts it.
+/datum/bt_node/ai_behavior/crew_npc_look_inside
+	/// Blackboard key holding the container.
+	var/target_key
+
+/datum/bt_node/ai_behavior/crew_npc_look_inside/perform(seconds_per_tick, datum/ai_controller/controller)
+	var/async_flags = handle_async()
+	if(async_flags)
+		return async_flags
+	if(QDELETED(controller.blackboard[target_key]))
+		return AI_BEHAVIOR_DELAY | AI_BEHAVIOR_FAILED
+	return start_async()
+
+/datum/bt_node/ai_behavior/crew_npc_look_inside/perform_async(datum/ai_controller/controller)
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	var/obj/structure/closet/container = controller.blackboard[target_key]
+	var/list/result = crew_controller.look_inside(container)
+	if(!async_still_valid())
+		return
+	finish_async(AI_BEHAVIOR_SUCCEEDED)
+	crew_controller.storage_done(container, result)
+
+/// Gives up on a container the body could not get to, and moves the search on.
+/datum/bt_node/ai_behavior/crew_npc_skip_storage
+	/// Blackboard key holding the container.
+	var/target_key
+
+/datum/bt_node/ai_behavior/crew_npc_skip_storage/perform(seconds_per_tick, datum/ai_controller/controller)
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	crew_controller.storage_done(controller.blackboard[target_key], null)
+	return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
