@@ -1,6 +1,6 @@
 ---
 id: PARSE-11
-title: Words a speaker puts in double quotes are cut out of what the crew hear, so there is "blood" all over the bar names no mess
+title: Words a speaker puts in double quotes are cut out of what the crew hear, so there is blood all over the bar with blood quoted names no mess
 kind: bug
 severity: low
 effort: small
