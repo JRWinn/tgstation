@@ -225,15 +225,22 @@ function wayOutOpen(brain: NpcBrain): boolean {
   );
 }
 
-/** TRUE if this step failed lately and is being left alone for now. */
-function inBackoff(brain: NpcBrain, key: string): boolean {
+/** The tools that take the body out of the room it is in, or may. */
+const WALKS = new Set(['go_to', 'go_to_door', 'explore']);
+
+/**
+ * TRUE if this step failed lately and is being left alone for now. `act` is what the step does,
+ * where it is known: null for a step that only says something.
+ */
+function inBackoff(brain: NpcBrain, key: string, act?: Action | null): boolean {
   // Shut in and seeing a door stand open, everything is worth trying again this instant.
   if (wayOutOpen(brain)) {
     return false;
   }
   // Likewise while someone is holding a door for it: that will not last, and a walk that failed
-  // a moment before the door opened says nothing about one made now.
-  if (brain.doorHeld) {
+  // a moment before the door opened says nothing about one made now. A clean that came to nothing
+  // in the room it stands in is no more worth trying for a door being opened across the room.
+  if (brain.doorHeld && (act === undefined || (!!act && WALKS.has(act.tool)))) {
     return false;
   }
   const failure = brain.failures.get(key);
@@ -528,18 +535,35 @@ export function nextStep(brain: NpcBrain): Step | null {
       continue;
     }
     const key = keyOf(task, plan.act, plan.say);
-    if (inBackoff(brain, key) || inBackoff(brain, jobKey(task.id))) {
+    const act = plan.act ?? null;
+    if (inBackoff(brain, key, act) || inBackoff(brain, jobKey(task.id), act)) {
       heldBack = true;
       continue;
     }
     ready.push({ task, plan, key });
   }
-  // A door being held open for it will not stay open. Whatever it was let in for comes first.
+  // A door being held open for it will not stay open. Whatever it was let in for comes first:
+  // work in the room the door is the door of, or the walk through it to a room beyond. It is not
+  // put to the LLM as a choice, either: the door would shut while it made up its mind.
   const through = brain.doorHeld
-    ? ready.findIndex(({ task }) => task.place === brain.doorHeldFor)
+    ? ready.findIndex(
+        ({ task, plan }) =>
+          task.place === brain.doorHeldFor ||
+          (plan.act?.tool === 'go_to' && plan.act.place === brain.doorHeldFor),
+      )
     : -1;
-  if (through > 0) {
-    ready.unshift(...ready.splice(through, 1));
+  if (through >= 0) {
+    const { task, plan, key } = ready[through];
+    return {
+      key,
+      text: plan.step,
+      act: plan.act,
+      say: plan.say,
+      needs: plan.needs,
+      sayIf: plan.sayIf,
+      exact: plan.exact,
+      task: task.id,
+    };
   }
   if (ready.length > 0) {
     // What will not wait is done in the code's own order. Which of its routine work comes first

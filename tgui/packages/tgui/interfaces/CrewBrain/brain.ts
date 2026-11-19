@@ -689,7 +689,10 @@ export function ingest(npcs: Npc[], now: number): void {
       }
       // A door is being held open for it: whatever it had given up on is worth trying this instant.
       if (event.details.door_held) {
-        brain.failures.clear();
+        // All but work in the room it is standing in: a clean that came to nothing a moment ago
+        // underfoot is no more worth trying because a door has opened, and tried again it keeps
+        // the body from going through the door it asked to have opened.
+        forgetFailuresForDoor(brain);
         brain.tryLeavingAt = 0;
         // Which room the door is the door of, so that it goes through that one and no other. A
         // door held to let it out of the room it is in is not a way into anywhere: where that
@@ -1034,6 +1037,41 @@ function nearestToSpeaker(npc: Npc, event: SenseEvent, npcs: Npc[]): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Forgets what it had given up on, now that a door is being held open for it, apart from work in
+ * the room it stands in that does not take it anywhere. The keys are the driver's: "job:<task>"
+ * for a whole job, "<task>:<action as JSON>" for one step of it, and names for the rest.
+ */
+function forgetFailuresForDoor(brain: NpcBrain): void {
+  const here = new Set(
+    brain.tasks
+      .filter((task) => task.place === brain.location)
+      .map((task) => String(task.id)),
+  );
+  for (const key of [...brain.failures.keys()]) {
+    const job = key.match(/^job:(.+)$/);
+    if (job) {
+      if (!here.has(job[1])) {
+        brain.failures.delete(key);
+      }
+      continue;
+    }
+    const step = key.match(/^([^:]+):(\{.*\})$/);
+    if (step && here.has(step[1])) {
+      let tool = '';
+      try {
+        tool = String(JSON.parse(step[2]).tool ?? '');
+      } catch {
+        // Not an action after all: forgotten, as before.
+      }
+      if (tool && !['go_to', 'go_to_door', 'explore'].includes(tool)) {
+        continue;
+      }
+    }
+    brain.failures.delete(key);
+  }
 }
 
 /** Notes that a person spoke and returns whether this NPC is still willing to be woken by them. */
