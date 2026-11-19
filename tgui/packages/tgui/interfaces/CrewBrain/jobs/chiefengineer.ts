@@ -31,6 +31,7 @@ import { batterySteps } from './engine';
 import {
   ENGINE_TAKEN_WORDS,
   engineersAboard,
+  firstName,
   HEARD_WORDS,
   heardLine,
   isChiefEngineer,
@@ -103,6 +104,8 @@ const SHUT_AGAIN_DS = 900;
 const SHUT_STUCK_AGAIN_DS = 3000;
 /** How far (energy) over the lowest seen since the emitters went off the crystal must read to be taken as lit again by someone. */
 const RISING_BY = 50;
+/** How long (deciseconds) it looks for its engineer where its staff work before it tries their PDA again. */
+const LOOK_DS = 300;
 /** How far off (tiles) its engineer has to be standing before it walks up to them to speak. */
 const SPEAKING_DISTANCE = 2;
 /** The most characters a body can say at once, or send in one PDA message. Past that the end is cut off. */
@@ -446,9 +449,30 @@ function giveStep(brain: NpcBrain): Plan {
       act: { tool: 'go_to', place: brain.staffPost },
     };
   }
+  // It looks for a while, then tries the PDA again; after the first look it holds nothing else up.
+  order.lookedAt ??= brain.now;
+  if (brain.now - order.lookedAt > LOOK_DS) {
+    order.lookedAt = undefined;
+    order.looks = (order.looks ?? 0) + 1;
+    if (order.what === 'shut' && order.looks === 2) {
+      tellCaptain(
+        brain,
+        `I cannot reach ${firstName(name)} to switch the emitters off. The engine is still firing.`,
+        `You have looked for ${name} in the ${brain.staffPost ?? 'department'} and tried their PDA, and cannot reach them to have the emitters switched off. You are telling the Captain by PDA.`,
+      );
+    }
+    if (brain.hasPda) {
+      order.sent = false;
+      return {
+        ready: true,
+        step: `${why} ${name} is not here, so you are trying their PDA again: "${line}"`,
+        act: { tool: 'message', person: name, text: line },
+      };
+    }
+  }
   return {
     ready: false,
-    wait: true,
+    wait: !order.looks,
     step: `${why} You are looking for ${name}.`,
   };
 }

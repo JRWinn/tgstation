@@ -369,6 +369,24 @@ add('the PDA will not send: it goes to find them', [step.act?.tool, ada.chief.or
 ada.location = "Chief Engineer's Office";
 step = CHIEF_ENGINEER.plan(ada, give);
 add('from its office, that is a walk to where its staff work', [step.act?.tool, step.act?.place], ['go_to', 'Engineering']);
+// ENG-09: at Engineering, its engineer nowhere to be seen.
+ada.location = 'Engineering';
+ada.toTell = [];
+step = CHIEF_ENGINEER.plan(ada, give);
+add('at its staff post with its engineer not there, it waits and looks', [step.ready, step.wait], [false, true]);
+ada.now += 301;
+step = CHIEF_ENGINEER.plan(ada, give);
+add('thirty seconds on, it tries the PDA again', [step.act?.tool, step.act?.person], ['message', 'Sam Rees']);
+CHIEF_ENGINEER.afterActing(ada, step.act, give, false);
+step = CHIEF_ENGINEER.plan(ada, give);
+add('that fails too: it looks on, but holds nothing else up', [step.ready, !!step.wait], [false, false]);
+ada.now += 301;
+step = CHIEF_ENGINEER.plan(ada, give);
+add('the second time round the Captain is told it cannot reach its engineer', [step.act?.tool, ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line)], ['message', ['I cannot reach Sam to switch the emitters off. The engine is still firing.']]);
+CHIEF_ENGINEER.afterActing(ada, step.act, give, false);
+ada.now += 301;
+CHIEF_ENGINEER.plan(ada, give);
+add('and only once', ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').length, 1);
 
 // The emitters have stopped.
 ada = chief(false);

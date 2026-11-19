@@ -685,6 +685,10 @@ export type ChiefWork = {
     /** TRUE once it has gone by PDA as well. */
     sent: boolean;
     walkedUp?: boolean;
+    /** Server time it began looking for its engineer where its staff work, the PDA having failed (ENG-09). */
+    lookedAt?: number;
+    /** How many times it has looked its time and tried the PDA again (ENG-09). */
+    looks?: number;
   } | null;
   /** TRUE once it has ordered the emitters off. Nothing is lit again unless the Captain says so. */
   shut: boolean;
