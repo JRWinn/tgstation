@@ -458,19 +458,35 @@ export function readWarrant(
   };
 }
 
+/** The ways a time held is said of someone already named: "Keep him in jail for 10 minutes", "Give him 10 minutes", "Make it 10 minutes", "10 minutes for him". */
+const TERM_SHAPES = [
+  new RegExp(
+    `\\b(?:keep|hold|lock|jail|brig|give|put|leave)\\s+(?:him|her|them|that\\s+one)\\b(?:\\s+[\\w']+){0,4}?\\s+(?:for\\s+)?${TIME_SAID}`,
+    'i',
+  ),
+  new RegExp(`^(?:\\w+,\\s*)?make\\s+(?:it|that)\\s+${TIME_SAID}\\W*$`, 'i'),
+  new RegExp(
+    `\\b${TIME_SAID}\\s+(?:for|on)\\s+(?:him|her|them|that\\s+one)\\b`,
+    'i',
+  ),
+];
+
 /**
  * Reads how long someone is to be held out of words that name nobody: "Keep him in jail for 30
  * minutes", sent after the warrant. `asked` is what was said, `minutes` what a cell's timer
- * allows of it. Null if these words give no time, or do not speak of anyone.
+ * allows of it. Null if these words give no time held, or ask a question: "It's been 10 minutes,
+ * where is he?", "Give it ten minutes and then search the bar" and "Tell them the meeting is in 5
+ * minutes" are no term.
  */
 export function readTerm(
   written: string,
 ): { minutes: number; asked: number } | null {
-  const text = mendWords(written);
-  if (!/\b(?:him|her|them|it|that\s+one)\b/i.test(text)) {
+  const text = mendWords(written).trim();
+  if (text.endsWith('?')) {
     return null;
   }
-  const asked = minutesIn(text);
+  const found = TERM_SHAPES.map((shape) => text.match(shape)).find(Boolean);
+  const asked = found ? minutesIn(found[0]) : null;
   if (asked === null) {
     return null;
   }

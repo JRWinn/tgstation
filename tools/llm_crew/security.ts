@@ -515,6 +515,31 @@ add('"Warrant for Dana Reyes twenty minutes", nobody known, is on Dana Reyes', S
 add('"twenty minutes" said after the warrant is a time', S.readTerm('Keep him in for twenty minutes'), { minutes: 15, asked: 20 });
 add('"twenty-five minutes" is 25', S.readTerm('Keep him in for twenty-five minutes'), { minutes: 15, asked: 25 });
 add('"half an hour" is 30', S.readTerm('Keep him in for half an hour'), { minutes: 15, asked: 30 });
+// SECT-12: a time is a term only when it is said of the person.
+const NO_TERM = ["It's been 10 minutes, where is he?", 'Tell them the meeting is in 5 minutes', 'Give it ten minutes and then search the bar', 'I will be at the bridge in 2 minutes, bring him there'];
+const TERMS: [string, number][] = [['Keep him in jail for 10 minutes', 10], ['Hold them for ten minutes', 10], ['Make it 10 minutes', 10], ['Joan, make it 10 minutes.', 10], ['Lock him up for 15 minutes', 15], ['Give him 10 minutes', 10], ['10 minutes for him', 10]];
+for (const line of NO_TERM) {
+  add(`"${line}" is no term`, S.readTerm(line), null);
+}
+for (const [line, minutes] of TERMS) {
+  add(`"${line}" is ${minutes} minutes`, S.readTerm(line)?.minutes, minutes);
+}
+{
+  const termAfter = (line: string) => {
+    const d = head();
+    deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for theft.', false);
+    d.toTell = [];
+    d.now += 600;
+    deskTakes(d, 'Zim Fire', 'Captain', line, false);
+    return [deskOf(d).warrants[0].minutes, said(d).filter((it: string) => /I have that/.test(it)).length];
+  };
+  for (const line of NO_TERM) {
+    add(`after a warrant, "${line}" leaves its time`, termAfter(line), [5, 0]);
+  }
+  for (const [line, minutes] of TERMS) {
+    add(`after a warrant, "${line}" sets it to ${minutes}`, termAfter(line), [minutes, 1]);
+  }
+}
 b = head();
 deskTakes(b, 'Zim Fire', 'Captain', 'Arrest Pun Pun on site', false);
 b.toTell = [];
