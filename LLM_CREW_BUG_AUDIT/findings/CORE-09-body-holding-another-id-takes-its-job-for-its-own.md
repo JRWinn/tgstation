@@ -23,9 +23,9 @@ A body's own job is read in two places, and both put a card held in the hand bef
 
 A held ID is not rare for a crew member:
 
-- **Handed one.** A player hands the Head of Personnel their ID to have their access changed, which is what the HoP's desk is for in the base game. `hand_over` / `put_in_hands` puts it in the HoP's hand. Because it was handed, `on_item_in_hand` treats it as given and keeps it. From then on the HoP's `job_title()` is "Assistant" (or whatever the card says), and so is `brain.job` in the window: it runs the generic crew job's plan, not the head's, answers to the Captain as an assistant does, and its own staff are no longer its staff. This is the very case `job_title`'s own comment was written against ("a head with no job walks off from its own staff meeting").
-- **Tidying.** `wants_tidying` takes any small item lying on the floor of the work area. A dropped ID card, or a PDA with a card in it (`GetID()` on a PDA returns its card), is picked up and carried to a table. For the whole carry the technician is not in cargo: `works_in_cargo()` is FALSE, `ui_data` sends `orderable = list()` and `freight = null`, and the window's `brain.job` is the card's job.
+- **Tidying.** `wants_tidying` takes any small item lying on the floor of the work area. A dropped ID card, or a PDA with a card in it (`GetID()` on a PDA returns its card), is picked up and carried to a table. For the whole carry the technician is not in cargo: `works_in_cargo()` is FALSE, `ui_data` sends `orderable = list()` and `freight = null`, and the window's `brain.job` is the card's job, so `jobFor` runs another job's `plan()` and `hierarchy.ts` has it answering to someone else.
 - **Picking up** one named by the brain, or one taken out of a locker during a search.
+- **Being given one.** A crew member handed something by a workmate (`hand_over`), or a player who puts a card in its empty hand through the strip menu (crew do not accept a "give" offer, so that is the only way a player can), keeps it: `on_item_in_hand` treats what comes to hand after `handed_at` as given. A Head of Personnel holding a player's card in that way is no longer a head to itself or its window, which is the very case `job_title`'s own comment was written against ("a head with no job walks off from its own staff meeting").
 
 Holding a card is also how access works in the base game, and that part is right: a player holding a card opens what it opens. What is wrong is taking the job written on it as one's own.
 
@@ -75,5 +75,5 @@ Question for the owner: a crew member whose own ID has been taken, and who is th
 ## How to test the fix
 
 - Server compile.
-- In a round, hand the Head of Personnel your ID card. Without the fix its card in the window shows your job and it stops behaving as a head; with it, it stays the Head of Personnel.
+- In a round, put your ID card in the Head of Personnel's empty hand through its strip menu. Without the fix its card in the window shows your job and it stops behaving as a head; with it, it stays the Head of Personnel.
 - Drop an ID card on the Cargo Bay floor and wait for a technician to tidy it. Grep `crew_brain.log` for the technician's routine steps during the carry: with the fix they are still cargo steps.
