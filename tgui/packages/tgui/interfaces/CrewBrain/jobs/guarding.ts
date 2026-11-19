@@ -69,6 +69,8 @@ const SENT_FOR_DS = 12000;
 const QUESTION_STANDS_DS = 600;
 /** How long (deciseconds) someone whose welcome is over is given to go before they are seen out. */
 const WELCOME_GRACE_DS = 600;
+/** How long (deciseconds), at most, security let in on a warrant are left to serve it (ARR-02). */
+const WARRANT_WELCOME_DS = 3000;
 /** Words taken off a clause before it is read as an order to leave: they do not change what is meant. */
 const LEAVE_FILLER =
   /\b(please|right now|at once|now|immediately|just|ok|okay)\b/g;
@@ -207,9 +209,64 @@ function recordOf(brain: NpcBrain, name: string): Stranger {
   return brain.strangers[name];
 }
 
-/** Notes that the NPC has sent for someone, or let them into its post. */
-export function noteSentFor(brain: NpcBrain, name: string): void {
+/**
+ * Why the NPC let someone in, when it was for more than a mess: security let in on a warrant, and
+ * on whom if they said. By post, for all who keep it to go by, as with whom the department let in
+ * (expected.ts): a workmate who did not open the door would otherwise see the officer out a minute
+ * later. Then by whom it let in. Kept here and not on the brain, since nothing but the welcome
+ * reads it.
+ */
+type LetInWhy = { warrant: true; on?: string; at: number };
+const letInWhy = new Map<string, Map<string, LetInWhy>>();
+const whyKey = (brain: NpcBrain) => brain.post ?? `npc:${brain.id}`;
+
+/**
+ * Notes that the NPC has sent for someone, or let them into its post. Security let in to serve a
+ * warrant say so at the door ("with a warrant for X"); `why.warrant` holds X, or TRUE if they named
+ * nobody. Their welcome then lasts while the warrant is being served (see warrantStands).
+ */
+export function noteSentFor(
+  brain: NpcBrain,
+  name: string,
+  why?: { warrant?: string | true },
+): void {
   brain.sentFor[name] = brain.now;
+  const mine = letInWhy.get(whyKey(brain)) ?? new Map<string, LetInWhy>();
+  letInWhy.set(whyKey(brain), mine);
+  if (why?.warrant) {
+    mine.set(name, {
+      warrant: true,
+      on: typeof why.warrant === 'string' ? why.warrant : undefined,
+      at: brain.now,
+    });
+  } else {
+    mine.delete(name);
+  }
+}
+
+/**
+ * TRUE while someone let in on a warrant is still serving it: for WARRANT_WELCOME_DS from being let
+ * in, unless the one the warrant is on is seen in cuffs, or seen gone from the post and its rooms.
+ * The keeper cannot know the officer's list; it knows only what it was told at the door and what it
+ * sees. A general rule for whoever keeps a locked room, not for cargo alone.
+ */
+function warrantStands(brain: NpcBrain, name: string): boolean {
+  const why = letInWhy.get(whyKey(brain))?.get(name);
+  if (!why || brain.now - why.at > WARRANT_WELCOME_DS) {
+    return false;
+  }
+  const on = why.on?.toLowerCase();
+  const target = on
+    ? brain.peopleInView.find((person) => person.name.toLowerCase() === on)
+    : undefined;
+  if (target?.cuffed) {
+    return false;
+  }
+  const gone =
+    !!target &&
+    !target.in_post &&
+    !(target.place !== undefined && brain.closedRooms.includes(target.place));
+  return !gone;
 }
 
 /** TRUE if the NPC sent for this person, or let them in, not long ago. */
@@ -234,6 +291,22 @@ function welcomeStands(brain: NpcBrain, name: string): boolean {
     Object.keys(brain.areaMesses).some(
       (room) => !!expectedCall(post, name, brain.now, room),
     )
+  );
+}
+
+/** How long (deciseconds) an ask to be let out counts as being on the way out: as long as the ask stands (LET_OUT_ASK_DS in cargo.ts). */
+const ASKED_OUT_DS = 3000;
+
+/**
+ * TRUE if this person has asked the NPC to be let out, lately: they are on their way. Any of their
+ * asks is looked at, not only the newest: a second janitor asking a few seconds later used to
+ * leave the first one to be walked out at the door it was waiting at (KNA-01).
+ */
+function askingOut(brain: NpcBrain, name: string): boolean {
+  const asks = brain.doorAsks ?? (brain.doorAsked ? [brain.doorAsked] : []);
+  return asks.some(
+    (ask) =>
+      ask.name === name && !!ask.out && brain.now - ask.at < ASKED_OUT_DS,
   );
 }
 
@@ -471,12 +544,14 @@ export function syncGuarding(brain: NpcBrain): void {
     // Sent for, they may stay for as long as what they were sent for lasts. Once the mess is
     // gone, with nothing further in left for them, their welcome is over. They are given a
     // little while to go, and anyone who is already asking for the door is on their way.
+    // Security let in on a warrant are welcome while they serve it: an officer walked out by
+    // the arm a minute after being let in took the hold for an attack (ARR-02).
     if (stranger.verdict === 'stay' && stranger.sent) {
-      if (welcomeStands(brain, name)) {
+      if (welcomeStands(brain, name) || warrantStands(brain, name)) {
         stranger.overAt = undefined;
       } else {
         stranger.overAt ??= brain.now;
-        const leaving = brain.doorAsked?.name === name && !!brain.doorAsked.out;
+        const leaving = askingOut(brain, name);
         if (!leaving && brain.now - stranger.overAt > WELCOME_GRACE_DS) {
           stranger.seenOut = true;
           settle(brain, name, stranger, 'go');

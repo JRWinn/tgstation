@@ -153,6 +153,17 @@ const ORDERING_WORDS = /\b(order|ordering|requisition)\b/i;
 const PICKUP_ASK_DS = 1200;
 /** Someone who is to be let through the door of the post. The task's item is their name. */
 const DOOR = 'door';
+/**
+ * Standing by a door it has just opened for someone, until they are through (KNB-04, step 7). The
+ * server holds the door from beside it, opening it again if it shuts too soon; a walk given now
+ * would take the body off and leave the door to shut on them. The task's item is their name, its
+ * place the room, its `out` which way.
+ */
+const DOOR_WATCH = 'door_watch';
+/** How long (deciseconds), at most, it stands by a door it opened: the server's hold, 15 s held on up to three times by 5 s, and a little over, so that a lost word cannot keep it there. */
+const DOOR_WATCH_DS = 350;
+/** How long (deciseconds) after seeing them through it stays, for the door to be shut behind them. */
+const DOOR_WATCH_SETTLE_DS = 20;
 /** The words that mark what someone says as asking for a door to be opened. */
 const DOOR_WORDS = /\bdoor\b|let (me|us) (in|out|through)|open up/i;
 /** The words that mark a request for a door as wanting out, not in. */
@@ -877,6 +888,29 @@ function syncTasks(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
+  // The door it is standing by is done with once they are seen through it, and a moment after
+  // for it to be shut behind them; or once the hold would be over in any case.
+  for (const task of brain.tasks) {
+    if (task.kind === DOOR_WATCH && task.state !== 'done') {
+      if (
+        brain.now - task.createdAt > DOOR_WATCH_DS ||
+        brain.now < task.createdAt
+      ) {
+        finishTask(brain, task);
+        continue;
+      }
+      const key = `${brain.id}:${task.id}`;
+      const since = seenThroughAt.get(key);
+      if (!throughDoor(brain, task)) {
+        seenThroughAt.delete(key);
+      } else if (since === undefined) {
+        seenThroughAt.set(key, brain.now);
+      } else if (brain.now - since >= DOOR_WATCH_SETTLE_DS) {
+        seenThroughAt.delete(key);
+        finishTask(brain, task);
+      }
+    }
+  }
   // Someone who asked by PDA and is not being let in is told so, by name, once. Nobody sent for
   // them, and a door locked to the crew does not open for the asking. Not someone who may come
   // in and is only waiting behind whoever the door is being opened for first, and never someone
@@ -958,6 +992,15 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === WONT_COME) {
     return wontComeStep(brain, task);
+  }
+  if (task.kind === DOOR_WATCH) {
+    // Waiting, and asked for: it ranks ahead of the rest of its work, so no walk takes it off.
+    return {
+      ready: false,
+      wait: true,
+      asked: true,
+      step: `You have opened the door of the ${task.place} for ${task.item} and are standing by it until they are through.`,
+    };
   }
   if (task.kind === DOOR) {
     // Whoever it is may be on the far side of the door, out of sight. The body still knows them.
@@ -1340,6 +1383,58 @@ function doorWanted(brain: NpcBrain): DoorWant | null {
   return want;
 }
 
+/** When whoever a door is being held for was first seen through it, by the technician's id and the task's. */
+const seenThroughAt = new Map<string, number>();
+
+/**
+ * TRUE if whoever a door is being held for is seen through it: let in, standing in the room it
+ * was opened into; let out, seen outside that room. Not seen at all, it cannot tell, and waits on.
+ */
+function throughDoor(brain: NpcBrain, task: Task): boolean {
+  const person = brain.peopleInView.find((seen) => seen.name === task.item);
+  if (!person) {
+    return false;
+  }
+  const inside =
+    task.place === brain.post ? !!person.in_post : person.place === task.place;
+  return task.out ? !inside : inside;
+}
+
+/** The warrant named by security asking at the door ("with a warrant for X"): by the technician's id, then by who asked. */
+const warrantAsks = new Map<string, Map<string, string>>();
+/** Whom a warrant is for, in the words of an ask for a door: "a warrant for Pun Pun, who is in the ...". */
+const WARRANT_FOR = /\bwarrant (?:for|on) (.+?)(?=,|\.|\?|!| who | in the |$)/i;
+
+/** Notes the warrant someone named in asking for a door, or forgets it if they named none. */
+function noteWarrantAsk(brain: NpcBrain, name: string, words: string): void {
+  const mine = warrantAsks.get(brain.id) ?? new Map<string, string>();
+  warrantAsks.set(brain.id, mine);
+  const on = words.match(WARRANT_FOR)?.[1]?.trim();
+  if (on) {
+    mine.set(name, on);
+  } else {
+    mine.delete(name);
+  }
+}
+
+/**
+ * Why someone the technician has just let in was let in, if it was on a warrant: security are let
+ * in because a warrant is the permission (mayPass). Whom it is on, if they said at the door.
+ */
+function letInOnWarrant(
+  brain: NpcBrain,
+  name: string,
+): { warrant?: string | true } | undefined {
+  const job =
+    brain.peopleInView.find((seen) => seen.name === name)?.job ??
+    brain.pdaPeople.find((known) => known.name === name)?.job ??
+    '';
+  if (!isSecurity(job)) {
+    return undefined;
+  }
+  return { warrant: warrantAsks.get(brain.id)?.get(name) ?? true };
+}
+
 /** The door each technician last opened, for whom, which way, and when (server time), by the technician's id. */
 const lastOpened = new Map<
   string,
@@ -1689,6 +1784,9 @@ function describeTask(task: Task): string | null {
   if (task.kind === DOOR) {
     return `open the door for ${task.item}`;
   }
+  if (task.kind === DOOR_WATCH) {
+    return `hold the door of the ${task.place} for ${task.item}`;
+  }
   if (task.kind === POST) {
     return 'get back to your post';
   }
@@ -1900,22 +1998,58 @@ export function itemsAskedFor(
  * department. Anyone else is not offered it at all, so the LLM cannot take their order by mistake:
  * they take what they need to their own head, who orders for the whole of their staff at once.
  */
+/**
+ * TRUE if the technician takes an order from this person: the Captain or a head of department,
+ * and with a Quartermaster aboard only the head who has just said that the Quartermaster did not
+ * answer. The one place the rule is kept: what is offered (offers) and what is agreed to (agrees)
+ * both go by it (CARGO-06).
+ */
+function mayOrderFrom(
+  brain: NpcBrain,
+  person: { name: string; job: string; command?: unknown },
+): boolean {
+  if (!person.command && !isHead(person.job)) {
+    return false;
+  }
+  if (quartermasterAboard(brain)) {
+    const silent = brain.qmSilent;
+    return (
+      !!silent &&
+      brain.now - silent.at <= QM_SILENT_DS &&
+      person.name === silent.by
+    );
+  }
+  return true;
+}
+
+/**
+ * Who said a line of a report, as the body knows them: by the handle in the line, as whoever the
+ * order is for is found (brain.ts), and failing that, out of sight now, by the name among those it
+ * knows from the PDA list. Null if it cannot say.
+ */
+function sayerOf(
+  brain: NpcBrain,
+  line: string,
+): { name: string; job: string; command?: unknown } | null {
+  const handle = line.match(/\(person (\w+)/)?.[1];
+  const seen = handle
+    ? brain.peopleInView.find((person) => person.handle === handle)
+    : undefined;
+  if (seen) {
+    return seen;
+  }
+  const name = speakerOf(line);
+  return (
+    (name && brain.pdaPeople.find((known) => known.name === name)) || null
+  );
+}
+
 function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
   // With a Quartermaster aboard, an order is taken from the Quartermaster and nobody else, and
   // that is done by code from its own words (see overhears). The one way round it is a head who
   // has said that the Quartermaster did not answer.
-  if (quartermasterAboard(brain)) {
-    const silent = brain.qmSilent;
-    if (
-      !silent ||
-      brain.now - silent.at > QM_SILENT_DS ||
-      !askers.some((person) => person.name === silent.by)
-    ) {
-      return [];
-    }
-  }
   if (
-    !askers.some((person) => !!person.command || isHead(person.job)) ||
+    !askers.some((person) => mayOrderFrom(brain, person)) ||
     brain.orderable.length === 0 ||
     brain.orderPending ||
     // Someone at the door wants the door. Offered an order as well, the LLM sometimes takes it.
@@ -2017,7 +2151,6 @@ export const CARGO: Job = {
       // Whoever it opened the door for went through it by its leave. The department keeps track
       // of who is in which of its rooms, so that they are let out again.
       if (ok && task.item && task.place && brain.post) {
-        noteSentFor(brain, task.item);
         const person = brain.peopleInView.find(
           (seen) => seen.name === task.item,
         );
@@ -2029,6 +2162,13 @@ export const CARGO: Job = {
             stillInside(brain.post, task.place, brain.now).some(
               (entry) => entry.name === task.item,
             ));
+        // Security let in come on a warrant, and are left to serve it, not seen out after a
+        // minute as a janitor with no mess left is (ARR-02).
+        noteSentFor(
+          brain,
+          task.item,
+          wasInside ? undefined : letInOnWarrant(brain, task.item),
+        );
         // The door is being held for them now. It is not opened again, the same way, until that is over.
         lastOpened.set(brain.id, {
           name: task.item,
@@ -2070,6 +2210,25 @@ export const CARGO: Job = {
           noteLetIn(brain.post, task.item, task.place, brain.name, brain.now);
         }
       }
+      // It stands by the door while it is held, and takes no new walk until they are through.
+      if (ok && task.item && task.place) {
+        // Which way, as worked out above when the door was noted as opened.
+        const opened = lastOpened.get(brain.id);
+        const out =
+          opened?.name === task.item ? opened.out : (task.out ?? false);
+        for (const old of brain.tasks) {
+          if (old.kind === DOOR_WATCH && old.state !== 'done') {
+            finishTask(brain, old);
+          }
+        }
+        addTask(brain, {
+          kind: DOOR_WATCH,
+          item: task.item,
+          place: task.place,
+          urgency: 'asked',
+          source: 'own',
+        }).out = !!out;
+      }
       const call = brain.post ? brain.janitorCalls[brain.post] : undefined;
       if (call && call.to === task.item) {
         call.letIn = true;
@@ -2100,12 +2259,26 @@ export const CARGO: Job = {
     }
   },
   // An order has to have been asked for, and only one of those at the post takes any one asking.
-  agrees: (brain, action, heard) =>
-    action.tool !== 'order' ||
-    (SUPPLY_WORDS.test(heard) &&
+  // An order is agreed to only from a line said to it by someone it takes orders from: with a
+  // head and a janitor both just speaking, the janitor's "could you order me soap?" was ordered,
+  // for the janitor (CARGO-06). The words alone are tested, not the speaker's name in the line.
+  // The order is claimed last, so a line that fails the rest claims nothing.
+  agrees: (brain, action, heard) => {
+    if (action.tool !== 'order') {
+      return true;
+    }
+    const sayer = sayerOf(brain, heard);
+    const words = spokenIn(heard);
+    return (
+      !!sayer &&
+      mayOrderFrom(brain, sayer) &&
+      !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
+      SUPPLY_WORDS.test(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
-      !COLLECT_WORDS.test(spokenIn(heard)) &&
-      takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)),
+      !COLLECT_WORDS.test(words) &&
+      takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
+    );
+  },
   // Which kinds of crate, and how many of each, as they were asked for: one order may be for
   // several kinds. Where they go is for whoever collects them.
   fills: (brain, action, heard) => {
@@ -2327,6 +2500,7 @@ export const CARGO: Job = {
       !idleWord &&
       !workmateTalk
     ) {
+      noteWarrantAsk(brain, speaker, heard);
       putAsk(brain, {
         name: speaker,
         at: brain.now,
@@ -2369,6 +2543,7 @@ export const CARGO: Job = {
     if (isCargo(job ?? '') && !LET_OUT_WORDS.test(text)) {
       return;
     }
+    noteWarrantAsk(brain, from, text);
     putAsk(brain, {
       name: from,
       at,

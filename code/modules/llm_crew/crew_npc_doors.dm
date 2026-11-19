@@ -631,6 +631,7 @@
 /datum/ai_controller/crew_npc/proc/watch_door(datum/weakref/door_ref, datum/weakref/person_ref, was_inside, until, area/room, extended = 0)
 	var/obj/machinery/door/airlock/door = door_ref?.resolve()
 	if(QDELETED(door) || QDELETED(src) || isnull(room))
+		door_hold_over(person_ref, room)
 		let_door_close(door_ref)
 		return
 	var/mob/living/carbon/human/person = person_ref?.resolve()
@@ -653,6 +654,7 @@
 			if(was_inside)
 				their_controller.let_out_until = max(their_controller.let_out_until, until)
 	if(through || world.time >= until)
+		door_hold_over(person_ref, room)
 		// Held for someone else too, who came to it later and is not through yet: one janitor going
 		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
 		if(GLOB.crew_npc_door_holds[REF(door)] > until)
@@ -666,6 +668,19 @@
 	if(door.density && !door.operating && !QDELETED(pawn) && pawn.Adjacent(door))
 		INVOKE_ASYNC(src, PROC_REF(click_door), door, TRUE)
 	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room, extended), CREW_NPC_DOOR_WATCH)
+
+/**
+ * The body's hold of a door for someone is over: they are through, or time is up. The brain is
+ * told, so that it gives the body no new walk while it is still standing by the door (KNB-04, step
+ * 7). The details name the room and whom it was held for.
+ */
+/datum/ai_controller/crew_npc/proc/door_hold_over(datum/weakref/person_ref, area/room)
+	if(QDELETED(src) || QDELETED(pawn) || !can_sense())
+		return
+	var/mob/living/carbon/human/person = person_ref?.resolve()
+	var/room_name = room ? format_text(room.name) : ""
+	var/person_name = QDELETED(person) ? "" : person.name
+	emit_sense(CREW_SENSE_KNOWLEDGE, "You are done holding the door[room_name ? " of [room_name]" : ""][person_name ? " for [person_name]" : ""].", list("door_hold_over" = room_name, "door_held_for" = person_name))
 
 /// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
 GLOBAL_LIST_EMPTY(crew_npc_door_holds)

@@ -98,3 +98,15 @@ Confirmed, on Opus 5.5.
 - Not in the change log or the plans. `LLM_CREW_PLAN_NO_CHEATS.md` 4.2 uses the same supply-words test for a kept ask, and does not change this.
 - Confidence raised to sure: the check passing a non-head's line was run, not guessed. Whether a model picks `order` in the case is still the model's doing. Severity stays medium: it needs a head and a non-head speaking to the technician in the same moment, with no Quartermaster or one said not to answer.
 - Fix step 2 changed to find the speaker by handle. The rest of the fix is sound: `hears` already goes by `offers(brain, [asker])` for one person, so the window has the pieces.
+
+## Fix notes
+
+Built on branch `r2-cargo`, in `jobs/cargo.ts` only, as the finding says.
+
+1. `mayOrderFrom(brain, person)`: the Captain or a head (`command` or `isHead`), and with a Quartermaster aboard only the head named in a standing `qmSilent`. `offers` now goes by it, so the rule is in one place. One small change from before: with a Quartermaster aboard, the asker who said it did not answer must also be a head (it always was, in practice: `qmSilent` is set only from a head's line).
+2. `agrees` finds who said the line by its handle among those in view (`sayerOf`), as `brain.ts` does for `action.for`. **One addition:** someone said it and has walked out of sight before the technician's turn (ASYNC-08) is looked up by name in `pdaPeople`, so a head's order is not lost for that. A name two people share on the PDA list could be misread there (TRUST-09).
+3. A line marked as said to someone else is refused (`/, speaking to (?!you|everyone)/`). Since MEM-05, `brain.ts` already passes only lines said to this NPC; this is a second guard.
+4. `SUPPLY_WORDS` is tested on the words alone (`spokenIn`), so a Gearhart's "Morning, Sam." is no ask.
+5. `takeOrder` stays last.
+
+New table `tools/llm_crew/cargo-orders.ts` (12 cases): the janitor's soap and the head's good morning call for no order, while the order is still offered; the head's ask does, with the janitor's thanks after it; a line to someone else, and the Gearhart line, do not; a head out of sight but on the PDA list does, a janitor does not; with a Quartermaster aboard only the head who said it was silent. The simulator scenario the finding names (a chatty model told to answer `order`) was not built: `sim.ts` is not this worker's. Not played. No model tests.

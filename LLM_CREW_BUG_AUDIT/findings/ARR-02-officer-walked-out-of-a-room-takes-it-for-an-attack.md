@@ -142,4 +142,15 @@ Checked by Opus 5.5. Confirmed.
 
 Step 1 (the baton) is built, on the server only: `on_grabbed` in `crew_npc_security.dm` no longer tells at once. It sets a zero timer to a new `grab_felt`, which resolves the puller and tells nothing when the body is held by the arm by that same person (`world.time < in_hand_until && in_hand_of == puller.name`, set by `taken_hold_of` for a walk out and by the custody hold) or when it is in custody and `arrested_by` is the puller. Any other grab is told as before. A case in `tools/llm_crew/security.ts` keeps a grab that is told (a player's pull) an attack. Server compile to a side copy: 0 errors, 0 warnings. Not played; the simulator runs no server code, and no scenario walks an officer out.
 
-Step 2 (the welcome in `jobs/cargo.ts` and `jobs/guarding.ts`) is another worker's in this round. Step 3 is the owner's question and is not built.
+Step 2 is in the next note. Step 3 is the owner's question and is not built.
+
+## Fix notes (second round, step 2)
+
+Built on branch `r2-cargo`. Step 2 only: step 1 (the baton, `crew_npc_security.dm`) is another worker's, and step 3 is a question for the owner and was not built.
+
+- `noteSentFor` (`jobs/guarding.ts`) takes an optional reason, `{ warrant: name | true }`, kept in a map in `jobs/guarding.ts` by post, so that a workmate who did not open the door goes by it too, as with the department's list of who was let in (no new field in `types.ts`). Any other call, letting someone out among them, clears it.
+- In `syncGuarding`, someone let in on a warrant keeps their welcome (`warrantStands`) for five minutes (`WARRANT_WELCOME_DS = 3000`) from being let in, or until the one the warrant is on is seen in cuffs, or seen out of the post and its rooms. Then the usual minute to go, and seen out as before. The rule is in the guarding code, for whoever keeps a locked room.
+- `jobs/cargo.ts` notes the reason where a door it opened let someone in (`afterActing`, the DOOR task), for security only (`letInOnWarrant`: security are let in because a warrant is the permission, `mayPass`). Whom the warrant is on is read from the ask for the door, "with a warrant for X" (`noteWarrantAsk`, `WARRANT_FOR`, said aloud or by PDA). Security naming nobody are still taken to have come on a warrant.
+- New table `tools/llm_crew/cargo-warrant.ts`: an officer let in on a warrant is not seen out after a minute or after four, and is after five and a minute more; seen out a minute after the one the warrant is on is seen cuffed, or seen gone to the hallway; not while that one is seen in a room inside the post; a workmate who did not open the door leaves the officer to it too; a janitor with no mess left is still seen out after a minute.
+
+Not done: security let in by someone who is not a keeper (the Captain opening it, as in round-15.52.18), are plain strangers to a keeper who did not open the door, as before. Not played.

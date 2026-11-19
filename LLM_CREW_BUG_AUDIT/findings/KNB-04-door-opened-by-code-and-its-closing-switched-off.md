@@ -91,3 +91,14 @@ Checked by Opus 5.5 on 2026-11-19. GAP-03 is the same fault (same lines, same fi
 - Searched the change log and the plans: 4.8 of `LLM_CREW_PLAN_NO_CHEATS.md` and the table at line 83 list it; the 12:00 and 18:05 entries say it is still to be taken out. No entry builds it.
 - Counted the "opened X to let Y" lines in `data/logs/2026/11/19/round-20.43.32/game.log`: 16 by one technician for one janitor in twelve minutes, not 18. Corrected above.
 - Confirmed. Severity high stands: it breaks the no-cheats rule, and every round has it. Effort medium: one server file, plus a look at the brain's door task.
+
+## Fix notes (second round, step 7)
+
+Built on branch `r2-cargo`.
+
+- Window, `jobs/cargo.ts`: when a door it opened for someone succeeds, the technician gets a `door_watch` task (`DOOR_WATCH`). Its plan is a wait that was asked for (`ready: false, wait: true, asked: true`), which the driver ranks first after emergencies and stops on, so no walk is given while it stands. PDA messages and spoken lines still go. It ends when whoever the door is for is seen through it (let in: seen in the room; let out: seen outside it; `throughDoor`) and two seconds more for the door to be shut behind them (`DOOR_WATCH_SETTLE_DS`), or after 35 s whatever is seen (`DOOR_WATCH_DS`: the server's hold is 15 s, held on at most three times by 5 s). So a lost word cannot hold it for good.
+- Server, `crew_npc_doors.dm`: when the watch of a door ends for someone (through, time up, or the door gone), the body is told "You are done holding the door of X for Y.", details `door_hold_over` (the room) and `door_held_for` (`door_hold_over`).
+- **Not done: the window does not read `door_hold_over` yet.** A knowledge event reaches no job hook: it needs `brain.ts` (another worker's file), for instance in the loop over every event, where `real_alarm` is read, a call that finishes the `door_watch` task whose room and person match. Until then the watch ends by sight or by the 35 s limit; with the person out of sight on the far side, the technician may stand on up to 35 s after the server has let go of the door.
+- New cases in `tools/llm_crew/brain-door.ts`: a technician that has just opened a door gives no walk to the next asker's door; it does once she is seen through and two seconds have passed; never seen, it stops waiting after 35 s.
+
+Not played. The server half is compile-checked only.

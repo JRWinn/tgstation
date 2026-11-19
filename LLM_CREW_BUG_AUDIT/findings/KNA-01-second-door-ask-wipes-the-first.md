@@ -135,3 +135,7 @@ Checked by Opus 5.5, 2026-11-19. Confirmed.
 - No later change log entry touches `doorAsked`. Only the 15:00 entry's (2), which added `after`.
 - Severity high stands: it leaves a janitor shut in for good, and two janitors finishing in cargo within a few seconds is common. Effort medium: window only, but `types.ts`, `brain.ts`, `jobs/cargo.ts` and `jobs/guarding.ts`, about 60 to 80 lines.
 - Added steps 8 and 9 to the fix (the promise and the refusal in the tick also read the one slot) and a smaller test. No script was run.
+
+## Fix notes (second round, the guarding part)
+
+Built on branch `r2-cargo`. Step 6's last reader: in `syncGuarding` (`jobs/guarding.ts`), whether someone whose welcome is over is already on their way out now looks at every ask they have in (`askingOut`, over `brain.doorAsks`, falling back on `brain.doorAsked`), not only the newest. An ask counts for as long as an ask to be let out stands in `jobs/cargo.ts` (five minutes, `ASKED_OUT_DS`); before, an old ask counted until another came in. Written in `jobs/guarding.ts` rather than importing `askFrom` from `jobs/cargo.ts`, which imports guarding. Two new cases in `tools/llm_crew/supply-doors.ts`: a janitor who asked out, followed by another's ask, is not walked out after the minute (fails on the old code, checked), and is once her ask has long run out. Not played.
