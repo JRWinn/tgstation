@@ -115,6 +115,8 @@ function keep(
   const task = findTask(brain, kind, { item });
   if (wanted && !task) {
     addTask(brain, { kind, urgency, source: 'own', item });
+  } else if (wanted && task) {
+    task.urgency = urgency;
   } else if (!wanted && task) {
     finishTask(brain, task);
   }
@@ -149,7 +151,16 @@ function syncTasks(brain: NpcBrain): void {
     }
   }
   for (const word of beat.words) {
-    keep(brain, WORD, true, 'asked', word.line);
+    // That it is hurt, or has been attacked, or has lost its baton, is said at once and by PDA
+    // unless the Head of Security is standing there: it may not be on its feet much longer.
+    const urgent = ['hurt', 'attacked', 'baton'].includes(word.outcome.what);
+    if (
+      urgent &&
+      !brain.peopleInView.some((person) => person.name === head?.name)
+    ) {
+      word.byPda = true;
+    }
+    keep(brain, WORD, true, urgent ? 'emergency' : 'asked', word.line);
   }
   const inHand =
     legwork ||

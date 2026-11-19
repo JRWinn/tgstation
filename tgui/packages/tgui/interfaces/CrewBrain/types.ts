@@ -550,6 +550,8 @@ export type BeatWork = {
   kitAt: number;
   /** TRUE once it has broken off hurt. It uses no force again until it is told to. */
   hurt: boolean;
+  /** When it broke off hurt: for a few seconds after, saying so comes before getting away. */
+  hurtAt?: number;
   /** Someone with no warrant on them who has just attacked it. */
   attacker: {
     name: string;

@@ -250,13 +250,16 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 /**
  * Clicks something as the body, the way its player would: plainly, or with a key held ("ctrl=1",
  * "alt=1", "right=1"). Waits a moment first, so that clicks come no faster than a hand makes them.
+ * `gap` is that wait. It is short for a swing at someone who will not stand still: by the end of
+ * a full second they have walked out of reach.
  *
  * Returns FALSE, without clicking, if the body is in no state to reach it. A click with a key
  * held that cannot reach its target falls through to code that needs a player.
  */
-/datum/ai_controller/crew_npc/proc/click_as_body(atom/target, modifiers)
+/datum/ai_controller/crew_npc/proc/click_as_body(atom/target, modifiers, gap = CREW_NPC_CLICK_GAP)
 	var/mob/living/carbon/human/body = pawn
-	sleep(CREW_NPC_CLICK_GAP)
+	if(gap > 0)
+		sleep(gap)
 	if(QDELETED(body) || QDELETED(target) || QDELETED(src))
 		return FALSE
 	if(!body.can_perform_action(target, target.interaction_flags_click | SILENT_ADJACENCY))

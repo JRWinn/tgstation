@@ -13,14 +13,24 @@
 
 /// How long the body waits before it works a cell timer's controls. The window is in front of it already.
 #define CREW_NPC_TIMER_GAP (0.5 SECONDS)
-/// How long the body waits after a baton hit before the next. With the wait before every click it is past the baton's cooldown.
-#define CREW_NPC_BATON_WAIT (1.7 SECONDS)
+/// How long the body waits after a baton hit that landed before the next: the baton's own wait, which anyone who carries one knows.
+#define CREW_NPC_BATON_WAIT (2.5 SECONDS)
 /// The most baton hits in one go at someone: two, and a third if they are still on their feet.
 #define CREW_NPC_BATON_HITS 3
+/// The most swings it makes in one go at someone, counting those that meet nothing because they stepped away.
+#define CREW_NPC_BATON_SWINGS 8
+/// The longest one go at someone with the baton lasts, from the first step after them.
+#define CREW_NPC_BATON_CHASE (15 SECONDS)
 /// The longest the body waits for a pair of cuffs to go on, once it has begun.
 #define CREW_NPC_CUFF_WAIT (7 SECONDS)
 /// How far (tiles) the body steps after someone who has moved off while it had its hands on them.
 #define CREW_NPC_CLOSE_STEPS 4
+/// How far (tiles) the body steps after someone it means to hit or cuff, who will not stand still for it.
+#define CREW_NPC_CHASE_STEPS 12
+/// The wait before a click that takes its own kit out, in the middle of an arrest: a baton comes off a belt in less than a second.
+#define CREW_NPC_KIT_GAP (0.4 SECONDS)
+/// The wait before a swing of the baton or the cuffs at someone it has just stepped up to. Any longer and they are gone again.
+#define CREW_NPC_STRIKE_GAP (0.2 SECONDS)
 /// The most floor a brig cell can have. Anything bigger found behind a timer is not a cell.
 #define CREW_NPC_CELL_MAX_TURFS 20
 /// How far (tiles) the body plans a walk in and out of a cell.
@@ -56,6 +66,10 @@
 	var/jail_minutes = 0
 	/// Whoever the body last set out to arrest, as a weak reference: for saying why it never got to them.
 	var/datum/weakref/arrest_target
+	/// Why its last go with the baton stopped short, in words for the log. Null if it landed what it meant to.
+	var/baton_stopped
+	/// Why it last failed to take something of its own into a hand, in words for the log. Null if it did.
+	var/draw_stopped
 	/// Who can open each room the body has asked about, by the room's name: list(world.time it was worked out, the names).
 	var/list/keepers_cache = list()
 	/// world.time the body last could not get a prisoner into each cell, by the cell's name.
@@ -277,16 +291,65 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		body.swap_hand(index)
 	return body.get_active_held_item() == thing
 
-/// Takes something the body has on it into a hand, by a click, and makes that the hand it uses. Returns FALSE if it could not.
-/datum/ai_controller/crew_npc/proc/draw_item(obj/item/thing)
+/**
+ * Takes something the body has on it into a hand, by a click, and makes that the hand it uses.
+ * `gap` is the wait before the click. Returns FALSE if it could not.
+ *
+ * The hand is looked at again after the wait. The bar's monkey hands people drinks, and a bottle
+ * pushed into the empty hand during the wait turned the click into a poke at its own belt with
+ * the bottle: the baton stayed where it was.
+ */
+/datum/ai_controller/crew_npc/proc/draw_item(obj/item/thing, gap = CREW_NPC_KIT_GAP)
 	var/mob/living/carbon/human/body = pawn
+	draw_stopped = null
+	if(QDELETED(thing))
+		draw_stopped = "it was gone"
+		return FALSE
 	if(body.is_holding(thing))
 		return hand_to(thing)
-	if(!empty_clicking_hand())
-		return FALSE
-	if(!click_as_body(thing) || QDELETED(thing) || !body.is_holding(thing))
-		return FALSE
-	return hand_to(thing)
+	// Twice: a click that comes to nothing is made once more, a moment later.
+	for(var/go in 1 to 2)
+		if(!empty_clicking_hand())
+			draw_stopped = "it had no hand it could empty"
+			return FALSE
+		sleep(go == 1 ? gap : 0.3 SECONDS)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(thing))
+			draw_stopped = "it was gone"
+			return FALSE
+		if(body.is_holding(thing))
+			return hand_to(thing)
+		if(!empty_clicking_hand())
+			draw_stopped = "something was put in its hand as it reached"
+			continue
+		if(!click_as_body(thing, null, 0))
+			draw_stopped = "it was in no state to reach for it"
+			continue
+		if(QDELETED(thing))
+			draw_stopped = "it was gone"
+			return FALSE
+		if(body.is_holding(thing))
+			draw_stopped = null
+			return hand_to(thing)
+		draw_stopped = "the click on it did not bring it to hand"
+	return FALSE
+
+/**
+ * Lets go of whatever the body is holding that is not its own baton or cuffs, the way anyone
+ * drops what they have in their hands to draw a weapon. It goes on the floor at its feet: there
+ * is no time to find a table for it. The owner: "when they need to pull their weapon they should
+ * probably drop whatever they are holding".
+ */
+/datum/ai_controller/crew_npc/proc/drop_for_weapon()
+	var/mob/living/carbon/human/body = pawn
+	var/list/dropped = list()
+	for(var/obj/item/held in body.held_items.Copy())
+		if((held.item_flags & ABSTRACT) || istype(held, /obj/item/melee/baton/security) || istype(held, /obj/item/restraints/handcuffs))
+			continue
+		var/held_name = format_text(held.name)
+		if(body.dropItemToGround(held))
+			dropped += held_name
+	if(length(dropped))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw its baton.")
 
 /// Puts something the body holds into the bag on its back, by a click on the bag. Returns FALSE if it is still in its hand.
 /datum/ai_controller/crew_npc/proc/stow_in_bag(obj/item/thing)
@@ -300,23 +363,40 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return QDELETED(thing) || !body.is_holding(thing)
 
 /**
- * Steps after someone who has moved off, a tile at a time, until the body is next to them.
+ * Steps after someone who has moved off, a tile at a time, until the body is next to them:
+ * straight at them, and round whatever is in the way when that step will not go. A bar is all
+ * tables and stools, and a step straight at someone across one goes nowhere.
+ *
+ * `most` is how many steps it will take over it, and how far off they may be.
  * Returns FALSE if they are out of sight, too far off to step after, or there is no way to them.
  */
-/datum/ai_controller/crew_npc/proc/close_with(mob/living/person)
+/datum/ai_controller/crew_npc/proc/close_with(mob/living/person, most = CREW_NPC_CLOSE_STEPS)
 	var/mob/living/carbon/human/body = pawn
-	for(var/taken in 0 to CREW_NPC_CLOSE_STEPS)
+	for(var/taken in 0 to most)
 		if(QDELETED(person) || QDELETED(body) || QDELETED(src) || !isturf(person.loc) || !isturf(body.loc))
 			return FALSE
 		if(can_reach_target_now(person))
 			body.face_atom(person)
 			return TRUE
-		if(taken == CREW_NPC_CLOSE_STEPS || get_dist(body, person) > CREW_NPC_CLOSE_STEPS || !(person in view(CREW_NPC_VISION_RANGE, body)))
+		if(taken == most || get_dist(body, person) > most || !(person in view(CREW_NPC_VISION_RANGE, body)))
 			return FALSE
+		var/turf/from = get_turf(body)
 		var/turf/next = get_step_towards(body, person)
-		if(isnull(next) || !crew_npc_safe_turf(next))
-			return FALSE
-		body.Move(next, get_dir(body, next))
+		if(!isnull(next) && crew_npc_safe_turf(next))
+			body.Move(next, get_dir(body, next))
+		// It did not move: something stands in the way. The first step of the way round it.
+		if(get_turf(body) == from)
+			var/list/path = get_path_to(body, person, max_distance = CREW_NPC_CELL_PATH, mintargetdist = 1, access = get_access())
+			if(QDELETED(person) || QDELETED(body) || QDELETED(src) || !length(path))
+				return FALSE
+			next = path[1]
+			if(next == from && length(path) > 1)
+				next = path[2]
+			if(next == from || get_dist(from, next) > 1 || !crew_npc_safe_turf(next))
+				return FALSE
+			body.Move(next, get_dir(body, next))
+			if(get_turf(body) == from)
+				return FALSE
 		sleep(max(movement_delay, 0.2 SECONDS))
 	return FALSE
 
@@ -797,9 +877,20 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(!close_with(person))
 			return list(FALSE, "[person_name] got away from you.", list("handle" = handle, "reason" = "lost", "hits" = 0))
 		return hold_arrested(person, 0, FALSE)
+	// Someone it only means to stop, who is down already, is stopped. Nobody hits someone who is
+	// down, and there is no warrant to put cuffs on them for: left to the lines below, they were cuffed.
+	if(how == CREW_ARREST_STOP && crew_npc_person_down(person))
+		return list(TRUE, "[person_name] is down already. You leave [person.p_them()] be.", list("handle" = handle, "cuffed" = FALSE, "hits" = 0))
 	var/obj/item/restraints/handcuffs/cuffs = cuffs_carried()
 	if(how != CREW_ARREST_STOP && isnull(cuffs))
 		return list(FALSE, "You have no cuffs to put on [person_name].", list("handle" = handle, "reason" = "no_cuffs", "hits" = 0))
+	// Down already when it came with its baton: the cuffs alone, while they stay down. Someone who
+	// had only slipped, or been sick, is up again before the cuffs are on, and gets the baton after all.
+	if(how == CREW_ARREST_FORCE && crew_npc_person_down(person))
+		if(put_cuffs_on(person, cuffs))
+			return hold_arrested(person, 0, TRUE)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
+			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
 	// The baton, for someone who is still on their feet. Nobody hits someone who is down.
 	if(how != CREW_ARREST_QUIET && !crew_npc_person_down(person))
 		var/obj/item/melee/baton/security/baton = baton_carried(TRUE)
@@ -811,7 +902,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		hits = baton_hits(person, baton, how == CREW_ARREST_STOP ? 2 : CREW_NPC_BATON_HITS)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = hits))
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) hit [key_name(person)] with its baton [hits] time\s at [AREACOORD(body)] ([how]).")
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) hit [key_name(person)] with its baton [hits] time\s at [AREACOORD(body)] ([how])[baton_stopped ? ": [baton_stopped]" : ""].")
 		if(how == CREW_ARREST_STOP)
 			put_baton_away(baton)
 			if(!hits)
@@ -845,28 +936,53 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 /datum/ai_controller/crew_npc/proc/baton_hits(mob/living/carbon/human/person, obj/item/melee/baton/security/baton, most)
 	var/mob/living/carbon/human/body = pawn
 	var/landed = 0
+	baton_stopped = null
+	// Whatever else it is holding goes on the floor first. An officer with a circuit board in one
+	// hand that it had not picked up never got its baton out, and was beaten down with a toolbox.
+	drop_for_weapon()
 	if(!draw_item(baton))
+		baton_stopped = "it could not get its baton into a free hand[draw_stopped ? ": [draw_stopped]" : ""]"
 		return 0
 	// A click on what is in the hand, with that hand, is using it: that switches a baton on.
 	if(!baton.active)
-		click_as_body(baton)
+		click_as_body(baton, null, CREW_NPC_KIT_GAP)
 	if(QDELETED(baton) || !baton.active)
+		baton_stopped = "its baton would not switch on"
 		return 0
-	for(var/go in 1 to most)
+	// The baton is out and on before it closes with them, and the swing follows the last step at
+	// once. Someone who will not stand still is a step away again within a second: a swing that
+	// meets nothing is followed by another step and another swing, not by giving up.
+	var/started = world.time
+	var/swings = 0
+	while(landed < most && swings < CREW_NPC_BATON_SWINGS && world.time - started < CREW_NPC_BATON_CHASE)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person) || QDELETED(baton) || !body.is_holding(baton) || person.handcuffed)
 			break
 		// Two as a rule. A third only for someone who is still standing after them.
 		if(landed >= 2 && crew_npc_person_down(person))
 			break
-		if(!baton.active || !close_with(person) || !hand_to(baton))
+		if(!baton.active)
+			baton_stopped = "its baton went flat"
 			break
+		if(!close_with(person, CREW_NPC_CHASE_STEPS))
+			baton_stopped = "it could not get near them"
+			break
+		if(!hand_to(baton))
+			baton_stopped = "its baton was not in its hand"
+			break
+		swings++
 		var/charge_before = baton.cell?.charge
-		if(!click_as_body(person))
-			break
+		if(!click_as_body(person, null, CREW_NPC_STRIKE_GAP))
+			baton_stopped = "they stepped out of reach of every swing"
+			continue
 		if(!QDELETED(baton) && baton.cell?.charge < charge_before)
 			landed++
-		if(go < most)
-			sleep(CREW_NPC_BATON_WAIT)
+			baton_stopped = null
+			if(landed < most)
+				sleep(CREW_NPC_BATON_WAIT)
+			continue
+		// It reached them and the baton did nothing: it was not ready again yet.
+		baton_stopped = "its baton did nothing when it touched them"
+		sleep(0.5 SECONDS)
 	return landed
 
 /// Switches the baton off in the hand and puts it back in the bag, both by a click.
@@ -884,15 +1000,28 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/put_cuffs_on(mob/living/carbon/human/person, obj/item/restraints/handcuffs/cuffs)
 	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(cuffs) || !draw_item(cuffs) || !close_with(person))
+	if(QDELETED(cuffs) || !draw_item(cuffs))
 		return FALSE
-	if(!click_as_body(person))
-		return FALSE
-	var/waited = 0
-	while(waited < CREW_NPC_CUFF_WAIT && !QDELETED(src) && !QDELETED(body) && !QDELETED(person) && isnull(person.handcuffed) && length(body.do_afters))
-		sleep(0.5 SECONDS)
-		waited += 0.5 SECONDS
-	return !QDELETED(src) && !QDELETED(body) && !QDELETED(person) && !isnull(person.handcuffed)
+	// Twice, for someone who is down: they may be knocked a step off as the cuffs come up, and
+	// are down for long enough to go after once more. Someone on their feet who would not stay
+	// for the first try will not stay for a second.
+	for(var/go in 1 to 2)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(person) || QDELETED(cuffs))
+			return FALSE
+		if(!close_with(person, CREW_NPC_CHASE_STEPS) || !hand_to(cuffs))
+			return FALSE
+		if(click_as_body(person, null, CREW_NPC_STRIKE_GAP))
+			var/waited = 0
+			while(waited < CREW_NPC_CUFF_WAIT && !QDELETED(src) && !QDELETED(body) && !QDELETED(person) && isnull(person.handcuffed) && length(body.do_afters))
+				sleep(0.5 SECONDS)
+				waited += 0.5 SECONDS
+		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
+			return FALSE
+		if(!isnull(person.handcuffed))
+			return TRUE
+		if(!crew_npc_person_down(person))
+			return FALSE
+	return FALSE
 
 /// Takes someone who is in cuffs by the arm. `hits` and `counted` are for the report: how many baton hits it took, and whether this is an arrest the body made.
 /datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
@@ -1535,6 +1664,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_NPC_BATON_HITS
 #undef CREW_NPC_CUFF_WAIT
 #undef CREW_NPC_CLOSE_STEPS
+#undef CREW_NPC_BATON_SWINGS
+#undef CREW_NPC_BATON_CHASE
+#undef CREW_NPC_CHASE_STEPS
+#undef CREW_NPC_KIT_GAP
+#undef CREW_NPC_STRIKE_GAP
 #undef CREW_NPC_CELL_MAX_TURFS
 #undef CREW_NPC_CELL_PATH
 #undef CREW_NPC_STEP_WAIT

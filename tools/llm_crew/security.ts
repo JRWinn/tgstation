@@ -331,6 +331,14 @@ deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'nobody has opened t
 add('engineering is not asked twice for one room', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
 deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'no baton' }, 'Hale Stone', false);
 add('nor for any other reason a warrant cannot be served', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
+// Three tries at someone in sight that came to nothing: said as it is, and not as losing them.
+{
+  const why = 'they will not stand still for the baton or the cuffs';
+  const line = S.outcomeLine('Joan', { what: 'cannot', name: 'Pun Pun', why });
+  add('"will not stand still" reads back whole', S.readOutcome(line), { what: 'cannot', name: 'Pun Pun', why });
+  deskOutcome(hos, { what: 'cannot', name: 'Pun Pun', why }, 'Hale Stone', false);
+  add('and the Captain is told that, with no word of losing them', sentBy(hos), ['PDA to Zim Fire: Captain, Hale cannot bring in Pun Pun: they will not stand still for the baton or the cuffs.']);
+}
 const chief = makeBrain('Ada Voss', 'Chief Engineer'); chief.pdaPeople = [...CREW_PDA, { name: 'Joan Marsh', job: 'Head of Security' }];
 at(chief, 6000, 'Engineering');
 add('the Chief Engineer takes the ask', F.forcingReads(chief, 'Joan Marsh', 'Head of Security', F.forceAskLine('Ada', 'Cargo Bay', 'Dana Reyes')), true);
@@ -363,6 +371,17 @@ F.forcingAfterActing(eng, { tool: 'force_door', place: 'Bridge', attempt: 1 }, f
 add('a bolted door is not gone at twice, and the engineer says why', sentBy(eng), ['PDA to Ada Voss: Ada, I could not open the door of the Bridge: it is bolted.']);
 F.forcingReads(hos, 'Ada Voss', 'Chief Engineer', 'Joan, I could not open the door of the Bridge: it is bolted.');
 add('and the Captain is told', sentBy(hos), ['PDA to Zim Fire: Captain, engineering could not open the Bridge: it is bolted.']);
+// Round 20.00.21: the engineer had no way to the door, and what came of it.
+add('word of who is coming is taken by security, and not answered as an order it could not read', [F.forcingReads(hos, 'Ada Voss', 'Chief Engineer', F.forceSentLine('Joan', 'Derek Albright', 'Bar Backroom')), sentBy(hos)], [true, []]);
+add('and those words from anyone else are nothing to it', F.forcingReads(hos, 'Dana Reyes', 'Janitor', F.forceSentLine('Joan', 'Derek Albright', 'Bar Backroom')), false);
+F.forcingReads(eng, 'Ada Voss', 'Chief Engineer', F.forceOrderLine('Derek', 'Bar Backroom'));
+F.forcingAfterActing(eng, { tool: 'force_door', place: 'Bar Backroom', attempt: 1 }, false, { reason: 'no_way', through: 'Service Hallway' });
+add('a door it has no way to is tried once more', sentBy(eng), []);
+F.forcingAfterActing(eng, { tool: 'force_door', place: 'Bar Backroom', attempt: 2 }, false, { reason: 'no_way', through: 'Service Hallway' });
+add('and then it says which room is in the way, with no "I" in it', sentBy(eng), ['PDA to Ada Voss: Ada, I could not open the door of the Bar Backroom: the way to it is through the Service Hallway, which is locked to engineering as well.']);
+F.forcingReads(hos, 'Ada Voss', 'Chief Engineer', 'Joan, I could not open the door of the Bar Backroom: the way to it is through the Service Hallway, which is locked to engineering as well.');
+add('which reads rightly when the Captain is told', sentBy(hos), ['PDA to Zim Fire: Captain, engineering could not open the Bar Backroom: the way to it is through the Service Hallway, which is locked to engineering as well.']);
+add('no reason for a door not opening says "I"', ['bolted', 'welded', 'no_tools', 'no_knowledge', 'no_way', 'no_door', 'other'].filter((reason) => /\bI\b/.test(F.whyNot(reason))), []);
 // With no Chief Engineer aboard, security asks an engineer itself.
 const lone = head(); lone.pdaPeople = [...PDA.filter((person) => person.job !== 'Chief Engineer'), { name: 'Derek Albright', job: 'Station Engineer' }];
 F.askEngineering(lone, 'Kitchen', 'Pun Pun');

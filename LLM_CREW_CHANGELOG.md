@@ -16,6 +16,162 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 20:53 to 21:05: the officer lost a fight with Pun Pun: it drops what it holds to draw its baton, and says it is hurt before it walks off (the commit that added this entry, on the branch `security-arrest`)
+
+**Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (none new), server compile to a side copy (0 errors, 0 warnings), simulator: the nine security scenarios with a quiet LLM, none failing. In `hurt`, traced, the officer now sends "I could not take Pun Pun. I am hurt." and then gets away, five seconds apart. **Not played. No model tests. The normal build has not been run:** the server was up. Dropping what it holds and the second try at taking its kit out are server code, compile-checked only.
+
+**Round that showed it:** `data/logs/2026/11/19/round-20.43.32` (MetaStation, read live from 20:53 to 20:55, on the build made at 20:43:24, which has `8545d97b` in it).
+
+### What happened
+
+The Captain's "Put out an APB for Pun Pun. Lock him up for 30 minutes" was read whole at 20:50:13, with 15 minutes as the most a cell allows. The Head of Personnel reported the monkey at 20:51:38 and the officer was beside it nine seconds later.
+
+- 20:51:53: the cuffs alone. Pun Pun stepped off 0.2 seconds in.
+- 20:51:56: Pun Pun began hitting the officer with an emergency toolbox, about 8 damage every 1.3 seconds.
+- 20:52:00: the go with the baton. `game.log`: "hit Pun Pun with its baton 0 times ... (force): it could not get its baton into a free hand".
+- 20:52:06: under half its health, the officer broke off and set out for the Security Office at a walk. Pun Pun followed, hitting it.
+- 20:52:16: the officer went down in the Courtroom at -2.3, after 12 hits with the toolbox (two of them thrown) and one tackle. A thirteenth landed as it fell.
+- Nothing more of it in any log by 20:55. No word was sent to the Head of Security, who went on believing the warrant was being served.
+
+### Why
+
+- **The baton never came out.** The brain's step at 20:51:59 has the officer "holding airlock electronics", which it had not picked up. They came into its hand while the try with the cuffs was under way, and anything that lands in a hand during an errand is taken for its own doing (`on_item_in_hand`), so nothing put them down. **Which step of taking the baton out failed is not known:** there is no "put away its ... to free a hand" line, so the hand was not cleared the usual way, and the log said no more than that.
+- **"I am hurt" was never sent.** Getting away from an attacker is an emergency and telling the Head of Security was not, so the word waited behind a walk it did not live to finish.
+
+### What is changed
+
+- **It drops whatever it is holding, other than its own baton and cuffs, before it takes the baton out** (`drop_for_weapon`, called at the top of `baton_hits` in `crew_npc_security.dm`). On the floor at its feet, with a line in `game.log`: "dropped X ... to draw its baton". The owner: "when they need to pull their weapon they should probably drop whatever they are holding".
+- **A click that does not bring its kit to hand is made once more** (`draw_item`), and the log says which step came to nothing: "it had no hand it could empty", "something was put in its hand as it reached", "it was in no state to reach for it", "the click on it did not bring it to hand". That goes after "it could not get its baton into a free hand".
+- **That it is hurt, has been attacked, or has lost its baton is word that goes at once**, as an emergency and by PDA unless the Head of Security is standing there (`syncTasks` in `jobs/officer.ts`).
+- **It says it is hurt before it gets away** (`sayingHurt` in `syncBeat`, `jobs/arrests.ts`): for five seconds after it breaks off, while that word is still unsent and it has a PDA. The Head of Security then tells the Captain and serves the warrants itself, which was built already.
+
+### Known and not fixed
+
+- **A hurt officer still walks away from someone who is hitting it, and does not defend itself.** "Hurt, it breaks off and uses no more force" is the rule as built. Against something that follows, that is ten seconds of being hit. Whether a hurt officer with a working baton should stop whoever is on it is the owner's to say.
+- **Saying it is hurt costs a few seconds of standing there.** In this fight that would have been two or three more hits.
+- **Nobody goes to an officer who is down.** There are no medical staff among the crew.
+- Things that land in its hand during an errand are still taken for its own doing. Before the baton they are now dropped. Before the cuffs alone they are not.
+- The Captain's second warrant, on the Head of Personnel, was given to the officer 40 seconds before the fight and was never acted on.
+
+### What to grep for next round (`game.log`)
+
+"to draw its baton", "with its baton" and what follows "free hand:", and in `pda.log` "I am hurt".
+
+---
+
+## 2026-11-18, 20:19 to 20:40: the last entry played, and why nobody could get into the bar (the commit that added this entry, on the branch `security-arrest`)
+
+**Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (six new), server compile to a side copy (0 errors, 0 warnings), simulator: twelve scenarios with a quiet LLM (the nine security ones, `nested`, `engine`, `crew`), none failing. **Not played. No model tests. The normal build has not been run:** the server was up. The simulator runs none of the server code, so which door a body makes for, and which door an engineer forces, are compile-checked only.
+
+**Round that showed it:** `data/logs/2026/11/19/round-20.00.21` (MetaStation, read at 20:19, on the build made at 20:00:14, which has the last entry's commit `94e34e9a` in it).
+
+### The last entry, played once
+
+- **The arrest worked on its first go with the baton.** In the Kitchen: told at 20:16:05, cuffs alone at 20:16:09 (the monkey walked off), first hit at 20:16:15, second at 20:16:18, cuffed at 20:16:24, in Cell 1 at 20:16:53 for 15 minutes. Twenty seconds from the telling to the cuffs. The round before it was five minutes.
+- "was laid hands on by Pun Pun ... hit" came through for a rolling pin thrown at the officer. **The bite and the tackle have still not been seen:** nothing bit anyone.
+- Not seen: a swing that met nothing, the way round a table, the cuffs tried twice.
+
+### What went wrong: eleven minutes from the warrant to the arrest
+
+The Captain said "Pun Pun is in the Bar" at 20:05:16. The bar is locked to security.
+
+- **The officer gave up on the bar's own door without trying it** (`tool_go_to_door` in `crew_npc_doors.dm`). The bar has three doors. The nearest, from where the officer stood, opens from the Bar Backroom, which is locked to it as well, and the tool answered "it opens from the Bar Backroom" at that first door. The officer went to the back room's door, asked the Captain there, waited 90 seconds, and reported "nobody has opened the Bar Backroom for security". The bar's door at (135,127) can be stood at from the kitchen, which anyone can walk into by its open shutters: the officer walked into that kitchen ten minutes later to make the arrest.
+- **The engineer could not get to either door of the Bar Backroom** (`game.log` 20:07:53, "It found no way to: Bar at (130,123) and Bar Storage at (133,120)"). One opens from inside the bar. The other opens from the Service Hallway, whose doors take a service ID. An engineer has no way into either. **How this was found:** a script over the map file and the door access helpers, walking from where each body stood. It ignores machines and furniture, so a route it finds may not be walkable, but where it finds none there is none.
+- **How the officer came to be standing in the Service Hallway is inferred, not seen.** By the map it has no way in either. Janitors, who carry a service ID, were in that hallway at the time, and the pathfinder takes a door that is standing open for a way through.
+- **The Head of Security answered the Chief Engineer's "I am sending Kimberly to open the Bar Backroom" with "I did not follow that. To declare a warrant, say..."** Nothing read that line, so it went to the reader of orders.
+- **The Captain was sent "engineering could not open the Bar Backroom: I cannot get to it."** The engineer's reason is passed on word for word, twice.
+
+### What is changed
+
+- **Every door of a room is tried before the body is told the room lies inside another** (`tool_go_to_door`). A door it can walk up to is taken whatever room it opens from. Only when no door of the room can be reached is it told "it opens from X, which is locked to you as well". For the bar that means the kitchen side of the bar's own door, and the ask goes to whoever can open the bar.
+- **A way that is only there because a locked room's door stands open this minute is not taken** (`route_by_open_door`). Before this change the check on the outer room came first and no route was looked for, so this keeps that as it was for the Cargo Bay and its offices.
+- **An engineer does not force a door that leads only to floor it can walk to already** (`tool_force_door` in `crew_npc_forcing.dm`). The bar's kitchen door is one: it opens onto a square of the bar's floor that stands open to the lounge, and was the nearest "door of the Bar" to engineering. If every door of the room is like that, it says there is a way in already.
+- **An engineer with no way to a door says which room is in the way** (`through` in the tool's answer, `hallway_locked_to`): "I could not open the door of the Bar Backroom: the way to it is through the Service Hallway, which is locked to engineering as well."
+- **No reason for a door not opening has "I" in it** (`whyNot` in `jobs/forcing.ts`): "there is no way to it", "the tools for it are not to hand", "its wires are not known", "no door to it can be found".
+- **"I am sending X to open the Y" is taken by security and answered with nothing** (`SENT_WORDS`, `forcingReads`).
+
+### Known and not fixed
+
+- **An engineer does not force its way through a room in between.** Sent to a door behind a locked hallway it says so and stops. Forcing the hallway's door first is not built.
+- **The officer walked the five main hallways for eight minutes after it was shut out** (20:07:58 to 20:15:57) and never looked into the Bar Lounge, from where the bar is in plain sight across the counter. Where it looks when it has no fresh word is the owner's to decide.
+- The officer asks the Captain to let it in and waits 90 seconds, wherever the Captain is. The Captain was in the Bar Lounge.
+- The engineer said aloud "the Bar Backroom door is forced" at 20:10:03, when it was not. That was the LLM's own remark after the job was closed: nothing tells it how the job ended.
+- `crew_npc_doors_of` takes a door for a door of a room if it touches any square of that room's floor. The square of bar floor outside the bar's counter makes the kitchen's door a door of the bar.
+- Other walks that failed in this round, not looked into: a janitor with no route from the Mining Office to the Bar Lounge three times, and two bodies stopped at Cargo Bay (77,146) on a five-step route to the Cargo Lobby, six times between them.
+
+### What to grep for next round (`game.log`)
+
+"found no way to", "could not force" (and the room after "the way to it is through"), "did not: it can walk in already", and in `pda.log` "I am at the Kitchen door of the Bar".
+
+---
+
+## 2026-11-18, 19:38 to 20:00: the officer took four tries and five minutes to arrest Pun Pun, and did not know it was bitten afterwards (the commit that added this entry, on the branch `security-arrest`)
+
+**This entry was added to at 20:00: the section "Added at 20:00" below. It changes one base-game file.**
+
+**Tested:** type check, 146 cases in `tools/llm_crew/security.ts` (two new), server compile to a side copy (0 errors, 0 warnings, run again at 19:56 with the later changes in), simulator: the nine security scenarios with a quiet LLM, none failing. **Not played. No model tests. The normal build has not been run:** the server was up, so the next round does not have this until the build is run with the server closed. The simulator runs none of the server code, and its monkey does not walk about while it is being arrested, so the chase, the quick swing and the second go at the cuffs are compile-checked only.
+
+**Round that showed it:** `data/logs/2026/11/19/round-19.33.50` (MetaStation, read live from 19:38 to 19:49, on `d12b4af5`). The owner: "failed to arrest pun pun".
+
+### What happened
+
+The Captain sent "Arrest Pun Pun" at 19:35:44. The warrant, the notice to the heads, the officer's belt, baton and cuffs, and the walk to the bar all worked. Then:
+
+| Time | Try | What came of it |
+| --- | --- | --- |
+| 19:36:37 | cuffs alone | Cuffing began at 19:36:39 and broke off 1.8 seconds later: the monkey walked away. Cuffs take about 3 seconds of standing still. |
+| 19:36:45 | baton, then cuffs | "hit Pun Pun with its baton 0 times". No swing reached the monkey. |
+| 19:37:15 | baton, then cuffs | The cuffs were tried with no swing of the baton before them. By the code that happens only when the monkey is down, so it was down for a moment: why, the logs do not say. It got up 2.6 seconds in. |
+| 19:37:24 | none | Three tries used up. It sent "Yahir, I lost Pun Pun in the Bar Lounge" from a step away and stood by the monkey for two minutes. |
+| 19:39:28 | baton, then cuffs | 0 hits again, 2.2 seconds after it began. |
+| 19:40:32 | baton, then cuffs | 2 hits. Cuffed at 19:40:45, in Cell 1 at 19:41:09 for 5 minutes. |
+
+So the arrest was made, five minutes after the warrant, on the fourth go with the baton in hand. The cell, the timer and the reports to the Captain all worked first time.
+
+### Why the baton met nothing
+
+- **Every click the body made was a full second behind the hand** (`CREW_NPC_CLICK_GAP` in `click_as_body`). It walked up, then took out its cuffs (1 second), its baton (1 second) and switched it on (1 second), then stepped after the monkey, and then waited one more second between being beside it and swinging. A monkey that wanders is a tile away again by then, the click found nothing in reach, and the first miss ended the go.
+- **It stepped after the monkey in a straight line, four steps at most** (`close_with`). The bar is tables and stools: a step straight at someone across one goes nowhere, and that ended the go as well.
+- **Pun Pun hands people things.** The officer found a thing in its hand that it had not picked up 17 times in under four minutes: space beers, cigarettes and a Russian revolver. The log names Pun Pun as the one beside it for some, and nobody for most. At 19:39:30 the timing fits one arriving in the hand that was reaching for the baton: the go ended the instant that click was made, with no time for anything after it. **This one is read from the timing, not seen:** the log did not say which step failed.
+
+### What the officer does now
+
+- **The swing follows the last step at once** (0.2 seconds, `CREW_NPC_STRIKE_GAP`), for the baton and for the cuffs. Its own kit comes out in 0.4 seconds a piece (`CREW_NPC_KIT_GAP`). `click_as_body` takes the wait as an argument; every other click in the game is as slow as it was, except tools drawn by `draw_item` in `crew_npc_forcing.dm`, which now take 0.4 seconds and not 1.
+- **A swing that meets nothing is followed by another step and another swing**: up to 8 swings or 15 seconds in one go (`baton_hits`). The wait after a hit that lands is the baton's own 2.5 seconds.
+- **It goes round what is in the way** (`close_with`): when the straight step does not move it, it takes the first step of a planned way round. For the baton and the cuffs it follows for up to 12 steps, not 4.
+- **Its hand is looked at again before it takes its kit out** (`draw_item`): a thing pushed into it during the wait is put away first.
+- **Someone who was down when it came, and got up before the cuffs were on, gets the baton in the same go** (`make_arrest`), not a wasted try.
+- **The cuffs are tried a second time on someone who is down** and was knocked a step off (`put_cuffs_on`).
+- **`game.log` says why a go with the baton stopped short**: "hit X with its baton 0 times ... (force): it could not get near them", or "they stepped out of reach of every swing", "it could not get its baton into a free hand", "its baton would not switch on", "its baton did nothing when it touched them".
+- **Three tries at someone still in sight is not "I lost them"** (`jobs/arrests.ts`). It rests for 30 seconds, not two minutes, and tells whoever keeps the list, once: "I cannot bring in Pun Pun: they will not stand still for the baton or the cuffs." The Captain gets that from the Head of Security. "I lost X" is kept for someone it can no longer see.
+
+### Added at 20:00: bitten and tackled, and told nothing
+
+The same round, read on to 19:55. Pun Pun's cell opened at 19:46:09. Between 19:47:22 and 19:49:16 it bit the officer seven times, tackled it to the floor three times and threw a bedsheet at it, across the Brig and the Prison Wing (`attack.log`). The officer's health went from 100 to 90.8. It walked its rounds through all of it: no baton, no getting away, no word to the Head of Security, and not one "was laid hands on by" line in `game.log`.
+
+- **Why:** the brain was never told. Security staff hear of an attack through the game's own "someone attacked me" signal (`on_struck`), and a monkey's bite or tackle on a person never raised it. That signal is sent from `/atom/attack_paw`, and the versions of that proc for people and for living things never call down to it. In the 17:06 round Pun Pun had a tail club, which goes another way, and that was heard.
+- **The fix is in a base-game file:** `/mob/living/carbon/human/attack_paw` in `code/modules/mob/living/carbon/human/human_defense.dm` now sends the signal itself, first thing. With that the officer is told "Pun Pun hits you" or "Pun Pun shoves you" (a tackle is passed on as a shove), and what was already built follows: it stops them with the baton, with no cuffs because there is no warrant, and the Head of Security tells the Captain "Pun Pun attacked Nova. There is no warrant on them."
+- **It changes the base game for others as well:** anything on a person's body that listens for attacks now hears a monkey's bite or tackle. A monkey bitten by another monkey may now turn on it, where it did not before.
+- **Someone it only means to stop, who is down already, is left be** (`make_arrest`). Read in the code, not seen: with no warrant on them they fell through to the cuffs, and would have been cuffed and taken by the arm with no cell to go to.
+
+Not played. No scenario has a monkey that bites with its teeth: the simulator's bite goes straight to the brain.
+
+### Seen and left alone
+
+- Pun Pun, let out with a grudge, went on to set off a fire alarm in the Brig at 19:50:15 and to spray space cleaner about Security Medical. There is no warrant on it, so nobody did anything, which is as built.
+- A tackle is told to the brain as "shoves you", and a bite as "hits you".
+- **The first try at anyone is still the cuffs alone**, after "you are under arrest. Stand still." On a monkey that is eight seconds spent for nothing. It is right for crew, who stand for it.
+- **Eighteen seconds went by between walking up to the monkey and the second try** (19:36:57 to 19:37:15) while the officer greeted two people it had not met. Greetings are not held back for an arrest.
+- The officer said to the room "I'm busy with Pun Pun who won't stand still!" and "I'll sort him out soon", which is the warrant talked about, against what its prompt tells it.
+- Things Pun Pun gives it are put down one at a time on the nearest table, each with a line to the brain. That was 34 lines to the brain in under four minutes.
+- `free_a_hand` puts a thing away with `equip_to_storage`, which is on the helper's list of cheats in the entry below. The revolver went into the officer's bag that way.
+
+### What to grep for next round (`game.log`)
+
+"with its baton" (the count, and the reason after it when it is 0), "arrested", "cannot bring in", and "was laid hands on by" against the bites and tackles in `attack.log`.
+
+---
+
 ## 2026-11-18, 18:05 to 19:12: a meeting fault of my own, three wordings of a warrant, asking to be let in, and an engineer who forces a door (part committed as 31960af4, the rest in the commit that added this line)
 
 **This entry was added to twice after it was first written, at 18:15 and 18:50. The owner committed everything up to 18:50 as `31960af4` "Publish". The engineer forcing a door, added after that, is in the commit after it. The normal build was run at 19:12 with the server closed (0 errors, 0 warnings): the next round has all of it.**
