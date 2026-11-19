@@ -675,15 +675,23 @@ export function giveLine(
   name: string,
   reason: string,
   minutes: number,
+  byCaptain = false,
 ): string {
-  return `${firstName(to)}, warrant: ${onWhom(name, reason)}. Bring them in, ${minutes} minutes.`;
+  return `${firstName(to)}, warrant: ${onWhom(name, reason)}. Bring them in, ${minutes} minutes.${byCaptain ? ` ${BY_CAPTAIN}` : ''}`;
 }
 export const GIVE_WORDS = /\bwarrant: (.+?)\. Bring them in, (\d+) minutes\b/i;
+/** Said after a warrant given that the Captain declared. Only such a warrant is served on a head of staff. */
+const BY_CAPTAIN = 'The Captain declared it.';
+const BY_CAPTAIN_WORDS =
+  /\bBring them in, \d+ minutes\. The Captain declared it\b/i;
 
 /** Reads a warrant as the Head of Security gives it. Null if these words are not one. */
-export function readGiven(
-  text: string,
-): { name: string; reason: string; minutes: number } | null {
+export function readGiven(text: string): {
+  name: string;
+  reason: string;
+  minutes: number;
+  byCaptain: boolean;
+} | null {
   const found = text.match(GIVE_WORDS);
   if (!found) {
     return null;
@@ -693,6 +701,7 @@ export function readGiven(
     name: cut === -1 ? found[1] : found[1].slice(0, cut),
     reason: cut === -1 ? '' : found[1].slice(cut + 6),
     minutes: Number(found[2]),
+    byCaptain: BY_CAPTAIN_WORDS.test(text),
   };
 }
 

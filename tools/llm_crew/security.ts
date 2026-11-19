@@ -93,8 +93,9 @@ add('nobody reads back as nobody', S.readMeetingLine(S.meetingLines([])[0]), { n
 add('talk is not that', S.readMeetingLine('Security is in the Bar.'), null);
 
 // ---- the Head of Security to its officer, and back
-add('a warrant given reads back', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'trespass in the Cargo Bay', 5)), { name: 'Pun Pun', reason: 'trespass in the Cargo Bay', minutes: 5 });
-add('with no reason', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', '', 15)), { name: 'Pun Pun', reason: '', minutes: 15 });
+add('a warrant given reads back', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'trespass in the Cargo Bay', 5)), { name: 'Pun Pun', reason: 'trespass in the Cargo Bay', minutes: 5, byCaptain: false });
+add('with no reason', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', '', 15)), { name: 'Pun Pun', reason: '', minutes: 15, byCaptain: false });
+add('TRUST-06: one the Captain declared says so, and reads back so', [S.giveLine('Hale Stone', 'Pun Pun', 'theft', 5, true), S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'theft', 5, true))], ['Hale, warrant: Pun Pun, for theft. Bring them in, 5 minutes. The Captain declared it.', { name: 'Pun Pun', reason: 'theft', minutes: 5, byCaptain: true }]);
 for (const outcome of [
   { what: 'jailed', name: 'Pun Pun', cell: 'Cell 1', minutes: 10, resisted: true },
   { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 2', minutes: 5, resisted: false },
@@ -297,6 +298,30 @@ add('with no officer aboard the warrant goes into its own hands', beatOf(b).warr
   add('an officer with a warrant on Pun Pun, a name it knows, does not go for Pun Pun II', onLead(off), false);
   at(off, 5010, 'Bar', [{ handle: 'p1', name: 'Pun Pun', job: 'Assistant', place: 'Bar', distance: 2 }]);
   add('and does go for Pun Pun', onLead(off), true);
+  // Steps 4 and 5: a head of staff is arrested only on a warrant the Captain declared.
+  const A = await import(ROOT + 'jobs/arrests');
+  const onHead = (byCaptain: boolean) => {
+    const o = makeBrain('Hale Stone', 'Security Officer');
+    o.post = 'Security Office';
+    o.pdaPeople = [{ name: 'Joan Marsh', job: 'Head of Security' }, { name: 'Jane Marsh', job: 'Research Director' }];
+    know(o, ['Security Office', 'Bar', 'Brig']);
+    o.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+    A.giveWarrant(o, { name: 'Jane Marsh', reason: 'theft', minutes: 5, byCaptain });
+    at(o, 5000, 'Bar', [{ handle: 'p4', name: 'Jane Marsh', job: 'Research Director', place: 'Bar', distance: 1, command: 1 }]);
+    A.syncBeat(o);
+    const task = o.tasks.find((it: any) => it.kind === 'serve_warrant' && it.item === 'Jane Marsh');
+    const plan = A.planBeat(o, task);
+    return [plan?.act?.tool ?? (plan?.say ? 'says' : null), A.takeOutcomes(o)];
+  };
+  add('TRUST-06: a head in view, on a warrant the Captain did not declare: no arrest, and the list is told why', onHead(false), [null, [{ what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' }]]);
+  add('TRUST-06: and that word reads back whole', S.readOutcome(S.outcomeLine('Joan', { what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' })), { what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' });
+  add('TRUST-06: on the Captain\'s warrant the head is told they are under arrest', onHead(true), ['says', []]);
+  // The Head of Security serving one itself carries who declared it.
+  const self = head();
+  self.pdaPeople = PDA.filter((person: any) => person.job !== 'Security Officer');
+  deskTakes(self, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(self);
+  add('TRUST-06: serving the Captain\'s warrant itself, the desk notes the Captain declared it', beatOf(self).warrants.map((w: any) => [w.name, w.byCaptain]), [['Dana Reyes', true]]);
 }
 
 // ---- the desk says so when it cannot use what it is sent
