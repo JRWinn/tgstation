@@ -69,8 +69,8 @@ Read from the code. Not seen in a round: no round so far had a second warrant on
 
 ## How to fix it
 
-1. Whenever a warrant leaves `beat.warrants` (the `jailed` branch of `beatAfterActing`, `dropWarrant`, `handBack`), delete every `cannotTold` key that begins with that warrant's name and `|`.
-2. Keep the value as the time it was told (it already is), and let `cannot` tell it again once a few minutes have gone by and the warrant still stands (say five minutes, the same as `SHUT_OUT_DS`), so a warrant stuck behind the same door is not stuck in silence. `askEngineering` keeps its own wait (`ASK_AGAIN_DS`), so engineering is not pestered.
+1. Whenever a warrant leaves `beat.warrants` (the `jailed` branch of `beatAfterActing`, `dropWarrant`, `handBack`: arrests.ts:1185, 189 and 247 are the only three), delete every `cannotTold` key that begins with that warrant's name and `|`. Simplest, and safe for any later way out: in `syncBeat`, just after `beat.cannotTold ??= {}`, delete every key whose name part (before the last `|`) has no warrant in `beat.warrants`. `syncBeat` runs before every plan, so a warrant given again is always seen fresh. Match by the exact name, since the key is written with `warrant.name`.
+2. Keep the value as the time it was told (it already is), and let `cannot` tell it again once enough time has gone by and the warrant still stands. Use ten minutes, the same as `ASK_AGAIN_DS` in forcing.ts, not five: each `cannot` that reaches the desk is sent to the Captain by PDA (`deskOutcome`'s default branch, desk.ts:845), and five minutes would be a fresh "cannot bring in" to the Captain every five minutes for a warrant stuck behind a door; `askEngineering` would anyway act only every ten. The owner may want this step left out; steps 1 and 3 fix the fault as written.
 3. Delete a `nobody has opened ...` key when the room is opened (`doorOpened`) so that a room locked again is told again.
 
 ## How to test the fix
@@ -78,3 +78,11 @@ Read from the code. Not seen in a round: no round so far had a second warrant on
 - `tools/llm_crew/security.ts`: a case that serves a warrant with a `cannot` outcome, jails the person, gives a second warrant on the same name, and makes the same obstacle: a second `cannot` outcome must be pushed.
 - Simulator: run `warrant` with a second warrant on Pun Pun after the cell opens, with the Bar locked both times; the Head of Security must ask engineering twice.
 - Type check.
+
+## Check
+
+Confirmed. Read `syncBeat`'s `cannot` (arrests.ts:380-422), the `WILL_NOT_STAND` copy in `beatAfterActing` (1151), the three places a warrant leaves `beat.warrants` (189 `dropWarrant`, 247 `handBack`, 1185 the jailed branch), `giveWarrant` (131, which makes a fresh warrant with no `shutOut`), `letInStep` (564-620, where `gaveUp` is set), the `SHUT_OUT_DS` reset (726), `doorOpened` (217), `deskOutcome`'s default branch (desk.ts:845-858) and `askEngineering` (forcing.ts:152, its only caller is desk.ts:856). `cannotTold` is written and read only at arrests.ts:380-386 and 1151-1154 and declared in types.ts:580; no code in `CrewBrain/` or `tools/llm_crew/` deletes a key, and `brain.beat` is never reset. Nothing in the change log or plans covers it.
+
+Ran a throwaway bun script on the window code with `tools/llm_crew/fixtures.ts`: an officer with a warrant on Pun Pun and a `shutOut` on the Bar marked `gaveUp`. The first `syncBeat` pushed `{what: 'cannot', name: 'Pun Pun', why: 'nobody has opened the Bar for security'}`. Then the warrant was taken out of `beat.warrants` as the jailed branch does, a new warrant on Pun Pun given with the same `gaveUp` on the Bar, and `syncBeat` run again: no outcome, and `cannotTold` still held the key from the first time.
+
+Severity medium and effort small stand. Step 2 of the fix changed from five to ten minutes, for the PDA to the Captain each `cannot` brings.
