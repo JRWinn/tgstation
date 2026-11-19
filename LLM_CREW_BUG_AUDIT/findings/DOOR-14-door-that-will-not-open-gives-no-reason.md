@@ -1,6 +1,6 @@
 ---
 id: DOOR-14
-title: A door a technician cannot open is answered with one line for four causes, so a door with no power is asked at again and again and nobody is told why
+title: A door a technician cannot open is answered with one line for four causes, so a door with no power is walked to at every asking and nobody is told why
 kind: bug
 severity: medium
 effort: small
@@ -21,7 +21,7 @@ fix: Give hold_door_for a separate answer and a reason detail for no power, bolt
 - it has no power (`!door.hasPower()`),
 - the technician's own ID does not open it.
 
-The brain cannot tell them apart, so it can only try again. The driver holds a failed step back 20 seconds, then longer, up to two minutes, and the door task stays at the top of the technician's list. Whoever is shut in or waiting outside is never told why, and nobody is asked for what would help: a crowbar (anyone can pry a door that has no power, `try_to_crowbar` in `airlock.dm`), or an engineer for a bolted one.
+The brain cannot tell them apart. In `cargo.ts` (`afterActing`, "The door has been opened for them, or could not be. Either way that request is dealt with.") a failed `open_door` clears the request (`doorAsked`, `knockAt`) just as a good one does, and nothing more happens. Whoever is shut in or waiting outside is never told, and nobody is asked for what would help: a crowbar (anyone can pry a door that has no power, `try_to_crowbar` in `airlock.dm`), or an engineer for a bolted one. The person knocks or sends word again, the technician walks to the door again and is refused again, and so on.
 
 The no-power case is the one that matters. The project's own notes say test rounds lose station power about 15 minutes in. From then on every airlock of the room has no power, so every door the technician is asked to open is refused with this one line, for the rest of the round.
 
@@ -30,7 +30,7 @@ Two smaller faults in the same lines:
 1. A door with no power that is standing open is refused too. The test `!door.hasPower()` comes before anything looks at `door.density`. An airlock that lost power while open stays open (its close needs power), so the person could walk through it, and the technician is told it "will not open".
 2. `room_door_for` does not look at power, bolts or a weld when it picks which door of the room to open: the door it picks is the nearest the technician's ID opens. With two doors, one dead and one working, it can pick the dead one, and `hold_door_for` then refuses, when the other door would have done.
 
-One concrete case. The station's power fails. A janitor is shut in the Cargo Bay after cleaning and knocks. The technician's brain plans `open_door` for it. `tool_open_door` finds the janitor and the door, the errand walks the technician to the door, and `hold_door_for` returns `list(FALSE, "The door will not open for you.")`. The driver backs off and tries again: walk, refuse, back off, for the rest of the round. A player technician would see the door's lights were out, pry it with a crowbar from the nearest toolbox or emergency locker, or call engineering.
+One concrete case. The station's power fails. A janitor is shut in the Cargo Bay after cleaning and knocks. The technician's brain plans `open_door` for it. `tool_open_door` finds the janitor and the door, the errand walks the technician to the door, and `hold_door_for` returns `list(FALSE, "The door will not open for you.")`. The request is dropped and the janitor hears nothing. It sends word again later (by PDA, to whoever let it in), and the same walk and refusal follow, for the rest of the round. A player technician would see the door's lights were out, pry it with a crowbar from the nearest toolbox or emergency locker, or call engineering.
 
 ## Where
 
@@ -50,7 +50,13 @@ One concrete case. The station's power fails. A janitor is shut in the Cargo Bay
     		if(!door.allowed(pawn))
     			continue
 
-The window asks for the step again with nothing new to go on, `tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:962` (the `DOOR` task's plan, which gives the same `open_door` act each time).
+The window plans the same `open_door` act each time it is asked, `tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:962` (the `DOOR` task's plan), and treats a failure as the request dealt with, `jobs/cargo.ts` about line 1966:
+
+    // The door has been opened for them, or could not be. Either way that request is dealt with.
+    if (task?.kind === DOOR) {
+      if (brain.doorAsked?.name === task.item) {
+        brain.doorAsked = null;
+      }
 
 ## How it was found
 
@@ -65,11 +71,11 @@ Read from the code, with `airlock.dm` (`close` needs power at `DEFAULT_DOOR_CHEC
    - `!door.hasPower()`: "The door has no power: its lights are out." reason `no_power`.
    - `!door.allowed(body)`: "Your ID does not open this door." reason `no_access`.
 2. In `room_door_for`, among doors the body's ID opens, prefer one that has power and is neither bolted nor welded; fall back to a dead one only if there is no other.
-3. In `cargo.ts`, on `no_power`, `bolted` or `welded`, stop retrying the same door for that person, say so to them (aloud if in sight, by PDA otherwise), and tell its head. What comes next needs the owner:
+3. In `cargo.ts`, on `no_power`, `bolted` or `welded`, remember that door as dead for a few minutes so a new ask does not send the technician to it again, say so to the person (aloud if in sight, by PDA otherwise), and tell its head. What comes next needs the owner:
    - Question for the owner: should cargo staff fetch a crowbar (a toolbox or emergency locker is on most maps) and pry a door with no power themselves, as a player would? Or should they send for engineering, whose `force_door` already pries a dead door? The first keeps the work in cargo; the second needs the engineering chain in GAP-19.
 4. Keep `door.allowed(body)` as the access test. Leave the `autoclose` lines to the fix for KNB-04 and GAP-03, which rewrites the opening as a click; the order of tests above holds for that version too.
 
 ## How to test the fix
 
 - Simulator: give the stand-in server's `open_door` the four refusals (SIM-04 notes it gives none of them today) and check that the technician stops after one and says why.
-- In a round: cut power to the Cargo Bay's APC with a janitor shut inside, and check `game.log` for one refusal with the reason, not a refusal every 20 seconds to two minutes.
+- In a round: cut power to the Cargo Bay's APC with a janitor shut inside, and check `game.log` and `pda.log` for one refusal with the reason, the janitor told why, and no second walk to the same dead door.
