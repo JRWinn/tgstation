@@ -117,3 +117,14 @@ No owner decision is needed, only the numbers.
 - `tools/llm_crew/sim.ts` has `dead` (fetch throws at once) but no stand-in that hangs. Add a mode `hung` whose `fetch` waits on `init.signal` and never answers, and run `crew` and `qm` in it: every scenario that passes in `dead` should pass in `hung`, a few seconds slower.
 - Type check from `tgui/`.
 - In a round: start a model test (`tools/llm_crew/voice.ts`) while the round runs, and watch that the crew keep working. In `crew_brain.log`, decisions with `"error":"...aborted..."` should be followed at once by the plain line in `game.log`.
+
+## Check
+
+Checked by Opus 5.5, read from the code; the hung-model run was not repeated.
+
+- Every quote is still what the code says: `THINK_TIMEOUT_MS = 60000` (`brain.ts:71`), the two `callOllama` calls in `think` (`brain.ts:1338` and `:1347`), the single `running` flag in `pump` (`brain.ts:1051`), `startTalk` looking only at `queue[0]` (`brain.ts:1138`), the `speak` callback in `ingest` that sets `mustSay` with no time (`brain.ts:754`), and the guard in `drive` that returns null while `brain.mustSay !== null || brain.sayingNow` (`driver.ts:733`).
+- Traced it: `drive` gives a `say` step to `speak` (`driver.ts:805`), which sets `mustSay` and `wake`. `ingest` then queues the brain (`brain.ts:778`) and sends a `hold`. Nothing says the line until `think` runs for that brain. `think` clears `mustSay`, sets `sayingNow` and waits on `callOllama`. Only an abort (60 s) or an answer ends that. The plain line is said in the `catch` (`brain.ts:1611`). `stopSession` is the only other thing that aborts `inFlight`. No other code has a deadline for a waiting line: no `mustSayAt` or anything like it anywhere in `CrewBrain/`.
+- The guard it is compared with is real: a choice waits `CHOICE_WAIT_MS` (8 s, `driver.ts:80`). The choice and reading calls also have 15 s limits, so only talk keeps the 60 s one.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers it (searched `THINK_TIMEOUT`, "hung", "hangs", "60 second", "its turn", "finding the words").
+- Severity medium is right. In the rounds on disk calls take 1 to 6 seconds, so it is not seen in most rounds. It breaks the "a slow model must not stall the work" rule only when the card is busy or the model is loading. Effort medium is right: `brain.ts`, `types.ts` and the fixture.
+- Fix: sound, with one change made above. The deadline has to be checked before `drive`, not after it: `drive` returns null while `mustSay` is set, so a deadline checked after it frees the body only on the next pass. Whoever builds `sayPlainly` should use it for the re-say in BRAIN-04 as well, so that one function holds the "line said" hooks.

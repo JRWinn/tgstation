@@ -83,3 +83,18 @@ What must keep working: a body that picks something up must have its new tools i
 - The simulator plays the server and builds the record itself, so it cannot test this; the record's shape must not change, so the window code needs no change.
 - In a round, compare the Crew Brain window's cards and details before and after for a janitor picking up a mop and a cargo technician at its post: same holdings, same mess rooms, same PDA lists.
 - With PERF-04's counters in, the time in `ui_data` per call should fall by most of its size.
+
+## Check
+
+Confirmed as a real cost, read from the code; nothing was timed. The `ui_data` quotes are what `crew_brain_link.dm:76` to `:205` says today (`security_state` has drifted to `crew_npc_security.dm:1583`, its `view` line to `:1591`).
+
+- `beyond_kinds_here`, `mess_places`, `workable_mess_places` (`crew_npc_cleaning.dm`) and `work_area_messes` (`crew_npc_cargo.dm`) each loop over `remembered_messes`; `beyond_kinds_here` and `workable_mess_places` resolve a weak reference and call `could_shift` per entry.
+- `people_on_pda`, `janitors_on_pda` and `door_keepers` each walk `GLOB.pda_messengers`, and each first calls `pda_messenger()`, which builds `get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD)`. `has_custodial_locator` builds it again.
+- `works_in_cargo` is a regex on `job_title()`, which is `get_idcard(TRUE)`; it is reached from several fields of the record.
+- `security_state` makes its own `view(CREW_NPC_VISION_RANGE, body)` every update; `engineering_state` makes one when a machine is within seven tiles.
+- `action_result` calls `look_around` before it emits (`crew_npc_tools.dm:131`), so a snapshot filled at the end of each look is fresh for every result, as the fix says.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans caches any of this. HOLE-09 point 1 overlaps (it lists some of the same procs) but its fault and fix are the payload and a dirty list; PERF-02 is the update rate this multiplies. Not a duplicate of either.
+
+Severity: medium is kept, on the size it reaches at forty crew, not on anything seen. At eleven crew no lag has been reported, and with PERF-02 fixed (one update per tick at most) the rate this multiplies falls, so a fixer should take PERF-02 first and measure with PERF-04 before moving all fifteen fields. The first rows (the four mess walks and the three PDA walks) are the ones worth moving first.
+
+On the fix: it keeps the rules; it only changes when the server works things out. Two cautions added to the steps: the kept sight list must cover the body's own tile for the dropped-baton check (step 4, mended above), and the snapshot can be up to a second stale for changes that do not go through a tool or a look, such as a player taking something out of the body's hand or giving it one. That is no worse than the rest of what the window knows from the last look, but the record's `holding` and `in_hand` must stay live, as step 2 has them.
