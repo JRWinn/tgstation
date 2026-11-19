@@ -45,6 +45,7 @@
 //   bun run sim.ts quiet loose       the Captain words the warrant loosely: code cannot read it, the LLM does, and it is read back in the fixed words. With a dead LLM the Captain is told it was not followed, and says it again plainly
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
 //   bun run sim.ts quiet tryagain    the officer starts the shift hurt and says it can make no arrests; a warrant is declared, then the Captain says "Try again": the officer is given it and makes the arrest (SECT-11)
+//   bun run sim.ts quiet hallfail    no word of where the monkey is, and the officer cannot walk to the first main hallway: it goes on to the next one at once, finds it there and brings it in (ARR-11)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -165,6 +166,8 @@ const rooms: Record<string, Room> = {
   "Head of Security's Office": { kind: 'room', messes: [], items: [], boxes: [], sink: false },
   Library: { kind: 'room', messes: [], items: [], boxes: [], sink: false },
 };
+// ARR-11: a second main hallway, in the scenario where the officer cannot walk to the first.
+if (process.argv[3] === 'hallfail') rooms['Fore Primary Hallway'] = { kind: 'hallway', messes: [], items: [], boxes: [], sink: false };
 const QM_OFFICE = "Quartermaster's Office";
 // Where there is paper to be had: a bin of it, with a pen.
 let paperIn: string | null = process.argv[3] === 'qmpaper' ? null : 'Delivery Office';
@@ -300,9 +303,11 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
+// ARR-11: each time the officer's walk to the hallway it could not get to came to nothing.
+const hallFails: number[] = [];
 const SEC_OFFICE = 'Security Office';
 const HOS_OFFICE = "Head of Security's Office";
 const BRIG = 'Brig';
@@ -578,6 +583,8 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!(args.place in rooms)) return result(body, 'go_to', false, 'You do not know of anywhere aboard by that name.');
       if (args.place === body.room) return result(body, 'go_to', true, `You are already in ${args.place}.`, { place: args.place });
       if (pushedOut(body) && args.place === 'Bar' && meetingOn()) walksToMeeting++;
+      // ARR-11: the way from the security rooms to the Central Primary Hallway is shut to the officer, as fire doors would shut it.
+      if (VARIANT === 'hallfail' && body.job === 'Security Officer' && args.place === 'Central Primary Hallway') return busy(body, 3, `walking to ${args.place}`, true, () => { body.blocked.set(args.place, clock); hallFails.push(clock); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
       // Only cargo staff can open the doors of the bay and the delivery office. Anyone else behind
       // one that is not standing open finds no way through. A walk to a room that is locked to it
       // as well says nothing about getting out, and does not count towards being shut in.
@@ -1292,7 +1299,7 @@ function spawnSecurity() {
   if (VARIANT === 'arresthead' || VARIANT === 'pardon' || VARIANT === 'recell') staff.push(spawn('Hop Kins', 'Head of Personnel'));
   if (VARIANT !== 'arresthead' && VARIANT !== 'pardon') {
     // In the long scenario the monkey keeps out of everyone's way until the list has been read out, and then goes round where people are. In the rest it sits in the Bar.
-    punPun = { name: 'Pun Pun', job: '', room: VARIANT === 'warrant' ? 'Library' : 'Bar', route: VARIANT === 'warrant' ? ['Bar', HOP_OFFICE] : [], from: 300, every: 70, movedAt: 0, cuffed: false, cell: null, busy: false, bites: VARIANT === 'fight' ? 1 : VARIANT === 'hurt' ? 2 : 0, hard: VARIANT === 'hurt' ? 30 : 10, slips: VARIANT === 'hurt' ? 1 : 0 };
+    punPun = { name: 'Pun Pun', job: '', room: VARIANT === 'warrant' ? 'Library' : VARIANT === 'hallfail' ? 'Fore Primary Hallway' : 'Bar', route: VARIANT === 'warrant' ? ['Bar', HOP_OFFICE] : [], from: 300, every: 70, movedAt: 0, cuffed: false, cell: null, busy: false, bites: VARIANT === 'fight' ? 1 : VARIANT === 'hurt' ? 2 : 0, hard: VARIANT === 'hurt' ? 30 : 10, slips: VARIANT === 'hurt' ? 1 : 0 };
     players.push(punPun);
   }
   return staff;
@@ -1314,7 +1321,7 @@ function securityTick(second: number) {
   if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
   // Told it was not followed, the Captain says it again in the words it was given.
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
-  if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
+  if (second === SIGHTING_AT && VARIANT !== 'warrant' && VARIANT !== 'hallfail') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
   // SECT-11: the warrant was declared while the officer was out hurt, and the Head of Security took it into its own hands. Then the Captain says to try again.
   if (second === TRY_AGAIN_AT && VARIANT === 'tryagain') { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
@@ -2045,6 +2052,17 @@ if (SECURITY && VARIANT !== 'recell') {
     check('and the baton comes out at once', next?.how === 'force', listed(arrests));
     check('it gets five minutes more for it', jailings[0]?.minutes === 10, `${jailings[0]?.minutes} minutes`);
     check('the officer is not hurt enough to break off', saidBy(hale.name, /I am hurt/).length + sentTo(hale, joan!.name, /I am hurt/).length === 0);
+  }
+  if (VARIANT === 'hallfail') {
+    const walks = hale.log.filter((line) => / go_to /.test(line)).map((line) => `${line.slice(0, 8)} ${line.match(/"place":"([^"]*)"/)?.[1]}`);
+    check('with no word of where the monkey is, the officer sets off for the first main hallway, and cannot get there', hallFails.length >= 1 && /Central Primary Hallway$/.test(walks[0] ?? ''), walks.join(', ') || 'it never walked');
+    const failAt = hallFails[0] ?? 0;
+    const next = hale.log.find((line) => / go_to /.test(line) && line.slice(0, 8) > new Date(failAt).toISOString().slice(11, 19));
+    // The simulated clock starts on the first day, so a log line's time of day is its clock time.
+    const nextAt = next ? next.slice(0, 8).split(':').reduce((total, part) => total * 60 + Number(part), 0) * 1000 - failAt : Infinity;
+    check('it sets off for the next main hallway within seconds', !!next && /"place":"Fore Primary Hallway"/.test(next) && nextAt <= 15_000, next ? `${nextAt / 1000}s after: ${next.trim()}` : 'it walked nowhere after');
+    check('it does not try the hallway it could not get to over and over', hallFails.length <= 2, `${hallFails.length} time(s)`);
+    check('the search goes on: it finds the monkey there and brings it in', jailings.length === 1 && jailings[0].who === hale.name, listed(secWork));
   }
   if (VARIANT === 'tryagain') {
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
