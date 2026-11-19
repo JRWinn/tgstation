@@ -46,7 +46,7 @@ import {
   withoutHandles,
 } from './prompt';
 import { describeFeeling, shiftFeeling } from './relationships';
-import { buildTalk } from './talk';
+import { buildTalk, type Speaker } from './talk';
 import {
   afterSaying,
   describeTask,
@@ -139,6 +139,13 @@ const READING_TIMEOUT_MS = 15000;
 type Act = (action: string, payload?: object) => void;
 
 const brains = new Map<string, NpcBrain>();
+/**
+ * Who each of an NPC's pending speakers was, as its body saw them when the line was heard. Its
+ * turn with the LLM may come seconds later, by when the Captain who gave the order has walked on
+ * out of sight; who spoke, and whether the NPC answers to them, is not to be lost with the view.
+ * Cleared with pendingSpeakers in "think".
+ */
+const heardFrom = new WeakMap<NpcBrain, Map<string, Speaker>>();
 /** Ids of NPCs waiting for the LLM. One GPU serves one request at a time, so they take turns. */
 const queue: string[] = [];
 /** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
@@ -1034,6 +1041,17 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
     return false;
   }
   brain.pendingSpeakers.add(speaker);
+  // Who they are is kept now, from the view this line came with, in case they walk out of it
+  // before the NPC's turn comes.
+  const seen = brain.peopleInView.find((person) => person.handle === speaker);
+  if (seen) {
+    let known = heardFrom.get(brain);
+    if (!known) {
+      known = new Map();
+      heardFrom.set(brain, known);
+    }
+    known.set(speaker, { name: seen.name, superior: !!seen.superior });
+  }
   // What they say next, with no name in it, is still for this NPC.
   brain.inTalkWith = {
     name: String(event.details.speaker ?? ''),
@@ -1305,7 +1323,14 @@ async function think(brain: NpcBrain): Promise<void> {
   const remark = brain.remarkDue && speakers.length === 0 && mustSay === null;
   brain.remarkDue = false;
   // What it is sent depends on what kind of moment this is: see talk.ts.
-  const call = buildTalk(brain, { report, speakers, mustSay, remark, exact });
+  const call = buildTalk(brain, {
+    report,
+    speakers,
+    mustSay,
+    remark,
+    exact,
+    heardFrom: heardFrom.get(brain),
+  });
   const { messages, trigger, superior, toldBy, ordered } = call;
   const { feelAbout, workTold: told } = call.parts;
   // What it heard and is now being told of becomes part of the talk so far.
@@ -1313,6 +1338,7 @@ async function think(brain: NpcBrain): Promise<void> {
     said.reported = true;
   }
   brain.pendingSpeakers.clear();
+  heardFrom.delete(brain);
   brain.wake = false;
   brain.mustSay = null;
   brain.mustSayNeeds = null;

@@ -54,6 +54,18 @@ export type Moment = {
    * remark of its own to follow it: see Plan.exact.
    */
   exact?: boolean;
+  /**
+   * Who each speaker was, by handle, as the body saw them when they spoke. They may have walked
+   * out of view since, and what they said is still theirs.
+   */
+  heardFrom?: Map<string, Speaker>;
+};
+
+/** Someone who spoke to the NPC, as it saw them at the time. */
+export type Speaker = {
+  name: string;
+  /** TRUE if the NPC answers to them: the Captain, or the head of its own department. */
+  superior: boolean;
 };
 
 /** One call, ready to send, and what the code needs to act on the answer. */
@@ -118,15 +130,20 @@ function describeTalk(brain: NpcBrain): string[] {
 export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const { report, speakers, mustSay } = moment;
   const spokenTo = speakers.length > 0;
+  // Who spoke, as they were seen when they said it, and failing that as they are seen now. They
+  // may have walked on out of view in the seconds before this turn came.
+  const heardFrom = speakers.flatMap((handle) => {
+    const then = moment.heardFrom?.get(handle);
+    if (then) {
+      return [then];
+    }
+    const now = brain.peopleInView.find((seen) => seen.handle === handle);
+    return now ? [{ name: now.name, superior: !!now.superior }] : [];
+  });
   // Whoever has just spoken that it answers to, if anyone: the Captain, or the head of its department.
-  const superior =
-    brain.peopleInView.find(
-      (seen) => speakers.includes(seen.handle) && seen.superior,
-    )?.name ?? null;
+  const superior = heardFrom.find((seen) => seen.superior)?.name ?? null;
   // Whoever spoke is who told it of any work, and who will want to hear when it is done.
-  const toldBy =
-    superior ??
-    brain.peopleInView.find((seen) => speakers.includes(seen.handle))?.name;
+  const toldBy = superior ?? heardFrom[0]?.name;
   // An order from someone it answers to is made out by code before the LLM is asked anything.
   // Whether it goes is not for the LLM to decide, and what it says is said knowing it is going.
   const ordered = superior ? workInWords(brain, report, toldBy, true) : null;
@@ -145,10 +162,10 @@ export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const feelAbout = brain.peopleInView
     .map((person) => person.handle)
     .filter((handle) => speakers.includes(handle));
-  // Likewise it is asked whether it has been told of work only when someone has spoken to it,
-  // and not when the order has been made out already.
+  // Likewise it is asked whether it has been told of work only when someone it saw has spoken to
+  // it, whether or not they are still in view, and not when the order has been made out already.
   const told =
-    feelAbout.length > 0 && !ordered ? workTold(brain, !!superior) : null;
+    heardFrom.length > 0 && !ordered ? workTold(brain, !!superior) : null;
 
   // What this moment is, and what is said about it.
   const about: string[] = [];
