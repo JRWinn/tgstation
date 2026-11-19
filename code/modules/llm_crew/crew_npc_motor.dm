@@ -24,6 +24,9 @@
 		return FALSE
 	if(!SPT_PROB(step_walk_chance, seconds_per_tick) || !can_move(living_pawn))
 		return FALSE
+	// With no gravity nobody shuffles about: a step is a push off, and a drift (MAP-07).
+	if(!living_pawn.has_gravity())
+		return FALSE
 
 	// Cardinals only: a diagonal step can bump a door beside the destination and open it.
 	var/move_dir = pick(GLOB.cardinals)
@@ -55,6 +58,18 @@
 	var/pressure = air.return_pressure()
 	return pressure >= WARNING_LOW_PRESSURE && pressure <= WARNING_HIGH_PRESSURE
 
+/**
+ * TRUE if the body has no gravity and nothing it could push off from, so that a player in its place
+ * could not take a step (client/Move's Process_Spacemove). Pushes nothing off, as the step test must
+ * not: the side-free part of /mob/Process_Spacemove. Buckled, pulled, flying or in magboots is no float.
+ */
+/proc/crew_npc_floating(mob/living/body)
+	if(!isturf(body.loc) || body.has_gravity() || body.buckled || body.pulledby || body.throwing)
+		return FALSE
+	if(HAS_TRAIT(body, TRAIT_SPACEWALK) || HAS_TRAIT(body, TRAIT_FREE_FLOAT_MOVEMENT) || (body.movement_type & FLYING))
+		return FALSE
+	return isnull(body.get_spacemove_backup())
+
 /// Pathfinding for crew NPCs. Crew walk across the whole station, far beyond the reach AI mobs normally need.
 /datum/ai_movement/navmap_astar/crew_npc
 	maximum_length = CREW_NPC_MAX_PATH_LENGTH
@@ -69,6 +84,15 @@
 	if(loop)
 		RegisterSignal(loop, COMSIG_MOVELOOP_NAVMAP_FINISHED_PATHING, PROC_REF(route_planned), override = TRUE)
 	return loop
+
+/// A step with no gravity and nothing to push off from is one a player could not take (MAP-07).
+/datum/ai_movement/navmap_astar/crew_npc/allowed_to_move(datum/move_loop/source)
+	. = ..()
+	if(!.)
+		return
+	var/mob/living/walker = source.moving
+	if(isliving(walker) && crew_npc_floating(walker))
+		return FALSE
 
 /// Notes on the body's controller how many steps the route just planned for it runs to. None at all means no way was found.
 /datum/ai_movement/navmap_astar/crew_npc/proc/route_planned(datum/move_loop/has_target/navmap_astar/source, list/path)
@@ -152,7 +176,9 @@
 		// The move loop gives up on steps the body is not let take, as well as on a way that is shut.
 		// A body held, strapped in or shut in something knows that is what stopped it (CORE-11).
 		var/mob/living/walker = controller.pawn
-		if(!isturf(walker.loc))
+		if(crew_npc_floating(walker))
+			fail_reason = "you are floating, with nothing to push off from"
+		else if(!isturf(walker.loc))
 			fail_reason = "you are shut inside \the [walker.loc]"
 		else if(walker.buckled?.anchored)
 			fail_reason = "you are strapped into \the [walker.buckled]"
