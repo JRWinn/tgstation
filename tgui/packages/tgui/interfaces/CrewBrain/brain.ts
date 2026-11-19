@@ -663,10 +663,12 @@ export function ingest(npcs: Npc[], now: number): void {
             Date.now() + FIRE_CLOSED_MS;
         }
       }
-      // An alarm that is not its to reset, or that it cannot get to: that room is left alone a while.
+      // An alarm that is not its to reset, that it cannot get to, or that would not reset when it
+      // tried (no power, broken: DOOR-11): that room is left alone a while.
       for (const closed of [
         event.details.real_alarm,
         event.details.alarm_out_of_reach,
+        event.details.alarm_dead,
       ]) {
         if (typeof closed === 'string') {
           brain.fireClosed[closed] = Date.now() + FIRE_CLOSED_MS;
