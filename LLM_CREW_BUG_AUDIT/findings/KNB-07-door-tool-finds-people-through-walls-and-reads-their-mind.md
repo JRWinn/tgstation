@@ -1,0 +1,89 @@
+---
+id: KNB-07
+title: The door tool finds the person it is opening for through a shut door, by name or by job, and reads which door they want straight from their controller
+kind: bug
+severity: medium
+effort: large
+confidence: sure
+status: found
+area: doors
+files: code/modules/llm_crew/crew_npc_doors.dm:433, code/modules/llm_crew/crew_npc_doors.dm:546, code/modules/llm_crew/crew_npc_doors.dm:561, code/modules/llm_crew/crew_npc_doors.dm:570
+fix: Open the door that was named by the knock, the PDA message or the speech, and learn who is there by seeing them once it is open
+---
+
+## What is wrong
+
+The rule is "Senses only. A crew member knows what its own body could see, hear or be sent. No hidden channel between them." The door tool breaks it in four places, all on the server, where a technician's body is given facts no technician standing in the bay could have:
+
+1. `room_door_for` reads `their_controller.wanted_door` off the other NPC's controller: the door that body last decided to stand at. That is one NPC reading another's intention.
+2. `person_at_room` finds whoever goes by a given name within reach of any door of the room, or anywhere inside the room, with no check that the technician can see them. It is used exactly when the technician has "never set eyes on" them.
+3. `shut_in_at_door` finds anyone standing inside at a door who "cannot open that door for themselves", by testing that person's ID against the door.
+4. `janitor_at_door` finds a janitor standing outside at any door of the room, by reading the job on their ID, through the shut door.
+
+Listed as known and left:
+
+- 2026-11-18 09:40, "the mail chute again": "The door tool finds a person it cannot see by name, and reads which door another crew body wants straight from that body. Both are knowledge a technician would not have. Not changed."
+- 2026-11-18 12:00, under "Not built": "A knock is still answered by name. The plan had the technician go to the door and open it to see who is there. The door tool is built round a named person from end to end (`tool_open_door`, `hold_door_for`) ... Rewriting it blind seemed worse than leaving it."
+
+Since those entries two more of the four were added (3 and 4, in the 15:00 entry), so it has grown, not shrunk. And since the 13:30 entry the honest facts are all there to be used: a knock carries the door's name and which side it came from (`knock_door`, `knock_from_inside` in `tool_knock`), a PDA message names the door ("I am at the Deliveries door of the Cargo Bay ..."), and speech within two tiles of a door carries that door (`near_door` in `on_pre_hear`). The tool still does not trust them alone.
+
+Concrete case: a player Captain (no controller, so case 1 does not apply) stands in the maintenance tunnel and knocks on nothing, saying nothing. A janitor NPC is waiting at the lobby door. A technician asked to open "the door" for the janitor by a message with no door named: `room_door_for` reads the janitor's `wanted_door` and opens the right one. Swap the janitor for a human player waiting at the same door and the tool falls to the scoring loop and may open another door. The crew are served better than a player is, because the code can read their minds.
+
+Second case, the wrong person: two janitors stand at two doors of the Cargo Bay. One knocks at the tunnel door. The brain passes a name it guessed. `person_at_room` fails, `shut_in_at_door` finds nobody inside, and `janitor_at_door` returns the first janitor found at *any* door of the room, which may be the one at the lobby door. The door opened is then the lobby's.
+
+## Where
+
+`code/modules/llm_crew/crew_npc_doors.dm:433`, in `room_door_for`:
+
+    	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
+    	if(istype(their_controller) && (isnull(room_name) || their_controller.wanted_door_place == room_name))
+    		var/obj/machinery/door/airlock/wanted = their_controller.wanted_door?.resolve()
+    		if(!QDELETED(wanted) && doors[wanted] && wanted.allowed(pawn) && get_dist(person, wanted) <= CREW_NPC_AT_DOOR)
+    			return wanted
+
+`:546`, `person_at_room`:
+
+    	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
+    		for(var/mob/living/carbon/human/person in range(CREW_NPC_AT_DOOR, door))
+    			if(person != body && LOWER_TEXT(person.name) == wanted)
+    				return person
+    	for(var/mob/living/carbon/human/person in room)
+    		if(person != body && LOWER_TEXT(person.name) == wanted)
+    			return person
+
+`:570`, `janitor_at_door`:
+
+    			if(person != body && get_area(person) != room && findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor"))
+    				return person
+
+and in `tool_open_door`, the check that would have stopped it is waived for exactly these people:
+
+    	if(!recently_saw(person) && !inside && !at_the_door)
+
+The same file has one more of the kind, in `hold_door_for`: `their_controller.door_opened_for(body, room_name, spot, door)` tells the visitor, and "anyone else who is shut in" the room, that the door is open, whether or not they can see it. That one is close to honest (a door opening in front of you is seen) but it goes to bodies anywhere in the room.
+
+## How it was found
+
+Read from the code. The 09:40 and 12:00 entries say it in a sentence each. Not seen to go wrong in a round, though the 17:06 round's "The Quartermaster answered one knock five times" and the many "opened X to let Y" lines for the wrong door in the 12:23 and 13:32 rounds are what guessing a person behind a door looks like.
+
+## How to fix it
+
+Turn the tool round: it opens a **door**, and finds out **who** by looking.
+
+1. Give `tool_open_door` the door first. The brain already has it in every case: `knock_door` from a knock, `doorNamed(text)` from a PDA message or speech (`jobs/janitor.ts`), `near_door` from speech. `room_door_for(person, room, room_name, door_label)` already takes the label first: make that the only way when there is a label, and drop the `their_controller.wanted_door` branch.
+2. With no label and the person in sight (`recently_saw(person)`): the nearest door to them that the body's ID opens, as the scoring loop does now. That is what a technician looking through the counter window would do.
+3. With no label and the person not in sight: do not guess. Return "You do not know which door [name] is at." The brain then sends the fixed line the 13:30 entry meant to build and listed as not built ("(9) The call does not name the door to come to"): "Which door are you at?". Or simpler and already half there: every call a technician sends says "Come to the Cargo Lobby", so with nothing else to go by it opens the lobby door.
+4. Whether to let them in is decided **after** the door is open and they are seen, for a knock from outside: the body opens the door, looks (`look_around`), and if the one standing there is not someone it sent for, says the "nobody here sent for you" line and lets the door shut. For a knock from inside, anyone is let out, as now, and no name is needed at all.
+5. Delete `person_at_room`, `shut_in_at_door` and `janitor_at_door` once nothing calls them.
+6. `door_opened_for` goes only to bodies that can see the door (`door in view(CREW_NPC_VISION_RANGE, their body)`).
+7. This is best done in the same sitting as KNB-04 (the door opened by a click), since both rewrite `hold_door_for` and `watch_door`, and `watch_door` needs a person to watch: it becomes "whoever is seen at the door when it opens".
+
+What must keep working: a named door wins over everything (the three-door Cargo Bay), someone let in is noted as inside (`expected.ts`), nobody is let into the bay unless sent for.
+
+Question for the owner: when a technician cannot tell which door a caller is at, should it ask ("Which door are you at?"), or open the lobby door, which is where its calls tell people to come?
+
+## How to test the fix
+
+- Server compile to a side copy.
+- Simulator: its `open_door` takes a person. It has to take a door as well. Then `nested`, `office`, `vouch`, `crew`, `qm`, and one new scenario: two janitors at two doors of one room, one knocks, and the door opened is the one knocked at.
+- A round: every "opened X to let Y into Z" in `game.log` should have X equal to the door Y's last message or knock named.

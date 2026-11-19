@@ -26,7 +26,7 @@ The MetaStation kitchen is such a room. The change log (top entries, "the kitche
         		wants_out = TRUE
         		return
 
-   The window then sends it to stand at "the door out" (`go_to_door` with no room), where it knocks and sends PDA messages to whoever can open a door it does not need, with the open way a few steps off. Concrete case: the security officer in the kitchen after the arrest in round `round-14.03.30` style play. One `go_to` from there that finds no route (a room behind the Service Hallway, say) and it is "shut in the Kitchen".
+   The window then sends it to stand at "the door out" (`go_to_door` with no room), where it knocks and sends PDA messages to whoever can open a door it does not need, with the open way a few steps off. Concrete case: a security officer who has walked into the kitchen to make an arrest, as the change log's top entries describe one doing. One `go_to` from there that finds no route (a room behind the Service Hallway, say) and it is "shut in the Kitchen".
 4. `room_door_for` adds 200 to a door "that only leads into another room that is locked to them", and `tool_go_to_door` adds 200 for a door that opens from one. Both use `locked_out_of`, so a door onto the kitchen is the last one chosen though anyone can stand there.
 
 ## Where

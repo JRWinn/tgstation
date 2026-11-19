@@ -87,6 +87,8 @@ Not seen in a round. In the rounds on disk the model answered in 1 to 6 seconds 
 
 Not in `LLM_CREW_CHANGELOG.md` or the plans (searched `THINK_TIMEOUT`, "60 second", "finding the words", "its turn").
 
+`DRV-05` is the same fault written up from the driver's side by another reviewer. This file adds the measured run and the brain-side steps of the fix. Do the two together.
+
 ## How to fix it
 
 1. Note when a line was asked for. In the `speak` callback in `ingest` (`brain.ts:753`) set `brain.mustSayAt = Date.now()` (new field on `NpcBrain` in `types.ts`, 0 when there is none).
