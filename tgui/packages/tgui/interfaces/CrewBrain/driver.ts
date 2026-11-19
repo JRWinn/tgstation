@@ -75,6 +75,10 @@ const STAYS = new Set([
   'note',
   'word_passed',
 ]);
+/** TRUE if this tool takes the body off where it stands: anything that is not done on the spot. */
+export function isWalk(tool: string): boolean {
+  return !STAYS.has(tool);
+}
 /** How long the driver waits to hear how a step went before it takes it to have come to nothing. */
 const LOST_ACT_MS = 12000;
 /** How long the body waits for the LLM to say which job comes first before the code's own order is taken. */

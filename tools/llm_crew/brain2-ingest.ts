@@ -42,6 +42,32 @@ const fresh = (location: string) => {
   add('DOOR-11: a reset that went through names no other room', Object.keys(brain.fireClosed), ['Bar']);
 }
 
+// ---- CHK-07: a body that walked out of a room on purpose is not still in it
+{
+  const { id, brain } = fresh('Cargo Bay');
+  brain.lastAct = { key: 'go', tool: 'go_to', at: Date.now(), act: { tool: 'go_to', place: "Quartermaster's Office" } };
+  B.ingest([body(id, "Quartermaster's Office") as any], 200);
+  add('CHK-07: sent off on a walk the driver has not heard back from: not still in the bay', brain.leftPlace, null);
+}
+{
+  const { id, brain } = fresh('Cargo Bay');
+  brain.lastAct = { key: 'aside', tool: 'step_aside', at: Date.now(), act: { tool: 'step_aside' } };
+  B.ingest([body(id, 'Cargo Lobby') as any], 200);
+  add('CHK-07: a step aside over the edge of the room: still in it a moment', brain.leftPlace?.place, 'Cargo Bay');
+}
+{
+  const { id, brain } = fresh('Cargo Bay');
+  brain.lastAct = { key: 'clean', tool: 'clean', at: Date.now(), act: { tool: 'clean' } };
+  B.ingest([body(id, 'Cargo Lobby') as any], 200);
+  add('CHK-07: pushed out while cleaning on the spot: still in it a moment', brain.leftPlace?.place, 'Cargo Bay');
+}
+{
+  const { id, brain } = fresh('Cargo Bay');
+  B.ingest([body(id, 'Cargo Bay', [], { walking: 1 }) as any], 150);
+  B.ingest([body(id, 'Cargo Lobby') as any], 200);
+  add('CHK-07: walking at the last update (round one): not still in the bay', brain.leftPlace, null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

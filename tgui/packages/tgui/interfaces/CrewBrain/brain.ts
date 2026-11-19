@@ -28,7 +28,7 @@ import { deskRead } from './jobs/desk';
 import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
-import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
+import { drive, isWalk, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
 import {
   addNote,
@@ -440,8 +440,14 @@ export function ingest(npcs: Npc[], now: number): void {
       brain.outAsks = null;
       brain.cameFrom = brain.location || brain.cameFrom;
       // Where it was a moment ago, and when it left. Someone pushed a tile out of a room has not left it.
-      // A body that walked out on a walk of its own has (brain.walking is still the last update's).
-      if (brain.location && !brain.walking) {
+      // A body that walked out on a walk of its own has (brain.walking is still the last update's),
+      // and so has one sent off by the driver on a step not yet heard back from. A step aside is
+      // the case this is kept for: a body stepping clear of a doorway (CHK-07).
+      const sentOff =
+        !!brain.lastAct &&
+        isWalk(brain.lastAct.act.tool) &&
+        brain.lastAct.act.tool !== 'step_aside';
+      if (brain.location && !brain.walking && !sentOff) {
         brain.leftPlace = { place: brain.location, at: Date.now() };
       }
     }
