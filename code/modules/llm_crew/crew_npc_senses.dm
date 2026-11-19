@@ -192,7 +192,8 @@
 	for(var/mob/living/carbon/human/person in in_sight)
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
 		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person)))
+		// And who has them by the arm, as anyone standing there would see: pulled_by is sent as null when nobody has, never left out.
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)
