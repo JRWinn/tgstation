@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:279, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:566, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineer.ts:177
-fix: Test the integrity floor whenever the reading shows energy in the crystal, shut or not, and clear chief.shut when the engine is heard or read to be lit again
+fix: Clear chief.shut when the engine is heard to be lit or on again, or when the crystal's energy is seen rising after the emitters were reported off, so that the usual integrity watch runs again
 ---
 
 ## What is wrong
@@ -70,13 +71,19 @@ Read from the code. Not seen in a round: no round has had a shut-off.
 
 ## How to fix it
 
-1. In `syncTasks`, run the floor test whenever the crystal has energy in it, shut or not: `if (reading && reading.integrity < INTEGRITY_FLOOR && (!chief.shut || (chief.emittersOff && reading.energy > ENERGY_NOTHING)))`. With the emitters reported off and energy rising, someone has lit it: give the shut order again, and tell the Captain "The engine has been lit again and is losing integrity."
-2. Keep one Captain message per new loss: reset the "told" mark when integrity goes back over the floor.
-3. In `hearEngineer`, on `LIT_WORDS`, if `chief.shut` is true, clear it (the engine is lit, whoever did it) so `engineWords` stops saying it is off, and the normal watch carries on.
-4. In `engineer.ts`, an engineer starting by itself could first ask the Chief Engineer, but that needs a word back and slows the first lighting; the watch in step 1 is the safety net and is enough. Owner's question: should an engineer that was not told anything start by itself at all once the round is past its first minutes? The two-minute rule was written for round start.
+1. Do not test "energy over nothing" while shut, as first proposed here (`chief.emittersOff && reading.energy > ENERGY_NOTHING`). A crystal's energy does not drop to nothing when the emitters stop: it decays a little each tick (`calculate_internal_energy` in `code/modules/power/supermatter/supermatter.dm:713`, the powerloss terms), so for minutes after "the emitters are off" the energy is still well over 1 while integrity is still under 95. That test would set `shut` again and send the Captain "losing integrity" on every sync tick.
+2. Watch for the energy rising instead. Add `energyAt?: number` to `ChiefWork` (`types.ts`), the last energy read while `shut && emittersOff`. In `syncTasks`, while `chief.shut && chief.emittersOff`, if `reading.energy` is higher than `energyAt` by a clear margin (say 50) on two readings running, the engine has been lit again by someone: set `chief.shut = false`, `chief.emittersOff = false`, `chief.litAt = brain.now`, and tell the Captain once, "The engine has been lit again." Then the usual floor test at line 279 runs on the next tick and, if integrity is under 95, gives the shut order and tells the Captain as it does now. Heat in the chamber can also add energy with the emitters off (`SM_POWER_HEAT`); then the order goes out again, the engineer finds every emitter off, and says so. That is harmless.
+3. In `hearEngineer`, on `LIT_WORDS` or `ON_AGAIN_WORDS`, if `chief.shut` is true, clear `shut` and `emittersOff` (the engine is lit, whoever did it) so `engineWords` stops saying it is off and the floor test runs again. This alone covers the second NPC engineer, which says "the engine is lit" when it is done. Step 2 is for a player or the Captain lighting it by hand. With this step, an engineer's word that was owed from before the shut-off must not arrive after it and clear `shut` by mistake: in `engineer.ts`, where `SHUT_WORDS` is taken (`takeWord`, `engineer.ts:457`), drop any owed `lit` or `on` word from `engine.words`.
+4. In `engineer.ts`, an engineer starting by itself could first ask the Chief Engineer, but that needs a word back and slows the first lighting; the watch above is the safety net and is enough. Owner's question: should an engineer that was not told anything start by itself at all once the round is past its first minutes? The two-minute rule (`STANDING_DS`, counted from that brain's own `bornAt`) was written for round start.
 
 ## How to test the fix
 
-- `tools/llm_crew/engine.ts`: Chief Engineer with `shut = true`, `emittersOff = true`, reading energy 500 and integrity 90: a new shut order must be made.
+- `tools/llm_crew/engine.ts`: Chief Engineer with `shut = true`, `emittersOff = true`, readings of energy 500, 400, 300 and integrity 90 (decaying after a shut-off): no new shut order and no new Captain line.
+- Same, with readings of energy 300, 400, 500 and integrity 90: `shut` is cleared and on the next sync a new shut order is made, with one Captain line.
 - Same, with the engineer saying "Ada, the engine is lit.": `shut` false afterwards, `engineWords` says lit.
 - Simulator: after the shut-off scenario, switch the toy emitters on from the sim side and drop integrity: the Chief Engineer must order them off again.
+- Type check.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Every quote matches the code: the floor test at `chiefengineer.ts:279` runs only while `!chief.shut`; `hearEngineer` at `:566` sets `litAt` and leaves `shut` alone, and `ON_AGAIN_WORDS` likewise only sets `litAt`; `engineWords` at `:169` reports `shut` first; and `lightAgain` at `:611` is the only place `chief.shut` is set false (grep). The engineer's start by itself at `engineer.ts:177` needs only `!engine.told && !engine.shut && !engine.shutting` and two minutes from that brain's `bornAt`, and `startLighting` clears its own `shut`; a newly spawned engineer, or one that was never sent the shut order, has `engine.shut` false and lights the engine. So the case holds: once shut, any later loss of integrity is never acted on until someone says "light the engine". Nothing in `LLM_CREW_CHANGELOG.md` (the 11:00 entry of 2026-11-18 built the shut-off) or `LLM_CREW_PLAN_ENGINEERING.md` covers a relight by someone else. The first fix proposed was wrong and was replaced: it would have fired on the energy left in the crystal after every shut-off (read in `supermatter.dm:713` to `:749`; energy decays, it does not drop to zero). Severity medium stands: it needs a shut-off and then a relight outside the Chief Engineer's order, but then the crystal can be lost unwatched. Effort small stands. Not run.
