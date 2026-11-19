@@ -4,9 +4,10 @@ title: A room with an open way in (shutters up, a gap with no door) is still tak
 kind: bug
 severity: medium
 effort: medium
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_guarding.dm:118, code/modules/llm_crew/crew_npc_cargo.dm:153, code/modules/llm_crew/crew_npc_cleaning.dm:347, code/modules/llm_crew/crew_npc_doors.dm:42
 fix: Have locked_out_of answer FALSE for a room that has an open doorless way in, using the test crew_npc_room_is_closed already makes, kept for a minute per room
@@ -16,9 +17,9 @@ fix: Have locked_out_of answer FALSE for a room that has an open doorless way in
 
 `locked_out_of(room)` says a room is locked to the body when the room has airlocks and none of them opens to the body's ID. It never asks whether there is another way in. The project already has that test, and already has the rule: `crew_npc_room_is_closed` says "An open way in from the next room, with no door on it, is open to anyone". `locked_out_of` does not use it. So the two disagree about the same room.
 
-The MetaStation kitchen is such a room. The change log (top entries, "the kitchen, which anyone can walk into by its open shutters") and a comment in `tool_go_to_door` both say so: "A room none of whose doors open to it may be one it can walk into all the same: the kitchen, by its open shutters". That was mended for `tool_go_to_door` and `tool_force_door` only. Everything else that asks `locked_out_of` still gets the wrong answer:
+The change log (top entries, "the kitchen, which anyone can walk into by its open shutters") and a comment in `tool_go_to_door` name the MetaStation kitchen as such a room. **The map does not bear that out** (checked by the reviewer, see Check): every square under the kitchen's shutters holds a reinforced table or the food smartfridge, and every walkable way into the kitchen is an airlock. The MetaStation room that is such a room is the **Cargo Lobby**: three squares at (84,145) to (84,147) stand open, under shutters that start up, onto the Storage Wing, which is open to the Central Primary Hallway; its only airlock is the Cargo Bay door at (78,146), which takes `supply/general`. So for anyone without cargo access, janitors and officers among them, `locked_out_of(Cargo Lobby)` is TRUE. A round log shows it: `data/logs/2026/11/18/round-15.52.18/game.log` line 455, "Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it", and `crew_brain.log` line 1060, a janitor (Delma Basinger) "shut in Cargo Lobby" at 22:20:11 after being walked out of the Cargo Bay. The fix in `tool_go_to_door` and `tool_force_door` does not reach anything else that asks `locked_out_of`:
 
-1. **A janitor never goes to a mess it has seen in such a room.** `mess_places()` passes over any room for which `place_locked_to_body(place)` is TRUE, and that is `locked_out_of`. A janitor's ID (`ACCESS_JANITOR`, `ACCESS_MAINT_TUNNELS`, `ACCESS_MINERAL_STOREROOM`, `ACCESS_SERVICE`) does not open the kitchen's airlocks, so a mess seen through the kitchen counter is "not its to go to", though it could walk straight in.
+1. **A janitor never goes to a mess it has seen in such a room.** `mess_places()` passes over any room for which `place_locked_to_body(place)` is TRUE, and that is `locked_out_of`. A janitor's ID does not open the Cargo Bay door, so a mess it saw in the Cargo Lobby is "not its to go to" unless it is standing in the lobby, though it could walk straight in. (Cargo staff do send for it by PDA, which gets round this.)
 2. **It is never explored.** `pick_somewhere_new` marks any room `locked_out_of` says is locked as unreachable for the rest of the round.
 3. **A body that does walk in is wrongly out of bounds, and then wrongly shut in.** `note_place` sets `out_of_bounds = locked_out_of(...)`, so `follow_trail` starts a trail. With a trail, `note_way_out_failed` needs only one failed walk of any kind to set `shut_in` and `wants_out`:
 
@@ -27,8 +28,8 @@ The MetaStation kitchen is such a room. The change log (top entries, "the kitche
         		wants_out = TRUE
         		return
 
-   The window then sends it to stand at "the door out" (`go_to_door` with no room), where it knocks and sends PDA messages to whoever can open a door it does not need, with the open way a few steps off. Concrete case: a security officer who has walked into the kitchen to make an arrest, as the change log's top entries describe one doing. One `go_to` from there that finds no route (a room behind the Service Hallway, say) and it is "shut in the Kitchen".
-4. `room_door_for` adds 200 to a door "that only leads into another room that is locked to them", and `tool_go_to_door` adds 200 for a door that opens from one. Both use `locked_out_of`, so a door onto the kitchen is the last one chosen though anyone can stand there.
+   The window then sends it to stand at "the door out" (`go_to_door` with no room), where it knocks and sends PDA messages to whoever can open a door it does not need, with the open way a few steps off. Concrete case: a janitor walks from the Storage Wing into the Cargo Lobby to clean. `out_of_bounds` is TRUE and the trail begins. One `go_to` from there that finds no route (a mess in a sealed corner of maintenance, a room behind the Service Hallway) and it is "shut in Cargo Lobby", and goes to stand at the Cargo Bay door to be let "out", with the open side three steps off.
+4. `room_door_for` adds 200 to a door "that only leads into another room that is locked to them", and `tool_go_to_door` adds 200 for a door that opens from one. Both use `locked_out_of`, so a door that opens from the Cargo Lobby is the last one chosen though anyone can stand there.
 
 ## Where
 

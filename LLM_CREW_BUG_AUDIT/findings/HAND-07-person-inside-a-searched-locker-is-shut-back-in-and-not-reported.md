@@ -5,10 +5,11 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
-files: code/modules/llm_crew/crew_npc_storage.dm:111, code/modules/llm_crew/crew_npc_hands.dm:271, code/game/objects/structures/crates_lockers/closets.dm:509, code/game/objects/structures/crates_lockers/closets.dm:524
+files: code/modules/llm_crew/crew_npc_storage.dm:111, code/modules/llm_crew/crew_npc_hands.dm:271, code/game/objects/structures/crates_lockers/closets.dm:507, code/game/objects/structures/crates_lockers/closets.dm:521
 fix: In look_inside and take_from_container note any living mob that came out on opening, leave the container open if one is on its tile, and tell the brain who was inside
 ---
 
@@ -27,6 +28,8 @@ One concrete case. A traitor has beaten a crewmate unconscious and pushed them i
 3. `inside` counts the items only (`for(var/obj/item/thing in spill)`).
 4. `sleep(CREW_NPC_LOOK_TIME)`. Then `container.close(body)`: `can_close` passes (a locker is not `horizontal`), `take_contents` inserts the crewmate and the items.
 5. `report_storage` sends "You look inside the locker in Dormitories: ...". The technician walks on. The crewmate is back in the locker.
+
+(Corrected on check: the brain is not always told nothing. `look_around` runs every second (`CREW_NPC_LOOK_INTERVAL`), so in most searches it ticks during the 0.8 seconds the person is on the floor, and a human not seen in the last 15 seconds gets a `person_in_view` event, "Joe Bloggs comes into view 1 tile away, lying on the floor." Nothing ties that to the locker, it may not come at all, a monkey or other non-human never gets one, and the person is shut back in either way.)
 
 The same happens in `take_from_container` when a janitor fetches soap from a locker someone has hidden in; there the person even stands up and is shut in again, since a locker takes a standing person.
 
@@ -80,3 +83,11 @@ Keeps the rules: the body only leaves a door open and says what it saw.
 
 - Server compile to a side copy.
 - In a round: put a monkey or a second player (unconscious, by an admin) in a locker and send a crew NPC to search the room. The locker must stay open, `game.log` must have the "found ... inside" line, and the brain's storage sense must name them.
+
+## Check
+
+Confirmed. Read `look_inside` (`crew_npc_storage.dm:99`) and `take_from_container` (`crew_npc_hands.dm:268`): the quotes are what the code says today. Read the base closet code: `open` calls `dump_contents`, which `forceMove`s every movable in it to `drop_location()`, people included; `close` passes `can_close` for a locker whatever mob is on the tile (the mob test is only for `horizontal` closets, and then only for a dense one, so a crate takes a person lying down); `take_contents` calls `insert`, and `insertion_allowed` lets in any living mob that is not anchored or buckled, within `max_mob_size` and `mob_storage_capacity`. `storage_to_search` skips only body bags, cardboard boxes, coffins and supply pods, so a locker or crate with someone in it is searched. Nothing in either proc looks for a mob. Nothing in the change log or the plans covers a person in a searched container.
+
+One correction to the write-up: the one-second `look_around` (`crew_npc_senses.dm`) will often report a human who fell out as "comes into view ... lying on the floor", untied to the locker (noted under the case above). The main fault, shutting them back in, stands either way.
+
+Severity medium is right: it needs someone to be inside a container the crew search, which is not most rounds, and a player would notice it. Effort small is right for steps 1, 2, 3 and 5 (one helper and two call sites, plus a list in the sense's details); step 4 is the owner's. The fix keeps the rules: it only leaves a door open and says what was seen. When building it, use the same helper TRC-01 needs, so the "a person is on the tile, do not shut it" test lives in one place.

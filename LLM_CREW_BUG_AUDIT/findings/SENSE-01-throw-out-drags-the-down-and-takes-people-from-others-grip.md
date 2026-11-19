@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_guarding.dm:136, code/modules/llm_crew/crew_npc_guarding.dm:173, code/game/atoms_movable.dm:546, code/modules/mob/living/living.dm:425, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:398
 fix: In why_not_put_out refuse when the person is down, cuffed, or already pulled by someone else, and in syncGuarding do not count unanswered asks of a person who is down
@@ -69,7 +70,8 @@ Read from the code, both sides, and the base `start_pulling`. Not seen in a roun
    - `if(person.pulledby && person.pulledby != pawn) return "[person.pulledby.name] already has hold of [person.name]."`
    - `if(person.handcuffed) return "[person.name] is in cuffs. That is security's business."` (see the question below).
    `take_hold_of` already calls `why_not_put_out` again when the body reaches them, so a change between the tool call and the grab is caught too.
-2. In `syncGuarding` (window), do not let a person who is `down` reach `go` through `waitedOut`: someone who cannot answer has not refused. Leave their record waiting, or drop it, while `seen.down` is true.
+2. In `syncGuarding` (window), do not let a person who is `down` reach `go` through `waitedOut`: someone who cannot answer has not refused. Leave their record waiting, or drop it, while `seen.down` is true. Also skip the asking step in `planGuarding` while they are down, so the body does not say "What are you doing in here?" to someone in crit. `down` and `cuffed` are already in the person type (`types.ts`); no window code reads `.down` today.
+   A refusal from the server (someone else has hold of them) goes through the driver's ordinary failure backoff (`fail` and `inBackoff` in `driver.ts`), so the window tries again only after a while, by which time the other person may have let go. That is enough; no new window state is needed for it.
 3. Optional, a gap for the owner: a body that sees someone down in its post could say so aloud or send for security or medical. That is GAP-13's ground (the harm senses are off), so name it there rather than build it here.
 
 Question for the owner: is a cuffed stranger left alone in a room, walked out, or reported to security? The fix above leaves them alone and says why, which is the safe choice.
@@ -79,3 +81,7 @@ Question for the owner: is a cuffed stranger left alone in a room, walked out, o
 - Add a sim scenario in `tools/llm_crew/` where a stranger in the Cargo Bay is `down: true` from the start: no `throw_out` is ever sent, and the stranger task does not settle `go`.
 - A scenario where the stranger is being pulled by the Captain: the server answers the `throw_out` with "already has hold of", and the window does not retry it every step.
 - Next round, grep `game.log` for `took hold of` and check none is of someone who was lying down; grep `attack.log` for `pulled from` with a crew body as the puller.
+
+## Check
+
+Checked by Opus 5.5. The quotes are as the code is today. `why_not_put_out` (`crew_npc_guarding.dm:136`) checks only `belongs_in_post` and `crew_npc_is_command`; `tool_throw_out` adds only sight and being in the post; `take_hold_of` calls `why_not_put_out` again and then `body.start_pulling(person)` with no look at `person.pulledby`. The base `/mob/living/start_pulling` (`living.dm:391`) has no guard against a person someone else already holds: `can_be_pulled` (`atoms_movable.dm:1760`, `living.dm:1957`) tests only anchoring, throwing, move resist and buckling, and the proc then logs "pulled from" and calls `AM.pulledby.stop_pulling()`. On the window side `syncGuarding` settles `go` on `waitedOut(stranger.askedAt, stranger.asks)` (two asks, 30 seconds) with no look at the person's state, and a grep of `CrewBrain/` finds no reader of `.down`; `.cuffed` is read only in `arrests.ts` and `desk.ts`. `crew_npc_person_down` (`crew_npc_security.dm:150`) is sent in `people_in_view` already. The change log and plans say nothing about strangers who are down or held (searched for `why_not_put_out`, `pulledby`, lying). The fault stands as written. Severity medium (uncommon cases, but a player would notice someone in crit being dragged into the hall); effort small. I added to the fix that the asking step should be skipped too, and that the server's refusal is already backed off by the driver. Not run.
