@@ -263,6 +263,34 @@ function mustFindSupplies(brain: NpcBrain): boolean {
   return lacksTool(brain) && brain.hasLocator && !brain.locatorUsed;
 }
 
+/** How long (deciseconds) a room where the body found no water it could get to is not gone to for water. */
+const NO_WATER_DS = 3000;
+
+/**
+ * The rooms, by name, where each janitor stood with a dry mop and found no water it could get to,
+ * with the time. Kept beside the brain, not in it: it is the janitor's own short note, and dies
+ * with the brain.
+ */
+const noWaterNotes = new WeakMap<NpcBrain, Map<string, number>>();
+
+/** The rooms this janitor lately found no water to hand in. */
+function noWaterHere(brain: NpcBrain): Map<string, number> {
+  let notes = noWaterNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    noWaterNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/** TRUE if the body remembers a sink among the things of this room. */
+function remembersSinkIn(brain: NpcBrain, name: string): boolean {
+  const place = brain.places.get(name);
+  return (
+    !!place && [...place.things.keys()].some((thing) => /sink/i.test(thing))
+  );
+}
+
 /**
  * Works out the next step for a janitor with nothing to clean with. This is the whole of how a
  * janitor equips itself, in the order a person would try things: use what it knows of, look where
@@ -271,11 +299,20 @@ function mustFindSupplies(brain: NpcBrain): boolean {
 function supplyStep(brain: NpcBrain): Plan {
   // A dry mop is a tool once it is wet.
   if (brain.dryMop) {
-    const sinkRoom = [...brain.places.entries()].find(
-      ([name, place]) =>
+    // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
+    // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
+    // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
+    // it from elsewhere, to find again that it could not get to it.
+    const noWater = noWaterHere(brain);
+    if (remembersSinkIn(brain, brain.location)) {
+      noWater.set(brain.location, brain.now);
+    }
+    const sinkRoom = [...brain.places.keys()].find(
+      (name) =>
         name !== brain.location &&
-        [...place.things.keys()].some((thing) => /sink/i.test(thing)),
-    )?.[0];
+        remembersSinkIn(brain, name) &&
+        brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+    );
     return sinkRoom
       ? {
           ready: true,

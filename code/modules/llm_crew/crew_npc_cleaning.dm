@@ -102,10 +102,28 @@
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
 	return bucket && bucket.reagents.total_volume < bucket.reagents.maximum_volume / 2
 
+/// Water the body set off for and could not get to, keyed by REF, with the world.time it gave up on each.
+/datum/ai_controller/crew_npc/var/list/water_failed = list()
+
+/**
+ * TRUE if this sink, mop bucket or tank is water the body could get to: not one it lately set off
+ * for and could not reach, and not one in a room locked to it, other than the room it is in. A
+ * sink seen through the glass of a room it cannot enter is not water to hand: it walked at it
+ * again and again, and passed over one it could reach.
+ */
+/datum/ai_controller/crew_npc/proc/water_reachable(atom/source)
+	var/failed_at = water_failed[REF(source)]
+	if(failed_at && world.time - failed_at < CREW_NPC_BLOCKED_PLACE_TIME)
+		return FALSE
+	if(get_area(source) == get_area(pawn))
+		return TRUE
+	return !place_locked_to_body(get_area_name(source, TRUE))
+
 /**
  * Returns the nearest thing to hand that a mop can be wetted at, or null: the bucket in the body's
  * other hand if there is water in it, then a mop bucket or janitorial cart in sight with water in
- * it, then a sink in sight. Water it has carried with it comes before a walk to a sink.
+ * it, then a sink in sight. Water it has carried with it comes before a walk to a sink. Only water
+ * it could get to counts (water_reachable()).
  */
 /datum/ai_controller/crew_npc/proc/water_to_hand(list/in_sight)
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
@@ -114,29 +132,29 @@
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/mop_bucket/tub in in_sight)
-		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance)
+		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance && water_reachable(tub))
 			nearest_distance = get_dist(pawn, tub)
 			nearest = tub
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest
 
-/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink.
+/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink. Only water it could get to counts (water_reachable()).
 /datum/ai_controller/crew_npc/proc/water_for_bucket(list/in_sight)
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/reagent_dispensers/watertank/tank in in_sight)
-		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance)
+		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance && water_reachable(tank))
 			nearest_distance = get_dist(pawn, tank)
 			nearest = tank
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest

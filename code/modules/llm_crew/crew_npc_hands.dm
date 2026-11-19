@@ -430,6 +430,10 @@
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
+	// Water it could not get to, a sink behind glass most often, is not water to hand for a while.
+	if(crew_controller.errand_tool == CREW_TOOL_CLEAN && !QDELETED(target) && (istype(target, /obj/structure/sink) || istype(target, /obj/structure/mop_bucket) || istype(target, /obj/structure/reagent_dispensers)))
+		crew_controller.water_failed[REF(target)] = world.time
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) could not get to the [target.name] at [AREACOORD(target)] for water.")
 	// A crate being held for collection that nobody can get to is, after a try or two, not one cargo can hand over.
 	if(istype(target, /obj/structure/closet/crate) && (crew_controller.errand_tool == CREW_TOOL_CHECK_HELD || crew_controller.errand_tool == CREW_TOOL_RELEASE || crew_controller.errand_tool == CREW_TOOL_STOW))
 		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)
