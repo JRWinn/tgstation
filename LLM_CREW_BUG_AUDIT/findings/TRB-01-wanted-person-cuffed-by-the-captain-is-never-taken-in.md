@@ -2,14 +2,15 @@
 id: TRB-01
 title: Someone wanted whom the Captain or any player has cuffed is left standing in cuffs, the warrant never served and nobody told
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:740, code/modules/llm_crew/crew_npc_security.dm:876, code/modules/llm_crew/crew_npc_senses.dm:191
-fix: In serveStep leave a cuffed person to someone else only while another security crew member is in sight beside them, otherwise take them by the arm with how quiet, which the server already handles
+fix: Have people_in_view say who is pulling each person, and in serveStep leave a cuffed person to someone else only while another is pulling them, otherwise take them by the arm with how quiet, which the server already handles
 ---
 
 ## What is wrong
@@ -20,16 +21,18 @@ The window cannot tell who put the cuffs on. The guard was written for one case 
 
 The Captain is the human player, and helping with an arrest is the obvious thing for them to do. The concrete case:
 
-1. The Captain declares "Warrant for Pun Pun, for theft." The officer is given it.
-2. The Captain meets Pun Pun first, cuffs the monkey and pulls it to the Security Office, where the officer stands.
-3. The officer's `syncBeat` sees Pun Pun (`target`), the SERVE task becomes an emergency. `serveStep`: `seen.cuffed` is TRUE, `warrant.cuffedByMe` is undefined, so the step is `ready: false`.
-4. The Captain lets go. Pun Pun stands in cuffs in front of the officer for the rest of the round. The warrant stays on the list, the heads keep reading Pun Pun out at their meetings, and `onLead` stays TRUE while the monkey is in sight, so the officer also skips staff meetings and its kit trip.
+1. The Captain declares "Warrant for Dana Reyes, for theft." Dana is a crew NPC. The officer is given the warrant.
+2. The Captain meets Dana first, cuffs her and pulls her to the Security Office, where the officer stands.
+3. The officer's `syncBeat` sees Dana (`target`), the SERVE task becomes an emergency. `serveStep`: `seen.cuffed` is TRUE, `warrant.cuffedByMe` is undefined, so the step is `ready: false`.
+4. The Captain lets go. Dana stands in cuffs in front of the officer for the rest of the round: a crew NPC works cuffs off only once `being_arrested` has put it in custody (`custody_tick`, crew_npc_security.dm:1469), and a player's cuffs never call that (HOLE-11). The warrant stays on the list, the heads keep reading Dana out at their meetings, and `onLead` stays TRUE while she is in sight, so the officer also skips staff meetings and its kit trip.
+
+(Checker's note: with Pun Pun in place of Dana the harm is short. Pun Pun's monkey AI resists when restrained (`escape_captivity` subtree, `pawn_is_restrained`, in `code/datums/ai/basic_mobs/basic_subtrees/escape_captivity.bt.json`), handcuffs take a minute to break out of, and once out of them the officer arrests the monkey the usual way. A human player wanted and cuffed by someone else also resists out. The case that lasts for good is a crew NPC cuffed by a player.)
 
 Nothing is sent to anyone: no `cannot` outcome is pushed for this case, so the Head of Security and the Captain are not told why there is no arrest.
 
 The server would have done it. `make_arrest` has a path for exactly this: someone already in cuffs is only taken by the arm.
 
-The same guard also leaves a prisoner in cuffs for good when the officer that cuffed them goes down and the Head of Security takes the warrant into its own hands (its own `BeatWarrant` is new, so `cuffedByMe` is not set), and in the ARR-08 case (see that file).
+The same guard also stops the Head of Security taking a prisoner when the officer that cuffed them goes down and the Head of Security takes the warrant into its own hands (its own `BeatWarrant` is new, so `cuffedByMe` is not set), and in the ARR-08 case (see that file). (Checker's note: in those two cases a crew NPC prisoner is in custody, so after `CREW_NPC_CUFFED_ALONE`, two minutes with nobody's hand on it, it works the cuffs off and is then arrested the usual way. That is a delay of a few minutes, not for good.)
 
 ## Where
 

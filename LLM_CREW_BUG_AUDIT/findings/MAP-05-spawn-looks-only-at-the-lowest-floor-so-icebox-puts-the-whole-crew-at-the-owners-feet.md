@@ -2,11 +2,12 @@
 id: MAP-05
 title: The standing crew is placed only on the lowest station floor, so on IceBox all eleven are piled at the owner's feet and on the other multi-floor maps half are, or land in the wrong department
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: design
 files: code/modules/llm_crew/crew_npc_spawn.dm:100, code/modules/llm_crew/crew_npc_spawn.dm:73, code/modules/llm_crew/crew_npc_spawn.dm:115
 fix: Look for each job's rooms on every station level in crew_npc_spawn_turf, trying the rooms in order across all levels before the broad fallbacks, and never fall back to the owner's turf off the station

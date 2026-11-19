@@ -70,14 +70,26 @@ Read from the code, our side and the base closet code. Not seen in a round. I di
 
 ## How to fix it
 
-1. Add a helper, say `/proc/crew_npc_someone_on(turf/spot)`, that returns TRUE if any `/mob/living` on the tile has `mob_size > MOB_SIZE_TINY` (tiny ones go in as items, which is how the game treats them).
+1. Add a helper, say `/proc/crew_npc_someone_on(turf/spot)`, that returns TRUE if any `/mob/living` on the tile has `mob_size > MOB_SIZE_TINY` (tiny ones go in as items, which is how the game treats them). Count the body itself too: `can_reach_target_now` (`crew_npc_hands.dm`) takes standing on the container's own tile as reaching it, and a body standing in an open locker's tile that shuts it shuts itself in.
 2. In `wants_shutting`, return FALSE when `crew_npc_someone_on(container.loc)`. The crate is then neither counted nor chosen while someone is on it.
 3. In `tidy_step`, check again just before `container.close(body)`: someone may have fallen or stepped there during the walk. If so, return `list(FALSE, "Someone is in the way of the [container_name].")` and note `tidy_skipped[REF(container)]` so it is left a while.
 4. Keep the rest: an open crate with only things on its tile is still shut.
-5. While there, the same check belongs anywhere else our code calls `close()` on a container a person may be on: `take_from_container` and `look_inside` in `crew_npc_storage.dm` shut what they opened. A body that opened a locker a person then stepped into would shut them in the same way.
+5. The same check belongs before every other `close()` our code makes on a container a person may be on: `take_from_container` (`crew_npc_hands.dm:299`) and `look_inside` (`crew_npc_storage.dm:123`) shut what they opened, and `haul_freight` shuts a crate before hauling it to the shuttle for recycling (`crew_npc_freight.dm:458`) and after taking mail out of it (`crew_npc_freight.dm:558`). The recycle one is the worst: a crate shut on someone lying there is then pulled aboard the shuttle and sent off with them in it. Where the close is skipped, the container is left open; for the recycle haul, the haul should fail with "Someone is in the way of the [crate_name]." and the crate be left for a while.
 
 ## How to test the fix
 
 - Compile with the side compile in the README.
-- In a round: open a crate in the Cargo Bay, drop an item on its tile, lie down on it (rest), and wait for a technician to tidy. The crate should stay open and `game.log` should show no "You shut the ... with what had spilled out" line for it. Stand up and step off: the next tidy shuts it.
-- Grep `game.log` for `shut the` near any crew body's name and check the crate's tile had nobody on it.
+- The words "You shut the ..." go only to the brain window (`action_result` emits a sense; nothing writes it to `game.log`). Add a `log_game` line in `tidy_step` when a container is left open because someone is on it ("left the X open: someone is on it"), and grep for that.
+- In a round: open a crate in the Cargo Bay, drop an item on its tile, lie down on it (rest), and wait for a technician to tidy. The crate should stay open, with the new log line. Stand up and step off: the next tidy shuts it. Do the same with a locker in a work area, standing.
+- Mark an open crate for recycling with someone lying on it: the technician should not shut or haul it.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes of `wants_shutting` and `tidy_step` match the code today (the close is at `crew_npc_tidying.dm:212`). `tidy_step` is reached only from `do_errand` (`crew_npc_hands.dm:246`), with no check of its own for anyone on the tile.
+- Base game read: `can_close` (`closets.dm:493`) stops a crate only for an anchored or dense mob; `close` calls `take_contents`, which calls `insert` on every movable on the tile; `insertion_allowed` (`closets.dm:575`) turns away a crate's mob only when it is dense, and a locker's only past `mob_storage_capacity` (3) or `max_mob_size`. `on_lying_down` (`living.dm:742`) adds `TRAIT_UNDENSE`. Crates set `horizontal = TRUE` (`crates.dm:8`) and override neither proc. So the two cases in the write-up both happen.
+- The item on the tile is not even needed from a fall: an opened crate dumps its contents onto its own tile, so an unpacked crate left open already has items there.
+- A player clicking the crate shut would do the same, so this is not a cheat; it is the body acting without looking at who is there.
+- Searched `LLM_CREW_CHANGELOG.md` and the plans for `wants_shutting`, `tidy_step` and people shut in containers: nothing. The "shut in" entries are about rooms and doors.
+- Mended: `take_from_container` is in `crew_npc_hands.dm`, not `crew_npc_storage.dm`; added the two `close()` calls in `crew_npc_freight.dm`, the body shutting itself in a locker, and that the "You shut" words never reach `game.log`. Effort raised to medium, since the full fix touches four files. Confidence raised to sure: nothing between the brain's `tidy` and `close()` looks for a mob. Not seen in a round.
