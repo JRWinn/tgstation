@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:420, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:285, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:731, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:800, tools/llm_crew/sim.ts:1570
-fix: Record leftPlace in ingest only when the body was not walking and the driver has no walk of its own in hand, so stillIn means pushed out and not walked out
+fix: Record leftPlace in ingest only when the body was not walking and brain.lastAct holds no walk the driver sent (any tool outside STAYS but step_aside), so stillIn means pushed out and not walked out
 ---
 
 ## What is wrong
@@ -88,9 +89,10 @@ The cause was then read in `ingest`, `stillIn` and `meetStep`: at 00:17:21 the b
 ## How to fix it
 
 1. In `ingest` (`brain.ts:419`), record `leftPlace` only when the body was **not** on a walk of its own. Two signs, either is enough to skip it:
-   - `brain.walking` as it stood before this update (it is overwritten at line 436, after this block, so at line 419 it still holds the last value). Note that the server leaves the walk back to the post out of this flag (`crew_brain_link.dm:195`, `npc.walk_tool != CREW_TOOL_RETURN`), so this sign alone misses that walk;
-   - a walk the driver sent and has not yet heard the end of. Have `driver.ts` set `brain.walkSent = { to: place, at: Date.now() }` when it sends `go_to`, `walk_to`, `approach`, `go_to_door` or a return to post, and clear it when the `tool_result` for that call comes back. In `ingest`, `if (brain.location && !brain.walking && !brain.walkSent)`.
-2. Add the new field to the blank brain in `ingest` and to `tools/llm_crew/fixtures.ts` (see CHK-01: the fixture brain is built by hand).
+   - `brain.walking` as it stood before this update (it is overwritten at line 436, after this block, so at line 419 it still holds the last value). Note that the server leaves its own walk back to the post out of this flag (`crew_brain_link.dm:195`, `npc.walk_tool != CREW_TOOL_RETURN`), and neither sign below catches that walk, as the server starts it; it is short and seldom crosses a room's edge (see Check);
+   - a walk the driver sent and has not yet heard the end of. This is already kept: `brain.lastAct` is set when the driver sends a step (`driver.ts:825`) and cleared when its result comes back or after `LOST_ACT_MS` (`driver.ts:1035`, `:672`). A walk is any tool not in `STAYS` (`driver.ts:68`). Export `STAYS` (or a small `isWalk(tool)`) from `driver.ts`, which `brain.ts` already imports from, and in `ingest` write `if (brain.location && !brain.walking && !(brain.lastAct && isWalk(brain.lastAct.act.tool) && brain.lastAct.act.tool !== 'step_aside'))`. No new field is needed.
+   - Keep recording `leftPlace` for `step_aside`: a body stepping clear of a doorway at a meeting may cross the room's edge for a moment, and that is the case `stillIn` was built for (commit 0e3ef1d6).
+2. If a new field is added after all, add it to the blank brain in `ingest` and to `tools/llm_crew/fixtures.ts` (see CHK-01: the fixture brain is built by hand).
 3. Leave `NUDGED_OUT_MS` and `stillIn` as they are: what they are for (a body bumped out of the doorway by someone walking past) still works.
 4. Check the LOGA-06 case after the change: a Quartermaster that walks out into the lobby to call a technician must no longer count as in the Cargo Bay. Whether it should call from the lobby at all is LOGA-06's question.
 
@@ -100,3 +102,12 @@ The cause was then read in `ingest`, `stillIn` and `meetStep`: at 00:17:21 the b
 - `quiet doorway` and `quiet headdoor`: these push a body out of the meeting room into the doorway, which is what `stillIn` is for. Both must still pass.
 - `quiet qm`, `quiet engine`, `quiet warrant`, `quiet crew` for the other meetings.
 - In a round: grep `crew_brain.log` for "is not in sight to be called to it" and check that the record's room is the meeting room.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Confirmed.
+
+- The quotes are what the code says today: `ingest` sets `leftPlace` on every change of room (`brain.ts:414` to `:422`), before `brain.walking` is overwritten (`:436`); `stillIn` and `NUDGED_OUT_MS` at `tasks.ts:277` to `:291`; `inPlace` at `head.ts:351`; the `go_to` branch at `head.ts:731`, the PDA branch at `head.ts:798`; `syncMeeting`'s `inRoom` at `head.ts:575`; `meetings.ts:145` and `:172`.
+- `leftPlace` was added in commit 0e3ef1d6 ("nobody gets stuck in a doorway at a staff meeting") for a push out of the room. Nothing in the change log or the plans says a walk out was meant to count, and no later entry touches it.
+- Ran the simulator alone, `dead qmpaper`, with a seeded `Math.random` (mulberry32, my own preload outside the repo, so the seeds do not give the finder's runs). Seeds 2, 4 and 5 all show the fault: at 00:17:21 to 00:17:23 the Quartermaster is "in Quartermaster's Office" and is given "You are in the Cargo Bay for your staff meeting, and are going to stand in the middle of it" (the `calledIn` branch after `inPlace`). In my runs that walk to the middle happened to put it right, and all checks passed (seeds 1 to 5). The finder's PDA call is the same cause reaching the next branch, when the walk to the middle is not offered (`wentIn` or `triedMiddle` set). Both are the head treated as in a room it walked out of seconds before.
+- Fix judged: the cause is in `ingest`, and the driver already keeps the walk it sent in `brain.lastAct`, so the finder's new `walkSent` field is not needed. The server leaves its own walk back to the post out of `walking` (`crew_brain_link.dm:195`), and that walk is started by the server, not the driver (`crew_npc_cargo.dm:241`, `crew_npc_doors.dm:793`), so `lastAct` does not cover it either. It matters little: the cargo one only runs when the body is already in its post's area (`crew_npc_cargo.dm:237`), and the one after opening a door is a few tiles. If it is wanted, have the server send `walking` true for it as well and leave the brain's other users of `walking` to be checked. A body bumped out of the doorway while it is itself mid-walk will no longer count as still in; that is rare, and the head then just walks back in. Severity medium is right: the meeting still happens, a little late or by PDA. Effort small.

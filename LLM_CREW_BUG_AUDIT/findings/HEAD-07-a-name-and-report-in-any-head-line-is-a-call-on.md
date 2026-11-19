@@ -67,7 +67,12 @@ Read from the code, not seen in a round. Whether the model names everyone in its
 
 ## How to test the fix
 
-- Add a case to `tools/llm_crew/addressing.ts` or a new small table: "Thanks for coming, Alex, Bea and Carl. Alex, let's hear your report." is a call-on for Alex only.
+- Add a case to `tools/llm_crew/addressing.ts` or a new small table: "Thanks for coming, Alex, Bea and Carl. Alex, your report, please." is a call-on for Alex only; "Hello Bea, we will start once everyone is here, so have your report ready." is no call-on for Bea; "Thanks for coming, Alex, Bea and Carl. Alex, let's hear your report." fails the head's `needs` and is replaced by the plain line.
+- A case for the Captain's copy: a meeting where Bea reports before her turn ends with "3 of 3 there", not "2 of 3 there, 1 reported by PDA".
 - Simulator: make the fake model's call-on name all three staff. Pass if only the one called on reports, and no turn waits the full 45 seconds.
 - Type check from `tgui/`.
 - In a round's `game.log`, look for two reports said within a few seconds of one call-on.
+
+## Check
+
+Read `meetingsOverhear`, `planMeetings`, `spokenReport` and `meetingsAfterSaying` in `jobs/meetings.ts`; `nextTurn`, `listening`, `present`, `hearReport`, `meetingSaid`, `reportToCaptain` and the call-on step in `jobs/head.ts`; and in `brain.ts` how a `needs` pattern lets the model's own words stand (`brain.ts:1409`) and that `afterSaying` gets the plain line (`mustSay`), not the model's. The quotes are what the code says today. Traced: the model's "Thanks for coming, Alex, Bea and Carl. Alex, let's hear your report first." passes `\bAlex\b.*\breport\b`, so it is said; Bea's summons is from that head, `askedAt` is null, the line has "report" and "Bea", so `askedAt` is set and `planMeetings` gives her report word for word; `hearReport` stores it but makes no turn; `meetingSaid` pushes Alex's turn from the plain line; when Alex is heard `nextTurn` returns Bea, the head calls on her, Bea's plan is the silent "You have given ... your report" wait, and `listening` holds for `TURN_WAIT_DS` (450). A model reply from Bea on being named could end the wait only if it has "I need" or a count in it. Searched the change log and plans for `nextTurn`, `CALLED_ON_WORDS` and early reports: nothing fixes or chooses this. Fix steps rewritten: the proposed "within 30 characters" test still fires on the example, and `nextTurn` skipping reported names alone would make `reportToCaptain` count early reporters as reporting by PDA. Whether the model does name everyone in its opening was not tried. Not run; not seen in a round.

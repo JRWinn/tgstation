@@ -3,10 +3,11 @@ id: ASYNC-01
 title: Who is nearest a line put to several is decided before the others have heard it, so two NPCs often both answer
 kind: bug
 severity: medium
-effort: medium
-confidence: likely
-status: found
+effort: large
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:981, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:602, code/modules/llm_crew/crew_brain_link.dm:55, code/controllers/subsystem/tgui.dm:226, code/modules/llm_crew/crew_npc_senses.dm:442
 fix: Decide nearest on the server for the hearers of one line, or have the window hold a group line a second and decide once every hearer's event is in
@@ -26,6 +27,8 @@ Concrete case: the Captain stands in the cargo bay between technician A (5 tiles
 2. The window gets update 1. In `ingest`, for A, `saidTo` gives `group`; `nearestToSpeaker(A)` looks through B's events, finds no matching line, `continue`s, and returns TRUE. A's `shouldWake` returns TRUE: A is queued to answer.
 3. B hears the line; update 2 is sent. For B, `nearestToSpeaker(B)` finds the line in A's events (A's whole history of 30 events is sent each time), A's distance 5 is not less than B's 1, so it returns TRUE. B is woken too.
 4. Both say yes, and both cargo jobs' `agrees` take the order. What the code was written to stop happens.
+
+The same `nearestToSpeaker` result is also passed to `saidTo` (`brain.ts:608`), where it decides rule 4 for a line with no name and no group words: a speaker beside the NPC but turned away, or facing it within 3 tiles (`addressing.ts:122`, `:125`). So the farther NPC told first can also take a plain line as said to it. And `GROUP_WORDS` takes in "someone", "anyone" and "guys", so group lines are common.
 
 The case only goes right when the server happens to tell the nearer NPC first. If the window is slow enough to fold two updates into one render (React may batch them), the second update has both events and the answer is right: so how often it happens depends on timing, which is the fault.
 
@@ -73,7 +76,7 @@ Read from the code: the window side, and the server path from `on_pre_hear` thro
 
 Two ways. I would take the first: it does not depend on timing at all.
 
-1. **Server decides (preferred).** In `on_pre_hear`, the hearers of one `say` are all reached in the same tick. Keep on the brain link a short list per line: key `"[speaker ref]|[message]|[world.time]"`, value the crew NPCs that heard it and their distances. Instead of `emit_sense` straight away for a `person` line, add the hearer to that list and, the first time a key is made, `addtimer` (0) a proc that emits all the hearers' events together, each with `details["nearest_crew"] = TRUE` for the one nearest (ties: lowest `npc_id`). Then one update carries them all. In the window, `nearestToSpeaker` becomes `!!event.details.nearest_crew` when that field is there, and keeps the present search as the fallback. This also mends the cross-owner case in HOLE-10 if the list is kept globally rather than per link.
+1. **Server decides (preferred).** In `on_pre_hear`, the hearers of one `say` are all reached in the same tick. Keep on the brain link a short list per line: key `"[speaker ref]|[message]|[world.time]"`, value the crew NPCs that heard it and their distances. Instead of `emit_sense` straight away for a `person` line, add the hearer to that list and, the first time a key is made, `addtimer` (0) a proc that emits all the hearers' events together, each with `details["nearest_crew"] = TRUE` for the one nearest (ties: lowest `npc_id`). Then one update carries them all. In the window, `nearestToSpeaker` becomes `!!event.details.nearest_crew` when that field is there, and keeps the present search as the fallback. Both calls in `ingest` (the one passed to `saidTo` and the one stored in `nearest_bot`) must use it; better, work it out once into a local and pass that to both. This also mends the cross-owner case in HOLE-10 if the list is kept globally rather than per link.
 2. **Window waits.** Leave a `group` line unanswered for one update (or about 1 second): in `ingest`, put it on the brain as `groupPending = { event, at }` instead of deciding at once, and on each later `ingest` decide it with every NPC's events then in hand. Cheaper to build, but every group line is answered a second later, and it still depends on the second hearer's update coming within the wait.
 
 Either way, keep the rule that of two at the same distance the lower id answers.
@@ -83,3 +86,15 @@ Either way, keep the rule that of two at the same distance the lower id answers.
 - Simulator: `tools/llm_crew/sim.ts` delivers events for all NPCs in one update, so it cannot show this today. Add a mode or a scenario that sends one update per hearer, farther NPC first, for a line with "one of you" in it, and check that only the nearer one is woken (look for one `say` in reply, not two).
 - Type check from `tgui/`.
 - Next round: two technicians and the Captain in the bay, the Captain says "can one of you..." a few times from different spots. In `crew_brain_log`, count decisions whose trigger quotes that line: there should be one per line. Before the fix about half the lines have two.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes are what the code says today: `nearestToSpeaker` (`brain.ts:981`), its use at `brain.ts:602`, `on_sense_event` (`crew_brain_link.dm:55`), `update_uis` (`code/controllers/subsystem/tgui.dm:226`).
+- Server side traced: `emit_sense` calls `brain_link.on_sense_event` (`crew_npc_senses.dm:98`); `update_uis` runs `/datum/tgui/process` with force through `INVOKE_ASYNC`, which goes to `ui_interact`, `try_update_ui`, `send_update` and `window.send_message` with nothing that sleeps, so `ui_data` is built and sent before the next hearer's `on_pre_hear` runs. One update goes out per hearer.
+- Window side traced: `index.tsx:97` calls `ingest` from a `useEffect` on `data`, once per committed render; `ingest` takes each event once (`event.seq <= brain.lastSeq` is skipped, `brain.ts:566`), so the first NPC's decision is never made again.
+- Ran a throwaway script (bun, outside the repo) that imports `brain.ts` and calls `ingest` with two technicians and a line "Can one of you order me a medical crate?", the farther at 5 tiles, the nearer at 1. Two updates, the farther told first: the farther ended `status thinking`, the nearer `status queued, wake true`: both woken. One update holding both events: the farther stayed `idle`, only the nearer was woken. The script reached the step where the model would be asked and was stopped there; no reply was used.
+- Not checked: whether tgui folds two updates sent in the same server tick into one render. If it does, the fault shows less often; it cannot make it go away, since that depends on timing.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers it.
+- Effort raised to large: the preferred fix changes both the server and the window (FORMAT.md). Added the second use of the same result, in `saidTo`, which the fix must also cover.

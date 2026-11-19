@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:261, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:132, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:489
 fix: In workInWords, for a superior's line, skip a clause that is a question, is negated (no need, don't, do not, never mind), or says the mess is gone (cleaned, gone, fine now, got it), and leave those to the model's work field
@@ -61,15 +62,26 @@ That `buildTalk` then puts the forced-agreement line in the prompt is read from 
 
 1. In `workInWords`, when `fromSuperior` is true, split what the superior said into clauses (on `.`, `?`, `!`, `,`, " but ", " and then ") and test each clause on its own for the mess word and the room, as MEM-04 proposes for the room.
 2. Drop a clause that:
-   - ends with `?` (a question: "is there any blood in the bar?");
-   - has a negation before the mess word: `\b(no need|don'?t|do not|never mind|no more|not)\b`;
-   - says the mess is gone: `\b(cleaned|clean now|gone|fine now|got it|dealt with|sorted|took care|taken care)\b`;
-   - is past and about someone else: `\b(was|were|earlier)\b` with no "still".
-3. If every clause is dropped, return null. The model is then asked freely, with the `work` field, as for anyone else; it can still put the clean on the list if it reads the line as an order.
+   - ends with `?`, or opens as a question even when typed without one: `^(is|are|was|were|did|do|does|have|has|any)\b` ("is there any blood in the bar?", "did you clean up the vomit in the kitchen");
+   - has a negation before the mess word: `\b(no need|don'?t|do not|never mind|no more|don'?t worry|forget)\b`. Not a bare `not`: "the blood is not cleaned up yet" is still an order;
+   - says the mess is gone: `\b(cleaned|clean now|gone|fine now|got it|dealt with|sorted|took care|taken care)\b`, unless the clause also has `\b(not|isn'?t|wasn'?t|hasn'?t|yet|still)\b` ("not cleaned up yet", "still not gone").
+   Do not drop a clause for being in the past tense alone: "there was blood all over the bar, go and clean it" is an order, and splitting it leaves the mess word only in the past clause. "the bar was a mess but its fine now" and "someone got it" are caught by the gone words instead.
+   Look for the room in the whole line, as now, and for the mess word in the clauses that are left: the room and the mess are often in different clauses.
+3. If every clause with a mess word is dropped, return null. The model is then asked freely, with the `work` field, as for anyone else; it can still put the clean on the list if it reads the line as an order.
 4. Keep the plain cases: "blood in the bar", "the bar is a mess", "someone threw up in the bar", "check the Bar, there is blood everywhere" must still make the task. With PARSE-01's wider word list, "clean the bar" must too.
 
 ## How to test the fix
 
-- A table in `tools/llm_crew/` with the nine lines above wanting nothing, and the four plain cases wanting `clean <room>`.
+- A table in `tools/llm_crew/` with the nine lines above wanting nothing, and the four plain cases wanting `clean <room>`, plus "there was blood all over the bar, go and clean it" and "the blood in the bar is not cleaned up yet" wanting `clean Bar`. `janitor('mop')` from `tools/llm_crew/fixtures.ts`, `know(b, ['Kitchen', 'Library', 'Engineering'])`, and `workInWords(b, [says(zim, line)], zim.name, true)` is enough; no model.
 - `bun tools/llm_crew/sim.ts quiet orders` and `quiet captain` must still pass.
 - Next round, grep `crew_brain.log` for `[an order, made out from what was said]` and read the line before each.
+
+## Check
+
+Checked by Opus 5.5. The quotes at `tasks.ts:261` (`workInWords`), `talk.ts:132` (`buildTalk`) and `tasks.ts:489` (`describeOrdered`) are what the code says today; `talk.ts:169` puts `describeOrdered` into the prompt whenever `ordered` and `superior` are set. `MESS_WORDS` (`jobs/janitor.ts:220`) is the janitor's `soundsLike` for `clean` (`janitor.ts:791`). `takeToldWork` (`tasks.ts:185`) checks only that the room is known, and, for the room it stands in, that it already has a task there; nothing reads negation, questions or "it is gone".
+
+Ran it with bun: `janitor('mop')` from `tools/llm_crew/fixtures.ts` (in the Central Primary Hallway), Kitchen, Library and Engineering made known, `workInWords(b, [says(zim, line)], zim.name, true)`. Printed `clean <room> emergency` for "no need to clean the blood in the bar, i did it", "the bar was a mess but its fine now", "dont worry about the mess in the kitchen", "is there any blood in the bar?", "did you clean up the vomit in the kitchen?" and "the dirt in the library is gone thanks", and for the plain "blood in the bar" and "check the Bar, there is blood everywhere". "clean the bar" gave null (that is PARSE-01). The finding is right.
+
+Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this; the comment over `workInWords` accepts a wrong task as one walk, which holds for anyone else but not for a superior, whose order also forces the answer. A head or Captain who is an NPC can say such things too, since its lines come from the model. Medium and small stand. Not a duplicate of MEM-08, which is the look order through `ORDER_SOUNDS`; the same clause filter should serve both.
+
+Mended the fix: the past-tense rule would have dropped "there was blood all over the bar, go and clean it", a bare `not` would have dropped "the blood is not cleaned up yet", and a question typed without "?" was not caught. The room is still looked for in the whole line.
