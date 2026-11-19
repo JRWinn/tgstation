@@ -73,6 +73,57 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('a number that is no crate: told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number.']);
 }
 
+{
+  // CARGO-13, the technician's side: a collecting line said to a workmate lying at the counter.
+  const MARIA = { handle: 'p6', name: 'Maria Williams', job: 'Cargo Technician', place: 'Cargo Lobby', distance: 2 };
+  const said = (down: boolean) => {
+    const b = tech([{ number: 12, for: 'Hop Kins' }]);
+    b.peopleInView.push(down ? { ...MARIA, down: 1 } : MARIA);
+    CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: CAPTAIN.name, message: 'Maria, I am here to collect crate 12 for Hop Kins, please.', said_to: 'other', said_to_name: MARIA.name } });
+    return b.pickupAsked?.number ?? null;
+  };
+  add('asked of Maria, who is standing there: left to her', said(false), null);
+  add('asked of Maria, who is lying there: taken by this one', said(true), 12);
+}
+// CARGO-13: the collector asks a technician who can answer, turns to another after an ask that
+// brought nothing, and after three asks tells its head and puts the errand off.
+{
+  const { planPickups, pickupsAfterSaying } = await import(ROOT + 'jobs/pickups');
+  const SAM = { handle: 'p5', name: 'Sam Tech', job: 'Cargo Technician', place: 'Cargo Lobby', distance: 2 };
+  const MARIA = { handle: 'p6', name: 'Maria Williams', job: 'Cargo Technician', place: 'Cargo Lobby', distance: 2 };
+  const jan: any = makeBrain('Jan Mopp', 'Janitor');
+  jan.location = 'Cargo Lobby';
+  jan.knownPlaces = new Set(['Cargo Lobby', 'Bar']);
+  jan.inPlaceSince = 0;
+  jan.now = 1000;
+  jan.hasPda = true;
+  jan.toTell = [];
+  jan.heldCrates = [];
+  jan.peopleInView = [{ ...SAM, down: 1 }, MARIA];
+  const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+  jan.tasks = [task];
+  const ask = () => {
+    const plan = planPickups(jan, task);
+    if (plan?.say) pickupsAfterSaying(jan, plan.say);
+    return plan?.say ?? null;
+  };
+  add('Sam lying at the counter, Maria standing: Maria is asked', ask(), 'Maria, I am here to collect crate 12 for Hop Kins, please.');
+  jan.peopleInView = [SAM, MARIA];
+  jan.now += 700;
+  add('nothing brought out a minute later: the other technician is asked', ask(), 'Sam, I am here to collect crate 12 for Hop Kins, please.');
+  jan.now += 700;
+  add('and the next time, back to the first', ask(), 'Maria, I am here to collect crate 12 for Hop Kins, please.');
+  jan.now += 700;
+  const fourth = planPickups(jan, task);
+  add('after three asks it asks no more', fourth?.say ?? null, null);
+  add('and its head is sent word by PDA', jan.toTell.map((it: any) => [it.to, it.line, !!it.byPda]), [['Hop Kins', 'Cargo has not brought out crate #12: I asked 3 times at the counter. I will try again later.', true]]);
+  add('and it is put off a while', task.retryAt > jan.now, true);
+  const lone: any = { ...jan, peopleInView: [{ ...SAM, cuffed: 1 }], tasks: [], toTell: [] };
+  const other: any = { ...task, asks: 0, askedAt: undefined, askedOf: undefined };
+  lone.tasks = [other];
+  add('the only technician in cuffs: nobody is asked', planPickups(lone, other)?.say ?? null, null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

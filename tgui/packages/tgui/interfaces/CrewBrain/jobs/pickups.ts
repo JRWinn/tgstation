@@ -26,6 +26,8 @@ const COUNTER_WAIT_DS = 600;
 const TRY_AGAIN_DS = 1200;
 /** How long (deciseconds) it waits for the crate to be brought out after asking, before it asks again. */
 const BROUGHT_OUT_WAIT_DS = 600;
+/** How many times it asks at the counter with nothing brought out before it tells its head and puts the errand off a while (CARGO-13). */
+const ASKS_BEFORE_TELLING = 3;
 
 /** The words by which a head sends someone for a crate, which is how such a message is known. */
 const WAITING_AT_CARGO = 'is waiting at cargo';
@@ -164,7 +166,9 @@ export function syncPickups(brain: NpcBrain): void {
     blockTask(
       task,
       task.retryAt !== undefined && brain.now < task.retryAt
-        ? 'nobody from cargo was at the counter, and you will go back and try again shortly'
+        ? task.notBroughtOut
+          ? 'cargo has not brought it out when you asked, and you will go back and try again later'
+          : 'nobody from cargo was at the counter, and you will go back and try again shortly'
         : null,
     );
   }
@@ -215,10 +219,13 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
         }
       : { ready: false, step: 'You do not know the way to the cargo counter.' };
   }
-  // A technician: the Quartermaster does not work the counter.
-  const technician = brain.peopleInView.find((person) =>
-    isTechnician(person.job),
+  // A technician on its feet and free: the Quartermaster does not work the counter, and one lying
+  // there or in cuffs cannot answer. One not asked last time comes first (CARGO-13).
+  const able = brain.peopleInView.filter(
+    (person) => isTechnician(person.job) && !person.down && !person.cuffed,
   );
+  const technician =
+    able.find((person) => person.name !== task.askedOf) ?? able[0];
   if (!technician) {
     if (brain.now - brain.inPlaceSince > COUNTER_WAIT_DS) {
       task.retryAt = brain.now + TRY_AGAIN_DS;
@@ -242,6 +249,27 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
       ready: false,
       wait: true,
       step: `You have asked cargo for crate #${number}, and are waiting at the counter for it to be brought out.`,
+    };
+  }
+  // Asked three times and nothing brought out: whoever sent it is told, and it is left a while,
+  // so the body is free for its other work (CARGO-13).
+  if ((task.asks ?? 0) >= ASKS_BEFORE_TELLING) {
+    task.asks = 0;
+    task.askedAt = undefined;
+    task.notBroughtOut = true;
+    task.retryAt = brain.now + TRY_AGAIN_DS * 3;
+    if (task.askedBy && brain.hasPda) {
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `Cargo has not brought out crate #${number}: I asked ${ASKS_BEFORE_TELLING} times at the counter. I will try again later.`,
+        why: `You have asked at the cargo counter ${ASKS_BEFORE_TELLING} times for crate #${number} and it has not been brought out. You are sending ${task.askedBy}, who sent you for it, a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+    return {
+      ready: false,
+      step: `Cargo has not brought out crate #${number} after you asked ${ASKS_BEFORE_TELLING} times. You will go back and try again later.`,
     };
   }
   const first = firstName(technician.name);
@@ -319,6 +347,11 @@ export function pickupsAfterSaying(
     return;
   }
   const number = crateNumberIn(called);
+  // The line opens with the first name of the technician it was said to.
+  const first = called.match(/^(\w+),/)?.[1];
+  const asked = brain.peopleInView.find(
+    (person) => isTechnician(person.job) && firstName(person.name) === first,
+  );
   for (const task of brain.tasks) {
     if (
       task.kind === COLLECT &&
@@ -326,6 +359,9 @@ export function pickupsAfterSaying(
       Number(task.item) === number
     ) {
       task.askedAt = brain.now;
+      task.asks = (task.asks ?? 0) + 1;
+      task.askedOf = asked?.name ?? task.askedOf;
+      task.notBroughtOut = false;
     }
   }
 }

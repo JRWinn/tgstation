@@ -2534,10 +2534,20 @@ export const CARGO: Job = {
     const number = crateNumberIn(heard);
     const theirJob =
       brain.peopleInView.find((person) => person.name === speaker)?.job ?? '';
+    // Said to a workmate who cannot answer (lying there, in cuffs, or gone), it is this one's to
+    // answer (CARGO-13).
+    const saidToName = String(event.details.said_to_name ?? '');
+    const toUnableWorkmate =
+      !!saidToName &&
+      saidToName !== brain.name &&
+      [...brain.peopleInView, ...brain.pdaPeople].some(
+        (person) => person.name === saidToName && isTechnician(person.job),
+      ) &&
+      !ableInView(brain, saidToName);
     if (
       speaker &&
       !isCargo(theirJob) &&
-      event.details.said_to !== 'other' &&
+      (event.details.said_to !== 'other' || toUnableWorkmate) &&
       COLLECT_WORDS.test(heard) &&
       (number !== null || /\bcrates?\b/i.test(heard)) &&
       takeOrder(

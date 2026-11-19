@@ -862,6 +862,12 @@ export type Task = {
   unheard?: number;
   /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
   walkedUp?: boolean;
+  /** For a crate to collect: the technician it last asked for it at the counter (CARGO-13). */
+  askedOf?: string;
+  /** For a crate to collect: how many times it has asked at the counter since it last told its head nothing came of it (CARGO-13). */
+  asks?: number;
+  /** For a crate to collect: TRUE while it has put the errand off because cargo did not bring the crate out when asked (CARGO-13). */
+  notBroughtOut?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
