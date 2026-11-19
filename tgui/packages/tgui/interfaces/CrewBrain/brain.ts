@@ -1869,8 +1869,13 @@ async function think(brain: NpcBrain): Promise<void> {
       ordersAfterSaying(brain, mustSay);
       roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
-      // Anyone in view who was waiting to hear that a task was done has now been told.
-      afterSaying(brain);
+      // Anyone in view who was waiting to hear that a task was done, and was told so, now knows.
+      afterSaying(
+        brain,
+        actions
+          .filter((action) => action.tool === 'say')
+          .map((action) => String(action.text ?? '')),
+      );
       // Having spoken up about a mess here, it need not be prompted to again for a while.
       if (brain.thingsInView.some((thing) => thing.kind === 'mess')) {
         brain.toldOfMess.set(brain.location, brain.now);
@@ -1944,7 +1949,7 @@ async function think(brain: NpcBrain): Promise<void> {
       ordersAfterSaying(brain, mustSay);
       roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
-      afterSaying(brain);
+      afterSaying(brain, [mustSay]);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment
     // to answer that has gone, and left in, it would be heard as said again every time after.

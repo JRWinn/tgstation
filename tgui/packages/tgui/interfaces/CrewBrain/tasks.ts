@@ -472,10 +472,41 @@ export function wordOwed(brain: NpcBrain): Task[] {
   );
 }
 
-/** Notes that the NPC has spoken, which tells anyone in view who was waiting to hear a task was done. */
-export function afterSaying(brain: NpcBrain): void {
+/** Words that say a piece of work is done, whoever words it. */
+const DONE_WORDS = /\b(done|finished|clean|cleaned|sorted|taken care)\b/;
+
+/**
+ * Notes what the NPC has just said, which tells whoever was waiting to hear a task was done, if a
+ * line was to them and said it was done. Any other line, or a done line to someone else, leaves
+ * them still to be told.
+ */
+export function afterSaying(brain: NpcBrain, said: string[]): void {
+  const job = jobFor(brain.job);
   for (const task of wordOwed(brain)) {
-    task.reported = true;
+    const asker = task.askedBy ?? '';
+    const first = asker.split(' ')[0];
+    const doneLine = `${first}, ${job.sayDone?.(task) ?? 'that is done'}.`;
+    const own = job.sayDone?.(task)?.toLowerCase();
+    // The model is apt to say "Captain, ..." to the Captain or a head, not their name.
+    const title = brain.peopleInView
+      .find((person) => person.name === asker)
+      ?.job.toLowerCase();
+    const told = said.some((line) => {
+      if (line === doneLine) {
+        return true;
+      }
+      const lower = line.toLowerCase();
+      const words = lower.split(/[^a-z']+/);
+      const toThem =
+        words.includes(first.toLowerCase()) ||
+        (!!title && lower.includes(title));
+      return (
+        toThem && ((!!own && lower.includes(own)) || DONE_WORDS.test(lower))
+      );
+    });
+    if (told) {
+      task.reported = true;
+    }
   }
 }
 
