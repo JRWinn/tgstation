@@ -1,18 +1,23 @@
 ---
 id: GAP-04
-title: Janitors are still given galoshes at spawn, and no body walks across a floor wet from a mop (no-cheats plan 4.5 and 4.1, half built)
+title: Janitors are still given galoshes at spawn, and the plan's way to remove them clashes with the owner's ruling that a mopped floor is not seen (no-cheats plan 4.5 and 4.1)
 kind: gap
 severity: high
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: janitor
 files: code/modules/llm_crew/crew_npc_spawn.dm:15, code/modules/llm_crew/crew_npc_senses.dm:46, LLM_CREW_PLAN_NO_CHEATS.md:142
-fix: Teach knows_slippery to see a wet floor tile, see it work in a round, then delete the shoe swap in create_crew_npc
+fix: Ask the owner whether a janitor may know the tiles it has just mopped, build that in knows_slippery, see it in a round, then delete the shoe swap in create_crew_npc
 ---
 
 ## What is wrong
+
+See also: KNB-06 (this fault and the crate unpacking in one file), GAP-07 (lists this row).
+
+**Correction by the checker:** the second point below is not a fault. That no body knows a floor wet from a mop was the owner's own choice. The 09:40 entry (`LLM_CREW_CHANGELOG.md:914`) says so: "A floor that is only wet from a mop it does not know of, and slips on like anyone, unless its shoes grip. The owner decided this." The owner thought the sheen could not be seen and wanted mopped floor to stay unknown. So the real gap is narrower. The plan (4.5) says the galoshes can go because the janitor "walks across wet tiles (4.1)". But 4.1 was built to the owner's later ruling and does not cover a mopped tile. The precondition the plan gives can never be met as written, and the owner has to choose another one.
 
 `LLM_CREW_PLAN_NO_CHEATS.md` section 4.5: "nothing is swapped at spawn. A janitor starts in the shoes its job gives it. It does not slip on its own wet floor, because it walks across wet tiles (4.1)." The plan's table lists the swap as a cheat, and its section 5 step 8 says to remove it "only after step 2 is seen working in a round". It also breaks the owner's rule "supplies come through cargo, never at spawn".
 
@@ -52,15 +57,30 @@ Read from the code against the plan. The plan's Status line for 4.1 says what wa
 
 ## How to fix it
 
-1. In `knows_slippery(turf/spot)`, before the loop, treat the tile itself as slippery when it is an open turf that is wet and in sight: `var/datum/component/wet_floor/wet = spot.GetComponent(/datum/component/wet_floor)`, and it counts when `wet` exists and its `highest_strength` is water (`TURF_WET_WATER`) or stronger. The shine is visible, so a tile in `oview(1, pawn)` (the test already used there) is honestly known. Keep the galoshes test in `mind_its_step` as it is: a body that finds and wears a pair needs no care.
+**Owner question first.** The checker's reading: what was first proposed here (have `knows_slippery` read the `wet_floor` component of any tile in sight) goes against the owner's ruling in the 09:40 entry, so it must not be built without asking. Put these to the owner:
+
+- (a) **The janitor knows the tiles it mopped itself** (KNB-06 step 6). It did the mopping, so this is within its own senses and does not touch the ruling for anyone else. This is the one I would ask for.
+- (b) **Anyone who sees a wet floor sign walks near it.** The owner named this as the later step when making the ruling. The Janitorial Supplies crate holds three signs (`service.dm:37`), so a janitor could set one out. It is larger work: it needs putting a sign down and taking it up.
+- (c) Read the sheen, as first proposed below. This reverses the ruling.
+
+Then, for (a):
+
+1. In `clean_mess` (and wherever else a mop is used on a floor), after the mop is used on a tile, note `mopped_tiles[REF(tile)] = world.time` on the controller. At the top of `knows_slippery(turf/spot)`, return TRUE if `spot` is in that list and noted within the last minute. Drop stale entries there. A mopped tile stays wet 10 to 60 seconds (`MakeSlippery(TURF_WET_WATER, 10 SECONDS, ...)` at `other_reagents.dm:162`). Do not put the turf into `slippery_seen`. That list is checked only against the movables on a tile, and pruned by a weakref going null, which never happens to a turf. Keep the galoshes test in `mind_its_step` as it is: a body that finds and wears a pair needs no care. Walking does prevent a water slip: `wet_floor.dm:92` sets `NO_SLIP_WHEN_WALKING` for `TURF_WET_WATER`.
+   - Only if the owner chooses (c): `spot.GetComponent(/datum/component/wet_floor)`, counted when the tile is in `oview(1, pawn)`.
 2. Lube and ice slip a walker too. The plan leaves those out (section 7). Do not walk for them: walking does not help. Leave a comment.
-3. Server compile, then a round with a janitor mopping. Count slips: `grep -c "slipped" game.log` for crew bodies (the game logs slips in `attack.log` as well).
+3. Server compile, then a round with a janitor mopping. Count slips. They are logged by `log_combat` (`carbon_movement.dm:5`) as "slipped on the", in `attack.log`, not `game.log`: `grep -n "slipped on the" attack.log`.
 4. Only when that round shows janitors not slipping, delete the five lines in `create_crew_npc`, and `/obj/item/clothing/shoes/galoshes` can stay in the list in `crew_npc_inventory.dm:59`, which is only what a body recognises.
 5. Update the comment above the swap and add the change log entry.
 
-Wearing a pair it finds or is sent is "left for later" in the plan: it needs an action to change shoes. That is its own piece of work and not part of this.
+Wearing a pair it finds or is sent is "left for later" in the plan: it needs an action to change shoes. That is its own piece of work and not part of this. (A pair can be had honestly: the Janitorial Cart and Galoshes crate, `service.dm:48`, which the plan already wants cargo able to order.)
 
 ## How to test the fix
 
 - Server compile to a side copy.
-- The simulator runs no server code, so this needs a round: a janitor mops a hallway tile, a technician or head is sent across it. Look in `game.log` for the body's steps and in `attack.log` for "slipped". Then spawn a janitor after the swap is removed and check its shoes are the job's own.
+- The simulator runs no server code, so this needs a round: a janitor mops a run of hallway tiles and walks back over them. With (a), `attack.log` should show no "slipped on the" for the janitor; other bodies may still slip, which is the owner's ruling. Then spawn a janitor after the swap is removed and check its shoes are the job's own.
+
+## Check
+
+Checked by Opus 5.5. The galoshes block is at `crew_npc_spawn.dm:15-19` as quoted: `qdel` of the outfit's shoes and `new /obj/item/clothing/shoes/galoshes`. That is a cheat and it runs for every janitor. No change log entry removes it. `knows_slippery` (`crew_npc_senses.dm:46-59`) looks only at movables on a tile, so a mopped floor (a `wet_floor` component on the turf) is unknown to every body. Mopping does wet the floor: `mop.dm:71` exposes the turf, and water calls `MakeSlippery(TURF_WET_WATER, ...)`. So removing the swap today would make janitors slip on their own work.
+
+The finding's point 2 and its fix step 1 were wrong to treat the unseen mopped floor as a fault to mend by reading the component. The 09:40 change log entry (`LLM_CREW_CHANGELOG.md:914`) records it as the owner's decision. I left point 2 as written and put the correction above it. I replaced fix step 1 with an owner question and the narrower option, the janitor knowing what it mopped itself. Also fixed: slips are logged in `attack.log` ("slipped on the", `carbon_movement.dm:5`), not `game.log`. The title and fix line now say what is left. Not a duplicate of KNB-06, which holds this fault and the crate one. Severity high (no-cheats, every janitor) and effort medium stand.
