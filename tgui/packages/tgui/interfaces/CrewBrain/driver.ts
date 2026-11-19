@@ -468,18 +468,10 @@ export function nextStep(brain: NpcBrain): Step | null {
   }
 
   // Someone was standing where a crate could not get past them. They are asked to step aside.
-  const blocker =
-    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
-      ? brain.peopleInView.find(
-          (person) => person.handle === brain.inTheWay?.handle,
-        )
-      : undefined;
-  if (blocker && !inBackoff(brain, ASIDE_KEY)) {
-    return {
-      key: ASIDE_KEY,
-      text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. In "say", ask ${blocker.name} politely to step aside.`,
-      say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
-    };
+  // Most often this is asked while the body is still taking the crate up again: see "drive".
+  const askedAside = askAside(brain);
+  if (askedAside) {
+    return askedAside;
   }
 
   // Whoever asked for something is told when it is done, the next time they are in view.
@@ -625,6 +617,29 @@ export function nextStep(brain: NpcBrain): Step | null {
 }
 
 /**
+ * Asking whoever a crate caught on to step aside, if someone did lately and is still in view, and
+ * it has not just asked. Said word for word: the other body moves on hearing the words, and a
+ * line of the LLM's own about something else asks nobody to move.
+ */
+function askAside(brain: NpcBrain): Step | null {
+  const blocker =
+    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
+      ? brain.peopleInView.find(
+          (person) => person.handle === brain.inTheWay?.handle,
+        )
+      : undefined;
+  if (!blocker || inBackoff(brain, ASIDE_KEY)) {
+    return null;
+  }
+  return {
+    key: ASIDE_KEY,
+    text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. You are asking ${blocker.name} to step aside.`,
+    say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
+    exact: true,
+  };
+}
+
+/**
  * An order from someone the NPC answers to that it could be getting on with and is not: the one
  * thing it drops what it is doing for. Null if there is none, or it is already about it.
  */
@@ -722,6 +737,17 @@ export function drive(
       speak(quick.line, quick.needs, undefined, quick.exact);
       noteDone(brain, step);
       return step;
+    }
+  }
+  // Its crate caught on someone, and the body is already going back to take it up again: whoever
+  // it caught on is asked to step aside now, while there is still a haul to get past them.
+  if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
+    const aside = askAside(brain);
+    if (aside?.say) {
+      fail(brain, aside.key);
+      speak(aside.say, undefined, undefined, true);
+      noteDone(brain, aside);
+      return aside;
     }
   }
   // In the middle of something, it carries on, unless someone it answers to has ordered otherwise.
@@ -879,6 +905,11 @@ function noteDone(brain: NpcBrain, step: Step): void {
   }
   if (step.tells) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
+  }
+  // Once asked to step aside, they have been asked. A new lost grip on them notes them again;
+  // left standing, the note would be said again in the next haul, to someone in its way no more.
+  if (step.key === ASIDE_KEY) {
+    brain.inTheWay = null;
   }
   // It steps aside once for one asking, whether or not it found anywhere to step to.
   if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
