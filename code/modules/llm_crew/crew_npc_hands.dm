@@ -100,6 +100,10 @@
 		// A rag is spare to someone who holds a mop: the hand is better used for a bucket of water.
 		if(istype(held, /obj/item/rag) && (locate(/obj/item/mop) in body.held_items))
 			spare ||= held
+		// Two of one kind, two rags say: one does the work, and the other hand is better kept free.
+		for(var/obj/item/other in body.held_items)
+			if(other != held && istype(other, held.type))
+				spare ||= held
 	if(isnull(spare))
 		return FALSE
 	var/spare_name = format_text(spare.name)
