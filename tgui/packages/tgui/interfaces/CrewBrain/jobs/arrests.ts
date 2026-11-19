@@ -1554,7 +1554,6 @@ export function securityFeels(brain: NpcBrain, event: SenseEvent): void {
   }
 }
 
-/** What the LLM should know of the warrants in its hands, so that what it says about them is true. */
 /**
  * A line the model wrote for a security body, screened for a warrant talked about. If it names
  * someone it has a warrant on and does not yet hold (or one of `others`, for whoever keeps the
@@ -1603,6 +1602,7 @@ export function warrantTalk(
     : 'I am on security business.';
 }
 
+/** What the LLM should know of the warrants in its hands, so that what it says about them is true. */
 export function beatCues(brain: NpcBrain): string[] {
   const beat = beatOf(brain);
   const security = brain.security;

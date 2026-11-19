@@ -38,6 +38,7 @@ import {
   planBeat,
   syncBeat,
   takeOutcomes,
+  warrantTalk,
 } from './arrests';
 import {
   describeDesk,
@@ -495,6 +496,8 @@ export const OFFICER: Job = {
       word.toldAt = brain.now;
     }
   },
+  // A warrant is not talked about with people it meets (KNA-32).
+  vetsSay: (brain, text, to) => warrantTalk(brain, text, to),
   afterActing: (brain, act, task, ok, _looped, details) => {
     const beat = beatOf(brain);
     beatAfterActing(brain, act, task, ok, details);

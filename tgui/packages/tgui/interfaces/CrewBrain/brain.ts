@@ -1501,6 +1501,63 @@ function holdDriverAfterDrop(brain: NpcBrain): void {
   );
 }
 
+/**
+ * Some jobs have things they must not say aloud, a warrant to whoever it is on among them
+ * (KNA-32). Each line the model wrote is looked over by the job; code's own line is said as it
+ * stands. A line put aside is replaced by the line its work calls for, if any, else by the job's
+ * plain line. Who a line is said to is whoever in view it calls on by name, else the first of
+ * those it answers (`answering`). Gives back what was put aside, for the window.
+ */
+export function vetLines(
+  brain: NpcBrain,
+  replied: Action[],
+  mustSay: string | null,
+  exact: boolean,
+  answering: string[],
+): string[] {
+  const vetsSay = jobFor(brain.job).vetsSay;
+  const notes: string[] = [];
+  if (!vetsSay) {
+    return notes;
+  }
+  for (const action of replied) {
+    const text = String(action.text ?? '');
+    if (action.tool !== 'say' || text === mustSay) {
+      continue;
+    }
+    // Given back with the fixed line at its head, only the remark after it is the model's.
+    const own =
+      exact &&
+      mustSay !== null &&
+      text.toLowerCase().startsWith(mustSay.toLowerCase())
+        ? text.slice(mustSay.length).trim()
+        : text;
+    // Of those it calls on, the one named first: "Zim, Pun Pun is in the Bar" is to Zim.
+    const lower = text.toLowerCase();
+    const called = brain.peopleInView
+      .filter((person) => callsOn(text, person.name))
+      .map((person) => ({
+        name: person.name,
+        at: lower.indexOf(
+          person.name
+            .split(/[^A-Za-z]+/)
+            .find((part) => part.length > 2)
+            ?.toLowerCase() ?? '',
+        ),
+      }))
+      .sort((a, b) => a.at - b.at);
+    const to = called[0]?.name ?? answering[0] ?? null;
+    const vetted = vetsSay(brain, own, to);
+    if (vetted !== null) {
+      notes.push(
+        `say(${JSON.stringify(text)}) [not to be said aloud: said instead ${JSON.stringify(mustSay ?? vetted)}]`,
+      );
+      action.text = mustSay ?? vetted;
+    }
+  }
+  return notes;
+}
+
 /** Asks the LLM what one NPC does about its pending sense reports, then carries out its tool calls. */
 async function think(brain: NpcBrain): Promise<void> {
   const mySession = session;
@@ -1650,6 +1707,9 @@ async function think(brain: NpcBrain): Promise<void> {
         );
       }
     }
+    decision.calls.push(
+      ...vetLines(brain, replied, mustSay, exact, asked.names),
+    );
     const actions = replied.filter((action) => {
       if (action.tool !== 'say') {
         return true;
