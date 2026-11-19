@@ -395,6 +395,11 @@
 
 /// Sets the body walking to a person or a spot. The walk leaf reports back through walk_finished().
 /datum/ai_controller/crew_npc/proc/start_walk(atom/target, tool, goal, timeout)
+	// A walk under way to somewhere else is ended first, so the walk leaf is set up afresh for the new
+	// one. The base game's route finder only re-plans to the old spot when the target changes under it.
+	// The old walk reports nothing: walk_finished sees the key no longer holds its target.
+	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && blackboard[BB_CREW_NPC_WALK_TARGET] != target)
+		clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	walk_tool = tool
 	walk_goal = goal
 	walk_timeout = timeout

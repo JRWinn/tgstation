@@ -93,10 +93,7 @@
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/atom/target = controller.blackboard[target_key]
-	if(!QDELETED(target) && target != walking_to_ref?.resolve())
-		// Told to walk to someone else mid-walk; the parent retargets, we restart the clock.
-		walking_to_ref = WEAKREF(target)
-		started_at = world.time
+	// A new target always comes with a fresh setup: start_walk ends the old walk first.
 
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	if(world.time - started_at > (crew_controller.walk_timeout || CREW_NPC_WALK_TIMEOUT))
