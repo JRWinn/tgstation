@@ -2,7 +2,7 @@
 id: QM-08
 title: With two orders waiting on the Captain, a plain yes or no is taken as the answer to the first ever asked, not to the question the Captain has just been sent
 kind: bug
-severity: medium
+severity: high
 effort: small
 confidence: sure
 status: found
@@ -22,7 +22,7 @@ Checked with a script (`two.ts` in the system temp folder): a budget of 700, so 
 
 Order 1, which the Captain may never have meant to allow, is placed; order 2, the one said yes to, goes on waiting and is held after its second ask. A "No." the same way refuses the wrong order and tells the wrong head "The Captain has said no".
 
-It is common once the budget is low: every order then counts as big (`order.cost > free / 2`), so several are waiting at once, and an order held after two unanswered asks stays first in the list for the rest of the round, so it takes every later bare yes or no.
+It is common, because the budget is low for much of a round: cargo's account starts the round at nothing (`SSeconomy.Initialize` in `code/controllers/subsystem/economy.dm:76`, "cargo starts with NOTHING"), and while it is low every order counts as big (`order.cost > free / 2`), so several are waiting at once, and an order held after two unanswered asks stays first in the list for the rest of the round, so it takes every later bare yes or no.
 
 ## Where
 
