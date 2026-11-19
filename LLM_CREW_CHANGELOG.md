@@ -16,6 +16,27 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-19, from 08:30: fixes from the bug audit, worst first (branch `crew-bug-fixes`, cut from `crew-bug-audit`; one commit per finding)
+
+Working down `LLM_CREW_BUG_AUDIT/SUMMARY.md` as it stood at the start (items 1 to 44: the critical bug, then the high bugs with small and medium fixes). Each finding fixed is marked `status: fixed` with its commit. What to look for in the next round is in `LLM_CREW_BUG_AUDIT/NEXT_ROUND_CHECKS.md`; questions for the owner in `LLM_CREW_BUG_AUDIT/QUESTIONS_FOR_OWNER.md`.
+
+**Tested:** server compile to a side copy after each server fix (0 errors, 0 warnings); type check and the tables of cases for window fixes. **Not played. No model tests. The normal build was not run.** Every server-side fix below is compile-checked only: none of it has been seen working in the game.
+
+### Fixed
+
+- **ASYNC-06 (critical): the Home key no longer closes the Crew Brain window.** The link catches the close-all-windows key on its owner's mob (following them when they ghost or change body), closes every other window itself and leaves this one (`watch_close_all_key`, `on_close_all_key` in `crew_brain_link.dm`). The window closing for any other reason now leaves a line in `game.log`, since it wipes every brain. A cinematic still closes it (base-game code, not changed).
+- **API-01: a body that never reached a stranger no longer gets them a trespass warrant.** `WOULD_NOT_GO` in `jobs/wanted.ts` now matches only a broken hold or "cannot get a hold of", not "You could not get to it." nor a walk out that took too long. Three new cases in `tools/llm_crew/security.ts`.
+- **CHEAT-07: the Quartermaster writes its order book as a player writes**, through the paper's own `add_text`, with the pen in the hand that writes, and not in the dark, blind or unable to read (`cannot_write_on`, `write_on_paper` in `crew_npc_quartermaster.dm`). In the dark the lines wait, and the window says why. The admin paper log now has its lines.
+- **CHEAT-09: a cleaner grenade is primed by using it in hand** (`execute_mode`, so a clumsy body can fumble it and one already live is not primed twice), and a spent casing no longer counts as a grenade (`held_grenade`, `throw_grenade` in `crew_npc_cleaning.dm`).
+- **CHEAT-16: tidying picks up, sets down, puts in a bin and shuts a crate or locker by clicks**, with the hand chosen (`tidy_step` in `crew_npc_tidying.dm`). A flipped table is no longer taken for a shelf (`crew_npc_free_surface`). About a second slower for each thing.
+- **CORE-01: a walk given while another is under way is walked.** `start_walk` ends the old walk first, so the walk leaf is set up for the new spot; before, the body went on to the old spot and the new walk was failed as "no way through" (`crew_npc_tools.dm`, `crew_npc_motor.dm`).
+
+### Known and not fixed
+
+- CHEAT-07: if a line fails part way through a batch (it should not, as room on the sheet is checked first), the rest of that batch is dropped from the window's list rather than written twice.
+
+---
+
 ## 2026-11-18, 20:53 to 21:05: the officer lost a fight with Pun Pun: it drops what it holds to draw its baton, and says it is hurt before it walks off (the commit that added this entry, on the branch `security-arrest`)
 
 **Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (none new), server compile to a side copy (0 errors, 0 warnings), simulator: the nine security scenarios with a quiet LLM, none failing. In `hurt`, traced, the officer now sends "I could not take Pun Pun. I am hurt." and then gets away, five seconds apart. **Not played. No model tests. The normal build has not been run:** the server was up. Dropping what it holds and the second try at taking its kit out are server code, compile-checked only.

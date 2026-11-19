@@ -5,7 +5,8 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a67cd20c898
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core

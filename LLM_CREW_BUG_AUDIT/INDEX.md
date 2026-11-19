@@ -2,34 +2,27 @@
 
 **This file is built by `build-index.mjs` from the files in `findings/`. Do not edit it by hand: change the finding and build it again.** Read `README.md` in this folder first.
 
-523 findings in all: 403 bugs and 93 gaps still open, 0 fixed, 1 refuted, 26 duplicates.
-Of the open ones, 306 were confirmed by a second reviewer, 0 could not be settled, and 190 have not been checked by anyone but their finder.
+523 findings in all: 397 bugs and 93 gaps still open, 6 fixed, 1 refuted, 26 duplicates.
+Of the open ones, 300 were confirmed by a second reviewer, 0 could not be settled, and 190 have not been checked by anyone but their finder.
 Found by: Fable 5.2 141, Opus 5.5 382. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.
 
 Within each group the easiest fix comes first. "found (sure)" means the finder was sure and nobody has checked it since.
 
 | Severity | Open bugs | Confirmed | Not yet checked |
 | --- | --- | --- | --- |
-| critical | 1 | 1 | 0 |
-| high | 50 | 50 | 0 |
+| critical | 0 | 0 | 0 |
+| high | 45 | 45 | 0 |
 | medium | 243 | 241 | 2 |
 | low | 109 | 7 | 102 |
 
-## Bugs: critical (1)
+## Bugs: critical (0)
+
+None.
+
+## Bugs: high (45)
 
 | Id | What is wrong | Proposed change | Effort | Status | Found by | Where |
 | --- | --- | --- | --- | --- | --- | --- |
-| [ASYNC-06](findings/ASYNC-06-home-key-close-every-ui-wipes-the-crew-brains.md) | The Home key, the game's own close-all-windows key, closes the Crew Brain window and wipes every crew member's memory | Have the brain link catch the close-all key signal on its owner's mob and close every other window itself, leaving the Crew Brain open | small | confirmed | Opus 5.5, checked Opus 5.5 | `client.dm:94` |
-
-## Bugs: high (50)
-
-| Id | What is wrong | Proposed change | Effort | Status | Found by | Where |
-| --- | --- | --- | --- | --- | --- | --- |
-| [API-01](findings/API-01-could-not-reach-read-as-would-not-go.md) | A throw out that could not reach the stranger is read as the stranger refusing to go, and earns them a trespass warrant | Narrow WOULD_NOT_GO in wanted.ts to the put_out line ending they got away from you and the cannot-get-a-hold line, or better send a would_not_go details field from the server and test that | small | confirmed | Opus 5.5, checked Opus 5.5 | `wanted.ts:58` |
-| [CHEAT-07](findings/CHEAT-07-order-book-written-by-code-even-in-the-dark.md) | The Quartermaster writes its order book by putting text straight onto the paper, so it writes in the dark, without the pen in its writing hand, and leaves no paper log | Send each line through the paper's own add_text handler as the body, the way work_timer does for a cell timer, with the pen in the active hand or on the clipboard, and say why when nothing was added | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_quartermaster.dm:174` |
-| [CHEAT-09](findings/CHEAT-09-cleaner-grenade-primed-by-calling-arm-grenade.md) | A janitor primes a cleaner grenade by calling arm_grenade, skipping the use-in-hand checks, and counts a spent casing as a live grenade | Prime it the way a player does, with body.execute_mode() on the grenade in the active hand, throw only if it is then active, and do not count a used casing as a grenade | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_cleaning.dm:686` |
-| [CHEAT-16](findings/CHEAT-16-tidying-picks-up-and-sets-down-by-code.md) | Tidying picks a thing up with put_in_hands and sets it on a table with transferItemToLoc, not by the clicks a player makes | Pick up with click_as_body on the thing with an empty hand, put down with click_as_body on the table or bin with it in the active hand, shut a locker with a click, and skip flipped tables | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_tidying.dm:244` |
-| [CORE-01](findings/CORE-01-new-walk-mid-walk-keeps-going-to-the-old-spot.md) | A walk given while another walk is under way is never walked, the body carries on to the old spot and the new walk is then failed | In start_walk, when a different walk is already running, clear BB_CREW_NPC_WALK_TARGET before setting the new one, so the decorator cancels the old walk leaf and the next tick sets it up afresh with the new target and the right required_dist | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_motor.dm:94` |
 | [ENG-01](findings/ENG-01-emitters-that-will-not-go-off-are-tried-for-ever-and-nobody-is-told.md) | An emitter that will not switch off is tried for ever, and neither the Chief Engineer nor the Captain is told the engine is still firing | Count failed switch_off and switch_on steps per emitter as the lighting steps are counted, after two move on to the next emitter, and at the end tell the Chief Engineer which would not go off and why, who tells the Captain | small | confirmed | Opus 5.5, checked Opus 5.5 | `engineer.ts:596` |
 | [HAND-12](findings/HAND-12-search-opens-a-large-wooden-crate-with-no-crowbar.md) | A search or a fetch opens a large wooden crate with no crowbar, looks inside and shuts it again, which no player can do | Leave crate/large out of storage_to_search and out of take_from_container until a crowbar step is built, the way body bags and cardboard boxes are left out | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_storage.dm:11` |
 | [KNA-29](findings/KNA-29-fire-doors-blamed-on-the-wrong-room-officer-stuck-in-its-office.md) | A fire door shut by the next room's pulled alarm is reported as shut by a real alarm in the body's own room, so nobody resets it and the officer was held in its office for the rest of the round | Let a body stopped by a fire door that borders its own room reset the alarm on its own side, whose reset opens that shared door, instead of calling its room's spill-over alarm a real one - and build it with GAP-05 | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_doors.dm:721` |
@@ -536,16 +529,22 @@ Within each group the easiest fix comes first. "found (sure)" means the finder w
 | [MAP-10](findings/MAP-10-simulator-has-one-station-with-metastation-names.md) | The simulator has one station, with MetaStation's room names written in, so nothing that depends on the map is ever tested and every map fault passes | Make the station in sim.ts a table chosen by name, add a second one with other names (no Cargo Lobby, no room called Brig, hallways not called Primary Hallway), and run the cargo and security scenarios on both | low | medium | found (sure) | Opus 5.5 | `sim.ts:141` |
 | [GAP-25](findings/GAP-25-owner-design-direction-items-with-no-plan-and-no-code.md) | Six parts of the owner's design direction have no plan and no code, needs, how-to cards, a stocked work area, cover before a break, rooms handed out to janitors, and a raise | Put the six to the owner as one list, and write a short plan for whichever the owner wants next, starting with the head handing out rooms to its janitors, which is the cheapest and helps today | low | large | found (sure) | Opus 5.5 | `person.ts:1` |
 
-## Closed: fixed, refuted or duplicate (27)
+## Closed: fixed, refuted or duplicate (33)
 
 | Id | Title | Status | Found by |
 | --- | --- | --- | --- |
+| [API-01](findings/API-01-could-not-reach-read-as-would-not-go.md) | A throw out that could not reach the stranger is read as the stranger refusing to go, and earns them a trespass warrant | fixed | Opus 5.5, checked Opus 5.5 |
 | [API-03](findings/API-03-result-matched-to-step-by-tool-name-only.md) | The driver takes any result with the same tool name as its own step's, so a walk or an order the LLM sent is read as the driver's step having gone | duplicate of ASYNC-02 | Opus 5.5 |
 | [API-04](findings/API-04-pda-person-with-no-job-sent-as-null.md) | A PDA with a name and no job is sent to the window with job null, and a head's brain then throws on every update | refuted | Opus 5.5, checked Opus 5.5 |
 | [ARR-16](findings/ARR-16-looking-for-someone-is-standing-at-the-near-end-of-the-room.md) | Looking for someone in a room or a hallway is standing at its near end for 20 or 10 seconds, so in any big room they are not found and the sighting is spent | duplicate of KNA-23 | Opus 5.5 |
 | [ASYNC-03](findings/ASYNC-03-putting-back-kept-by-task-number-shared-by-all-janitors.md) | Which janitor is putting its mop back is kept by task number alone, and every janitor numbers its tasks from 1 | duplicate of DESK-04 | Opus 5.5 |
+| [ASYNC-06](findings/ASYNC-06-home-key-close-every-ui-wipes-the-crew-brains.md) | The Home key, the game's own close-all-windows key, closes the Crew Brain window and wipes every crew member's memory | fixed | Opus 5.5, checked Opus 5.5 |
 | [CARGO-10](findings/CARGO-10-any-line-with-the-word-door-wipes-a-standing-ask.md) | Anyone saying the word door in a technician's hearing, a workmate included, replaces the ask for a door it was about to answer | duplicate of KNA-01 | Fable 5.2 |
+| [CHEAT-07](findings/CHEAT-07-order-book-written-by-code-even-in-the-dark.md) | The Quartermaster writes its order book by putting text straight onto the paper, so it writes in the dark, without the pen in its writing hand, and leaves no paper log | fixed | Opus 5.5, checked Opus 5.5 |
+| [CHEAT-09](findings/CHEAT-09-cleaner-grenade-primed-by-calling-arm-grenade.md) | A janitor primes a cleaner grenade by calling arm_grenade, skipping the use-in-hand checks, and counts a spent casing as a live grenade | fixed | Opus 5.5, checked Opus 5.5 |
+| [CHEAT-16](findings/CHEAT-16-tidying-picks-up-and-sets-down-by-code.md) | Tidying picks a thing up with put_in_hands and sets it on a table with transferItemToLoc, not by the clicks a player makes | fixed | Opus 5.5, checked Opus 5.5 |
 | [CHK-09](findings/CHK-09-one-planted-throw-stalls-the-whole-simulated-crew.md) | Shown in the simulator - one error thrown in an after-saying hook leaves the LLM turn taken for good, and every crew member stops talking and most of the work stops | duplicate of DRV-06 | Opus 5.5 |
+| [CORE-01](findings/CORE-01-new-walk-mid-walk-keeps-going-to-the-old-spot.md) | A walk given while another walk is under way is never walked, the body carries on to the old spot and the new walk is then failed | fixed | Opus 5.5, checked Opus 5.5 |
 | [DRV-05](findings/DRV-05-line-to-say-waits-on-the-model-with-no-limit.md) | A line the work calls for holds the whole body still until the model has answered or timed out, 60 seconds a call and one NPC at a time | duplicate of BRAIN-02 | Fable 5.2 |
 | [GAP-03](findings/GAP-03-held-door-opened-by-code-with-autoclose-switched-off.md) | A door held for someone is opened by code and its auto-close is switched off (no-cheats plan 4.8, approved, not built) | duplicate of KNB-04 | Fable 5.2, checked Opus 5.5 |
 | [GAP-12](findings/GAP-12-closing-or-reloading-the-window-stops-all-work-and-forgets-everything.md) | Closing or reloading the brain window stops every job and forgets everything, the warrant list included (the brief's fallback, decision 9, covers only a dead model) | duplicate of HOLE-02 | Fable 5.2, checked Opus 5.5 |

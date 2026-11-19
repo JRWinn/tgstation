@@ -5,7 +5,8 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: be51cadcfc9
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: hands
