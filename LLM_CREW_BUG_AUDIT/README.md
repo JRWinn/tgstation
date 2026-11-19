@@ -10,6 +10,19 @@ This folder is a list of bugs and gaps found in the LLM crew NPC work, each with
 
 **State as of the last update of this file: the hunt is running. See "Progress" at the bottom, which is updated as each stage ends.** If "Progress" stops short, the session ran out before it finished: the findings already on disk are still good, and "How to pick this up" below says what to do.
 
+## Start here
+
+`INDEX.md` is the whole list. These are the confirmed faults that matter most, in the order I would take them. **This section was written from the findings as they stood after the second run: build `INDEX.md` again for the current state.**
+
+1. **Every crew member's memory lives only in the brain window, and the window is easy to lose.**
+   - `ASYNC-06` (critical, small): the game's own close-all-windows key (Home) closes the Crew Brain window too, and every crew member forgets everything. Fix this first: it is a few lines.
+   - `DRV-06` (high, medium): one thrown error for any one crew member stops every brain for good. Catch errors per crew member.
+   - `HOLE-02` (critical gap, large): closing the window or the owner dropping off wipes all memory, and nothing says so. Needs a design decision: keep a copy of lasting memory on the server.
+2. **Cheats still in the code** (the owner's rule: a body acts only as a player could). Doors held open by code (`KNB-04`), the supply shuttle moved by code (`GAP-01`), crates unpacked by `forceMove` (`KNB-06`), crew walking through people (`CHEAT-01`), the order book written straight onto paper (`CHEAT-07`), mail bagged by code (`CHEAT-08`), grenades primed by a proc call (`CHEAT-09`), PDAs that send when off or broken (`CHEAT-14`), tidying by code (`CHEAT-16`), and the older list in `KNA-04`. `GAP-07` proposes a check script so new ones are caught.
+3. **Security reads words too loosely, and believes too easily.** "Do not arrest X" declares a warrant (`SECT-01`). Any line from the Captain with "free" or "let go" in it pardons (`SECT-02`). "Arrest Pun Pun in the bar" is a warrant on "Pun Pun in the" (`SECT-03`). Anyone with "captain" on their card is the Captain (`HOLE-01`).
+4. **The security officer's body keeps going when it should stop.** A stunned or dead officer keeps stepping (`SEC-01`). An arrest that is called off keeps running (`SEC-03`). Being walked out of a room is taken for an attack (`ARR-02`, `API-01`).
+5. **The supply chain drops word.** Orders placed at a dead console (`SUP-01`). A failed order is told to nobody (`CARGO-01`). A second ask for a door wipes the first (`KNA-01`). The Quartermaster stops getting word back (`CARGO-02`).
+
 ## What is here
 
 | File | What it is |
