@@ -206,8 +206,12 @@
 	var/washes_off = !!(mess.clean_type & CLEAN_WASH)
 	if(istype(tool, /obj/item/reagent_containers/spray))
 		return washes_off
+	// A mop does not wash: it scrubs the floor, at its cleaner's strength, and takes up whatever on
+	// that floor a mop reaches and that strength shifts (decomposing garbage among them).
 	if(istype(tool, /obj/item/mop))
-		return washes_off && mess.is_mopped
+		var/datum/component/cleaner/cleaner = tool.GetComponent(/datum/component/cleaner)
+		var/strength = cleaner ? cleaner.cleaning_strength : CLEAN_SCRUB
+		return mess.is_mopped && !!(mess.clean_type & strength)
 	return TRUE
 
 /// Returns the thing in the body's hands to use on this mess, or null if nothing it holds will shift it. A proper tool before a rag; a rag where only scrubbing will do.
@@ -257,12 +261,21 @@
  */
 /datum/ai_controller/crew_npc/proc/remember_messes(list/in_sight)
 	var/turf/here = get_turf(pawn)
+	// The tiles in sight, to look each remembered spot up in at once rather than search the whole view.
+	var/list/seen_turfs = list()
+	for(var/turf/seen in in_sight)
+		seen_turfs[seen] = TRUE
+	// Each entry: the mess, its room, its spot, and when it was last seen there.
 	for(var/obj/effect/decal/cleanable/mess in in_sight)
 		var/key = REF(mess)
-		if(remembered_messes[key] || length(remembered_messes) >= CREW_NPC_MESSES_REMEMBERED)
+		var/list/known = remembered_messes[key]
+		if(known)
+			known[4] = world.time
+			continue
+		if(length(remembered_messes) >= CREW_NPC_MESSES_REMEMBERED && !forget_oldest_mess())
 			continue
 		var/turf/spot = get_turf(mess)
-		remembered_messes[key] = list(WEAKREF(mess), get_area_name(spot, TRUE), spot)
+		remembered_messes[key] = list(WEAKREF(mess), get_area_name(spot, TRUE), spot, world.time)
 
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
@@ -271,8 +284,29 @@
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
 		if(!QDELETED(mess) && get_turf(mess) == spot)
 			continue
-		if(spot == here || (spot in in_sight))
+		if(spot == here || seen_turfs[spot])
 			remembered_messes -= key
+
+/**
+ * With its memory of messes full, forgets the one seen longest ago that is not in its own rooms, to
+ * make room for a new one. A mess in its own rooms is never pushed out by one in a tunnel. Returns
+ * FALSE if every one it remembers is in its own rooms.
+ */
+/datum/ai_controller/crew_npc/proc/forget_oldest_mess()
+	var/oldest_key
+	var/oldest_at = INFINITY
+	for(var/key in remembered_messes)
+		var/list/memory = remembered_messes[key]
+		if((memory[2] in work_area) || (memory[2] in look_in_rooms))
+			continue
+		if(memory[4] < oldest_at)
+			oldest_at = memory[4]
+			oldest_key = key
+	if(isnull(oldest_key))
+		return FALSE
+	remembered_messes -= oldest_key
+	stubborn_messes -= oldest_key
+	return TRUE
 
 /// Returns what the body could clean with: a proper tool that works now, or a mop that would once it is wet, or failing both a rag.
 /datum/ai_controller/crew_npc/proc/tool_in_hand()
@@ -564,12 +598,21 @@
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
 	// before it came off was reported as beyond the body, and then, seconds later, as cleaned up.
 	var/last_chance = deadline + CREW_NPC_CLEAN_TIME
+	var/turf/stood = get_turf(body)
 	while(!QDELETED(mess) && (world.time < deadline || (length(body.do_afters) && world.time < last_chance)))
 		sleep(0.5 SECONDS)
 		if(QDELETED(body))
 			return list(FALSE, "You could not get to it.")
+		// Sent to do something else: the scrub was broken off, not beaten.
+		if(errand_serial != serial)
+			return list(FALSE, "You stopped cleaning the [mess_name].")
 	if(QDELETED(mess))
 		return list(TRUE, "You clean up the [mess_name].")
+	// A scrub cut short, by being moved, knocked down or stunned, or the tool leaving its hand, says
+	// nothing about the mess. Only one that ran its course with the body there and fit writes it off.
+	var/cut_short = get_turf(body) != stood || body.body_position == LYING_DOWN || !body.is_holding(tool)
+	if(cut_short || INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS|INCAPABLE_GRAB))
+		return list(FALSE, "You could not finish cleaning the [mess_name].")
 	// Some messes do not yield to scrubbing at all. Remember this one so the body stops trying it.
 	stubborn_messes[REF(mess)] = TRUE
 	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
@@ -581,6 +624,7 @@
 	var/place = get_area_name(mess, TRUE)
 	var/kind_here = "[place]|[mess.type]"
 	stubborn_kinds[kind_here]++
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote off the [mess_name] ([mess.type]) in [place] as beyond the [format_text(tool.name)] ([stubborn_kinds[kind_here]] of that kind there).")
 	if(stubborn_kinds[kind_here] >= 2)
 		for(var/key in remembered_messes)
 			var/list/memory = remembered_messes[key]
