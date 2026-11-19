@@ -1101,9 +1101,24 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === SERVE) {
     const warrant = beat.warrants.find((it) => it.name === task.item);
-    return warrant
-      ? serveStep(brain, warrant)
-      : { ready: false, step: 'That warrant is no longer yours to serve.' };
+    if (!warrant) {
+      return { ready: false, step: 'That warrant is no longer yours to serve.' };
+    }
+    // In the middle of arresting someone else: this one waits until that arrest is done, so the
+    // cuffs going on are not walked away from when the other comes into sight.
+    const last = brain.lastAct;
+    if (
+      last?.act.tool === 'arrest' &&
+      last.task !== undefined &&
+      last.task !== task.id
+    ) {
+      return {
+        ready: false,
+        wait: true,
+        step: `You are in the middle of arresting someone else. ${warrant.name} waits.`,
+      };
+    }
+    return serveStep(brain, warrant);
   }
   if (task.kind === FREE) {
     return freeStep(brain, task.item ?? '');

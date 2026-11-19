@@ -262,6 +262,21 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add('TRB-09: a second warrant on the same person meets the same door: told again', A.takeOutcomes(f.o), why);
 }
 
+// ---- ARR-08: with two warrants, the other coming into sight does not break off an arrest under way
+{
+  const f = wanted('Bar');
+  A.giveWarrant(f.o, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  f.o.peopleInView.push({ handle: 'p5', name: 'Dana Reyes', job: 'Assistant', place: 'Bar', distance: 1 });
+  A.syncBeat(f.o);
+  const dana = f.o.tasks.find((it: any) => it.kind === 'serve_warrant' && it.item === 'Dana Reyes');
+  f.o.lastAct = { key: 'x', tool: 'arrest', at: 0, act: { tool: 'arrest', person: 'p5', how: 'quiet' }, task: dana.id };
+  const plan = A.planBeat(f.o, f.task);
+  add('ARR-08: arresting Dana, Pun Pun in sight waits', [plan?.ready, plan?.wait, plan?.act], [false, true, undefined]);
+  add('ARR-08: Dana\'s own arrest is not held up', A.planBeat(f.o, dana)?.ready, true);
+  f.o.lastAct = null;
+  add('ARR-08: once that arrest is done, Pun Pun is gone after', A.planBeat(f.o, f.task)?.ready, true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
