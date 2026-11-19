@@ -38,7 +38,7 @@ And these faults, written up by other reviewers against the window code, are hid
 
 The change log's 13:30 and 15:00 entries built the water work ("wetting honest and a bucket carried") and the 13:32 round's `beyondKinds`. None of it has been through a scenario, and the simulator's "every mess a janitor can get to is cleaned" check passes in part because the janitors' tools never run out.
 
-Concrete case: `sim.ts quiet solo`. The janitor picks up the mop beside the closet's sink (wet) and the space cleaner, and cleans its way round the hallways and the Bar for nine minutes without once being short of water or spray. In the game, by the fourth or fifth mess the mop is dry and the spray's 250 units are going; what the janitor does then is the part of its job the simulator does not test.
+Concrete case: `sim.ts quiet solo`. The janitor picks up the mop beside the closet's sink (wet) and the space cleaner, and cleans its way round the hallways and the Bar for nine minutes without once being short of water or spray. In the game the mop is dry again after a few messes and the spray empties as it is used; what the janitor does then is the part of its job the simulator does not test.
 
 ## Where
 
