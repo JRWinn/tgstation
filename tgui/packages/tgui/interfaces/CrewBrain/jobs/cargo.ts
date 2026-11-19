@@ -307,13 +307,32 @@ function leftTo(brain: NpcBrain, duty: string | null): string | null {
   if (holders.length === 0 || holders.includes(brain.name)) {
     return null;
   }
+  // Seen on their feet and free: a workmate lying in view, or in cuffs, is not about to do it,
+  // and being seen like that does not count as seen (CARGO-12).
   return (
     holders.find(
       (name) =>
-        brain.peopleInView.some((person) => person.name === name) ||
-        brain.now - (brain.people.get(name)?.at ?? -Infinity) < HOLDER_ABOUT_DS,
+        ableInView(brain, name) ||
+        brain.now - (brain.ableAt?.[name] ?? -Infinity) < HOLDER_ABOUT_DS,
     ) ?? null
   );
+}
+
+/** TRUE if it can see this person on their feet and free to work: not down, not in cuffs. */
+function ableInView(brain: NpcBrain, name: string): boolean {
+  return brain.peopleInView.some(
+    (person) => person.name === name && !person.down && !person.cuffed,
+  );
+}
+
+/** Notes when each person in view was last seen on their feet and free (CARGO-12). */
+function noteAble(brain: NpcBrain): void {
+  brain.ableAt ??= {};
+  for (const person of brain.peopleInView) {
+    if (!person.down && !person.cuffed) {
+      brain.ableAt[person.name] = brain.now;
+    }
+  }
 }
 
 /** TRUE while there is work of this sort that is this NPC's own to be getting on with. */
@@ -761,6 +780,7 @@ function describeHeld(task: Task): string | null {
  * the order, watches the shuttle, and remembers who is owed a message.
  */
 function syncTasks(brain: NpcBrain): void {
+  noteAble(brain);
   const order = findTask(brain, ORDER);
   if (orderInHand(brain)) {
     const task =
@@ -1222,8 +1242,14 @@ function visitorToMind(brain: NpcBrain): boolean {
   const inside =
     brain.peopleInView.some((person) => !!seenInside(brain, person)) ||
     ownRooms(brain).some((room) => stillInside(post, room, brain.now).length > 0);
+  // A technician on its feet: one lying there, in cuffs, or the Quartermaster (who does not open
+  // the department's doors) does not see to them (CARGO-12).
   const workmateAtPost = brain.peopleInView.some(
-    (person) => person.in_post && isCargo(person.job),
+    (person) =>
+      person.in_post &&
+      isTechnician(person.job) &&
+      !person.down &&
+      !person.cuffed,
   );
   return inside && !workmateAtPost;
 }
@@ -1511,7 +1537,7 @@ function doorIsMine(brain: NpcBrain, at: number, toMe: boolean): boolean {
   if (toMe || !keeper || keeper === brain.name) {
     return true;
   }
-  if (brain.peopleInView.some((seen) => seen.name === keeper)) {
+  if (ableInView(brain, keeper)) {
     return false;
   }
   return brain.now - at > KEEPER_WAIT_DS;
@@ -1604,10 +1630,13 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       roomsKeeper(brain)
         ? doorIsMine(brain, knock.at, false)
         : by
-          ? by === brain.name ||
-            !brain.peopleInView.some((seen) => seen.name === by)
+          ? by === brain.name || !ableInView(brain, by)
           : !brain.peopleInView.some(
-              (seen) => isCargo(seen.job) && seen.name < brain.name,
+              (seen) =>
+                isTechnician(seen.job) &&
+                !seen.down &&
+                !seen.cuffed &&
+                seen.name < brain.name,
             );
     if (knock.inside) {
       // From inside: someone it let in there. Failing that, in its post, which it can see into,
@@ -1727,12 +1756,29 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // Once the Quartermaster has divided the work, sending for a janitor goes with the rooms. Each
   // technician keeps its own note of who it called and who said they could not shift it, so two
   // who both called sent the same janitor the same five calls four times over, and one called
-  // again to a mess two janitors had already told the other was beyond them.
-  const keeper = roomsKeeper(brain);
-  if (keeper && keeper !== brain.name) {
+  // again to a mess two janitors had already told the other was beyond them. That holds while the
+  // keeper is about, as every other piece of the standing work does: a keeper in the Brig, shut
+  // in, or dead leaves the calling to whoever is here (CARGO-11).
+  const keeper = leftTo(brain, 'rooms');
+  if (keeper) {
     return {
       ready: false,
       step: `There is a mess in the ${place}. ${keeper} has the rooms this shift, and sends for a janitor when one is wanted.`,
+    };
+  }
+  // Stepping in for a keeper who is away, it does not know whom they sent for: the department's
+  // list does. A janitor they sent for here not long since is not sent for on top of.
+  const away = roomsKeeper(brain);
+  const sentFor =
+    away && away !== brain.name && brain.post
+      ? expectedAt(brain.post, place, brain.now).find(
+          (it) => it.by !== brain.name && brain.now - it.at < CALL_AGAIN_DS,
+        )
+      : undefined;
+  if (sentFor) {
+    return {
+      ready: false,
+      step: `There is a mess in the ${place}. ${sentFor.by} sent for ${sentFor.name}, a janitor, not long ago.`,
     };
   }
   // One call from a post is enough. Whoever is slower to it leaves it a while longer when a

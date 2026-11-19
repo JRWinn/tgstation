@@ -1537,6 +1537,8 @@ export type NpcBrain = {
   /** When this NPC last had something to do, in this window's clock (milliseconds). */
   lastActiveAt: number;
   lastDecision?: Decision;
+  /** Server world time (deciseconds) each workmate was last seen on their feet and free (CARGO-12): one lying in view is not about to do their share. */
+  ableAt?: Record<string, number>;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
