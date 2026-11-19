@@ -8,20 +8,21 @@ This folder is a list of bugs and gaps found in the LLM crew NPC work, each with
 
 ## Where it stands
 
-**State as of the last update of this file: the hunt is running. See "Progress" at the bottom, which is updated as each stage ends.** If "Progress" stops short, the session ran out before it finished: the findings already on disk are still good, and "How to pick this up" below says what to do.
+**The audit is finished.** 523 findings were written. After duplicates, **403 bugs and 93 gaps are open**: 1 critical bug, 50 high, 243 medium and 109 low. Every critical, high and medium bug has been checked by a second reviewer, apart from 2 medium bugs written last. The low bugs and almost all the gaps have not been checked. 26 findings were marked as duplicates of others, and 1 was refuted. 141 findings were found by Claude Fable 5.2 and 382 by Claude Opus 5.5. "Progress" at the bottom says how it went.
+
+**To look over the bugs, open `SUMMARY.md`.** It numbers every open bug, most severe first and easiest fix first within each severity, with the proposed fix under each. The gaps are listed after the bugs.
 
 ## Start here
 
-`INDEX.md` is the whole list. These are the confirmed faults that matter most, in the order I would take them. **This section was written from the findings as they stood after the second run: build `INDEX.md` again for the current state.**
+These are the faults that matter most, grouped by what goes wrong. All of them are confirmed. In `SUMMARY.md`, number 1 is the critical bug and numbers 2 to 22 are the high bugs that are small fixes: that is the best place to begin.
 
-1. **Every crew member's memory lives only in the brain window, and the window is easy to lose.**
-   - `ASYNC-06` (critical, small): the game's own close-all-windows key (Home) closes the Crew Brain window too, and every crew member forgets everything. Fix this first: it is a few lines.
-   - `DRV-06` (high, medium): one thrown error for any one crew member stops every brain for good. Catch errors per crew member.
-   - `HOLE-02` (critical gap, large): closing the window or the owner dropping off wipes all memory, and nothing says so. Needs a design decision: keep a copy of lasting memory on the server.
-2. **Cheats still in the code** (the owner's rule: a body acts only as a player could). Doors held open by code (`KNB-04`), the supply shuttle moved by code (`GAP-01`), crates unpacked by `forceMove` (`KNB-06`), crew walking through people (`CHEAT-01`), the order book written straight onto paper (`CHEAT-07`), mail bagged by code (`CHEAT-08`), grenades primed by a proc call (`CHEAT-09`), PDAs that send when off or broken (`CHEAT-14`), tidying by code (`CHEAT-16`), and the older list in `KNA-04`. `GAP-07` proposes a check script so new ones are caught.
-3. **Security reads words too loosely, and believes too easily.** "Do not arrest X" declares a warrant (`SECT-01`). Any line from the Captain with "free" or "let go" in it pardons (`SECT-02`). "Arrest Pun Pun in the bar" is a warrant on "Pun Pun in the" (`SECT-03`). Anyone with "captain" on their card is the Captain (`HOLE-01`).
-4. **The security officer's body keeps going when it should stop.** A stunned or dead officer keeps stepping (`SEC-01`). An arrest that is called off keeps running (`SEC-03`). Being walked out of a room is taken for an attack (`ARR-02`, `API-01`).
-5. **The supply chain drops word.** Orders placed at a dead console (`SUP-01`). A failed order is told to nobody (`CARGO-01`). A second ask for a door wipes the first (`KNA-01`). The Quartermaster stops getting word back (`CARGO-02`).
+1. **Every crew member's memory lives only in the brain window, and the window is easy to lose.** The game's own close-all-windows key (Home) closes it, and everyone forgets everything (`ASYNC-06`, critical, a few lines: fix this first). One thrown error for any one crew member stops every brain (`DRV-06`). Closing the window or the owner dropping off wipes all memory, and nothing says so (`HOLE-02`, a critical gap that needs your decision).
+2. **The crew obey the wrong people.** Anyone with "captain" in their card's job text is obeyed as the Captain (`HOLE-01`). A PDA message with a made-up sender is taken as from the Captain or any head (`TRUST-02`). A PDA showing any security job can have an engineer pry open any door, the Armory among them (`TRUST-05`). What the model has a head say in passing is taken as that head's order (`TRUST-11`). An order a superior gave someone else is taken on as its own (`MEM-05`).
+3. **Words are read too loosely.** "Do not arrest X" declares a warrant (`SECT-01`). Any line from the Captain with "free" or "let go" in it pardons (`SECT-02`). "Arrest Pun Pun in the bar" is a warrant on "Pun Pun in the" (`SECT-03`), and a warrant on a shared first name is served on anyone with it (`TRUST-06`). Any "leave" or "get out" from a head sends a crew member out (`SECT-06`, `SECT-07`). Any "no" from the Captain refuses a waiting order, and there is no way to cancel one (`QM-01`, `QM-08`, `QM-10`). "Clean the bar" is not read as a mess (`PARSE-01`).
+4. **Cheats still in the code** (the owner's rule: a body acts only as a player could). Crew walk through people (`CHEAT-01`), PDAs send while off or broken (`CHEAT-14`), doors are held open by code (`KNB-04`), crates are unpacked by `forceMove` (`KNB-06`), wooden crates are opened with no crowbar (`HAND-12`), and the order book (`CHEAT-07`), mail (`CHEAT-08`), grenades (`CHEAT-09`) and tidying (`CHEAT-16`) are all done by code. `KNA-04` holds an older list, `GAP-01` the shuttle moved by code, and `GAP-07` a check script so that new ones are caught.
+5. **The security officer's body goes on when it should stop.** A stunned or dead officer keeps stepping (`SEC-01`). An arrest that is called off keeps running (`SEC-03`). Letting someone go can open a cell that now holds somebody else (`SEC-05`). The prisoner is arrested twice (`TRB-03`). Being walked out of a room is taken for an attack (`ARR-02`), and a stranger who could not be reached, or a janitor being seen out, gets a trespass warrant (`API-01`, `MULTI-08`).
+6. **Bodies get stuck, or shut others in.** Tidying shuts a crate or locker on a person inside it (`TRC-01`). A walk given during another walk is never walked (`CORE-01`). A janitor shut in the Head of Personnel's Office stays there all round (`LOGB-01`). A held door into an outer room is never gone through (`KNB-08`).
+7. **The supply chain drops word.** Orders are placed at a dead console (`SUP-01`). A failed order is told to nobody (`CARGO-01`). A second ask for a door wipes the first (`KNA-01`). The Quartermaster stops getting word back (`CARGO-02`, `QM-14`).
 
 ## What is here
 
@@ -30,6 +31,7 @@ This folder is a list of bugs and gaps found in the LLM crew NPC work, each with
 | `SUMMARY.md` | The list to read through: every open bug numbered, most severe first, easiest fix first within each, with the proposed fix under each and whether it was confirmed. Then the gaps, apart. Built by the same script as `INDEX.md`. |
 | `INDEX.md` | The same list as tables, with the status, the model that found it and the place in the code, and the closed findings at the end. Built by a script, so it may be older than the findings: build it again before you trust it. |
 | `findings/` | One file for each bug or gap. The top block of each holds its severity, effort, status and one-line fix. |
+| `COVERAGE.md` | For each reviewer's part of the code: what it read, and what it did not get to. Where to look first if you hunt for more. |
 | `FORMAT.md` | How a finding is written, what each key means, and how to mark one checked or fixed. |
 | `build-index.mjs` | Builds `INDEX.md` from the findings. |
 | `save.sh` | Commits this folder, on this branch only. |
@@ -54,10 +56,19 @@ Each finding has a `status`:
 
 Almost everything here was **read from the code, not seen in a round**. Where a round log or a check that was run backs a finding, the finding says so and names it.
 
+**How hard the checks were.** 316 findings were checked, and only 1 was refuted. That is fewer than one would expect, so it was measured. The checkers did push back, but by correcting rather than refuting:
+
+- **Severity:** changed on 36 findings, 32 of them lowered (24 from high to medium).
+- **The fix:** effort changed on 87 and the one-line fix on 128.
+- **The write-up:** the body was mended on 297.
+- **Reasoning:** every check left a "## Check" section saying what it read and why it reached its answer, at least 532 characters and about 1,650 at the median.
+
+The finders were told to try to prove themselves wrong before writing, and to quote the code, which may be why so few failed. Even so, "confirmed" means a second reading of the code agreed. It does not mean the fault was seen in a round.
+
 ## How to pick this up
 
 1. Run `git status` and `git log -5`. Another session may be working in this checkout: changes that are not yours are theirs. If there are finding files that are not committed, the audit was cut off: commit them with `bash LLM_CREW_BUG_AUDIT/save.sh "Crew bug audit: findings left on disk"`.
-2. Build the list again (command above) and open `INDEX.md`.
+2. Build the list again (command above) and open `SUMMARY.md` (or `INDEX.md` for the tables).
 3. Take the critical bugs first, then high, then medium, then low. Within each, the list is already easiest first. Do the `confirmed` ones before the `found` ones.
 4. For each finding:
    - Read its file. Open the code at the quoted lines. **The quote is the anchor: line numbers will have drifted.**
@@ -109,6 +120,9 @@ Round logs are in `data/logs/YYYY/MM/DD/round-HH.MM.SS/`. The folder's date is t
 - No round was played and no model was called. Nothing here was seen in the game unless a finding names a round log.
 - The fixes are proposals. None was built or tested.
 - Base /tg/station code was read only where our code leans on it.
+- **Not checked by a second reviewer:** the 102 low bugs, 2 medium bugs written last (by HOLE and KNA), and 79 of the 93 gaps. Their status is `found`.
+- **The duplicate pass was run once.** It named 53 groups that might be one fault and merged 16 findings into others. Some repeats will be left, most likely among the low bugs and the gaps. Where two findings are related but are not one fault, each now says "See also".
+- Some parts of the code were read by fewer eyes than others. `COVERAGE.md` lists, for each reviewer, what it did not get to.
 
 ## Progress
 
@@ -116,4 +130,5 @@ Round logs are in `data/logs/YYYY/MM/DD/round-HH.MM.SS/`. The folder's date is t
 - 2026-11-18, about 22:07, and again at 23:05: Fable's usage ran out. 14 reviewers had written 141 findings (24 high bugs, 1 critical gap) and were cut off part way. The other 25 never started. Nothing had been checked.
 - 2026-11-19: the owner switched to Claude Opus 5.5. Every finding now carries `found_by`. A second run started on Opus: the 25 areas nobody had begun, the 14 cut off part way (each carrying on from a list of what its first reviewer had read), checks of the first run's 25 worst findings in groups that may hold the same fault twice, then one reviewer marking duplicates across the whole list.
 - 2026-11-19, later: the second run was stopped by Opus's 5-hour limit. It had written 372 more findings (513 in all) and checked 65 of them: 55 confirmed, 1 refuted, 10 marked as duplicates. 47 of its 49 finders finished; HOLE and KNA did not. 12 batches of checks were cut off, and the five files they had half edited were put back as they were. The duplicate pass never started.
-- 2026-11-19, third run, on Opus 5.5: HOLE and KNA carry on; the 31 high bugs nobody had checked are checked; a reviewer names the groups across the whole list that may be one fault, and others settle each group and mark the duplicates; then the 235 unchecked medium bugs are checked, security first, for as long as the usage lasts. Low bugs and gaps are not checked in this run.
+- 2026-11-19, third run, on Opus 5.5: HOLE and KNA carried on, and the 31 high bugs nobody had checked were checked. A reviewer named the groups across the whole list that may be one fault, and others settled each group and marked the duplicates. Then the 235 unchecked medium bugs were checked, security first.
+- 2026-11-19, third run finished: all 84 of its reviewers completed. HOLE and KNA added 10 findings (523 in all). The 31 high bugs were all confirmed. Of the 235 medium bugs, 225 were confirmed and 10 found to be duplicates. Of the 53 groups named, 23 were settled: 16 findings marked as duplicates, and "See also" added where findings were related but not the same. `SUMMARY.md` and `COVERAGE.md` were written.
