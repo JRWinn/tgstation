@@ -381,12 +381,18 @@ export function onLead(brain: NpcBrain): boolean {
 function wantsKit(brain: NpcBrain): boolean {
   const beat = beatOf(brain);
   const security = brain.security;
+  // Short of what the arrest itself needs: no cuffs, or no baton for someone who would not stand
+  // still. Watching them gets it nowhere, so it goes even while they are in sight.
+  const stopsArrest =
+    !!security &&
+    (!security.has_cuffs ||
+      (!security.has_baton && beat.warrants.some((it) => it.force)));
   return (
     !!security &&
     (!security.has_baton || !security.has_cuffs) &&
     !security.holding &&
     // Not while it is after someone: a trip to the lockers is a minute with its back to them.
-    !onLead(brain) &&
+    (!onLead(brain) || stopsArrest) &&
     (beat.kitTries < KIT_TRIES || brain.now - beat.kitAt > KIT_AGAIN_DS)
   );
 }
@@ -448,13 +454,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // has come to nothing. Until they have, there is the quiet arrest to try: someone who stands
     // still is cuffed without a baton, and "no baton" sent the moment a warrant came in was not
     // yet true of them.
+    // With them in sight it is said at once: the trip for one takes a minute.
+    const inSight = !!target(brain, warrant);
     if (
       security &&
       !security.has_baton &&
       warrant.force &&
-      beat.kitTries >= 1
+      (beat.kitTries >= 1 || inSight)
     ) {
       cannot(warrant.name, 'no baton');
+    }
+    if (security && !security.has_cuffs && inSight && !holds(brain, warrant)) {
+      cannot(warrant.name, 'no cuffs');
     }
     // A room they are in that it cannot get into. With someone to ask, that is said only once
     // nobody it asked has opened the door.
