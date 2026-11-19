@@ -1106,25 +1106,14 @@ export type NpcBrain = {
   seeToUntil: number;
   /** For a technician: the crates it has told the Quartermaster would not come, by what each is called, and when (server time). It does not tell of the same one again for a while. */
   wontComeTold: Record<string, number>;
-  /** Who last asked, in its hearing, for a door to be opened, and when (server time). */
-  doorAsked: {
-    name: string;
-    at: number;
-    /** The room whose door they mean, if they said: by PDA they do. */
-    room?: string;
-    /** TRUE if they asked to be let out, FALSE if in. */
-    out?: boolean;
-    /** TRUE if they asked by PDA, so that the answer goes back the same way. */
-    byPda?: boolean;
-    /** TRUE once they have been told no. */
-    refused?: boolean;
-    /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
-    answered?: boolean;
-    /** Which of the room's doors they are at, by what it is called, if they said. */
-    door?: string;
-    /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
-    after?: number;
-  } | null;
+  /** Who last asked, in its hearing, for a door to be opened, and when (server time). The newest of `doorAsks`. */
+  doorAsked: DoorAsk | null;
+  /**
+   * For a technician: every ask for a door it has had and not yet dealt with, oldest first, one for
+   * each person. A second ask from someone else waits its turn; it no longer wipes the first.
+   * Made the first time it is wanted.
+   */
+  doorAsks?: DoorAsk[];
   /**
    * Someone it answers to has told it to leave the room it was in: who, which room, when (this
    * window's clock), and whether it has said it is going. It goes, whatever it was doing there.
@@ -1549,6 +1538,26 @@ export type NpcBrain = {
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
+/** Someone's ask, in a technician's hearing or by PDA, for a door to be opened. */
+export type DoorAsk = {
+  name: string;
+  at: number;
+  /** The room whose door they mean, if they said: by PDA they do. */
+  room?: string;
+  /** TRUE if they asked to be let out, FALSE if in. */
+  out?: boolean;
+  /** TRUE if they asked by PDA, so that the answer goes back the same way. */
+  byPda?: boolean;
+  /** TRUE once they have been told no. */
+  refused?: boolean;
+  /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
+  answered?: boolean;
+  /** Which of the room's doors they are at, by what it is called, if they said. */
+  door?: string;
+  /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
+  after?: number;
+};
+
 export type LedgerOrder = {
   /** Its number in the book. */
   n: number;

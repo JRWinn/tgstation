@@ -27,6 +27,7 @@ import { isHead } from '../hierarchy';
 import { addTask, blockTask, findTask, finishTask } from '../tasks';
 import type {
   Action,
+  DoorAsk,
   HeldCrate,
   NpcBrain,
   Option,
@@ -840,11 +841,8 @@ function syncTasks(brain: NpcBrain): void {
     }
   }
   const wants = doorWanted(brain);
-  const asked = brain.doorAsked;
-  // Whether whoever asked may be let through at all, whoever the door is being opened for just
-  // now. One who may is not told no for having to wait a turn behind someone else.
-  const askedMayPass =
-    !!asked && !!mayPass(brain, asked.name, asked.room, asked.out);
+  // The ask of whoever the door is being opened for, if they asked.
+  const asked = askFrom(brain, wants?.name);
   if (wants && !findTask(brain, DOOR, { item: wants.name, place: wants.room })) {
     // Which way they are going through it is kept with the task: someone standing in the post
     // may be asking to be let into a room that lies inside it.
@@ -857,7 +855,7 @@ function syncTasks(brain: NpcBrain): void {
     }).out = wants.out;
     // Asked by PDA, by someone a door hides, the answer goes back the same way, by name. Once:
     // their turn may come round a second time, and they have been told already.
-    if (asked?.byPda && asked.name === wants.name && !asked.answered) {
+    if (asked?.byPda && !asked.answered) {
       asked.answered = true;
       // The door they named is named back, so that both know it is the same one.
       const which = asked.door && asked.room === wants.room ? `${asked.door} ` : '';
@@ -882,24 +880,26 @@ function syncTasks(brain: NpcBrain): void {
   // Someone who asked by PDA and is not being let in is told so, by name, once. Nobody sent for
   // them, and a door locked to the crew does not open for the asking. Not someone who may come
   // in and is only waiting behind whoever the door is being opened for first, and never someone
-  // who has just been told that it is on its way to them.
-  if (
-    asked?.byPda &&
-    !asked.refused &&
-    !asked.answered &&
-    !asked.out &&
-    brain.now - asked.at < DOOR_ASK_DS &&
-    wants?.name !== asked.name &&
-    !askedMayPass
-  ) {
-    asked.refused = true;
-    brain.toTell.push({
-      to: asked.name,
-      line: `Sorry, ${firstName(asked.name)}, nobody here sent for you${asked.room ? ` to the ${asked.room}` : ''}, so I cannot let you in.`,
-      why: `${asked.name} has asked by PDA to be let in${asked.room ? ` to the ${asked.room}` : ''}. Nobody who works here sent for them, so you are sending back that you cannot.`,
-      byPda: true,
-      at: Date.now(),
-    });
+  // who has just been told that it is on its way to them. Each ask is looked at, not only the last.
+  for (const ask of doorAsks(brain)) {
+    if (
+      ask.byPda &&
+      !ask.refused &&
+      !ask.answered &&
+      !ask.out &&
+      brain.now - ask.at < DOOR_ASK_DS &&
+      wants?.name !== ask.name &&
+      !mayPass(brain, ask.name, ask.room, ask.out)
+    ) {
+      ask.refused = true;
+      brain.toTell.push({
+        to: ask.name,
+        line: `Sorry, ${firstName(ask.name)}, nobody here sent for you${ask.room ? ` to the ${ask.room}` : ''}, so I cannot let you in.`,
+        why: `${ask.name} has asked by PDA to be let in${ask.room ? ` to the ${ask.room}` : ''}. Nobody who works here sent for them, so you are sending back that you cannot.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
   }
 
   // With nothing else in hand and nobody wanting it, it looks in on the rest of its department
@@ -967,10 +967,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     // Which of the room's doors, if they said, or if the knock that brought it here told it.
     // An ask that names no room: the door they named is taken to be one of the room they are
     // being let through.
+    const ask = askFrom(brain, wants?.name);
     const which =
-      (brain.doorAsked?.name === wants?.name &&
-      (brain.doorAsked?.room ?? wants?.room) === wants?.room
-        ? brain.doorAsked?.door
+      (ask && (ask.room ?? wants?.room) === wants?.room
+        ? ask.door
         : undefined) ??
       (brain.knockAt?.room === wants?.room ? brain.knockAt?.door : undefined);
     return wants && wants.name === task.item
@@ -1371,18 +1371,62 @@ function doorIsMine(brain: NpcBrain, at: number, toMe: boolean): boolean {
   return brain.now - at > KEEPER_WAIT_DS;
 }
 
+/** Every ask for a door it has, oldest first. */
+function doorAsks(brain: NpcBrain): DoorAsk[] {
+  brain.doorAsks ??= brain.doorAsked ? [brain.doorAsked] : [];
+  return brain.doorAsks;
+}
+
+/** TRUE while an ask for a door still stands: one to be let out stands longer. */
+function askLive(brain: NpcBrain, ask: DoorAsk): boolean {
+  return brain.now - ask.at < (ask.out ? LET_OUT_ASK_DS : DOOR_ASK_DS);
+}
+
+/** The ask of this person, if they have one in. */
+function askFrom(brain: NpcBrain, name?: string): DoorAsk | undefined {
+  return name ? doorAsks(brain).find((ask) => ask.name === name) : undefined;
+}
+
+/**
+ * Takes an ask for a door. It goes behind those already in, and wipes none of them: two janitors
+ * done in two rooms a few seconds apart are both let out. A second ask from the same person is
+ * their newer word and takes the place of their first, keeping its turn; if it is for the same
+ * door the same way, what they have been told already stands. Asks that have run out are dropped.
+ */
+function putAsk(brain: NpcBrain, ask: DoorAsk): void {
+  const before = askFrom(brain, ask.name);
+  if (before && before.room === ask.room && !!before.out === !!ask.out) {
+    ask.answered ||= before.answered;
+    ask.refused ||= before.refused;
+  }
+  const list = doorAsks(brain).map((it) => (it === before ? ask : it));
+  if (!before) {
+    list.push(ask);
+  }
+  brain.doorAsks = list.filter((it) => it === ask || askLive(brain, it));
+  brain.doorAsked = ask;
+}
+
+/** Strikes out someone's ask: their door has been opened for them, or could not be. */
+function dropAsk(brain: NpcBrain, name: string): void {
+  brain.doorAsks = doorAsks(brain).filter((ask) => ask.name !== name);
+  if (brain.doorAsked?.name === name) {
+    brain.doorAsked = brain.doorAsks.at(-1) ?? null;
+  }
+}
+
 /** Who a door is wanted for, leaving aside whether it has only just been opened for them: see doorWanted. */
 function doorSought(brain: NpcBrain): DoorWant | null {
   const post = brain.post;
   if (!post) {
     return null;
   }
-  const asked = brain.doorAsked;
-  if (
-    asked &&
-    brain.now >= (asked.after ?? 0) &&
-    brain.now - asked.at < (asked.out ? LET_OUT_ASK_DS : DOOR_ASK_DS)
-  ) {
+  // Every ask it has, oldest first: whoever asked first is let through first, and someone who
+  // asked a moment later waits their turn.
+  for (const asked of doorAsks(brain)) {
+    if (brain.now < (asked.after ?? 0) || !askLive(brain, asked)) {
+      continue;
+    }
     const want = mayPass(brain, asked.name, asked.room, asked.out);
     if (want && doorIsMine(brain, asked.at, !!asked.byPda)) {
       return want;
@@ -1964,8 +2008,8 @@ export const CARGO: Job = {
     }
     // The door has been opened for them, or could not be. Either way that request is dealt with.
     if (task?.kind === DOOR) {
-      if (brain.doorAsked?.name === task.item) {
-        brain.doorAsked = null;
+      if (task.item) {
+        dropAsk(brain, task.item);
       }
       if (brain.knockAt?.room === task.place) {
         brain.knockAt = null;
@@ -2008,7 +2052,7 @@ export const CARGO: Job = {
               !!brain.areaMesses[outer] &&
               !brain.janitorCalls[outer]?.declined?.includes(task.item);
             if (!workThere) {
-              brain.doorAsked = {
+              putAsk(brain, {
                 name: task.item,
                 at: brain.now,
                 room: outer,
@@ -2019,7 +2063,7 @@ export const CARGO: Job = {
                 // they were still on its threshold, the nearest door of the outer room was the
                 // one they were coming out of.
                 after: brain.now + NEXT_DOOR_DS,
-              };
+              });
             }
           }
         } else {
@@ -2272,13 +2316,18 @@ export const CARGO: Job = {
       !LET_OUT_WORDS.test(heard) &&
       !!asker &&
       !!seenInside(brain, asker);
+    // A workmate talking of the door ("Maria is seeing to the door, Jan") is not asking for it,
+    // unless they ask to be let out.
+    const workmateTalk =
+      isCargo(asker?.job ?? '') && !LET_OUT_WORDS.test(heard);
     if (
       speaker &&
       event.details.said_to !== 'other' &&
       DOOR_WORDS.test(heard) &&
-      !idleWord
+      !idleWord &&
+      !workmateTalk
     ) {
-      brain.doorAsked = {
+      putAsk(brain, {
         name: speaker,
         at: brain.now,
         // The room they named, if they named one of the department's. Said aloud, an ask used to
@@ -2291,11 +2340,11 @@ export const CARGO: Job = {
           (typeof event.details.near_door === 'string'
             ? event.details.near_door
             : undefined),
-      };
+      });
     }
   },
   // Someone a door hides sends word that they are at it. The room is the one they name.
-  readsMessage: (brain, from, text, at) => {
+  readsMessage: (brain, from, text, at, job) => {
     // A janitor it called sends word that what they have will not shift the mess, or has shifted
     // some of it and not the rest. That call is done with, and someone else can be sent for.
     const beyond = beyondRoom(text);
@@ -2316,14 +2365,18 @@ export const CARGO: Job = {
     if (!from || !DOOR_WORDS.test(text)) {
       return;
     }
-    brain.doorAsked = {
+    // A workmate writing of a door is not asking for one, unless they ask to be let out.
+    if (isCargo(job ?? '') && !LET_OUT_WORDS.test(text)) {
+      return;
+    }
+    putAsk(brain, {
       name: from,
       at,
       room: roomAskedIn(brain, text),
       byPda: true,
       out: LET_OUT_WORDS.test(text),
       door: doorNamed(text),
-    };
+    });
   },
   offers,
   // Having said to the Quartermaster what it had to tell it, in so many words, it waits to hear
