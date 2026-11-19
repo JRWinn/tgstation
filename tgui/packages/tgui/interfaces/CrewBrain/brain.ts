@@ -1984,11 +1984,11 @@ async function think(brain: NpcBrain): Promise<void> {
     const request =
       speakers.length > 0 ? jobFor(brain.job).hears?.(brain, heard) : null;
     if (request) {
-      const asker = brain.peopleInView.find((seen) =>
-        speakers.includes(seen.handle),
-      );
+      // It is for whoever said the line it was made out of, not whoever else spoke in the same
+      // moment (CARGO-07).
+      const asker = heard.match(/\(person (\w+)/)?.[1];
       if (request.tool === 'order' && asker) {
-        request.for = asker.handle;
+        request.for = asker;
       }
       // How many, and where to, are read off what was said, as they are when the LLM agrees.
       if (request.tool === 'order') {
