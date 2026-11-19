@@ -168,6 +168,15 @@
 	errand_serial++
 	set_blackboard_key(BB_CREW_NPC_ERRAND_TARGET, target)
 
+/**
+ * TRUE if the errand a run of work belongs to has been called off, or the body or this controller
+ * is gone. An errand's work is one proc that sleeps, and calling the errand off cannot stop it: it
+ * has to ask, after every sleep, and stop itself. `serial` is the errand_serial it began with. A
+ * null serial is work that is not an errand, and is never called off.
+ */
+/datum/ai_controller/crew_npc/proc/errand_over(serial)
+	return QDELETED(src) || QDELETED(pawn) || (!isnull(serial) && errand_serial != serial)
+
 /// Abandons the errand in progress without reporting on it. Used when the body is sent somewhere else.
 /datum/ai_controller/crew_npc/proc/cancel_errand()
 	clean_queue = list()
@@ -421,6 +430,10 @@
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
+	// Water it could not get to, a sink behind glass most often, is not water to hand for a while.
+	if(crew_controller.errand_tool == CREW_TOOL_CLEAN && !QDELETED(target) && (istype(target, /obj/structure/sink) || istype(target, /obj/structure/mop_bucket) || istype(target, /obj/structure/reagent_dispensers)))
+		crew_controller.water_failed[REF(target)] = world.time
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) could not get to the [target.name] at [AREACOORD(target)] for water.")
 	// A crate being held for collection that nobody can get to is, after a try or two, not one cargo can hand over.
 	if(istype(target, /obj/structure/closet/crate) && (crew_controller.errand_tool == CREW_TOOL_CHECK_HELD || crew_controller.errand_tool == CREW_TOOL_RELEASE || crew_controller.errand_tool == CREW_TOOL_STOW))
 		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)

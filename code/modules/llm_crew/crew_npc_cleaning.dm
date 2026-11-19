@@ -102,10 +102,28 @@
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
 	return bucket && bucket.reagents.total_volume < bucket.reagents.maximum_volume / 2
 
+/// Water the body set off for and could not get to, keyed by REF, with the world.time it gave up on each.
+/datum/ai_controller/crew_npc/var/list/water_failed = list()
+
+/**
+ * TRUE if this sink, mop bucket or tank is water the body could get to: not one it lately set off
+ * for and could not reach, and not one in a room locked to it, other than the room it is in. A
+ * sink seen through the glass of a room it cannot enter is not water to hand: it walked at it
+ * again and again, and passed over one it could reach.
+ */
+/datum/ai_controller/crew_npc/proc/water_reachable(atom/source)
+	var/failed_at = water_failed[REF(source)]
+	if(failed_at && world.time - failed_at < CREW_NPC_BLOCKED_PLACE_TIME)
+		return FALSE
+	if(get_area(source) == get_area(pawn))
+		return TRUE
+	return !place_locked_to_body(get_area_name(source, TRUE))
+
 /**
  * Returns the nearest thing to hand that a mop can be wetted at, or null: the bucket in the body's
  * other hand if there is water in it, then a mop bucket or janitorial cart in sight with water in
- * it, then a sink in sight. Water it has carried with it comes before a walk to a sink.
+ * it, then a sink in sight. Water it has carried with it comes before a walk to a sink. Only water
+ * it could get to counts (water_reachable()).
  */
 /datum/ai_controller/crew_npc/proc/water_to_hand(list/in_sight)
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
@@ -114,29 +132,29 @@
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/mop_bucket/tub in in_sight)
-		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance)
+		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance && water_reachable(tub))
 			nearest_distance = get_dist(pawn, tub)
 			nearest = tub
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest
 
-/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink.
+/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink. Only water it could get to counts (water_reachable()).
 /datum/ai_controller/crew_npc/proc/water_for_bucket(list/in_sight)
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/reagent_dispensers/watertank/tank in in_sight)
-		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance)
+		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance && water_reachable(tank))
 			nearest_distance = get_dist(pawn, tank)
 			nearest = tank
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest
@@ -510,7 +528,37 @@
 		body.swap_hand(tool_hand)
 	// A mop works on the floor under the mess; soap and spray work on the mess itself.
 	var/atom/target = istype(tool, /obj/item/mop) ? get_turf(mess) : mess
-	body.ClickOn(target)
+	// A spray sets a wait of most of a second before the next click is let through, and the next
+	// mess is often one step away. Clicked inside that wait, nothing was sprayed, and the mess was
+	// written off as one that would not come off. So the body waits, as a player's client makes
+	// them, and if a click still does nothing it is tried once more and then left, not written off.
+	var/serial = errand_serial
+	var/landed = FALSE
+	for(var/go in 1 to 2)
+		if(go > 1)
+			sleep(1 SECONDS)
+		if(!wait_to_click(TRUE) || errand_serial != serial)
+			return list(FALSE, "You could not get to it.")
+		if(QDELETED(mess))
+			return list(TRUE, "The [mess_name] is gone already.")
+		if(!body.is_holding(tool))
+			return list(FALSE, "You have nothing to clean with.")
+		tool_hand = body.get_held_index_of_item(tool)
+		if(tool_hand != body.active_hand_index)
+			body.swap_hand(tool_hand)
+		var/volume_before = tool.reagents?.total_volume
+		var/next_move_before = body.next_move
+		body.ClickOn(target)
+		// Something came of the click: the mess went, a scrub began, the spray was used, or the
+		// game set the wait that every use of a held thing sets.
+		if(QDELETED(mess) || length(body.do_afters) || tool.reagents?.total_volume != volume_before || body.next_move != next_move_before)
+			landed = TRUE
+			break
+	// Twice clicked and nothing came of it: left as a mess it could not get to is, this one alone and
+	// not tried again, but not counted against its kind in this room as one that would not come off.
+	if(!landed)
+		stubborn_messes[REF(mess)] = TRUE
+		return list(FALSE, "You could not get to it.")
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
