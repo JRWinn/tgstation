@@ -59,7 +59,7 @@ A player in the same spot would drag one of the outer crates aside and get at th
 
 ## How it was found
 
-Read from the code. The four by four block is from SUP-04's reading of `MetaStation.dmm`. Not seen in a round: the test rounds so far have not had twelve crates on the squares at once as far as I know (not searched). TRA-03 takes a crate "boxed in by other crates on the bay's squares" as the start of its own case, which is this, but does not write it up. Confidence is likely, not sure, because I did not check whether the pathfinder will route a body over a closed crate (crates are climbable); if it does, the walled-in case goes away and only the never-set-back count is left.
+Read from the code. The four by four block is from SUP-04's reading of `MetaStation.dmm`. Not seen in a round: the test rounds so far have not had twelve crates on the squares at once as far as I know (not searched). TRA-03 takes a crate "boxed in by other crates on the bay's squares" as the start of its own case, which is this, but does not write it up. The pathfinder does not route over a shut crate: crates have no `CanAStarPass` of their own, and the default in `code/game/atom/_atom.dm:1005` is `. = !density`. Confidence is likely, not sure, only because the order the squares fill in depends on where the body stands each time, so the exact count at which a crate is first walled in varies.
 
 ## How to fix it
 
