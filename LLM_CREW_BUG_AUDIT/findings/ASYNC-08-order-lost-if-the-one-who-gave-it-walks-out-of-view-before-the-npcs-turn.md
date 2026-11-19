@@ -106,3 +106,7 @@ Confirmed, by Opus 5.5. Every quoted line is what the code says today (`talk.ts:
 - Mended: the write-up said the answer is dropped as `alone`. It is not: `alone` needs `speakers` empty (`brain.ts:1359`), so the answer is said, often a yes to an order that is never taken. Effort raised to medium: the window fix touches `brain.ts`, `talk.ts`, `types.ts` and `fixtures.ts`.
 - Not a duplicate of ASYNC-05 (a line the NPC means to say struck off too soon); this is the order coming in. Searched the change log and plans for `pendingSpeakers`, `buildTalk` and out-of-sight orders: nothing fixes or chooses this.
 - How often a speaker is out of view by the turn was not measured; that it happens whenever they are is certain.
+
+## Fix, second round (window half)
+
+The window now reads the server's `superior` (1 or 0) on a heard line for a speaker who is not in view as they speak: `speakerHeard` in `talk.ts`, called from `hearSpeaker` in `brain.ts`. Who is in view still comes first; with neither the view nor the detail, nothing is kept, as before. The server half (putting `"superior" = answers_to(speaker)` on the speech event in `crew_npc_senses.dm`) is another worker's, in the same round. Eight new cases in `tools/llm_crew/brain-heard.ts`. Type check, the table, and the simulator scenarios `orders`, `captain` and `crew` twice each passed. Not played: until the server sends the key, the new path is never taken.

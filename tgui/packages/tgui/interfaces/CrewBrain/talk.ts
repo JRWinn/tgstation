@@ -100,6 +100,33 @@ export type Speaker = {
   superior: boolean;
 };
 
+/**
+ * Who said a heard line, as far as the body knew when it heard it: from who is in view with it,
+ * and failing that from what the server put on the line itself ("superior", 1 or 0, from the same
+ * answers_to as the view). Someone who spoke from round a corner, never in view as they said it,
+ * is still known to be the Captain. Null when neither says, as before: nothing is taken from them.
+ */
+export function speakerHeard(
+  brain: NpcBrain,
+  details: { handle?: string; speaker?: string; [key: string]: unknown },
+): Speaker | null {
+  const handle = details.handle ?? details.speaker;
+  const seen = handle
+    ? brain.peopleInView.find((person) => person.handle === handle)
+    : undefined;
+  if (seen) {
+    return { name: seen.name, superior: !!seen.superior };
+  }
+  const told = details.superior;
+  if (told === undefined || told === null || !details.speaker) {
+    return null;
+  }
+  return {
+    name: String(details.speaker),
+    superior: told === true || Number(told) === 1,
+  };
+}
+
 /** One call, ready to send, and what the code needs to act on the answer. */
 export type TalkCall = {
   messages: ChatMessage[];

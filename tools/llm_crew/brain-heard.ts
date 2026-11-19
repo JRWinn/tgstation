@@ -4,7 +4,7 @@
 //
 //   bun run brain-heard.ts
 const { ROOT, janitor, says, at } = await import('./fixtures');
-const { buildTalk } = await import(ROOT + 'talk');
+const { buildTalk, speakerHeard } = await import(ROOT + 'talk');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -59,6 +59,32 @@ const lookTasks = (b: any) => b.tasks.filter((task: any) => task.state !== 'done
   at(b, 3000, 'Central Primary Hallway', []);
   const call = buildTalk(b, { report: [says(captain, line)], speakers: ['p9'], mustSay: null, remark: false, heardFrom: new Map([['p9', { name: 'Cap Tain', superior: false }]]) });
   add('seen as no superior: no order', call.ordered, null);
+}
+
+// ---- ASYNC-08 (window half): a speaker never in view as they spoke, known by the server's "superior" on the line
+{
+  const heard = (b: any, details: any) => speakerHeard(b, details);
+  const b: any = janitor();
+  at(b, 3000, 'Central Primary Hallway', []);
+  add('never in view, superior 1: the Captain, over it', heard(b, { handle: 'p9', speaker: 'Cap Tain', superior: 1 }), { name: 'Cap Tain', superior: true });
+  add('never in view, superior 0: known, not over it', heard(b, { handle: 'p9', speaker: 'Cap Tain', superior: 0 }), { name: 'Cap Tain', superior: false });
+  add('never in view, no handle, superior 1: known by voice', heard(b, { speaker: 'Cap Tain', superior: 1 }), { name: 'Cap Tain', superior: true });
+  add('never in view, no detail: nothing, as before', heard(b, { handle: 'p9', speaker: 'Cap Tain' }), null);
+  // In view: the view, as before, whatever the line says.
+  at(b, 3000, 'Central Primary Hallway', [captain]);
+  add('in view, no detail: the view', heard(b, { handle: 'p9', speaker: 'Cap Tain' }), { name: 'Cap Tain', superior: true });
+  // And the order is then taken on, though he was never in view.
+  const c: any = janitor();
+  at(c, 3000, 'Central Primary Hallway', []);
+  const known = heard(c, { handle: 'p9', speaker: 'Cap Tain', superior: 1 });
+  const call = buildTalk(c, { report: [says(captain, line)], speakers: ['p9'], mustSay: null, remark: false, heardFrom: new Map([['p9', known]]) });
+  add('never in view, superior 1: the order is a look in the Bar', call.ordered ? [call.ordered.kind, call.ordered.place] : null, ['look', 'Bar']);
+  add('never in view, superior 1: a look task for the Bar', lookTasks(c), ['Bar']);
+  const d: any = janitor();
+  at(d, 3000, 'Central Primary Hallway', []);
+  const notOver = heard(d, { handle: 'p9', speaker: 'Cap Tain', superior: 0 });
+  const call2 = buildTalk(d, { report: [says(captain, line)], speakers: ['p9'], mustSay: null, remark: false, heardFrom: new Map([['p9', notOver]]) });
+  add('never in view, superior 0: no order', call2.ordered, null);
 }
 
 // ---- MEM-05: an order the Captain gave someone else is not taken on when he next speaks to it

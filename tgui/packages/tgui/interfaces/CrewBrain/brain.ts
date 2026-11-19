@@ -46,7 +46,7 @@ import {
   withoutHandles,
 } from './prompt';
 import { describeFeeling, shiftFeeling } from './relationships';
-import { buildTalk, type Speaker, soundsLikeOrder } from './talk';
+import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
@@ -1105,15 +1105,16 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
   }
   brain.pendingSpeakers.add(speaker);
   // Who they are is kept now, from the view this line came with, in case they walk out of it
-  // before the NPC's turn comes.
-  const seen = brain.peopleInView.find((person) => person.handle === speaker);
+  // before the NPC's turn comes. One never in view as they spoke is known by what the server put
+  // on the line: see speakerHeard.
+  const seen = speakerHeard(brain, event.details);
   if (seen) {
     let known = heardFrom.get(brain);
     if (!known) {
       known = new Map();
       heardFrom.set(brain, known);
     }
-    known.set(speaker, { name: seen.name, superior: !!seen.superior });
+    known.set(speaker, seen);
   }
   // What they say next, with no name in it, is still for this NPC.
   brain.inTalkWith = {
