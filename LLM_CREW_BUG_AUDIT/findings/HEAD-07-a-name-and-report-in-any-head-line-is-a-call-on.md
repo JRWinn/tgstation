@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:598, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:387, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:857, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:394
-fix: Have staff take only "first name, your report" as a call-on, have nextTurn skip anyone whose report is already in, and forbid other names in the call-on line through its needs pattern
+fix: Make the call-on needs pattern require "first, your report, please" and have staff take only "first, your report" as a call-on, and in hearReport give an early reporter a heard turn so nextTurn skips them
 ---
 
 ## What is wrong
@@ -60,10 +61,9 @@ Read from the code, not seen in a round. Whether the model names everyone in its
 
 ## How to fix it
 
-1. Staff side: take a call-on only when the line has the head's call-on shape for this person: `new RegExp(`\\b${first}\\b,? (your report|.{0,30}\\byour report\\b)`, 'i')` or simpler, `${first}` followed within a few words by "your report", and no other present workmate's first name between them. Keep the existing "called on with no meeting it knows of" branch (it already looks for "your report").
-2. Head side: in `nextTurn`, skip anyone with `meeting.reports[name]` already set. They have been heard; there is nothing to call them on for. Keep the walk-up step for those who have not reported.
-3. Head side: make the call-on `needs` refuse a line that names another of those present: build it as the current pattern plus a check in `sayIf`, or simply make the call-on `exact: true` with no remark. The opening "thank you for coming" is the only part that wants the model's voice; it can be kept by saying the thanks as its own line first.
-4. Optional: in `hearReport`, if a report comes from someone whose turn has not come, push a turn for them marked heard, so the Captain's count of who was there is right.
+1. Put both sides on the same set words, as other hand-offs are (`HEARD_WORDS` and the like). Head side: make the call-on `needs` `new RegExp(`\\b${first}, ${CALLING_ON}\\b`, 'i')`, so the model may thank them in its own words but its line must hold "<first>, your report, please"; any line without it is replaced by the plain one (`brain.ts:1409`). Staff side: in `meetingsOverhear`, take a call-on only on `new RegExp(`\\b${first},? your report\\b`, 'i')`, and use the same test in the "called on with no meeting it knows of" branch, whose `${first}\b.*\byour report` has the same fault ("Bea and Carl. Alex, your report, please" matches for Bea). A looser "name within 30 characters of your report" does not work: in "Thanks, Alex, Bea, Carl. Alex, let's hear your report" Bea is 25 characters from it, and "Hello Bea, ... have your report ready" is no call-on either.
+2. Head side, for a report that still comes early (a player head, or one heard before the meeting began): in `hearReport`, when the speaker has no turn yet, add one marked heard. Put it before the last turn if that one is still unheard, so `listening` (which reads `turns.at(-1)`) does not stop waiting for the one actually called on. `nextTurn` then skips them, and `reportToCaptain` counts them as there, not as "reported by PDA". Skipping on `meeting.reports[name]` in `nextTurn` alone, as first proposed, would make `reportToCaptain` count each early reporter as reporting by PDA, since it counts `turns` as those there.
+3. Leave `exact: true` off the call-on: the meeting design keeps the model's voice on these lines (memory "Crew meeting design"), and step 1 makes that safe.
 
 ## How to test the fix
 

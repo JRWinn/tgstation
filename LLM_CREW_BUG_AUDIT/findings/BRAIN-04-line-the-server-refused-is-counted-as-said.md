@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1766, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1531, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:943, code/modules/llm_crew/crew_npc_tools.dm:116, code/modules/llm_crew/crew_npc_tools.dm:140
 fix: Read the server's refusal of a say in ingest and say the line again once, and keep the window's own count of tool calls so the server's limit is never reached
@@ -21,7 +22,7 @@ The server can refuse the line or drop it:
 - dropped with no word at all when the body has made more than 8 tool calls in 10 seconds (`tool_call_allowed`). Only the first dropped call of the window gets an event, and that event names no tool (`action_result(null, ...)`).
 - refused with an event when the body spoke under 4 seconds ago ("You only just spoke"), cannot speak, is not responding, or the words trip the filter. The server also has the body speak lines of its own (`speak_plainly` in `crew_npc_held.dm`: "Still waiting: ...", the claim before looking over held crates), which start the same 4 seconds and which the window knows nothing of.
 
-Nothing in the window reads a `say` result. `noteResult` only looks at results for the driver's own last step, and a line is never that. So the line was not said, nobody heard it, and the NPC goes on as though they had: it waits for an answer to a question it did not ask.
+No code in the window acts on a `say` result. `noteResult` only looks at results for the driver's own last step, and a line is never that. The refusal's text does go into `brain.pending` (`brain.ts:731`), so the model may read "You only just spoke" in its next prompt, but by then the hooks have run and nothing undoes them. So the line was not said, nobody heard it, and the NPC goes on as though they had: it waits for an answer to a question it did not ask.
 
 One concrete case, from a round (`data/logs/2026/11/18/round-21.49.53`):
 
@@ -102,7 +103,7 @@ Window only, in four steps. A fifth on the server is worth having and is small.
 2. Read the refusal. In `ingest`, in the loop over events, next to `noteResult(brain, event)`: if `event.kind === 'action_result' && event.details.tool === 'say' && !event.details.ok` and `brain.sentSay` is under about 10 seconds old, the line was not said. Take it back out of `saidLately` and the talk log, and say it again once after the cooldown: set `brain.mustSay = brain.sentSay.text`, `brain.mustSayExact = true` (word for word, no second model call is needed for words already found), `brain.wake = true`, and count the try so that a line the filter will never pass is given up after one more go. The hooks do not need undoing if the line then goes out. If it is given up, log it (`brain_log` with the error) so the round's log shows a line was lost.
 3. Stop sending two lines at once in the `catch`: when both a request and a `mustSay` are there, say one line, `mustSay`, and leave "I will see to it." out.
 4. Keep a count in the window of tool calls sent for each NPC in the last 10 seconds (in `runTool` and `stopToTalk`). When it is at 6, `stopToTalk` sends nothing. When it is at 8, a driver step is not issued this turn (return null from `issue`, which `drive` already treats as a failed step) and a `say` waits a moment. The server's limit is then never met and nothing is dropped unseen.
-5. Server, `tool_call_allowed`: do not count `CREW_TOOL_HOLD`, which moves nothing. And when the call being dropped is a `say`, give the event its tool name (`action_result(CREW_TOOL_SAY, FALSE, ...)`) every time, not once a window: lines are seconds apart, so this cannot flood. Step 2 then catches the silent drop as well.
+5. Server, `tool_call_allowed`: do not count `CREW_TOOL_HOLD`, which moves nothing. Do this only together with, or after, BRAIN-03's fixes 1 and 3. Today the refusal of the ninth call is the one thing that ends BRAIN-03's fast loop of `hold`s. Without it, that loop would run for the whole wait. And when the call being dropped is a `say`, give the event its tool name (`action_result(CREW_TOOL_SAY, FALSE, ...)`) every time, not once a window: lines are seconds apart, so this cannot flood. Step 2 then catches the silent drop as well.
 
 Owner's question: none. The limit of 8 in 10 seconds is there to protect the server from a runaway window and should stay.
 
@@ -111,3 +112,15 @@ Owner's question: none. The limit of 8 in 10 seconds is there to protect the ser
 - Simulator: `tools/llm_crew/sim.ts` plays the server. Make its `say` handler refuse a line that comes under 4 simulated seconds after the last, and drop every call past the eighth in 10 seconds, as the game does. Run `crew`, `qm`, `office`, `nested` and `waiting` quiet and dead: no scenario should end with a body waiting on an answer to a line that is not in its `said` list.
 - Type check from `tgui/`. Server compile if step 5 is done.
 - Next round: for each NPC, every `"say"` in `crew_brain.log` that was not filtered should have a "was told by its brain to say" line in `game.log` within a second. A short script over the two logs can check that.
+
+## Check
+
+Checked by Opus 5.5, from the code on both sides and the round named.
+
+- The quotes still match: `runTool` (`brain.ts:1766`) sends the call and keeps nothing to check an answer against. The block at `brain.ts:1531` runs every `afterSaying` hook as soon as a `say` is in `actions`. The test at the top of `noteResult` (`driver.ts:945`) lets every result through that is not for `brain.lastAct`. `tool_call_allowed` (`crew_npc_tools.dm:116`) sends one event per window, with a null tool. `tool_say` (`crew_npc_tools.dm:144` to `:164`) has the filter, `can_speak` and cooldown refusals. `speak_plainly` (`crew_npc_held.dm:255`) starts `say_cooldown` without the window being told.
+- Searched the window for any other reader of a `say` result: `details.tool` is read only for `locate`, `gave_up` and in `noteResult`, and nothing matches "only just spoke" or "too many things". None found.
+- The round case holds up, and is worse than written. In `data/logs/2026/11/18/round-21.49.53`, `crew_brain.log` has three model answers for Manuel Sheets with a `"say"`: 04:15:12.403, 04:15:15.844 and 04:15:21.047. `game.log` has no "was told by its brain to say" for him between 04:14:54.722 and 04:15:25.854. The 04:15:15.844 record's prompt holds the one refusal, `[22:15:14] You are trying to do too many things at once. Slow down.` So all three lines were dropped by the limit, two of them with no word.
+- The `catch` case reads as written: two `runTool` says in one instant (`brain.ts:1598` and `:1612`). The server's cooldown refuses the second.
+- Not in the change log or the plans (searched "only just spoke", "too many things", `say_cooldown`).
+- Severity medium is right: the job is not lost for good, because the driver asks again after `fail`'s wait, but the hooks mark asks as made that were never heard. Effort medium is right.
+- Fix: sound. One caution added to step 5 (BRAIN-03 depends on the ninth-call refusal today). For step 2, re-say an LLM answer that was dropped only if it carried `mustSay`. A dropped piece of small talk can simply be lost. That saves a second line nobody needs.

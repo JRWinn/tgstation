@@ -89,7 +89,7 @@ Read from the code: the async helpers in `_ai_behavior.dm`, both perform_async p
 
 ## How to fix it
 
-Two parts. The first is the one that matters; the second is a backstop for waits that never end.
+Steps 1 and 2 are the ones that matter; step 3 is a backstop for a leaf that never ends for any other reason.
 
 1. In `crew_npc_do_errand/perform_async`, wrap the call:
 
@@ -112,5 +112,17 @@ Keep: errands whose proc starts a walk (haul, collect, release, evict) change `e
 ## How to test the fix
 
 - Compile. Add a temporary `CRASH("test")` at the top of `take_paper`, spawn the test crew, and let the Quartermaster fetch paper: `game.log` must show the "stopped on an error" line, the brain must get a failed `get_paper` result, and the Quartermaster must go on to other work. Take the line out again.
-- Simulator: the sim plays the server, so add a stand-in tool that never answers while reporting `walking: true`, and check that the driver gives up on it after the new limit and goes on to the next step.
+- For step 3: with the `CRASH` still in, set `CREW_NPC_ERRAND_LIMIT` to 30 seconds for the test and take out the try-catch around `do_errand` for the moment: after 30 seconds `game.log` must show the overdue line, the brain must get a failed result, and the body must take its next step. Put both back.
+- The simulator plays the server, so it cannot show a stuck leaf; it needs no new scenario for this.
 - In the next rounds, grep `game.log` for "stopped on an error": each one is a runtime that would have frozen a body.
+
+## Check
+
+Checked by Opus 5.5, from the code. Confirmed.
+
+- The quotes are what the code says today: both `perform_async` procs (`crew_npc_hands.dm:391`, `crew_npc_storage.dm:218`), `handle_async`/`start_async`/`finish_async` in `code/datums/ai/_ai_behavior.dm`, `walking` in `ui_data` (`crew_brain_link.dm:195`) and `busy` and the lost-step check in `drive` (`driver.ts:669`, `:726`).
+- Traced: `async_running` is cleared only by `finish_async` and by `finish_action`, and `finish_action` runs only from `reset_tick_state` when the tree is reset. Nothing in `code/modules/llm_crew/` uses `try`, and there is no errand time limit: `crew_npc_reach` limits only the walk. With the errand key set, `walking` is TRUE, `busy` is TRUE and `drive` returns null; the lost-step check waits on `!brain.walking`. So the chain holds as written. Whether the runtime happens before or after `do_errand` first sleeps does not matter: either way `finish_async` is never reached.
+- Ways out the finding lists are right: `start_walk` calls `cancel_errand` (`crew_npc_tools.dm:405`), and a new `start_errand` replaces the key through `set_blackboard_key`, which clears the old value first (`_ai_controller.dm:778`); both reset the leaf. The driver only sends such a step for `orderToDrop`, being told to leave, or a step-aside.
+- Not checked: the count of runtimes over past rounds and builds; that part is the finder's own and does not change the answer.
+- Severity left at medium: the result is a body lost for the round (critical in FORMAT.md), but only after some other runtime, and none has been seen to do it.
+- Mended the fix: the window-side limit in step 3 would not have freed the body, because `busy` stays TRUE from `walking` while the server still holds the key. Replaced with a server-side timer that clears the key. The try-catch in steps 1 and 2 is right: `do_errand` returns a list on every path, and `catch(var/exception/error)` gives `name`, `file` and `line`. It keeps the no-cheats rule, since it only reports and lets go.
