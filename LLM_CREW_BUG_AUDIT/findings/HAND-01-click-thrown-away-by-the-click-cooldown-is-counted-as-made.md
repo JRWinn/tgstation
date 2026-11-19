@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: hands
 files: code/modules/llm_crew/crew_npc_machines.dm:259, code/modules/llm_crew/crew_npc_security.dm:1013, code/modules/llm_crew/crew_npc_security.dm:974, code/_onclick/click.dm:120, code/_onclick/item_attack.dm:203
 fix: In click_as_body wait out the body's own next_move before a plain click, and return FALSE if the game would still drop it

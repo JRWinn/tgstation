@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: hands
 files: code/modules/llm_crew/crew_npc_hands.dm:308, code/modules/llm_crew/crew_npc_hands.dm:105, code/modules/llm_crew/crew_npc_hands.dm:33, code/modules/llm_crew/crew_npc_hands.dm:263, code/modules/llm_crew/crew_npc_hands.dm:276, code/modules/llm_crew/crew_npc_doors.dm:592, code/modules/llm_crew/crew_npc_doors.dm:780, code/modules/llm_crew/crew_npc_freight.dm:601, code/modules/llm_crew/crew_npc_quartermaster.dm:114
 fix: Replace each direct call with the click a player makes, starting with hand_over, which puts things into a player's hand

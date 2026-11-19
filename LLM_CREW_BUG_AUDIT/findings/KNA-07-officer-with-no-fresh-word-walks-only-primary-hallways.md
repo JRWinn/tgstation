@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:301, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:887
 fix: Look first in the rooms that open onto the room of the last sighting, then walk every hallway the station has, by kind of room and not by name

@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: logs
 files: code/modules/llm_crew/crew_npc_tools.dm:129, code/modules/llm_crew/crew_npc_senses.dm:86, code/modules/llm_crew/crew_npc_tools.dm:116, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1785, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:943
 fix: Write every action result to the round's crew brain log from the server, with the tool, whether it went, and the words, and log tool calls the rate limit drops

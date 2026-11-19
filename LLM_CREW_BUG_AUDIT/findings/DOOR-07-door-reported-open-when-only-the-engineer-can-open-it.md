@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:152, code/modules/llm_crew/crew_npc_forcing.dm:204, code/modules/llm_crew/crew_npc_forcing.dm:443, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:380
 fix: Tell the tool who the door is for, and force a door that opens only to the engineer's own ID so that it is left standing open, and do not count a door that will shut by itself as open

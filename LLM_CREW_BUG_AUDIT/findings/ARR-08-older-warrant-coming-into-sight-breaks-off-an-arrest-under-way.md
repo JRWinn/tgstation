@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:631, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:461, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:740
 fix: In orderToDrop do not drop a step of one emergency task for another emergency task, and have serveStep make the other warrant wait while an arrest is in hand

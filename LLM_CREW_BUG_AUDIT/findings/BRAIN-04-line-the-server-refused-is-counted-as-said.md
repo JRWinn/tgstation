@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1766, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1531, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:943, code/modules/llm_crew/crew_npc_tools.dm:116, code/modules/llm_crew/crew_npc_tools.dm:140
 fix: Read the server's refusal of a say in ingest and say the line again once, and keep the window's own count of tool calls so the server's limit is never reached

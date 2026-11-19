@@ -6,6 +6,7 @@ severity: low
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:71, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:65, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:712, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1145
 fix: Put the article on through one helper that knows which room names take one, and let the code that reads these lines back accept the name with or without it

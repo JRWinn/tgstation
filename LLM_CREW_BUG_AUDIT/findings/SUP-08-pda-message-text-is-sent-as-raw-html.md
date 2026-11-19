@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:701, code/modules/llm_crew/crew_npc_cargo.dm:719, code/modules/llm_crew/crew_npc_cargo.dm:775, code/modules/modular_computers/file_system/programs/messenger/messenger_program.dm:461
 fix: Run the text through the messenger's own sanitize_pda_message before it is sent or kept for resending

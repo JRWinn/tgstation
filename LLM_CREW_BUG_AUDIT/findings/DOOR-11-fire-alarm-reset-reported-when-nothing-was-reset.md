@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:773, code/game/machinery/firealarm.dm:272
 fix: Reset the alarm by the right click a player uses, then look at the room and answer by whether its alarm is in fact off

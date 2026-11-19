@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_motor.dm:68, code/modules/llm_crew/crew_npc_tools.dm:200, code/modules/llm_crew/crew_npc_tools.dm:506, code/modules/llm_crew/crew_npc_doors.dm:42
 fix: End a walk at once when the route just planned runs through a shut airlock that is locked to the body, say which door, and ask to be let out by that door

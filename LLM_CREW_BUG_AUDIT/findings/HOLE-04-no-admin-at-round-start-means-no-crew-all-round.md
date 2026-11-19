@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_spawn.dm:92, code/modules/llm_crew/crew_npc_spawn.dm:68, code/modules/llm_crew/crew_npc_spawn.dm:56
 fix: Log why no crew was spawned, try again when an admin who may spawn connects, and name the owner in config instead of taking the first admin on the list

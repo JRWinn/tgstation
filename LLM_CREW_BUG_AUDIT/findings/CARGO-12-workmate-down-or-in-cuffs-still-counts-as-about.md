@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:284, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1368, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1152, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1413
 fix: Write one helper, ableWorkmate, that needs the person in view to be neither down nor cuffed, and use it in leftTo, doorIsMine, the knock rule and visitorToMind

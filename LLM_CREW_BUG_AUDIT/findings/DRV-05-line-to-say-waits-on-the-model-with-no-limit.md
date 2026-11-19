@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:734, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:805, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:71, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1138, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1338
 fix: Give a line its work calls for a wait of its own (about 8 seconds, as a choice has), after which the plain line is said by code and the body goes on

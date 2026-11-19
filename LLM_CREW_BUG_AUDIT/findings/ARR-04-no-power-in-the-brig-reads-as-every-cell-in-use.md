@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1081, code/modules/llm_crew/crew_npc_security.dm:1119, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:671, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1190
 fix: Have tool_jail say no_power apart from no_cell, walk the prisoner to the brig to wait, and tell whoever keeps the list once

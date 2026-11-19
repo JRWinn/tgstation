@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/index.ts:21, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:15, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:18
 fix: Build the JOBS list the first time jobFor is called, not when jobs/index.ts is loaded

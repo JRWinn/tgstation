@@ -6,6 +6,7 @@ severity: critical
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:198, tgui/packages/tgui/interfaces/CrewBrain/index.tsx:93, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:242, code/modules/llm_crew/crew_brain_link.dm:58, code/controllers/subsystem/tgui.dm:370
 fix: Keep a copy of each brain's lasting memory on the server and hand it back when the window opens, log and announce when the window shuts, and open it again by itself when the owner is back

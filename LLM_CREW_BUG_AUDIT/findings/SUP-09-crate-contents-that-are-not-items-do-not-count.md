@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_freight.dm:116, code/modules/llm_crew/crew_npc_cargo.dm:558, code/modules/llm_crew/crew_npc_held.dm:63, code/modules/cargo/packs/general.dm:95, code/modules/cargo/packs/service.dm:45
 fix: Count everything a crate holds, not only /obj/item, and unpack by opening the crate so that what cannot be lifted comes out too

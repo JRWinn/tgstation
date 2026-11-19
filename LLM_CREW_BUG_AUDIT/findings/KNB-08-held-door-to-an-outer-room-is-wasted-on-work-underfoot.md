@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:546, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:235, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:678, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:633
 fix: Put first the ready step that walks through the held door, whatever room its task is for, and stop a held door from clearing the back-off of work in the room the body is already in

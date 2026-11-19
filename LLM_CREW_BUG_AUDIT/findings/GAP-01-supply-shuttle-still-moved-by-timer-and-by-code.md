@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:419, code/modules/llm_crew/crew_npc_freight.dm:633, LLM_CREW_PLAN_NO_CHEATS.md:155
 fix: Press send through work_window at the console as the owner allowed for machine windows, drop the timer that moves the shuttle, and make an order two presses at the console

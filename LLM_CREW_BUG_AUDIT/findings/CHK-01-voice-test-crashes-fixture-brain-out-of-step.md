@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: tools/llm_crew/fixtures.ts:25, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:224, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:459, tools/llm_crew/voice.ts:92
 fix: Make the blank brain in one exported function in the window code and have both ingest and fixtures.ts call it

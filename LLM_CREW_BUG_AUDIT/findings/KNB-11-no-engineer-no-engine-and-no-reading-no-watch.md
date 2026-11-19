@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:210, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:279, code/modules/llm_crew/crew_npc_engineering.dm:105
 fix: Let the Chief Engineer take the engineer's lighting list itself when no engineer has taken the order, and go and look at the crystal when the monitor has told it nothing for some minutes

@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: LLM_CREW_BRIEF.md:9, tgui/packages/tgui/interfaces/CrewBrain/person.ts:9, tgui/packages/tgui/interfaces/CrewBrain/choice.ts:1, code/modules/llm_crew/crew_npc_spawn.dm:29, CLAUDE.md:14
 fix: Rewrite sections 2, 5 and 6 of the brief to say what is true now, with the date and the owner's words for each reversal, and list what the brief promised that is still unbuilt

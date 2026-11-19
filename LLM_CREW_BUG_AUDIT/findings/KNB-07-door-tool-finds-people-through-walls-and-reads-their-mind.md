@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:433, code/modules/llm_crew/crew_npc_doors.dm:546, code/modules/llm_crew/crew_npc_doors.dm:561, code/modules/llm_crew/crew_npc_doors.dm:570
 fix: Open the door that was named by the knock, the PDA message or the speech, and learn who is there by seeing them once it is open

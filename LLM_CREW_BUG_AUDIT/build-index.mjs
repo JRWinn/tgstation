@@ -53,6 +53,9 @@ for (const name of files) {
     area: (top.area ?? '').toLowerCase(),
     files: top.files ?? '',
     fix: top.fix ?? '',
+    foundBy: top.found_by ?? '',
+    checkedBy: top.checked_by ?? '',
+    duplicateOf: top.duplicate_of ?? '',
   });
 }
 
@@ -71,11 +74,13 @@ function inOrder(a, b) {
 }
 const cell = (text) => String(text).replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
 const firstPlace = (text) => cell(text.split(',')[0] ?? '').replace(/^.*\/(?=[^/]+$)/, '');
+const statusCell = (row) => `${row.status}${row.status === 'found' && row.confidence ? ` (${row.confidence})` : ''}`;
+const byCell = (row) => cell(`${row.foundBy || '?'}${row.checkedBy ? `, checked ${row.checkedBy}` : ''}`);
 function table(rows) {
-  const out = ['| Id | What is wrong | Proposed change | Effort | Status | Where |', '| --- | --- | --- | --- | --- | --- |'];
+  const out = ['| Id | What is wrong | Proposed change | Effort | Status | Found by | Where |', '| --- | --- | --- | --- | --- | --- | --- |'];
   for (const row of rows) {
     out.push(
-      `| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${cell(row.fix)} | ${row.effort} | ${row.status}${row.status === 'found' && row.confidence ? ` (${row.confidence})` : ''} | \`${firstPlace(row.files)}\` |`,
+      `| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${cell(row.fix)} | ${row.effort} | ${statusCell(row)} | ${byCell(row)} | \`${firstPlace(row.files)}\` |`,
     );
   }
   return out.join('\n');
@@ -94,6 +99,8 @@ out.push('**This file is built by `build-index.mjs` from the files in `findings/
 out.push('');
 out.push(`${findings.length} findings in all: ${bugs.length} bugs and ${gaps.length} gaps still open, ${count(findings, 'fixed')} fixed, ${count(findings, 'refuted')} refuted, ${count(findings, 'duplicate')} duplicates.`);
 out.push(`Of the open ones, ${count(open, 'confirmed')} were confirmed by a second reviewer, ${count(open, 'unsure')} could not be settled, and ${count(open, 'found')} have not been checked by anyone but their finder.`);
+const models = [...new Set(findings.map((row) => row.foundBy || '?'))].sort();
+out.push(`Found by: ${models.map((model) => `${model} ${findings.filter((row) => (row.foundBy || '?') === model).length}`).join(', ')}. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.`);
 out.push('');
 out.push('Within each group the easiest fix comes first. "found (sure)" means the finder was sure and nobody has checked it since.');
 out.push('');
@@ -116,9 +123,9 @@ out.push('');
 const gapOrder = (a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || inOrder(a, b);
 if (gaps.length) {
   const rows = gaps.sort(gapOrder);
-  const lines = ['| Id | What is missing | Proposed change | Matters | Effort | Status | Where |', '| --- | --- | --- | --- | --- | --- | --- |'];
+  const lines = ['| Id | What is missing | Proposed change | Matters | Effort | Status | Found by | Where |', '| --- | --- | --- | --- | --- | --- | --- | --- |'];
   for (const row of rows) {
-    lines.push(`| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${cell(row.fix)} | ${row.severity} | ${row.effort} | ${row.status} | \`${firstPlace(row.files)}\` |`);
+    lines.push(`| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${cell(row.fix)} | ${row.severity} | ${row.effort} | ${statusCell(row)} | ${byCell(row)} | \`${firstPlace(row.files)}\` |`);
   }
   out.push(lines.join('\n'));
 } else {
@@ -128,10 +135,10 @@ out.push('');
 out.push(`## Closed: fixed, refuted or duplicate (${closed.length})`);
 out.push('');
 if (closed.length) {
-  out.push('| Id | Title | Status |');
-  out.push('| --- | --- | --- |');
+  out.push('| Id | Title | Status | Found by |');
+  out.push('| --- | --- | --- | --- |');
   for (const row of closed.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))) {
-    out.push(`| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${row.status} |`);
+    out.push(`| [${row.id}](findings/${row.file}) | ${cell(row.title)} | ${row.status}${row.duplicateOf ? ` of ${cell(row.duplicateOf)}` : ''} | ${byCell(row)} |`);
   }
 } else {
   out.push('None.');

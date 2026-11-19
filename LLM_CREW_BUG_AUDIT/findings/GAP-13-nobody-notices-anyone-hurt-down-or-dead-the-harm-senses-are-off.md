@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: senses
 files: code/modules/llm_crew/crew_npc_danger.dm:8, code/modules/llm_crew/crew_npc_senses.dm:127, code/modules/llm_crew/crew_npc_tools.dm:13, LLM_CREW_PLAN_SECURITY.md:272
 fix: Call watch_for_harm from look_around for people in view, and build the one use the plans name, any crew member who sees someone lying still tells its head or the Captain once

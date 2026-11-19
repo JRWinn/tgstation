@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:198, code/modules/llm_crew/crew_brain_link.dm:76, code/modules/llm_crew/crew_npc_controller.dm:1, LLM_CREW_BRIEF.md:19
 fix: Keep on the server the few records that must outlive the window (warrants and who is in a cell, who is inside a locked room, orders in hand), hand them back when a brain is made, and have the server finish or let go of what a body is holding when its window goes quiet

@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: logs
 files: code/modules/llm_crew/crew_npc_motor.dm:68, code/modules/llm_crew/crew_npc_doors.dm:286, code/modules/llm_crew/crew_npc_tools.dm:515
 fix: Look over each planned route in route_planned and end the walk at once, naming the door, when it runs through a shut airlock the body's ID does not open

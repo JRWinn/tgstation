@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1008, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:96
 fix: Keep the six-reply cap for talk between NPCs only, or count replies over a rolling minute, and never drop a line from someone the NPC answers to

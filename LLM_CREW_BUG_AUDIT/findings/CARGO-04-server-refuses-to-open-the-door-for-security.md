@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:536, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1284, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1490, tools/llm_crew/sim.ts:768
 fix: Let tool_open_door (and the simulator's copy of it) open for someone in security who is at the door, and give doorCue words for security that do not talk of a mess

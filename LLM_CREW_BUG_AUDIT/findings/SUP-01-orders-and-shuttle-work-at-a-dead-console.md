@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:379, code/modules/llm_crew/crew_npc_freight.dm:633, code/modules/llm_crew/crew_npc_hands.dm:195
 fix: Have place_order and send_shuttle_back ask console.can_interact(body) first and answer that the console is dead when it says no

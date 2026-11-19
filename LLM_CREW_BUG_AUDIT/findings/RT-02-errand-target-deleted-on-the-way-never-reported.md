@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: core
 files: code/modules/llm_crew/crew_npc_hands.dm:392, code/modules/llm_crew/crew_npc_hands.dm:161, code/modules/llm_crew/crew_npc_storage.dm:218, code/datums/ai/_ai_controller.dm:1009, code/datums/ai/_ai_bt_decorators.dm:167
 fix: Override sig_remove_from_blackboard on the crew controller so that a lost errand or storage target is closed off and reported a moment later

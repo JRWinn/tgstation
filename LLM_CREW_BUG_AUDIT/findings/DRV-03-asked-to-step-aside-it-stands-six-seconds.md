@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:68, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:764, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:788, code/modules/llm_crew/crew_npc_doors.dm:865
 fix: Leave step_aside out of the talk hold and the pause after saying (add it to STAYS), and have tool_step_aside end the server's talk hold

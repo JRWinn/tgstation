@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1911, code/modules/llm_crew/crew_npc_cargo.dm:419, code/modules/llm_crew/crew_npc_cargo.dm:499, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674
 fix: Have the server owe a notice of kind failed when a placed order is given up, and have the technician pass it on like any other word (to the Quartermaster face to face, or to whoever ordered by PDA)

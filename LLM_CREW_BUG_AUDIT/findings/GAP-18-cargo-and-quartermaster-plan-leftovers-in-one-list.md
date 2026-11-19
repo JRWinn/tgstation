@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: supply
 files: LLM_CREW_PLAN_ROUND_1332.md:52, LLM_CREW_PLAN_QUARTERMASTER.md:161, LLM_CREW_PLAN_DROPPED_CRATES.md:31, LLM_CREW_PLAN_ROUND_0912.md:36, code/modules/llm_crew/crew_npc_held.dm:174
 fix: Build the uncollected order going back and the Quartermaster telling the Captain of a stuck shuttle first, both small, and put the rest to the owner as a list

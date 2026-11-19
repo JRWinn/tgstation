@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_senses.dm:380, code/__HELPERS/priority_announce.dm:40, code/__HELPERS/priority_announce.dm:202
 fix: Give every conscious body on the station a sense event for each station announcement, and build one shared duty on top of it, going to the shuttle when it is called

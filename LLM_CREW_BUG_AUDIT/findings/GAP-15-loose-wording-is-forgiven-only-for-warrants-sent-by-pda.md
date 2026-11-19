@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:662, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:178, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:73, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:147
 fix: Lift the forgiving speller and the small LLM reader out of security into shared code, and give each job's order reader a list of the orders it takes so the same last-resort question serves all of them

@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: engineering
 files: code/modules/llm_crew/crew_npc_forcing.dm:154, code/modules/llm_crew/crew_npc_forcing.dm:443, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:386
 fix: When the door opens to the engineer's ID, have it open the door and hold it for security, and say the door is open only when it stands open

@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:959, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:152, code/modules/llm_crew/crew_npc_cargo.dm:666, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:109, tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:27, code/modules/llm_crew/crew_npc_danger.dm:8
 fix: Keep, for each person a crew member relies on, a count of words sent and not answered and whether they were last seen down, pass over anyone who fails it when picking who holds a job, and tell its own head or the Captain once when someone has stopped answering

@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:570, code/modules/llm_crew/crew_npc_spawn.dm:19, LLM_CREW_PLAN_NO_CHEATS.md:142
 fix: Unpack by opening the crate with a click and leaving its contents on its own tile, and delete the galoshes swap from create_crew_npc

@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1063, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1467
 fix: In the PDA fall-back for an order given by the Quartermaster, also send the Quartermaster the has-come-in line by PDA, which its readsMessage already reads

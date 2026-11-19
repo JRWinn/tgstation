@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:947, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:457
 fix: In shouldWake, do not wake the voice for a first meeting while the job says the body cannot leave what it is doing

@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:980, code/modules/llm_crew/crew_npc_security.dm:1013, code/modules/llm_crew/crew_npc_machines.dm:259, code/_onclick/click.dm:120
 fix: Have click_as_body wait out body.next_move before it clicks, and say so when a click was not made

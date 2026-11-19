@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_spawn.dm:9, code/modules/llm_crew/crew_npc_spawn.dm:103, code/datums/records/manifest.dm:108, code/modules/jobs/job_types/_job.dm:415
 fix: Give each body a mind and its job through SSjob when it is spawned, take the job's slot, and put it on the manifest, and skip any job a player already holds

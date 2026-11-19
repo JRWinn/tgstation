@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2275, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2316, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1754
 fix: Keep a standing ask that may be let through unless the new one may be too, and do not take the word door from cargo staff as an ask

@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:799, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:179, tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:88, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:176, tgui/packages/tgui/interfaces/CrewBrain/hierarchy.ts:39
 fix: Take any answer from the person a job was given to as their word that they have it, give a job that goes unanswered to someone else after a set number of tries, and call to a staff meeting only those who have answered a call before

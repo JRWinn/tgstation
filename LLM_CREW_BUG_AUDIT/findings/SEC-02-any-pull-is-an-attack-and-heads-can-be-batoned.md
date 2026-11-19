@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1530, code/modules/llm_crew/crew_npc_security.dm:853, code/modules/llm_crew/crew_npc_guarding.dm:173, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1253, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:975
 fix: Do not tell the brain of a hold taken by a crew member putting it out of a room or by security arresting it, and refuse the stop-with-baton on a head of staff as it is refused on the Captain

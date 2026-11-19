@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:112, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:517, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:745
 fix: Count a step clear when the step is issued (in drive, beside noteDone), not when nextStep asks whether one is allowed

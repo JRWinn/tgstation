@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:748, code/modules/llm_crew/crew_npc_security.dm:1075, code/modules/llm_crew/crew_npc_security.dm:1157, code/modules/llm_crew/crew_npc_security.dm:1202, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1195
 fix: Call cell_refuses for the cell in jail_cell whenever a jail errand ends in no_way or timer, including the walk that never reached the timer

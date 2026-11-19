@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: hands
 files: code/modules/llm_crew/crew_npc_hands.dm:567, code/modules/llm_crew/crew_npc_security.dm:1001
 fix: During an errand, count a thing as its own only if the errand is one that picks things up and the thing is what it went for, and queue the rest to be put down

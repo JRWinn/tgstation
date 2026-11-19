@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1550, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:381, code/modules/llm_crew/crew_npc_guarding.dm:235, LLM_CREW_PLAN_NO_CHEATS.md:116
 fix: Send who called whom in place of the yes or no, word the waiting step with it, and give the let-out message its true reason (done, dry mop, cannot shift it)

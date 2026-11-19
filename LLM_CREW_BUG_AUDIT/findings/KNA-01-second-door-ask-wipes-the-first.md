@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2319, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2281, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1380, tgui/packages/tgui/interfaces/CrewBrain/types.ts:1104
 fix: Keep door asks as a list by asker, serve them oldest first, and strike one only when its door has been opened or it has run out

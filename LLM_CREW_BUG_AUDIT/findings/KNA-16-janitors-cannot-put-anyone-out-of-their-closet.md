@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: code/modules/llm_crew/crew_npc_guarding.dm:145, code/modules/llm_crew/crew_npc_guarding.dm:24, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:343
 fix: Guard any locked room of the body's own department that it is standing in, not only a post it is stationed at

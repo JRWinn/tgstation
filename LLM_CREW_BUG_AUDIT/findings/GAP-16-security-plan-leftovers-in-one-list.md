@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: LLM_CREW_PLAN_SECURITY.md:159, LLM_CREW_PLAN_ROUND_1428_SECURITY.md:12, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1, code/modules/llm_crew/crew_npc_security.dm:1
 fix: Take the small ones (cuffs collected, a freed prisoner seen out, the sighting answered, a follow order) in one sitting and put the rest to the owner as a list

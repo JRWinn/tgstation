@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:105, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:198
 fix: Start the count again when the body leaves the room, and clear the map in stopSession

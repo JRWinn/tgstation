@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: code/modules/llm_crew/crew_npc_cargo.dm:27, code/modules/llm_crew/crew_npc_cleaning.dm:110, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:579, LLM_CREW_PLAN_NO_CHEATS.md:126
 fix: Add the cart crate to orderable_crates, tell the head of a missing bucket as a need that does not stop work, then build pulling and filling a cart on the crate-hauling code

@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: tools/llm_crew/sim.ts:1302, tools/build/build.ts:497, tgui/tsconfig.json:32, package.json:8, .github/workflows/run_linters.yml:134
 fix: Add one runner script that runs the tables, the dry model tests and the simulator scenarios and exits non-zero on any failure, and hang the quick part of it on the tgui test target

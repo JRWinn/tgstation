@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: code/modules/llm_crew/crew_npc_guarding.dm:144, code/modules/llm_crew/crew_npc_cargo.dm:41, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:751, LLM_CREW_PLAN_SECURITY.md:399
 fix: Give every body a list of rooms it keeps (its department's locked rooms), key the guarding code on that list instead of the post, and add guarding to the janitor job

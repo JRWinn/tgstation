@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:709, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:205, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:720
 fix: Have the window say which notice a message is about and have tool_message strike off only a notice of that kind

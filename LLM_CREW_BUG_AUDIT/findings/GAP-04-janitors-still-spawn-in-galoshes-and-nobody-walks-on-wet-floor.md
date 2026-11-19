@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: code/modules/llm_crew/crew_npc_spawn.dm:15, code/modules/llm_crew/crew_npc_senses.dm:46, LLM_CREW_PLAN_NO_CHEATS.md:142
 fix: Teach knows_slippery to see a wet floor tile, see it work in a round, then delete the shoe swap in create_crew_npc

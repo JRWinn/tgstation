@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:694, code/modules/llm_crew/crew_npc_doors.dm:729, code/modules/llm_crew/crew_npc_doors.dm:749, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:262
 fix: Drop the server's answer and let the body judge by what it can see at the alarm, the air where it stands and any fire in view, or leave fire doors to engineering as the owner laid out

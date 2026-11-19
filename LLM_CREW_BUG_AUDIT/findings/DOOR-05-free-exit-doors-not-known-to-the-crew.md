@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:561, code/modules/llm_crew/crew_npc_doors.dm:184, code/modules/llm_crew/crew_npc_guarding.dm:118, code/game/machinery/doors/airlock.dm:1523
 fix: Teach the route planner that an airlock opens from its free-exit side, or failing that have a shut-in body look for such a door of its room and walk into it

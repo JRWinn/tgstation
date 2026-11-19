@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:420, code/modules/llm_crew/crew_npc_doors.dm:268
 fix: Among the doors that match the name given, take the one the person stands at, or failing that the nearest to them

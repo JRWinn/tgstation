@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:184, code/modules/llm_crew/crew_npc_tools.dm:506, code/modules/llm_crew/crew_npc_tools.dm:277
 fix: In check_shut_in leave out rooms locked to the body, never conclude shut in from zero routes tested or in a hallway, and first ask whether any door of the room it stands in opens to it

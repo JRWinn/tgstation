@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:362, code/modules/llm_crew/crew_npc_forcing.dm:225
 fix: When the server says the way is through another locked room, force that room's door first and then go on to the door that was asked for

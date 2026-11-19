@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: logs
 files: code/modules/llm_crew/crew_npc_tools.dm:539, code/controllers/subsystem/pathfinder.dm:79, code/__HELPERS/paths/path.dm:18
 fix: Drop the second opinion from log_no_route and print what the route search actually met instead, a flood fill from the body that names the furthest tile reached and what stands on the next ones

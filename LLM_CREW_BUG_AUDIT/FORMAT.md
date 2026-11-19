@@ -30,6 +30,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:412
 fix: Put one held thing down in drop_for_weapon before the baton is taken out
@@ -68,7 +69,10 @@ The simulator scenario or table of cases to run or add (`tools/llm_crew/`), the 
 | `severity` | `critical`, `high`, `medium`, `low` | See below. |
 | `effort` | `small`, `medium`, `large` | small: under about 20 lines in one file. medium: one part of the code, under about 100 lines. large: a design change, or both the server and the window. |
 | `confidence` | `sure`, `likely`, `guess` | How sure the finder is. `sure` means the code was read end to end and the fault cannot be avoided. |
-| `status` | `found`, `confirmed`, `refuted`, `unsure`, `duplicate`, `fixed` | `found`: written up, nobody has checked it. `confirmed`: a second reviewer tried to prove it wrong and could not. `refuted`: it is not a fault, and the file says why. `unsure`: the second reviewer could not settle it. `duplicate`: the same fault as another file, named in the title line. `fixed`: done, with the commit named in the file. |
+| `status` | `found`, `confirmed`, `refuted`, `unsure`, `duplicate`, `fixed` | `found`: written up, nobody has checked it. `confirmed`: a second reviewer tried to prove it wrong and could not. `refuted`: it is not a fault, and the file says why. `unsure`: the second reviewer could not settle it. `duplicate`: the same fault as another file, named in a `duplicate_of:` line. `fixed`: done, with the commit named in the file. |
+| `found_by` | `Fable 5.2`, `Opus 5.5` | The model that found it. The audit began on Claude Fable 5.2, which ran out of usage part way; the owner switched to Claude Opus 5.5 and asked that every finding after that be marked as found by Opus. |
+| `checked_by` | `Opus 5.5` | Added by whoever checks it: the model the second reviewer ran on. Left out until it is checked. |
+| `duplicate_of` | an id | Only when `status: duplicate`: the finding that keeps the write-up. |
 | `area` | one word | security, doors, supply, hands, cleaning, core, senses, brain, driver, memory, cargo, quartermaster, head, janitor, engineering, tools, logs, design |
 | `files` | paths with line numbers, commas between | The first is the main place. |
 | `fix` | one sentence | The proposed change, short enough for a table. |
@@ -94,7 +98,7 @@ The simulator scenario or table of cases to run or add (`tools/llm_crew/`), the 
 
 Assume it may be wrong. Open the code at the quote and make sure the quote is still what the code says. Look for the guard, the caller, or the base-game behaviour that makes the fault impossible. Judge the fix as well: would it work, would it break something else, does it keep the rules. Then:
 
-- set `status:` to `confirmed`, `refuted` or `unsure`;
+- set `status:` to `confirmed`, `refuted` or `unsure`, and add a `checked_by:` line under `found_by:` naming the model you run on;
 - correct `severity`, `effort` and `fix` if they are wrong, and mend the write-up where it is wrong;
 - add a last section, `## Check`, saying what you read or ran and why you reached that answer. For `refuted`, name the line that makes it impossible.
 

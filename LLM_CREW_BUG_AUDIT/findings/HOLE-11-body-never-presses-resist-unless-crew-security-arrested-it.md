@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: core
 files: code/modules/llm_crew/crew_npc_security.dm:1462, code/modules/llm_crew/crew_npc_senses.dm:138, code/modules/mob/living/living.dm:1049, code/modules/mob/living/living.dm:1151, code/datums/ai/movement/_ai_movement.dm:61
 fix: Add one reflex to the body, run from look_around, that presses Resist the way a player would when it is buckled by someone else, shut in a container, on fire, or in cuffs with nobody holding it, and tells the brain what happened

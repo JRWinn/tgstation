@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/options.ts:15, tgui/packages/tgui/interfaces/CrewBrain/options.ts:58, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:137, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1476
 fix: Offer the walk only when a line said to this NPC both asks the way and names a room, and have code check a go_to against what was said as it does an order

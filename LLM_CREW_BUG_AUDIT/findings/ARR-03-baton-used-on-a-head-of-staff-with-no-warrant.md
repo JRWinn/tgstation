@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:495, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:975, code/modules/llm_crew/crew_npc_security.dm:853
 fix: Refuse the baton with no warrant on anyone who is command, in the stop_attacker task and in tool_arrest, and report it instead

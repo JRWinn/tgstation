@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:938, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1018, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:981, tgui/packages/tgui/interfaces/CrewBrain/expected.ts:32, code/modules/llm_crew/crew_brain_link.dm:67, code/modules/llm_crew/crew_npc_spawn.dm:29
 fix: Have the server say of each person seen and heard whether they are a crew NPC, use that in place of "is in my window", and add an admin verb that hands a crew to another owner

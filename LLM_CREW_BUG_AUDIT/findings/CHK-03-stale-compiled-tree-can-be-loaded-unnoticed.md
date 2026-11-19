@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: code/modules/llm_crew/crew_npc.bt.json:1, build/behavior_trees/code/modules/llm_crew/crew_npc.bt.compiled.json:1, code/datums/ai/_ai_controller.dm:266, tools/build_bt.py:310, code/modules/llm_crew/_defines.dm:13
 fix: Add the tree check to the list of checks, with a command that works under Python 3.11, and mend the comment that says which defines the tree compiler reads

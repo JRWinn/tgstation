@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1277, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:796, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:228, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:686
 fix: When think drops a line because its sayIf is false, hold the driver off for a few seconds, and do not ask for a line whose sayIf is already false

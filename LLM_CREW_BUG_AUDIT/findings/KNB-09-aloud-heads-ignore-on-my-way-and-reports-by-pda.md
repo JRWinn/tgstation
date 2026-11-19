@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1445, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:650, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1313, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:482
 fix: Move the reading of On my way and of a report by PDA out of the Head of Personnel's readsMessage into one helper every head calls, and send the meeting-is-over word to anyone who was called by PDA

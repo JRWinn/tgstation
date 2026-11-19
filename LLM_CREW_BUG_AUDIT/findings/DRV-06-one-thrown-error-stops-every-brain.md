@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/index.tsx:95, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:219, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1162, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1273, tgui/packages/tgui-setup/helpers.js:395, code/modules/tgui/tgui.dm:103
 fix: Catch errors per NPC in ingest and round the whole of think, chooseJob and readOrder, log them through brain_log, and always free the LLM turn in a finally

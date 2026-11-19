@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:797
 fix: Clear heldSince whenever drive returns without reaching the hold, or count the hold from lastSpokenToAt

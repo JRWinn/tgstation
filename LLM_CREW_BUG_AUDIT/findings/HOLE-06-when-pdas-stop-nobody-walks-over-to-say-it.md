@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_cargo.dm:719, code/modules/llm_crew/crew_npc_cargo.dm:770, code/modules/llm_crew/crew_brain_link.dm:146, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:873, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:222
 fix: Tell the window when the body's PDA has not been sending, treat that as having no PDA, keep word that did not go, and add one general step that carries word to someone in person

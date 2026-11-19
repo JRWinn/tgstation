@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: tools/llm_crew/sim.ts:1, tools/llm_crew/voice.ts:1, LLM_CREW_PLAN_NO_CHEATS.md:193, LLM_CREW_PLAN_ROUND_0912.md:262, LLM_CREW_PLAN_DROPPED_CRATES.md:36
 fix: Write the scenarios the plans list as the fixes for them are built, run the model cases once with the card free, pin the simulator's randomness so a failing run can be replayed, and add a checklist round for server code

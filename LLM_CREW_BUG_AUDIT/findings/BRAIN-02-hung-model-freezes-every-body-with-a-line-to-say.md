@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:71, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1338, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:734
 fix: Give a line the work calls for its own short wait, after which the plain line is said without the model, and give talk calls a shorter time limit

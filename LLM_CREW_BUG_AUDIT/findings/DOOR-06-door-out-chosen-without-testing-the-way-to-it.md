@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:363, code/modules/llm_crew/crew_npc_tools.dm:440
 fix: Test a route to the inside tile for a door out as is done for a door in, and remember a door that a walk failed to reach so the next call passes it over

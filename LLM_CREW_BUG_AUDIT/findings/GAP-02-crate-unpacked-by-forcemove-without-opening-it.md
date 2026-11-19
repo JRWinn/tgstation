@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:558, code/modules/llm_crew/crew_npc_held.dm:418, LLM_CREW_PLAN_NO_CHEATS.md:148
 fix: Open the crate by the click a player uses, leave everything on its tile, pull the open crate one tile clear, shut it, and take it back

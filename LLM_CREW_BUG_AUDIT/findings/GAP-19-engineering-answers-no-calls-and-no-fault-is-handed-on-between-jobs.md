@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: engineering
 files: LLM_CREW_PLAN_ENGINEERING.md:170, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:1, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineer.ts:170, tgui/packages/tgui/interfaces/CrewBrain/jobs/engine.ts:111
 fix: Build stage 2 as a shared reporting duty plus a list of calls on the Chief Engineer, starting with the one call the game makes easy, a room's breaker that is off

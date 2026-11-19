@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1919, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:441, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1580
 fix: Pass the did-not-go-through word through tellQuartermaster as a task of its own, with the same I-have-that answer and PDA fall-back as the other three words

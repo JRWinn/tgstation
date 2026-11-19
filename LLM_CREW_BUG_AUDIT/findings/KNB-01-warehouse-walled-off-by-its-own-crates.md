@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: logs
 files: code/modules/llm_crew/crew_npc_places.dm:32, code/modules/llm_crew/crew_npc_tools.dm:370, code/modules/llm_crew/crew_npc_tools.dm:534
 fix: Walk to a spot the body has a route to (just inside the door its ID opens) when the chosen spot has none, and give bodies a way to press a door button they can see

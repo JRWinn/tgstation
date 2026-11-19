@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:379, code/modules/llm_crew/crew_npc_freight.dm:633, code/game/machinery/_machinery.dm:650, code/modules/cargo/orderconsole.dm:221
 fix: Refuse in place_order and send_shuttle_back when console.can_interact(body) is false, and tell the brain the console is dead

@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:656, code/modules/llm_crew/crew_npc_doors.dm:624
 fix: Count who is still to come through each held door and shut it only when the last of them is through or every hold has run out

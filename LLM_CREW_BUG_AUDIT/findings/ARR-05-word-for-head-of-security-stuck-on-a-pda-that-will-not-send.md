@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:206, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:156, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:504
 fix: In tellHead say the word face to face whenever the Head of Security is in sight, and after a PDA send fails go to the post to find them

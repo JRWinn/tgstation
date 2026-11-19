@@ -19,7 +19,7 @@ for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
       echo "nothing new to save"
       exit 0
     fi
-    if git commit -q -m "$msg" -m "Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>" -- LLM_CREW_BUG_AUDIT 2>/dev/null; then
+    if git commit -q -m "$msg" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -- LLM_CREW_BUG_AUDIT 2>/dev/null; then
       echo "saved: $(git log -1 --format=%h)"
       exit 0
     fi

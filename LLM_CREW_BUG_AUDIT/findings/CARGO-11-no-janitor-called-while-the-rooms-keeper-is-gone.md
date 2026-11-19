@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1541, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1350, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:266
 fix: In tidyStep leave the call to the keeper only while leftTo says they are about, as every other piece of the standing work does

@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:481, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:496
 fix: Let a hurt officer that is struck again while getting away stop its attacker with the baton, in self-defence only, if the owner agrees

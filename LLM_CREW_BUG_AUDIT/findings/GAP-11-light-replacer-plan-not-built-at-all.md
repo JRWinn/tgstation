@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: janitor
 files: LLM_CREW_PLAN_LIGHTS.md:63, code/modules/llm_crew/crew_npc_senses.dm:304, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1, tgui/packages/tgui/interfaces/CrewBrain/jobs/reports.ts:1
 fix: Build the plan's seven steps in its own order, starting with the server seeing dead fixtures by room

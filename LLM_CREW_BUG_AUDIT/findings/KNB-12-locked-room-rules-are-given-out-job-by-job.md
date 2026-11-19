@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_cargo.dm:41, code/modules/llm_crew/crew_npc_doors.dm:493, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:751
 fix: Work out a body's own rooms from its ID and its job's department for every job, and let anyone with rooms of their own guard them and open their doors

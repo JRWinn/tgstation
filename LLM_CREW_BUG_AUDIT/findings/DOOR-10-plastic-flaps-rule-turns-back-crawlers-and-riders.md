@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/game/objects/structures/plasticflaps.dm:196, code/game/objects/structures/plasticflaps.dm:229, code/__HELPERS/paths/path.dm:279
 fix: Let the route through when the one asking is lying down or buckled to a mulebot, read from the pass info, and say in the comment what the rule cannot know

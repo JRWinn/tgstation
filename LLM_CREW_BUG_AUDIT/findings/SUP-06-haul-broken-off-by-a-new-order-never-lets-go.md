@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_tools.dm:397, code/modules/llm_crew/crew_npc_tools.dm:409, code/modules/llm_crew/crew_npc_hands.dm:161, code/modules/llm_crew/crew_npc_held.dm:400, code/modules/llm_crew/crew_npc_held.dm:372
 fix: Have start_walk and start_errand end a haul they replace - let go, clear collected_by, tell the brain - and let a collected_by claim lapse when nobody is pulling the crate

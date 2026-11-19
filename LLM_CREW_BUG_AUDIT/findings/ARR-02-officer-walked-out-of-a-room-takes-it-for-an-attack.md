@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1253, code/modules/llm_crew/crew_npc_security.dm:1530, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:370, code/modules/llm_crew/crew_npc_guarding.dm:173
 fix: Do not treat being taken by the arm to be walked out as an attack, and do not see security out of a room while it has a warrant to serve there

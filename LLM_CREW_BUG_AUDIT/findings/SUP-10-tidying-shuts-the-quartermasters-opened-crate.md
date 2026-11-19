@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: quartermaster
 files: code/modules/llm_crew/crew_npc_quartermaster.dm:375, code/modules/llm_crew/crew_npc_tidying.dm:68, code/modules/llm_crew/crew_npc_quartermaster.dm:193
 fix: Have the Quartermaster take what it ordered the crate for out of it before it leaves, and let nearest_paper_bin count a bin in a crate the body may open

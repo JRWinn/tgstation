@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: quartermaster
 files: code/modules/llm_crew/crew_npc_quartermaster.dm:87, code/modules/llm_crew/crew_npc_quartermaster.dm:104, code/modules/llm_crew/crew_npc_quartermaster.dm:258, code/modules/mob/inventory.dm:293
 fix: Make take_in_hand look for an empty hand first and return FALSE without touching the thing when there is none

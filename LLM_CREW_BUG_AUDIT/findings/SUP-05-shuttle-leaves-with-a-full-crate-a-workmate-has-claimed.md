@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_freight.dm:165, code/modules/llm_crew/crew_npc_cargo.dm:446, code/modules/llm_crew/crew_npc_freight.dm:623, code/modules/llm_crew/crew_npc_freight.dm:276, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:111
 fix: Decide whether the shuttle may leave from every full crate aboard, not only from those no workmate has claimed

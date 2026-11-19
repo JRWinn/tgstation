@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:423, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2219, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:59, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:38
 fix: In crateMeant fall back to the crates held for the speaker, read more ways of giving a number, and say there is no crate for you instead of by that number when none was given

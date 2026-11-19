@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/expected.ts:32, tgui/packages/tgui/interfaces/CrewBrain/jobs/rounds.ts:46, code/modules/llm_crew/crew_npc_guarding.dm:235, code/modules/llm_crew/crew_npc_freight.dm:138, code/modules/llm_crew/crew_npc_held.dm:43
 fix: Ask the owner whether a department's shared list is allowed, then either write the exception into the brief or carry each list by speech, PDA or something the body can read

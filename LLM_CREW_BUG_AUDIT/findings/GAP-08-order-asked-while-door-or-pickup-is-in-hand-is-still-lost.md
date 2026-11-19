@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1873, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2344, LLM_CREW_PLAN_NO_CHEATS.md:107
 fix: Keep the ask in code when hears() is turned away by a door or a pick-up, tell the LLM the truth meanwhile, and place it from the kept words once the door is done

@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1289, code/modules/llm_crew/crew_npc_security.dm:1320, code/modules/llm_crew/crew_npc_security.dm:1214
 fix: At the timer, stop it only if someone of that name is standing in the cell, forget a jailed entry that is no longer true, and look for the person in sight before going by memory

@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_npc_motor.dm:56, code/modules/llm_crew/crew_npc_spawn.dm:100, code/modules/llm_crew/crew_npc_tools.dm:371, code/modules/llm_crew/crew_npc_cargo.dm:133, code/datums/ai/movement/ai_movement_navmap_astar.dm:7
 fix: Turn on the route planner's multi-floor routes for crew, look for rooms on every station level, and send a body to the nearest floor of a room that it can reach

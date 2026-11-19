@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/expected.ts:40, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1475, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1966, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1517, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1878
 fix: Strike the note when a let-out fails because they are not in that room, give the note an age limit, and do not let a standing door want switch off order-taking

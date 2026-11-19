@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:373, code/modules/llm_crew/crew_npc_security.dm:410, code/modules/mob/living/living.dm:1046
 fix: Before every body.Move in close_with and walk_steps, stop unless the body is awake, not immobilised and not buckled, the check the wander and the walk loops already make

@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1599, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1622
 fix: Put every room that is due a call into one message to the same janitor, and pass over a janitor who is seen to be down

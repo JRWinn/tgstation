@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: LLM_CREW_PLAN_NO_CHEATS.md:174, code/modules/llm_crew/crew_npc_cargo.dm:283, code/modules/llm_crew/crew_npc_quartermaster.dm:238, code/modules/llm_crew/crew_npc_hands.dm:308, code/modules/llm_crew/crew_npc_freight.dm:590
 fix: Add tools/llm_crew/cheats.ts that greps the crew code for a short list of calls against an allowed list, and put the list below to the owner

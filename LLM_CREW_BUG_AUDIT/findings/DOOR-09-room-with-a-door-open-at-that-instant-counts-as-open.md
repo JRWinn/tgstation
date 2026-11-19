@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_cargo.dm:153, code/modules/llm_crew/crew_brain_rooms.dm:80, code/modules/llm_crew/crew_npc_cargo.dm:121
 fix: In the open-way test of crew_npc_room_is_closed pass over any tile that holds an airlock, a windoor or plastic flaps, so only a way with no door on it counts

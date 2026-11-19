@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:513, code/modules/llm_crew/crew_npc_machines.dm:259, code/_onclick/click.dm:120, code/modules/reagents/reagent_containers/spray.dm:78
 fix: Wait out the body's own click cooldown before the click in clean_mess, and do not mark a mess stubborn when the click never landed

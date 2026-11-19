@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:407, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:386
 fix: Keep the outcome of the last forcing job for a few minutes and give it to the voice as a cue

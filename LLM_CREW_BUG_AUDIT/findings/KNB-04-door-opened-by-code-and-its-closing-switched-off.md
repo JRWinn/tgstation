@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:592, code/modules/llm_crew/crew_npc_doors.dm:796, LLM_CREW_PLAN_NO_CHEATS.md:168
 fix: Open and shut the door with click_as_body from beside it, leave autoclose alone, and click it open again if it shuts before the person is through

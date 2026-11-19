@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: design
 files: tgui/packages/tgui/interfaces/CrewBrain/hierarchy.ts:84, code/modules/llm_crew/crew_npc_senses.dm:191, code/modules/llm_crew/crew_npc_guarding.dm:45, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:353, code/modules/llm_crew/crew_npc_cargo.dm:803
 fix: Have the server work out each person's rank from the card they wear and whether its name matches their face, send that as a field, and have the window go by that field and never by words in the job text

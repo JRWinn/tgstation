@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:169, code/modules/llm_crew/crew_npc_forcing.dm:108, code/modules/llm_crew/crew_npc_forcing.dm:453
 fix: In tool_force_door ask for the screwdriver, the multitool and the wire skill only when the door to be forced has power, and for the crowbar always

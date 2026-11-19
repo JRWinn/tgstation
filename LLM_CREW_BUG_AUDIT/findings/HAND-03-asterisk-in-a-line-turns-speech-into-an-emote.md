@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: tools
 files: code/modules/llm_crew/crew_npc_tools.dm:148, code/modules/mob/mob_say.dm:177, code/modules/mob/living/living_say.dm:120, code/modules/llm_crew/crew_npc_senses.dm:391
 fix: Take every asterisk out of the text in tool_say before it is said, not only the ones at the start

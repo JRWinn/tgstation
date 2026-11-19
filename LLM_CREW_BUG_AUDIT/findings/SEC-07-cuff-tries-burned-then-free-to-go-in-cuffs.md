@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1462, code/modules/llm_crew/crew_npc_security.dm:1485, code/modules/mob/living/living.dm:1151, code/modules/mob/living/carbon/carbon.dm:180
 fix: Count a try only when the game let one start, never end custody while the cuffs are on, and have the body ask to have them taken off when its tries are spent

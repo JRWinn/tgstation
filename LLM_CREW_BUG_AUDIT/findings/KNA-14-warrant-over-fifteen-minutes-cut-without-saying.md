@@ -6,6 +6,7 @@ severity: low
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:335, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:443
 fix: Keep the minutes that were asked for beside the minutes given, and add the sentence about the cell timer to the first answer as the later one already has it

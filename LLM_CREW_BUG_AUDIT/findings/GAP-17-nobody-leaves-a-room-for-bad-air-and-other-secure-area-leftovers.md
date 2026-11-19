@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: core
 files: LLM_CREW_PLAN_SECURE_AREAS.md:26, code/modules/llm_crew/crew_npc_motor.dm:43, code/modules/llm_crew/crew_npc_senses.dm:127, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:316
 fix: Have the server say when the air on the body's own tile is not fit to stand in, and have the driver treat that as the one emergency that comes before any job, walking to the nearest room it knows with good air

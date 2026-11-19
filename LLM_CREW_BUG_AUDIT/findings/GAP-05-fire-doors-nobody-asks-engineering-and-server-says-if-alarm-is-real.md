@@ -6,6 +6,7 @@ severity: high
 effort: large
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:694, code/modules/llm_crew/crew_npc_doors.dm:729, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:267, LLM_CREW_PLAN_ROUND_1428_SECURITY.md:139
 fix: Drop crew_npc_alarm_was_pulled, reset once and leave the room if the doors shut again, and build the ask up the chain to an engineer who pries the door

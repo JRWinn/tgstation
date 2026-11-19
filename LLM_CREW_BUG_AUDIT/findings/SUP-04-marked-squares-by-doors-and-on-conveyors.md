@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_freight.dm:93, code/modules/llm_crew/crew_npc_freight.dm:75, code/modules/llm_crew/crew_npc_freight.dm:191
 fix: Leave out of crew_npc_marked_squares any painted tile that has a conveyor on it or a door within one tile

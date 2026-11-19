@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2186, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2222, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:136
 fix: Take a spoken order or a come-for-my-crate line only when it was said to this technician, or was said to nobody by someone standing at its counter

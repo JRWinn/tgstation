@@ -6,6 +6,7 @@ severity: medium
 effort: large
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: design
 files: code/modules/llm_crew/crew_brain_link.dm:55, code/modules/llm_crew/crew_brain_link.dm:76, code/modules/llm_crew/crew_brain_link.dm:250, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:219, code/modules/llm_crew/crew_npc_spawn.dm:103
 fix: Send each body's slow-changing state on a timer and only its new events at once, count the brain log limit per body and log what is dropped, and measure the payload before adding more crew

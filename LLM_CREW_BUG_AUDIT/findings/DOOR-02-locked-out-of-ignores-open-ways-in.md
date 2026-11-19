@@ -6,6 +6,7 @@ severity: medium
 effort: medium
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_guarding.dm:118, code/modules/llm_crew/crew_npc_cargo.dm:153, code/modules/llm_crew/crew_npc_cleaning.dm:347, code/modules/llm_crew/crew_npc_doors.dm:42
 fix: Have locked_out_of answer FALSE for a room that has an open doorless way in, using the test crew_npc_room_is_closed already makes, kept for a minute per room

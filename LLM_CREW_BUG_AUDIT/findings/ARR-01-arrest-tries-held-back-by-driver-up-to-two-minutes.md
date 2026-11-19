@@ -6,6 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:811, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:798, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:931, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:805
 fix: Number each try at an arrest as the tries at a cell are numbered, and say the arrest line again only when toldAt is null

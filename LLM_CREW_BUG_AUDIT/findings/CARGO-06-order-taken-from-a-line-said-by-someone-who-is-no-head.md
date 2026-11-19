@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2059, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1873, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1486
 fix: In agrees, pass only a line whose speaker is in view and may order (a head or the Captain, and with a Quartermaster aboard the head who said it did not answer), and said to this technician

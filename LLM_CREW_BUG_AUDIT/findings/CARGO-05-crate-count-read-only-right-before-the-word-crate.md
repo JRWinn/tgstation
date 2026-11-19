@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1806, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1843, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:384
 fix: Read the count from any number in the same clause as the kind (digits, one to ten, a couple, x2), and cap it at the server's four instead of falling back to one

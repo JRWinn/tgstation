@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: found
+found_by: Fable 5.2
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1113, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:534, code/modules/llm_crew/crew_npc_security.dm:757
 fix: Count a no_way with nowhere to ask as a failed try, so that it rests after three and reports that it cannot get to them

@@ -6,6 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:865, code/modules/llm_crew/crew_npc_security.dm:936, code/modules/llm_crew/crew_npc_security.dm:1145, code/modules/llm_crew/crew_npc_hands.dm:392, code/modules/llm_crew/crew_npc_hands.dm:171
 fix: Have make_arrest, baton_hits, close_with, put_cuffs_on, walk_steps, put_in_cell, set_free and the kit procs stop after any sleep once errand_serial is no longer the one they began with

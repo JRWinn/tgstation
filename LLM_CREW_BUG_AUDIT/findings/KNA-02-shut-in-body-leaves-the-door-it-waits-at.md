@@ -6,6 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: found
+found_by: Fable 5.2
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:577, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:500, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:423
 fix: While shut in with no open door in view, offer only steps that keep the body where it is, and make the meeting step wait instead of walking
