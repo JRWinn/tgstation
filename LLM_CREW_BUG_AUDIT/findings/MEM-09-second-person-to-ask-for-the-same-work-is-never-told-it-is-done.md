@@ -8,7 +8,7 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:90, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:410, tgui/packages/tgui/interfaces/CrewBrain/jobs/orders.ts:83
+files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:90, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:410, tgui/packages/tgui/interfaces/CrewBrain/jobs/orders.ts:51
 fix: Keep a list of everyone waiting on a task, not one askedBy, and owe each of them word when it is done, the latest superior first
 ---
 
