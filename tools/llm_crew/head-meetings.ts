@@ -4,6 +4,7 @@
 //   bun run head-meetings.ts
 const { ROOT, makeBrain, know } = await import('./fixtures');
 const { needStep, readSummons } = await import(ROOT + 'jobs/meetings');
+const { HEAD_OF_PERSONNEL } = await import(ROOT + 'jobs/head');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -44,6 +45,18 @@ for (const [line, want] of [
   know(jan, ['Bar Lounge']);
   readSummons(jan, 'Hop Kins', 'Staff meeting in the Bar Lounge now, please.', 100, 'Head of Personnel');
   add('a "meeting is over" from whoever called it is taken', [readSummons(jan, 'Hop Kins', 'The meeting is over, thank you.', 200, 'Head of Personnel'), jan.summons?.missed], [true, true]);
+}
+
+// TRA-01: one crate of janitorial supplies is good for two janitors.
+for (const [short, crates] of [[1, 1], [2, 1], [3, 2], [8, 4]] as [number, number][]) {
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  hop.metOnce = true;
+  hop.nextMeetingAt = 1e9;
+  hop.pdaPeople = Array.from({ length: short }, (_, n) => ({ name: `Jan Itor${n}`, job: 'Janitor' }));
+  hop.asks = hop.pdaPeople.map((person: any) => ({ who: person.name, what: 'something to clean with', at: 0, ordered: false, told: false }));
+  hop.now = 5000;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add(`${short} janitor(s) short: ${crates} crate(s) ordered`, hop.requisition?.lines?.[0]?.count, crates);
 }
 
 let failed = 0;

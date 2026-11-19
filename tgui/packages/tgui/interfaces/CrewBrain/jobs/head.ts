@@ -122,8 +122,6 @@ const ORDER_OVERDUE_DS = 6000;
 const ANSWER_WAIT_DS = 300;
 /** How long (deciseconds) it waits for the Quartermaster's word that an order is noted before it takes the order to the counter instead. */
 const NOTED_WAIT_DS = 1800;
-/** How many people one crate of supplies is good for. */
-const PER_CRATE = 3;
 /** The most crates of one kind it asks for at once. Cargo will not order more than this in one go. */
 const CRATES_MAX = 4;
 /** How long (deciseconds) whoever was sent for a crate is given to collect it before someone else is sent instead. */
@@ -162,6 +160,9 @@ const SUPPLIES = [
     crate: 'Janitorial Supplies Crate',
     ordered: 'janitorial supplies',
     room: 'Custodial Closet',
+    // How many people one crate is good for: it holds one mop and one spray cleaner. Its rag is a
+    // poor tool, and a janitor left with only that is short again.
+    perCrate: 2,
   },
 ];
 
@@ -251,7 +252,7 @@ function orderFor(brain: NpcBrain): Requisition | null {
       lines.push({
         crate: supply.crate,
         what: supply.ordered,
-        count: Math.min(CRATES_MAX, Math.ceil(people.length / PER_CRATE)),
+        count: Math.min(CRATES_MAX, Math.ceil(people.length / supply.perCrate)),
         room: supply.room,
         people,
       });
