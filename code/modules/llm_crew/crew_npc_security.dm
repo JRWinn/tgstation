@@ -1264,6 +1264,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			continue
 		if(length(cell.occupants() - apart_from - body))
 			continue
+		// Its glass door smashed: a windoor at no integrity is deleted, not left broken. It shuts nobody in.
+		if(isnull(cell.door()))
+			continue
 		var/last_refused = cell_refused[cell.name]
 		if(isnull(last_refused) || world.time - last_refused >= CREW_NPC_CELL_SKIP)
 			var/area/room = get_area(timer)
@@ -1351,6 +1354,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
 	if(isnull(cell) || cell.timer_ref?.resolve() != timer || timer.timing || length(cell.occupants() - prisoner - body))
 		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
+	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
+	// cell is tried with them still by the arm.
+	var/atom/door = cell.door()
+	if(isnull(door))
+		cell_refuses(cell, prisoner_name, "its door is broken")
+		return list(FALSE, "The door of [cell.name] is smashed. It will not hold [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	// The time, before anyone goes in: once the prisoner is inside there is no moment to spare for it.
 	var/wanted = minutes MINUTES
 	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
@@ -1365,7 +1374,6 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	// In, to the tile furthest from the door, so that whoever trails a step behind is inside too.
 	var/turf/outside = get_turf(body)
-	var/atom/door = cell.door() || timer
 	var/turf/deep
 	var/deep_distance = -1
 	for(var/turf/spot as anything in cell.turfs)
