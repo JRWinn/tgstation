@@ -15,3 +15,4 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - PARSE-01: grep `crew_brain.log` for "your PDA says what you asked for has come" and check each follows only the head's fixed message in `pda.log`; a typed "clean the X" now makes a mess task.
 - PARSE-09: grep `crew_brain.log` for "[an order, made out from what was said]" and read the line before each: none should be a question, a "no need", or word that the mess is gone.
 - QM-08: with two orders waiting on the Captain, a bare "yes" in `pda.log` is followed by "The Captain said yes" for the order asked about last, in the Quartermaster's book lines in `game.log`.
+- QM-14: in `game.log`, "I have that" from the Quartermaster follows each technician's word within a few seconds all round; no "Your order has come in" PDA from a technician to a head while the Quartermaster is aboard.

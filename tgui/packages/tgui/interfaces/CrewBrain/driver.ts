@@ -22,11 +22,6 @@ import {
 } from './choice';
 import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
-import {
-  describeShutIn,
-  SHUT_IN_KEY,
-  whoToAskForTheDoor,
-} from './situation';
 import { ASIDE_HOLD_MS, ASIDE_STEP_KEY, asideStep } from './jobs/aside';
 import { barred, leavingStep } from './jobs/guarding';
 import { doorCalled } from './jobs/janitor';
@@ -35,7 +30,8 @@ import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
 import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
-import { workInOrder, wordOwed } from './tasks';
+import { describeShutIn, SHUT_IN_KEY, whoToAskForTheDoor } from './situation';
+import { wordOwed, workInOrder } from './tasks';
 import type { Action, NpcBrain, SenseEvent, Task } from './types';
 
 /** How long after telling the body to do something before the driver looks again, in milliseconds. */
@@ -163,7 +159,11 @@ export type Step = {
   choose?: Work[];
 };
 
-function keyOf(task: Task | null, act: Action | undefined, say?: string): string {
+function keyOf(
+  task: Task | null,
+  act: Action | undefined,
+  say?: string,
+): string {
   return `${task?.id ?? 'none'}:${act ? JSON.stringify(act) : `say:${say}`}`;
 }
 
@@ -201,7 +201,8 @@ function nextToWrite(brain: NpcBrain): { name: string; head: boolean } | null {
   const keeper = keepers.find((name) => !written(name));
   if (
     keeper &&
-    keepers.filter((name) => asks.wrote.includes(name)).length < KEEPERS_WRITTEN_TO
+    keepers.filter((name) => asks.wrote.includes(name)).length <
+      KEEPERS_WRITTEN_TO
   ) {
     return { name: keeper, head: false };
   }
@@ -291,7 +292,9 @@ export function nextStep(brain: NpcBrain): Step | null {
   // Someone is holding the door to let it out. It goes, now, back the way it came if it knows the
   // way: the door will not be held for long, and standing there finishing a thought wastes it.
   if (brain.doorHeldOut) {
-    const others = knownPlaces(brain).filter((place) => place !== brain.location);
+    const others = knownPlaces(brain).filter(
+      (place) => place !== brain.location,
+    );
     // Out through the door that is being held, to wherever it leads. The way it came in may
     // have been by another door, from another room it cannot get out of either.
     const out =
@@ -317,11 +320,7 @@ export function nextStep(brain: NpcBrain): Step | null {
   // wanted, and it is there to go through when it opens.
   // The door out, that is. Standing at some other door, one it had asked to be let in at, is not
   // standing at the way out: a knock there says "let me in" to whoever hears it.
-  if (
-    brain.shutIn &&
-    !wayOutOpen(brain) &&
-    brain.atDoorOf !== brain.location
-  ) {
+  if (brain.shutIn && !wayOutOpen(brain) && brain.atDoorOf !== brain.location) {
     const act = { tool: 'go_to_door' };
     const key = keyOf(null, act);
     if (!inBackoff(brain, key)) {
@@ -441,30 +440,31 @@ export function nextStep(brain: NpcBrain): Step | null {
   brain.toTell = brain.toTell.filter(
     (tell) => Date.now() - tell.at < (tell.keepMs ?? TELL_KEPT_MS),
   );
-  const tell = brain.toTell.find((it) =>
-    it.byPda
-      ? brain.hasPda
-      : brain.peopleInView.some((person) => person.name === it.to),
+  // The first line it can give now: one held back does not hold up those behind it.
+  const tell = brain.toTell.find(
+    (it) =>
+      (it.byPda
+        ? brain.hasPda
+        : brain.peopleInView.some((person) => person.name === it.to)) &&
+      !inBackoff(brain, `tell:${it.to}:${it.line}`),
   );
   if (tell) {
     const key = `tell:${tell.to}:${tell.line}`;
-    if (!inBackoff(brain, key)) {
-      return tell.byPda
-        ? {
-            key,
-            text: tell.why,
-            act: { tool: 'message', person: tell.to, text: tell.line },
-            tells: tell.line,
-          }
-        : {
-            key,
-            text: tell.why,
-            say: tell.line,
-            needs: tell.needs,
-            exact: tell.exact,
-            tells: tell.line,
-          };
-    }
+    return tell.byPda
+      ? {
+          key,
+          text: tell.why,
+          act: { tool: 'message', person: tell.to, text: tell.line },
+          tells: tell.line,
+        }
+      : {
+          key,
+          text: tell.why,
+          say: tell.line,
+          needs: tell.needs,
+          exact: tell.exact,
+          tells: tell.line,
+        };
   }
 
   // Someone was standing where a crate could not get past them. They are asked to step aside.
@@ -645,7 +645,9 @@ function orderToDrop(brain: NpcBrain): Task | null {
   ) {
     return null;
   }
-  return inBackoff(brain, keyOf(order.task, order.plan.act)) ? null : order.task;
+  return inBackoff(brain, keyOf(order.task, order.plan.act))
+    ? null
+    : order.task;
 }
 
 /**
@@ -716,7 +718,7 @@ export function drive(
         exact: quick.exact,
         tells: quick.line,
       };
-      fail(brain, key);
+      saidLine(brain, key);
       speak(quick.line, quick.needs, undefined, quick.exact);
       noteDone(brain, step);
       return step;
@@ -803,8 +805,13 @@ export function drive(
     brain.heldSince = 0;
   }
   if (step.say) {
-    // Asked once; if nothing comes of it, it is left a while before being asked again.
-    fail(brain, step.key);
+    // Asked once; if nothing comes of it, it is left a while before being asked again. A line
+    // from what it has to tell is taken off that list as it is said, so it is no failed step.
+    if (step.tells) {
+      saidLine(brain, step.key);
+    } else {
+      fail(brain, step.key);
+    }
     speak(step.say, step.needs, step.sayIf, step.exact);
     noteDone(brain, step);
     return step;
@@ -928,6 +935,18 @@ function settleChoice(
 }
 
 /** Notes that a step came to nothing, so that it is left alone for a while. */
+/** How long (milliseconds) a line it has just said is not said again, should it be queued again at once. */
+const SAID_HOLD_MS = 5000;
+
+/**
+ * Notes a line from what it had to tell as said. That is no failure: the hold-back is a flat few
+ * seconds, so the same line queued twice in a breath is said once, and it does not grow each time
+ * the line is said. "Sam, I have that." grew till the technician gave up waiting for it.
+ */
+function saidLine(brain: NpcBrain, key: string): void {
+  brain.failures.set(key, { count: 0, until: Date.now() + SAID_HOLD_MS });
+}
+
 function fail(brain: NpcBrain, key: string): void {
   const count = (brain.failures.get(key)?.count ?? 0) + 1;
   brain.failures.set(key, {
@@ -942,7 +961,11 @@ function fail(brain: NpcBrain, key: string): void {
  */
 export function noteResult(brain: NpcBrain, event: SenseEvent): void {
   const last = brain.lastAct;
-  if (!last || event.kind !== 'action_result' || event.details.tool !== last.tool) {
+  if (
+    !last ||
+    event.kind !== 'action_result' ||
+    event.details.tool !== last.tool
+  ) {
     return;
   }
   // A walk to a room that the server says got there, asked for again, and again: the body is
@@ -950,8 +973,7 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
   // will not mend it. Whoever asked for the walk is told, and it is left alone a while.
   const now = Date.now();
   const again =
-    brain.repeats?.key === last.key &&
-    now - brain.repeats.at < LOOP_WINDOW_MS;
+    brain.repeats?.key === last.key && now - brain.repeats.at < LOOP_WINDOW_MS;
   brain.repeats =
     event.details.ok && LOOP_WATCHED.has(last.act.tool)
       ? {

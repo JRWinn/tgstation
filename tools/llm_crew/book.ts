@@ -93,6 +93,36 @@ for (const duties of [['counter'], ['shuttle', 'rooms'], ['counter', 'shuttle', 
 }
 add('talk about the work is not handing it out', dutiesIn('Cora, the counter is busy this shift.'), null);
 
+// QM-14: "Sam, I have that." is said at once every time, and a line held back holds up none behind it.
+{
+  const { drive } = await import(ROOT + 'driver');
+  const spoken: string[] = [];
+  const nextStep = (b: any) => drive(b, () => 'x', (line: string) => { spoken.push(line); });
+  const qm: any = makeBrain('Ada Stone', 'Quartermaster');
+  qm.location = 'Cargo Bay';
+  qm.hasPda = true;
+  qm.peopleInView = [{ name: 'Sam Rees', job: 'Cargo Technician', handle: 'p1', distance: 1 }];
+  const said: string[] = [];
+  for (let word = 0; word < 8; word++) {
+    qm.toTell = [{ to: 'Sam Rees', line: 'Sam, I have that.', why: 'x', whileBusy: true, exact: true, at: Date.now() }];
+    qm.failures.forEach((failure: any) => { failure.until = 0; });
+    qm.sayingNow = false; qm.mustSay = null; qm.lastAct = null;
+    const step = nextStep(qm);
+    if (step?.say) said.push(step.say);
+  }
+  const hold = qm.failures.get('tell:Sam Rees:Sam, I have that.');
+  add('said eight times, "I have that" is held back no longer than the first time', [said.length, hold.count, hold.until - Date.now() <= 5000], [8, 0, true]);
+  qm.failures.forEach((failure: any) => { failure.until = 0; });
+  qm.toTell = [
+    { to: 'Sam Rees', line: 'Sam, one.', why: 'x', at: Date.now() },
+    { to: 'Hop Kins', line: 'Hop, crate #3 is in.', why: 'x', byPda: true, at: Date.now() },
+  ];
+  qm.failures.set('tell:Sam Rees:Sam, one.', { count: 3, until: Date.now() + 60000 });
+  qm.sayingNow = false; qm.mustSay = null; qm.lastAct = null;
+  const behind = nextStep(qm);
+  add('a held-back line does not hold up the PDA behind it', behind?.act?.text, 'Hop, crate #3 is in.');
+}
+
 // QM-08: which waiting order an answer from the Captain is about.
 {
   const { orderAnswered } = await import(ROOT + 'jobs/quartermaster');
