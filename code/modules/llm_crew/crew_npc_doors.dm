@@ -848,7 +848,28 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		return list(TRUE, "The fire alarm in [errand_item] has been reset already.")
 	if(!crew_npc_alarm_was_pulled(room))
 		return list(FALSE, "Something is wrong with the air in [errand_item] after all. You leave the alarm alone.")
-	alarm.reset(body)
+	// Reset as a player resets one: a right click with an empty hand (a left click sets it off). The
+	// alarm does nothing when it has no power, is broken or its reset wire is cut, so the room is
+	// looked at again after, and a reset that did not happen is not reported as one (DOOR-11).
+	var/clicked = FALSE
+	for(var/try_number in 1 to 2)
+		if(!empty_clicking_hand())
+			break
+		clicked = click_as_body(alarm, "right=1")
+		if(QDELETED(src) || QDELETED(body) || QDELETED(alarm))
+			return list(FALSE, "You cannot reach the fire alarm in [errand_item].")
+		if(!(room.fire || LAZYLEN(room.active_firelocks)))
+			break
+	if(room.fire || LAZYLEN(room.active_firelocks))
+		// The next try goes to another of the room's alarms, if it has one.
+		fire_alarms_failed[REF(alarm)] = world.time
+		if(!clicked)
+			return list(FALSE, "You cannot reach the fire alarm in [errand_item].")
+		if(alarm.machine_stat & NOPOWER)
+			return list(FALSE, "The fire alarm in [errand_item] has no power. It will not reset.", list("alarm_dead" = errand_item))
+		if(alarm.machine_stat & BROKEN)
+			return list(FALSE, "The fire alarm in [errand_item] is broken.", list("alarm_dead" = errand_item))
+		return list(FALSE, "The fire alarm in [errand_item] would not reset.", list("alarm_dead" = errand_item))
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reset the fire alarm in [errand_item].")
 	// The way is open again, so nothing it gave up on because of the fire doors stands.
 	ways_reopened()
