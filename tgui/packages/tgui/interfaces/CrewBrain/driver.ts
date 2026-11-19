@@ -883,10 +883,18 @@ export function drive(
   if (leaves && now - brain.lastSayAt < AFTER_SAYING_MS) {
     return null;
   }
+  // A remark of its own it may or may not make is no talk to stand still for (ASYNC-07): queued
+  // for one only (remarkOnly in brain.ts, written out here as brain.ts imports this file), or
+  // waiting on the model for one.
+  const remarkOnly =
+    brain.remarkDue &&
+    brain.pendingSpeakers.size === 0 &&
+    brain.mustSay === null;
   const talking =
     now - brain.lastSpokenToAt < TALK_PAUSE_MS ||
-    brain.wake ||
-    brain.status !== 'idle';
+    ((brain.wake || brain.status !== 'idle') &&
+      !remarkOnly &&
+      !brain.remarking);
   // A door someone is holding open for it will not stay open while the room finishes talking.
   const doorWaiting = brain.doorHeld || brain.doorHeldOut;
   if (leaves && talking && !doorWaiting) {
