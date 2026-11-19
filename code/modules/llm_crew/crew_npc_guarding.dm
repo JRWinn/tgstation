@@ -161,6 +161,13 @@
 		return "[person.name] has every right to be in [post_place]."
 	if(crew_npc_is_command(person))
 		return "[person.name] outranks you. You do not lay a hand on them."
+	// Someone who cannot answer has not refused to go, and someone in another's hands is not the body's to take.
+	if(crew_npc_person_down(person))
+		return "[person.name] is down and cannot walk. Someone should see to them."
+	if(person.pulledby && person.pulledby != pawn)
+		return "[person.pulledby.name] already has hold of [person.name]."
+	if(person.handcuffed)
+		return "[person.name] is in cuffs. That is security's business."
 	return null
 
 /// Tool: take someone who has no business in the body's post by the arm and walk them out of it.
