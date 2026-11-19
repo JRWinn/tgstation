@@ -28,6 +28,12 @@ const STOW = 'stow';
 const CALL = 'call_shuttle';
 
 const KINDS = new Set([UNLOAD, MAIL, DELIVER, RECYCLE, SEND, STOW, CALL]);
+/** The freight steps put off a while when they keep failing (JOBS-04). */
+const RETRIED = new Set([UNLOAD, MAIL, RECYCLE, STOW, CALL, SEND]);
+/** How many failures running put a freight step off. */
+const FAILS_TO_PUT_OFF = 3;
+/** How long (deciseconds) a freight step that keeps failing is put off. */
+const FREIGHT_RETRY_DS = 1800;
 
 /** How many empties have to be waiting before the shuttle is called in for them. */
 const EMPTIES_TO_CALL = 3;
@@ -107,14 +113,28 @@ export function syncFreight(brain: NpcBrain): void {
       !brain.orderPending &&
       (empties >= EMPTIES_TO_CALL || (empties > 0 && waited > EMPTY_WAITS_DS)),
   );
-  // The shuttle goes back once there is nothing left to come off it or go on it.
+  // A step that kept failing is left until its time to try again is up (JOBS-04). A blocked task
+  // is not in hand, so the rounds, tidying and the walk back to the post go on meanwhile.
+  for (const task of brain.tasks) {
+    if (RETRIED.has(task.kind) && task.state !== 'done') {
+      blockTask(
+        task,
+        task.retryAt !== undefined && brain.now < task.retryAt
+          ? `it has failed three times running (${task.failedOn ?? 'it would not go'}), and you will try again in a few minutes`
+          : null,
+      );
+    }
+  }
+  // The shuttle goes back once there is nothing left to come off it or go on it. A mail crate
+  // that cannot be emptied just now is in the bay, not aboard, and does not keep it (JOBS-04).
+  const mailStuck = findTask(brain, MAIL)?.state === 'blocked';
   keep(
     brain,
     SEND,
     docked &&
       freight?.toUnload === 0 &&
       freight.emptyCrates === 0 &&
-      !freight.mailCrate &&
+      (!freight.mailCrate || mailStuck) &&
       !brain.orderPending,
   );
 
@@ -248,9 +268,27 @@ export function afterFreight(
   brain: NpcBrain,
   act: Action,
   task: Task | undefined,
+  ok = true,
+  text?: string,
 ): void {
   if (task?.kind === DELIVER && task.item && act.tool === 'message') {
     brain.mailTold[task.item] = brain.now;
+  }
+  // A step that keeps failing is put off a while, so the rest of the work goes on: a bag too full
+  // for the mail kept the technician from its rounds and the shuttle in the dock all round. Not
+  // on one failure: the driver's own back-off sees to a walk that fails once (JOBS-04).
+  if (!task || !RETRIED.has(task.kind)) {
+    return;
+  }
+  if (ok) {
+    task.fails = 0;
+    return;
+  }
+  task.fails = (task.fails ?? 0) + 1;
+  if (task.fails >= FAILS_TO_PUT_OFF) {
+    task.fails = 0;
+    task.retryAt = brain.now + FREIGHT_RETRY_DS;
+    task.failedOn = text?.trim() || 'it would not go';
   }
 }
 

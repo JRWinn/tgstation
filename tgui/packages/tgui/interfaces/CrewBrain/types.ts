@@ -872,6 +872,10 @@ export type Task = {
   keepUntil?: number;
   /** For a crate to collect: server time someone else last asked at the counter for a crate, after this one asked (TRA-03). */
   otherAskedAt?: number;
+  /** For a freight step: how many times running it has failed (JOBS-04). */
+  fails?: number;
+  /** For a freight step put off after failing: what the body was told when it last failed (JOBS-04). */
+  failedOn?: string;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */

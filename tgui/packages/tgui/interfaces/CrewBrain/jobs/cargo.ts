@@ -2258,8 +2258,8 @@ export const CARGO: Job = {
       ? 'All that takes is a PDA message to a janitor.'
       : null,
   // A message sent about a mess is a janitor called to it.
-  afterActing: (brain, act, task, ok) => {
-    afterFreight(brain, act, task);
+  afterActing: (brain, act, task, ok, _looped, _details, text) => {
+    afterFreight(brain, act, task, ok, text);
     // The order the Quartermaster gave it is placed, or could not be. Either way it is done with
     // here: one that could not be placed goes back to the Quartermaster, who gives it again.
     const given = brain.givenOrder;
