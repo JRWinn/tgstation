@@ -91,6 +91,31 @@ for (const [short, crates] of [[1, 1], [2, 1], [3, 2], [8, 4]] as [number, numbe
   }
 }
 
+// HEAD-07: only the head's set words for a call-on are a call-on.
+for (const [line, want] of [
+  ['Thanks for coming, Alex, Bea and Carl. Alex, your report, please.', false],
+  ['Hello Bea, we will start once everyone is here, so have your report ready.', false],
+  ['Bea, your report, please.', true],
+] as [string, boolean][]) {
+  const bea: any = makeBrain('Bea Hart', 'Janitor');
+  bea.peopleInView = [{ ...HOP, distance: 1 }];
+  bea.pdaPeople = [{ name: HOP.name, job: HOP.job }];
+  bea.now = 100;
+  meetingsOverhear(bea, { details: { message: line, speaker: HOP.name } } as any);
+  add(`Bea hears "${line}": ${want ? 'it is called on' : 'not its call'}`, !!bea.summons?.askedAt, want);
+}
+{
+  // Bea reports before her turn, while Alex's is being listened to: she gets a turn, and Alex's stays last.
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  const ALEX = { handle: 'a1', name: 'Alex Reed', job: 'Janitor', distance: 1 };
+  const BEA = { handle: 'b1', name: 'Bea Hart', job: 'Janitor', distance: 1 };
+  hop.peopleInView = [ALEX, BEA];
+  hop.pdaPeople = [ALEX, BEA].map((person) => ({ name: person.name, job: person.job }));
+  hop.meeting = { calledAt: 0, room: 'Bar Lounge', calledIn: true, invited: [ALEX.name, BEA.name], copied: true, answers: {}, startedAt: 10, turns: [{ who: 'Alex Reed', askedAt: 10, heard: false }], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  hearReport(hop, 'Bea Hart', `Hop, ${workWords({ cleaned: 2 }, 0)}. I need nothing.`);
+  add('an early report gets a heard turn, put before the one still listened to', hop.meeting.turns.map((turn: any) => [turn.who, turn.heard]), [['Bea Hart', true], ['Alex Reed', false]]);
+}
+
 // HEAD-06: a head that cannot get to its meeting.
 {
   const hopWith = () => {

@@ -886,7 +886,8 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
       step: `${opening ? 'Your staff are here and the meeting begins' : 'The meeting goes on'}. It is ${next}'s turn: in "say", ${opening ? 'thank them all for coming and ' : ''}call on ${next}, by name, for their report. Ask for nothing else.`,
       say: `${opening ? 'Thank you for coming, everyone. ' : ''}${first}, ${CALLING_ON}.`,
       // Whoever is called on has to hear their own name, and that it is their report that is wanted.
-      needs: new RegExp(`\\b${first}\\b.*\\breport\\b`, 'i'),
+      // In those set words, so that nobody else named in its thanks takes it for their call.
+      needs: new RegExp(`\\b${first}, ${CALLING_ON}\\b`, 'i'),
     };
   }
   // Someone called who has said they are coming, or has hardly had time to, and has not had a turn
@@ -1104,7 +1105,13 @@ export function hearReport(
     present(brain, meeting).includes(speaker) &&
     !meeting.turns.some((turn) => turn.who === speaker)
   ) {
-    meeting.turns.push({ who: speaker, askedAt: brain.now, heard: true });
+    // Before the turn still being listened to, which listening reads as the last.
+    const last = meeting.turns.at(-1);
+    meeting.turns.splice(
+      last && !last.heard ? meeting.turns.length - 1 : meeting.turns.length,
+      0,
+      { who: speaker, askedAt: brain.now, heard: true },
+    );
   }
   for (const turn of meeting.turns) {
     if (turn.who === speaker) {

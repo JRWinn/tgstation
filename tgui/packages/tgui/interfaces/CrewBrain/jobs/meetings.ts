@@ -74,8 +74,18 @@ export function aloudCall(room: string): string {
   return `Staff meeting in the ${room} now, please. Gather round and have your reports ready.`;
 }
 export const ALOUD_CALL_WORDS = /^staff meeting in the .+? now, please\b/i;
-/** The words by which a head calls on one of its staff, by name, for their report. */
-const CALLED_ON_WORDS = /\breport\b/i;
+/**
+ * TRUE if a line calls on this NPC for its report in the head's set words: "Alex, your report"
+ * or "Alex Reed, your report". Not "Thanks, Alex, Bea and Carl. Alex, your report, please." for
+ * Bea, nor "Hello Bea, have your report ready."
+ */
+function calledOn(brain: NpcBrain, heard: string): boolean {
+  const quote = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `\\b(?:${quote(brain.name)}|${quote(firstName(brain.name))}),? your report\\b`,
+    'i',
+  ).test(heard);
+}
 /** The words by which a head says the meeting is over, out loud or by PDA. */
 export const OVER_WORDS = /\bmeeting is over\b/i;
 /**
@@ -608,9 +618,7 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   // Left to the call alone, two technicians stood through a whole meeting and reported nothing.
   if (
     !brain.summons &&
-    new RegExp(`\\b${firstName(brain.name)}\\b.*\\byour report\\b`, 'i').test(
-      heard,
-    ) &&
+    calledOn(brain, heard) &&
     !calledByAnotherName(brain, heard)
   ) {
     const head = brain.peopleInView.find((person) => person.name === speaker);
@@ -641,8 +649,7 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   }
   if (
     summons.askedAt === null &&
-    CALLED_ON_WORDS.test(heard) &&
-    new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard) &&
+    calledOn(brain, heard) &&
     !calledByAnotherName(brain, heard)
   ) {
     summons.askedAt = brain.now;
