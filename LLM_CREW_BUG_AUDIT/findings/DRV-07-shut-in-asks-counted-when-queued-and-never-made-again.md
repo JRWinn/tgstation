@@ -14,6 +14,8 @@ fix: Mark a helper as asked only when the line is really said, and let an ask an
 
 ## What is wrong
 
+See also: ASYNC-05 (the same early `noteDone` in `drive`, for word to tell; fix half 1 here and ASYNC-05 together, by running `noteDone` for a spoken step only once the line is said, rather than with two new fields)
+
 A body that is shut in asks each person it can see to let it out, "once, one at a time", knocks once if nobody is in sight, and sends PDA word to a short list of people. Two things make this give up far sooner than it means to.
 
 **1. The person is marked asked before anything is said.** When the step is a line, `drive` hands it to `speak` (which only sets `brain.mustSay`) and calls `noteDone` straight away. `noteDone` puts the helper's name in `brain.outAsks.asked`. The line itself is said later, when the NPC's turn with the LLM comes (often seconds, sometimes a minute: see DRV-05, BRAIN-02). In `think` the line is said only if someone is still in view (`alone` is `brain.peopleInView.length === 0 && speakers.length === 0`, and the dead-model path checks `brain.peopleInView.length > 0`). So a helper who walks out of sight while the ask waits its turn is never asked, and is down as asked. `whoToAskForTheDoor` skips everyone in `asked`, so when that same person comes back, even to stand at the door, the body says nothing to them.

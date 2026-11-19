@@ -8,11 +8,21 @@ confidence: sure
 status: found
 found_by: Fable 5.2
 area: brain
-files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:71, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1338, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:734
+files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:71, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1338, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:734, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:805, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1138
 fix: Give a line the work calls for its own short wait, after which the plain line is said without the model, and give talk calls a shorter time limit
 ---
 
 ## What is wrong
+
+Also written up as: DRV-05
+
+What DRV-05 adds, kept here:
+
+- **A third wait, the turn itself.** `startTalk` (`brain.ts:1138`) only ever looks at `queue[0]`. If the NPC at the head of the queue spoke under 4.2 seconds ago (`SAY_COOLDOWN_MS`, `MIN_THINK_GAP_MS`), everyone behind it waits for that as well, and orders to be read go first.
+- **The meeting case.** With the card busy and Ollama taking connections but answering slowly, a head calls a staff meeting with four staff. Each report is an `exact` line with only a remark asked of the model, and each waits the full 60 seconds before the fixed line is said. The four reports take over four minutes, a call to a meeting stands for seven (`SUMMONS_STANDS_DS`), and every other NPC with a line to say ("Zim, that is done", "could you let me out, please?") stands still behind them. With a healthy model the same shows as a few seconds of standing about per line, growing with the number talking at once.
+- **Fix steps beyond those below.** (a) `sayPlainly` must check `mustSayIf` first, clear `mustSay`, `mustSayNeeds`, `mustSayIf` and `mustSayExact`, and set `lastSayAt`; the deadline should also wait for the server's say cooldown (`Date.now() - brain.lastSayAt > SAY_COOLDOWN_MS`). Add `mustSayAt` to the new-brain block and to `makeBrain` in `tools/llm_crew/fixtures.ts`. (b) An `exact` line needs nothing from the model but an optional remark: say it at once with `sayPlainly` when the model is not free this instant, and ask for a remark only when it is. (c) Make `startTalk` pick the first NPC in the queue that is allowed to speak now, not only `queue[0]`.
+- **Owner's question.** How long may a body stand waiting for its words before it says the plain line? Eight seconds is proposed, to match `CHOICE_WAIT_MS`.
+- **Tests.** A `slow` sim mode (the stand-in answers after 30 seconds of the simulator's clock) besides `hung`, run with `crew`, `qm` and a meeting scenario: no body should stand with a line waiting for more than about 10 seconds. In a round, in `crew_brain.log`, the gap between a `ROUTINE (no LLM)` record whose reply is `say(...)` and the next record for the same NPC should stay under about 10 seconds even when nearby records show `ms` in the tens of thousands.
 
 The rule is that a slow or dead model must not stall the work. It holds when Ollama is down: `fetch` fails at once and the plain line is said. It does not hold when Ollama takes the call and does not answer: the model is still loading, the card is busy with something else (a model test run beside a round, say), or Ollama is queueing behind another client.
 

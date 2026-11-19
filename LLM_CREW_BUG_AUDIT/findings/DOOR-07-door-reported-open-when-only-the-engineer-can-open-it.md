@@ -14,6 +14,8 @@ fix: Tell the tool who the door is for, and force a door that opens only to the 
 
 ## What is wrong
 
+Also written up as: KNA-10
+
 An engineer is sent to force a door because someone else cannot get through it: `forcing.ts` says "Security needs the door of the X opened, and nobody whose ID opens it has". The server tool does not know that. It judges the door by the engineer's own ID and by how the door stands that instant, and answers "succeeded" in three cases where nobody else can get in:
 
 1. **The door opens to the engineer's own ID.** `tool_force_door` answers TRUE, "The ... door of X opens to your ID. There is no need to force it."
@@ -23,6 +25,8 @@ An engineer is sent to force a door because someone else cannot get through it: 
 The window reads only whether the tool succeeded. The detail `already_open` is not read anywhere in the window code. On success `forcingAfterActing` drops the job and sends whoever asked `forceDoneLine`: "<name>, the door of the X is open." The Head of Security passes that to its officer as "engineering has opened the X".
 
 One concrete case. A wanted person (or the bar's monkey) is in Tech Storage, or any room of the engineering department. The door is locked to security, so the Head of Security asks the Chief Engineer, who sends an engineer. The engineer's ID opens that door. `tool_force_door` answers TRUE at once, without the engineer taking a step. Security is told "the door of the Tech Storage is open", the officer goes to it and finds it shut and locked to it. Nothing opens it. Security may ask again after `ASK_AGAIN_DS` (ten minutes) and gets the same answer.
+
+From KNA-10: the rooms case 1 hits are exactly the ones engineering staff work in (Engineering, Atmospherics, Tech Storage and the like), where security's ID does not open the door and an engineer's does, and a suspect hiding in engineering's own rooms is the plainest case for calling an engineer. The chain in full: warrant on someone in Atmospherics, the officer is shut out, asks whoever's ID opens it, nobody answers in 90 seconds, it reports "nobody has opened the Atmospherics for security", the Head of Security asks the Chief Engineer, whose engineer gets `force_door("Atmospherics")` and at once sends "Ada, the door of the Atmospherics is open." It is also the unbuilt item in the change log entry of 2026-11-18, 16:50 to 17:35, "Not built": "Anyone but a cargo technician or the Captain opening a door for security." The "way into X already" answer is at `crew_npc_forcing.dm:232`.
 
 `force_door_open` makes the same two judgements again when the body reaches the door ("came to force ... and did not"), so a door that swings open as the engineer arrives ends the job the same way.
 
@@ -78,6 +82,8 @@ The honest thing for an engineer to do with a door that opens to it, when the do
 2. Keep today's behaviour when `for_others` is not set, for a future case of an engineer forcing a door for its own use.
 3. **Window.** In `planForcing` add `for: 'others'` to the act. In `forcingAfterActing`, read `details.already_open`: with the server change it will only be set for a door that really stands open and will stay so, and the line "the door of the X is open" is then true.
 4. `still_forcing`, the answers and the log lines stay as they are.
+5. Another way for case 1, from KNA-10: walk to the door (`start_errand(door, CREW_TOOL_FORCE_DOOR, label)`) and, in the branch at line 443 where `door.density` is true, open it with the ID the way a player does (`click_as_body(door)`, then wait up to `CREW_NPC_PRY_WAIT` for it to stand open), answering TRUE with "You open the X door of Y with your ID. It stands open." and `opened_by_id = TRUE`. A door opened by ID shuts itself in a few seconds, so the engineer would have to hold it until security is through: section 4.8 of `LLM_CREW_PLAN_NO_CHEATS.md` (stand by it, open it again if it shuts), or until that is built `hold_door_for` with its known cheat (KNA-04), which needs the officer's name in the tool call (`job.by` is the Chief Engineer or the Head of Security). Prying, as in step 1, leaves the door standing open with nobody waiting by it, which is why I would take step 1. **Second question for the owner (KNA-10's):** if the ID way is taken, should the engineer wait at the door until an officer comes, or open it, say so and leave, accepting that it will have shut again?
+6. Window, if the way-round answer is kept for some case: send a different fixed line for "There is a way into X already", since nothing was opened: "Ada, there is a way into the X already, by the Y door.", and let the Head of Security pass that to the officer in place of "engineering has opened". Add the reader for any new line to `forcingReads`.
 
 Question for the owner: is a forced door meant to be left open for the rest of the round? Today it is ("The door is left standing open"), and its timer does not shut it once power is back. A door of the armoury or a head's office forced this way stays open to everyone. If that is not wanted, the engineer could click it shut again once whoever asked says they are through, which needs one more message each way.
 
@@ -85,4 +91,5 @@ Question for the owner: is a forced door meant to be left open for the rest of t
 
 - Type check and lint the window (see README). Server compile.
 - Add a case to the forcing scenario in `tools/llm_crew/sim.ts` (the simulator plays the server): the tool answers TRUE with `already_open`, and the engineer's message must not be sent unless the answer says the door will stay open. As the simulator plays the server, its stand-in for `force_door` needs the new argument too.
-- In a round: have security declare a warrant on someone standing in an engineering room. `game.log` should show `forced open ... by pulsing a main and a backup power wire and prying it`, and not `was told to force ..., and did not: it opens to its ID`.
+- `tools/llm_crew/security.ts` (the chain end to end, 17 cases): a case where `force_door` comes back ok with `already_open` and each of the three wordings, checking what is sent to the Chief Engineer and on to the officer.
+- In a round: have security declare a warrant on someone standing in an engineering room (Atmospherics or Engineering). `game.log` should show `forced open ... by pulsing a main and a backup power wire and prying it`, and not `was told to force ..., and did not: it opens to its ID`.

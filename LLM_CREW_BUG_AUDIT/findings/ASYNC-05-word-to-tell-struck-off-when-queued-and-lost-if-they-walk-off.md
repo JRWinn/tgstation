@@ -14,6 +14,8 @@ fix: Strike a spoken tell off in afterSaying, once the line has gone out with it
 
 ## What is wrong
 
+See also: DRV-07 (its first half has the same cause, `noteDone` called in `drive` as soon as a line is handed to `speak`, for shut-in asks; one change that runs `noteDone` for a spoken step only once the line is said would mend both, but DRV-07's second half, asks and knocks never made again, is a fault of its own)
+
 `brain.toTell` holds words the body means to say to one person: "Order 7, right away." to the Quartermaster, the officer's answer to a warrant (`WARRANT_ACK`), "crate 12 is out in the lobby for you", "Yes, Captain. I am putting Pun Pun out.", a head's report to the Captain (`way.report`), and about twenty more. The step comes up when that person is in view.
 
 For a spoken one the driver hands the line to `speak` (which sets `brain.mustSay` and queues the NPC for the model) and then calls `noteDone` straight away, which strikes the line off `toTell`. The line is actually said only at the end of `think()`, after the NPC's turn has come and the model has answered. That is a second or two with a free model and one NPC, and anything up to a minute or more when others are ahead in the queue or the model is slow (see DRV-05).

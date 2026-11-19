@@ -8,7 +8,7 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: logs
-files: LLM_CREW_PLAN_NO_CHEATS.md:3, LLM_CREW_CHANGELOG.md:1124, LLM_CREW_PLAN_ENGINEERING.md:3, LLM_CREW_PLAN_SECURE_AREAS.md:3, LLM_CREW_PLAN_MEETING_FOLLOWUPS.md:3, LLM_CREW_PLAN_SECURITY.md:3
+files: LLM_CREW_PLAN_NO_CHEATS.md:3, LLM_CREW_CHANGELOG.md:1124, LLM_CREW_PLAN_ENGINEERING.md:3, LLM_CREW_PLAN_SECURE_AREAS.md:3, LLM_CREW_PLAN_MEETING_FOLLOWUPS.md:3, LLM_CREW_PLAN_SECURITY.md:3, LLM_CREW_PLAN_DROPPED_CRATES.md:9
 fix: Give the no-cheats plan a Status section at the top that says what is built (4.1, the mail chute, the water half of 4.4), change the six opening lines to point at the Status, and correct the change log's summary in a new top entry
 ---
 
