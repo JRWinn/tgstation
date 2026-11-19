@@ -528,6 +528,9 @@
 
 /// Says what the body is in the middle of, in words for the brain, or null if it is free.
 /datum/ai_controller/crew_npc/proc/describe_doing()
+	// Testing routes before a walk takes a while: the body is busy, not idle (LIFE-03).
+	if(choosing_where_to_explore || finding_door || finding_door_to_force)
+		return "working out the way"
 	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET))
 		switch(walk_tool)
 			if(CREW_TOOL_EXPLORE)

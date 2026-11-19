@@ -255,7 +255,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// On the way somewhere, on an errand, or working through a room's storage.
 			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.
 			// Nor is a body idle in the moment between a crate getting away from it and its setting off after it.
-			"walking" = (npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && npc.walk_tool != CREW_TOOL_RETURN) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET) || npc.seeing_to_crate,
+			// Nor while it is still testing routes for a walk (LIFE-03).
+			"walking" = (npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && npc.walk_tool != CREW_TOOL_RETURN) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET) || npc.seeing_to_crate || npc.choosing_where_to_explore || npc.finding_door || npc.finding_door_to_force,
 			"resting" = npc.resting,
 			// Exploring still has a use while there is storage to look back in on.
 			"explored_everything" = npc.nowhere_new_left && !length(npc.room_searched_at),
