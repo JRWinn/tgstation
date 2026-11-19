@@ -20,6 +20,8 @@ Two small faults in the same few lines.
 
 **A missed click.** In `wet_mop` (and `fill_bucket`), if `click_as_body` returns FALSE on the first go, because the body was pulled or bumped out of reach in the one second gap, or is stunned, or cuffed, the loop breaks and the answer is "You could not wet your mop at the sink: it has run dry." That is not the reason. The brain passes that wording to the model and the LLM may say it, and the plan repeats the same `clean` to the same sink anyway.
 
+The same dry sink holds a janitor with a low bucket in place. `look_around` sets `bucket_to_fill` while the bucket is under half and `water_for_bucket` finds any sink, and the brain's first water step is "Your bucket is low and there is water here to fill it at" (`jobs/janitor.ts`, `bucketToFill`), before it will set off for a mess elsewhere. `fill_bucket` at a dry sink adds nothing and answers TRUE (the bucket is not empty), so `bucket_to_fill` stays TRUE and the next plan is the same `clean`, until the sink has trickled back enough to lift the bucket past half: at 0.5 units a second, the best part of a minute for a bucket at 10.
+
 Concrete case: three janitors wet their mops and fill their buckets at the closet sink in the first ten minutes: two buckets (70 each, but the sink has 100) and one mop. The sink is empty. The third janitor's mop runs dry nearby; it goes to the sink, clicks, gets 0.5 units, then 0.5 more on the next click, and so on to four clicks: 2 units. It cleans two messes, comes back. Or, in the half unit case, it scrubs a mess, nothing comes off, and the mess is written off.
 
 ## Where

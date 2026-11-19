@@ -5,8 +5,10 @@ kind: bug
 severity: high
 effort: large
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: GAP-01
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:450, code/modules/llm_crew/crew_npc_cargo.dm:461, code/modules/llm_crew/crew_npc_freight.dm:642, code/modules/llm_crew/crew_npc_freight.dm:653, LLM_CREW_PLAN_NO_CHEATS.md:155
 fix: Lift the cargo console's send code into a proc of its own and have the body press it at the console, twice for an order, as section 4.7 of the no-cheats plan lays out
