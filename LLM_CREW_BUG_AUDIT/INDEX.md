@@ -2,8 +2,8 @@
 
 **This file is built by `build-index.mjs` from the files in `findings/`. Do not edit it by hand: change the finding and build it again.** Read `README.md` in this folder first.
 
-523 findings in all: 391 bugs and 93 gaps still open, 12 fixed, 1 refuted, 26 duplicates.
-Of the open ones, 294 were confirmed by a second reviewer, 0 could not be settled, and 190 have not been checked by anyone but their finder.
+523 findings in all: 389 bugs and 93 gaps still open, 14 fixed, 1 refuted, 26 duplicates.
+Of the open ones, 292 were confirmed by a second reviewer, 0 could not be settled, and 190 have not been checked by anyone but their finder.
 Found by: Fable 5.2 141, Opus 5.5 382. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.
 
 Within each group the easiest fix comes first. "found (sure)" means the finder was sure and nobody has checked it since.
@@ -11,7 +11,7 @@ Within each group the easiest fix comes first. "found (sure)" means the finder w
 | Severity | Open bugs | Confirmed | Not yet checked |
 | --- | --- | --- | --- |
 | critical | 0 | 0 | 0 |
-| high | 40 | 40 | 0 |
+| high | 38 | 38 | 0 |
 | medium | 242 | 240 | 2 |
 | low | 109 | 7 | 102 |
 
@@ -19,13 +19,11 @@ Within each group the easiest fix comes first. "found (sure)" means the finder w
 
 None.
 
-## Bugs: high (40)
+## Bugs: high (38)
 
 | Id | What is wrong | Proposed change | Effort | Status | Found by | Where |
 | --- | --- | --- | --- | --- | --- | --- |
 | [MULTI-08](findings/MULTI-08-janitor-being-seen-out-after-its-work-gets-a-trespass-warrant-when-the-walk-out-fails.md) | A janitor being seen out after the job it was sent for is reported as one who would not go, and gets a trespass warrant, whenever the walk out fails for any reason of the technician's own | Never push someone being seen out (stranger.seenOut, not ordered out) onto couldNot, and have put_out say would_not_go only when the hold was lost with the technician still on its feet | small | confirmed | Opus 5.5, checked Opus 5.5 | `wanted.ts:332` |
-| [QM-08](findings/QM-08-captain-yes-answers-the-oldest-question-not-the-last-asked.md) | With two orders waiting on the Captain, a plain yes or no is taken as the answer to the first ever asked, not to the question the Captain has just been sent | In orderAnswered, with no order named, take the order asked about most recently, and when more than one is waiting and the answer names none, ask which one before acting | small | confirmed | Opus 5.5, checked Opus 5.5 | `quartermaster.ts:464` |
-| [QM-14](findings/QM-14-i-have-that-held-back-longer-each-time-and-blocks-the-pda-queue.md) | The Quartermaster's I have that to a technician is held back longer each time it is said, till the technician gives up on it, and while held back it holds up every line queued behind it | Do not count saying a toTell line as a failure (it leaves the queue when said), and in the toTell step take the first line that is not held back rather than stopping at the first one | small | confirmed | Opus 5.5, checked Opus 5.5 | `driver.ts:444` |
 | [RT-01](findings/RT-01-clean-click-thrown-away-by-click-cooldown.md) | One spray in five is followed by a click the game throws away, and the mess is written off as one that will not come off | Wait out the body's own click cooldown before the click in clean_mess, and do not mark a mess stubborn when the click never landed | small | confirmed | Fable 5.2, checked Opus 5.5 | `crew_npc_cleaning.dm:513` |
 | [SEC-01](findings/SEC-01-stunned-or-dead-officer-keeps-stepping.md) | An officer that is stunned, out cold or dead keeps stepping after its target and across a cell | Before every body.Move in close_with and walk_steps, stop unless the body has MOBILITY_MOVE, is not dead and is not buckled, the check the wander already makes | small | confirmed | Fable 5.2, checked Opus 5.5 | `crew_npc_security.dm:373` |
 | [SEC-05](findings/SEC-05-stale-jailed-list-opens-cell-on-someone-else.md) | Letting someone go by name can open a cell that now holds somebody else | At the timer, stop it only if someone of that name is standing in the cell, forget a jailed entry that is no longer true, and look for the person in sight before going by memory | small | confirmed | Fable 5.2, checked Opus 5.5 | `crew_npc_security.dm:1289` |
@@ -523,7 +521,7 @@ None.
 | [MAP-10](findings/MAP-10-simulator-has-one-station-with-metastation-names.md) | The simulator has one station, with MetaStation's room names written in, so nothing that depends on the map is ever tested and every map fault passes | Make the station in sim.ts a table chosen by name, add a second one with other names (no Cargo Lobby, no room called Brig, hallways not called Primary Hallway), and run the cargo and security scenarios on both | low | medium | found (sure) | Opus 5.5 | `sim.ts:141` |
 | [GAP-25](findings/GAP-25-owner-design-direction-items-with-no-plan-and-no-code.md) | Six parts of the owner's design direction have no plan and no code, needs, how-to cards, a stocked work area, cover before a break, rooms handed out to janitors, and a raise | Put the six to the owner as one list, and write a short plan for whichever the owner wants next, starting with the head handing out rooms to its janitors, which is the cheapest and helps today | low | large | found (sure) | Opus 5.5 | `person.ts:1` |
 
-## Closed: fixed, refuted or duplicate (39)
+## Closed: fixed, refuted or duplicate (41)
 
 | Id | Title | Status | Found by |
 | --- | --- | --- | --- |
@@ -559,6 +557,8 @@ None.
 | [MEM-15](findings/MEM-15-a-whispered-request-is-answered-but-nothing-asked-in-it-is-done.md) | A whispered request is answered but nothing asked in it can be agreed to, because every reader looks for says | duplicate of PARSE-12 | Opus 5.5 |
 | [PARSE-01](findings/PARSE-01-clean-the-bar-is-not-read-as-a-mess.md) | Clean the bar, mop the kitchen, puked and vomited are not read as a mess, so a typed call to a janitor is taken as word its supplies have come | fixed | Opus 5.5, checked Opus 5.5 |
 | [PARSE-09](findings/PARSE-09-no-need-to-clean-the-bar-is-an-order-to-clean-it.md) | No need to clean the blood in the bar, I did it, from the Captain or a head is an order to clean the Bar, and the janitor is told it may not say otherwise | fixed | Opus 5.5, checked Opus 5.5 |
+| [QM-08](findings/QM-08-captain-yes-answers-the-oldest-question-not-the-last-asked.md) | With two orders waiting on the Captain, a plain yes or no is taken as the answer to the first ever asked, not to the question the Captain has just been sent | fixed | Opus 5.5, checked Opus 5.5 |
+| [QM-14](findings/QM-14-i-have-that-held-back-longer-each-time-and-blocks-the-pda-queue.md) | The Quartermaster's I have that to a technician is held back longer each time it is said, till the technician gives up on it, and while held back it holds up every line queued behind it | fixed | Opus 5.5, checked Opus 5.5 |
 | [RT-03](findings/RT-03-fire-alarm-reset-reported-when-nothing-was-reset.md) | A fire alarm with no power is reported as reset when nothing was reset | duplicate of DOOR-11 | Fable 5.2, checked Opus 5.5 |
 | [RT-04](findings/RT-04-order-placed-at-a-supply-console-with-no-power.md) | A cargo technician places an order, and sends the shuttle, at a supply console that has no power or is broken | duplicate of SUP-01 | Fable 5.2, checked Opus 5.5 |
 | [SEC-02](findings/SEC-02-any-pull-is-an-attack-and-heads-can-be-batoned.md) | Any pull on an officer counts as an attack, so it batons whoever walked it out of a room, and a head of staff is not spared | duplicate of ARR-02 | Fable 5.2, checked Opus 5.5 |

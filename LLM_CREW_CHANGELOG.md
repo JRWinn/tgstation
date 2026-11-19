@@ -38,6 +38,13 @@ Working down `LLM_CREW_BUG_AUDIT/SUMMARY.md` as it stood at the start (items 1 t
 - **PARSE-01: "clean the bar", "mop the kitchen", "puked", "vomited", "bloodstains" and the like are read as a call to a mess** (`MESS_WORDS` in `jobs/janitor.ts`). Before, a PDA message like that was taken as word that supplies had come. New table `tools/llm_crew/words.ts`.
 - **PARSE-09 (medium, pulled forward with PARSE-01): from a superior, a question about a mess, "no need to clean the bar", or word that it is done, is no longer made an order by code** (`orderClauses` in `tasks.ts`). Those lines go to the model, as for anyone else. With the model down they are dropped.
 
+- **QM-08: with two orders waiting on the Captain, a bare yes or no is taken as the answer to the order asked about last**, not the oldest; and a number names an order only after "order" or "#", so "yes, 2 crates" is no order number (`orderAnswered` in `jobs/quartermaster.ts`). Cases in `tools/llm_crew/book.ts`.
+- **QM-14: "Sam, I have that." is no longer held back longer each time it is said.** A line said from what a body has to tell is not counted as a failed step; it is held back a flat five seconds (`saidLine` in `driver.ts`). And a line that is held back no longer holds up the PDA messages queued behind it. Cases in `tools/llm_crew/book.ts`. The formatter also re-wrapped `driver.ts` and sorted its imports; nothing else changed there. ARR-01 (the same root, for the officer's lines) was not looked at or marked.
+
+### Stopped here
+
+Stopped on the owner's word after item 13 of the 44 (QM-14). Items 14 to 44 are not started. Next is RT-01, which is to be fixed with HAND-01 (the same click-cooldown fault).
+
 ### Known and not fixed
 
 - PARSE-09: one clause saying a mess is done ("its fine now") drops the whole line to the model, so "the kitchen is fine now, but clean the bar" is not taken by code.
