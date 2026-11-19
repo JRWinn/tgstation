@@ -3,10 +3,11 @@ id: DOOR-12
 title: A door is reported forced open, or standing open, while a shut fire door on the same square still bars the way
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:155, code/modules/llm_crew/crew_npc_forcing.dm:443, code/modules/llm_crew/crew_npc_forcing.dm:507, code/modules/llm_crew/crew_npc_doors.dm:593
 fix: Before answering that a door is open, look for a shut fire door on the airlock's square and answer it as fire doors, with the fire_doors detail fire_door_report gives
@@ -64,7 +65,8 @@ Read from the code, and the count of map keys with both an airlock and a fire do
 2. In `tool_force_door`, in the "standing open or opens to its ID" loop, skip a door that has a shut fire door on it, so it is not answered as open.
 3. In `force_door_open`, at the first test and again after the pry (before `ways_reopened()`), if `crew_npc_fire_door_on(door)` is not null, return `forcing_failure("fire_doors", "The [door_words] is open, but the fire door under it is shut.", ...)` with `more_details = list("fire_doors" = <the alarmed room's name>)`. Work the room out as `fire_door_report` does (the fire door's `affecting_areas`, the one whose alarm is on). The airlock may then be left open, as it is now; that is no worse than a player who pried it.
 4. In `hold_door_for`, return `list(FALSE, "The fire door at the door is shut.")` before opening anything when there is one.
-5. In `forcing.ts`, treat reason `fire_doors` like a walk stopped by fire doors: tell security why, and leave it to the fire-alarm path (see GAP-05 for what the owner wants there).
+5. In `forcing.ts`, treat reason `fire_doors` like a walk stopped by fire doors: add it to `final` in `forcingAfterActing` (a second go finds the same fire door), give `whyNot` a case for it ("the fire doors are shut in X"), and leave the rest to the fire-alarm path (see GAP-05 and `LLM_CREW_PLAN_ROUND_1428_SECURITY.md`, the owner's direction of 2026-11-18, for what the owner wants there).
+6. Better order in `force_door_open`: make the fire-door test before the screwdriver, not only after the pry, when the airlock is shut and the fire door under it is shut too. Then no airlock is left without power and standing open for a fire door that stops everyone anyway. Whether the engineer should pry the airlock regardless, so the way is ready once the alarm is reset, is the owner's call; ask with the question below.
 
 Question for the owner: should an engineer instead hold the fire door open with its crowbar while the other person walks through (a player can do that, standing beside it)? That needs the engineer to wait at the door for them, which the forcing errand does not do today.
 
@@ -74,3 +76,14 @@ Keep `fire_door_report`'s own use as it is. Do not use `crew_npc_alarm_was_pulle
 
 - Simulator: add a force-door case in `tools/llm_crew/` where the server answers `reason: "fire_doors"`, and check that security is told the fire doors are shut, not that the door is open.
 - In a round: pull the fire alarm in a room with a fire door under its airlock, send an engineer to force it, and look in `game.log` for `could not force ... (fire_doors)` and no `forced open` line for that door.
+
+## Check
+
+Checked by Opus 5.5, read from the code and the map; not seen in a round.
+
+- The quotes are what the code says today: the `standing_open` loop in `tool_force_door` (`crew_npc_forcing.dm:154`), the first test in `force_door_open` (`:443`), the `if(door.density)` block before `ways_reopened()` (`:507`), and `if(door.density && !door.open())` in `hold_door_for` (`crew_npc_doors.dm:593`). `grep firedoor` finds nothing in `crew_npc_forcing.dm`.
+- The base game bears it out: `try_to_crowbar` and `handle_held_open_adjacency` in `firedoor.dm` (545, 578) hold a fire door open only while the one with the crowbar stands next to it, and the right-click way shuts it again after two seconds while it is active. A shut fire door is dense, so the officer's walk is stopped by it and the server answers with `fire_door_report`, a different path in the brain from "forced".
+- `forcingAfterActing` in `forcing.ts` (about line 361) sends `forceDoneLine` on any `ok`, and has no case for fire doors.
+- Counted again with awk over `MetaStation.dmm`: 485 map keys hold an airlock, 219 of them a fire door as well. The Cargo Bay airlock at (78,146) (key `dHi`) is one of them, so the write-up's case is on the map as told.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers forcing a door with a fire door under it. The security plan's fire-door section is about bodies stopped by fire doors, not this.
+- Effort raised to medium: the fix is a helper and three tests in two server files plus `forcing.ts`. Added steps 5 (`final` and `whyNot`) and 6 (test before the work begins). Severity kept at medium: it needs a fire alarm on in the room being forced, which is not most rounds, but when it comes security is told a door is open that is not.

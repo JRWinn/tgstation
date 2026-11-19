@@ -106,3 +106,14 @@ Keeps the rules: code decides, nothing new is known to the body, no model is ask
 - Simulator: the door scenarios in `tools/llm_crew/sim.ts` (`nested` and the janitor let-out ones) must still pass. Add a check to one of them: between "knock" and the door being opened, the janitor sends no `search`, `explore` or `go_to`.
 - Type check from `tgui/`.
 - Next round, `game.log`: no "walk failed (go_to, to X)" from a body whose last brain step was "You are shut in". And in `crew_brain.log`, no "seeing what is kept in the storage here" between a "knocking at the door" step and the door being opened.
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed.
+
+- Read `nextStep` in `driver.ts` as it is today: the shut-in block at `:360` returns only a knock, the first PDA message or `nextToWrite`; otherwise it falls through to `toTell`, the work loop (`:500`, no test of `shutIn`) and the idle block (`:579`, `search` when `storageHere > 0`). The quotes match.
+- Read the leaving throttle in `drive` (`walksOut`, `tryLeavingAt`, `TRY_LEAVING_MS` 20 s, `TRY_LEAVING_LET_IN_MS` 120 s). It limits `go_to` and `explore` while shut in, which the write-up did not say; it does not cover `search`, and `search` (`tool_search`, `start_search` in `crew_npc_storage.dm`) walks the body to each locker in view. So the door is still left.
+- Read the staff meeting plan in `jobs/meetings.ts:408-435`: the answer says "as soon as I am let out", the next step is a `go_to` with no test of `shutIn`. Quote matches.
+- Read the round log: `data/logs/2026/11/19/round-20.00.21/crew_brain.log` lines 597-660 and `game.log` lines 623-686 are as quoted. She was at (74,160) at 02:13:56 and at (64,163) when the Bar Lounge walk failed at 02:14:35, after two storage searches.
+- Searched `LLM_CREW_CHANGELOG.md` and the plans: the case is listed at line 100 as "not looked into"; no later entry and no later commit to `driver.ts` on any branch.
+- Changed: effort to medium (two files); noted the throttle; the meeting gate should leave an open door to be tried; a one-flag form of the fix.

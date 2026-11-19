@@ -3,10 +3,11 @@ id: HAND-05
 title: A locker found locked or welded on a fetch is still remembered as holding the thing, so every later pick up walks back to it and fails, and the janitor never asks for supplies
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
 files: code/modules/llm_crew/crew_npc_hands.dm:56, code/modules/llm_crew/crew_npc_hands.dm:276, code/modules/llm_crew/crew_npc_storage.dm:150, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:231
 fix: In tool_pick_up skip a container whose last look found it shut to the body, and in the window leave a locked container's items out of allKnownItems
@@ -75,7 +76,8 @@ Read from the code, both sides. Not seen in a round. To look for it: in `crew_br
 1. In `report_storage`, when the state is `"locked"`, keep the item list but add `"shut_at" = world.time` to the `storage_memory` entry (and clear it on any other state).
 2. In `tool_pick_up`'s loop over `storage_memory`, skip an entry with `shut_at` less than `CREW_NPC_STORAGE_RECHECK` (5 minutes) ago. The next nearest container that holds one is then gone to, or the tool fails with "You cannot see one, and you do not remember where one is kept." which is what the window needs to hear to ask for supplies.
 3. In `memory.ts`, `allKnownItems` should leave out the items of a container whose `locked` is set, so the plan does not offer them. Keep them in `describeStorage` (the prompt), where "locked; holds mop" is true and useful.
-4. The 5 minute wait in step 2 lets the body try once more later, in case the locker was opened again.
+4. The 5 minute wait in step 2 lets the body try once more later, in case the locker was opened again. Note that with step 3 the window stops offering the thing, so that later try only comes when a search or an explore of the room looks at the locker again (`storage_to_search` rechecks after `CREW_NPC_STORAGE_RECHECK`) and a `looked` report clears `locked`. That is enough; do not add a timer in the window for it.
+5. Build it with HAND-06 (search and fetch call any locker that will not open "locked", and never unlock one the body's card opens). With HAND-06, a locker the janitor's own card opens is unlocked and never reaches this path; without it, the janitor's own locked closet would be written off for five minutes at a time by this fix, which is still better than today.
 
 Keeps the rules: it only changes what the body remembers and where it walks.
 

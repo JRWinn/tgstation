@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:381, code/modules/llm_crew/crew_npc_forcing.dm:405, code/modules/llm_crew/crew_npc_forcing.dm:343, code/datums/wires/airlock.dm:66, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:380
 fix: Watch for the body being shocked at the door (COMSIG_LIVING_ELECTROCUTE_ACT) and answer reason electrified, which forcing.ts takes as final, and check for insulated gloves before going into the wires of a door that has shocked it

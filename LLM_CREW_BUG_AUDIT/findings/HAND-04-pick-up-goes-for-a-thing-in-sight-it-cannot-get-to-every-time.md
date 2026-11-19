@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: hands
 files: code/modules/llm_crew/crew_npc_hands.dm:40, code/modules/llm_crew/crew_npc_hands.dm:405, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:898, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:293, code/modules/llm_crew/crew_npc_senses.dm:161
-fix: Keep a short list of things pick up could not get to, with the time, skip them in tool_pick_up for a few minutes, and fall through to the remembered container
+fix: Keep a short list of things pick up could not get to, with the time, skip them in tool_pick_up for a few minutes, and fall through to the remembered container; and leave them out of things_in_view so the window stops offering them
 ---
 
 ## What is wrong
@@ -86,3 +86,11 @@ Keeps the rules: it only changes which thing the body walks to.
 - In a round: put a bar of soap behind a window in a room locked to janitors, with the janitor's closet soap known, and leave a cobweb in the hallway outside. `game.log` must show the janitor walking to its closet for soap, not a "walk failed" for the soap behind the glass.
 - In a round, for step 8: take the janitor's mop, make sure it knows of no locker with one, and put a mop behind a window in a room locked to it. `crew_brain.log` must show at most one failed `pick_up mop`, then a PDA to its head saying it needs supplies.
 - For step 8 done in the window: a sim case with a janitor lacking a tool, a mop in `thingsInView`, and one failed `pick_up mop` result; the next plan step must not be `pick_up mop`.
+
+## Check
+
+Checked by Opus 5.5. Read `tool_pick_up`, `start_errand`, `do_errand`, `take_item` and `crew_npc_fail_errand` (`crew_npc_hands.dm`), the errand branch of `crew_npc.bt.json` (walk with `crew_npc_reach`, a 3 minute limit, and on failure `crew_npc_fail_errand`), `crew_npc_reach` (`crew_npc_storage.dm`), and the window's `afterActing`, `scrubberToHand`, `knownSupply` and `needs` (`jobs/janitor.ts`) with `allKnownItems` (`memory.ts`). The quotes are what the code says. The `oview` loop has no test of reach, access or a past failure; `fail_errand` notes messes, alarms, tidy targets and held crates, not a pick up; the `blocked_places` list is written only for `go_to` walks (`crew_npc_tools.dm`), not errands, so nothing else stops the same choice next time. `locked_out_of`, `ways_reopened` and `CREW_NPC_TIDY_GIVE_UP` exist as the fix says. Searched the change log and plans for `tool_pick_up` and things seen through glass: nothing fixes it.
+
+Not run: server-only, the simulator stands in for the server. Confirmed from the code.
+
+Added step 8: the window sees the same thing (`things_in_view` is the same `oview`), so with only the server fix a janitor that knows of no locker keeps asking for the same `pick_up` and never tells its head. Medium stands (the thing must lie in sight behind glass or a locked door, which is not every round). Effort raised to medium: the controller, the hands, `ways_reopened` and the senses, a few lines each.

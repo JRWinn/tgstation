@@ -2,11 +2,12 @@
 id: PERF-03
 title: Every body of a crew spawned together looks round in the same tick each second, so the whole crew's sight work and every sighting it raises land in one tick
 kind: bug
-severity: medium
+severity: low
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_senses.dm:18, code/modules/llm_crew/crew_npc_spawn.dm:114, code/modules/llm_crew/crew_npc_senses.dm:161
 fix: Start each body's looping look timer after a random first wait of up to one second, so the crew's looks are spread across the twenty ticks of each second
@@ -48,7 +49,7 @@ Read from the code. The cost of one look was not measured: the server's `perf-*.
 ## How to fix it
 
 1. In `start_senses`, start the loop after a random first wait: `look_timer = addtimer(CALLBACK(src, PROC_REF(start_looking)), rand(1, 20) * world.tick_lag, TIMER_STOPPABLE)` (one to twenty ticks), and in `start_looking` (check `QDELETED(src)` and that `pawn` is still the body) do `look_timer = addtimer(CALLBACK(src, PROC_REF(look_around)), CREW_NPC_LOOK_INTERVAL, TIMER_LOOP | TIMER_STOPPABLE)` and one `look_around()` at once.
-2. `stop_senses` already does `deltimer(look_timer)`; since `look_timer` always holds whichever timer is live, that still works. Check that `stop_senses` run between the two calls leaves nothing running (the `start_looking` callback must check that the senses have not been stopped, for instance a `senses_on` flag set in `start_senses` and cleared in `stop_senses`).
+2. `stop_senses` already does `deltimer(look_timer)`; since `look_timer` always holds whichever timer is live (the one-shot first, then the loop), a stop before the first look cancels the one-shot and nothing starts. Keep the flag anyway (`senses_on`, set in `start_senses`, cleared in `stop_senses`, checked in `start_looking`), and in `start_senses` `deltimer(look_timer)` first, so a body possessed twice never has two loops.
 3. Optional, for forty and more: move the looks off timers onto a small processing subsystem (`SSprocessing`-style, `wait = 1 SECONDS`, `MC_TICK_CHECK` between bodies), which spreads them by itself and shows its cost in the MC's own stats (see PERF-04).
 
 ## How to test the fix
@@ -56,3 +57,7 @@ Read from the code. The cost of one look was not measured: the server's `perf-*.
 - Server compile.
 - In a round, `world.time % 10` at the top of `look_around`, logged for each body once at the start: the values should differ.
 - The simulator does not run server code, so it does not test this.
+
+## Check
+
+Checked by Opus 5.5. The quotes are as the code is today. `create_crew_npc` (`crew_npc_spawn.dm:9`) makes the controller with `new(npc)`; `/datum/ai_controller/New` calls `PossessPawn` at once, which calls `TryPossessPawn` and so `start_senses` (`crew_npc_controller.dm:294`). Nothing on that path sleeps: the only `CHECK_TICK` in the crew code is in `crew_npc_find_closed_rooms`, which runs under `INVOKE_ASYNC`, and `spawn_test_crew`'s loops have none. So all eleven bodies of the test crew (1+1+2+3+1+1+1+1) get their loop timer in the same tick. In `code/controllers/subsystem/timer.dm` a fired `TIMER_LOOP` timer is put back with `timer.timeToRun = world.time + timer.wait`, so they stay in step unless `MC_TICK_CHECK` pushes some into a later tick, as the write-up says. The fault is real. I lowered severity to low: nothing the crew does is wrong, the cost of one look has never been measured (PERF-04), and at eleven bodies one bunched tick a second is not shown to be noticed by anyone; raise it if PERF-04's numbers show the look tick overrunning. The fix is small and keeps the rules (it only changes when the server looks, not what it sees). Not run.

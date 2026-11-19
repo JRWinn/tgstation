@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:585, code/modules/llm_crew/crew_npc_doors.dm:593, code/modules/llm_crew/crew_npc_doors.dm:438, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:962
 fix: Give hold_door_for a separate answer and a reason detail for no power, bolted, welded and not your access, refuse a door that stands open only when it is not open, and pass over dead doors in room_door_for

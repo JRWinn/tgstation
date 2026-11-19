@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:656, code/modules/llm_crew/crew_npc_doors.dm:624
 fix: Count who is still to come through each held door and shut it only when the last of them is through or every hold has run out
@@ -63,8 +64,8 @@ Read from the code, not seen in a round. The change log (the entry that added `c
 
 ## How to fix it
 
-1. Change `GLOB.crew_npc_door_holds` from `REF(door) -> latest end time` to `REF(door) -> list of pending watches`, each entry being the person's weak reference and that watch's `until`. Add to it in `hold_door_for` for the person asked for and for each `other`.
-2. In `watch_door`, when this watcher's person is through or its time is up, take its own entry out of the list. Then shut the door only if the list is now empty. If it is not empty, return without shutting: the watchers that are left will shut it.
+1. Change `GLOB.crew_npc_door_holds` from `REF(door) -> latest end time` to `REF(door) -> number of watches still running` (a count is enough; a list of weak references is only needed if something must name who is still to come). Add one in `hold_door_for` for the person asked for and one for each `other`, just before each `watch_door` call.
+2. In `watch_door`, when this watcher's person is through or its time is up, take one off the count. Then shut the door only if the count is now zero (and remove the key). If it is not zero, return without shutting: the watchers that are left will shut it. Every return out of `watch_door` that ends the watch, including the early one at the top, must take its one off, or the door is never shut.
 3. Drop the `held_until += 1` trick. It is not needed once the door is shut by "nobody left", not by "latest time".
 4. In the early return at the top of `watch_door`, also remove this watcher's entry (and the whole key if the door is gone).
 5. Keep the extension (`CREW_NPC_DOOR_HELD_ON`) as it is: it only moves this watcher's own `until`.
