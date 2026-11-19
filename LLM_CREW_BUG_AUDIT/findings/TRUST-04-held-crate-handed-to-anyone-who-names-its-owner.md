@@ -71,5 +71,5 @@ Question for the owner: is this worth the extra PDA round trip, or is "anyone wi
 ## How to test the fix
 
 - A table test of the counter: a technician brain holding #1779 for "Gratian Stone" (Head of Personnel on the PDA list); heard "I'm here to pick up crate 1779" from an assistant in view: no HANDOVER task, a refusal line, and a PDA message to Gratian Stone owed. The same from a janitor in view whose head is the Head of Personnel: HANDOVER.
-- Simulator: `quiet pickup`-style scenario with a stranger asking first.
+- Simulator: `quiet waiting` already has a crate handed over when asked for by number. Add a stranger who asks for it first, and check the crate is not released to them.
 - Type check.

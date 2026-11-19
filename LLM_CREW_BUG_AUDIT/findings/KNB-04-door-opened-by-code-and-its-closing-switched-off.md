@@ -74,5 +74,17 @@ No owner question: 4.8 was accepted. One thing to tell the owner: a real airlock
 ## How to test the fix
 
 - Server compile to a side copy.
-- The simulator's door is a flag: it shows only that the brain side still works. Run `nested`, `office`, `vouch` and `crew` a few times each.
-- A round: `game.log` "opened X to let Y" should still appear once per asking. Watch one door: it should open, shut by itself, and open again if the visitor was slow. `grep -c "autoclose" code/modules/llm_crew/*.dm` should be 0.
+- The simulator's door is a flag: it shows only that the brain side still works. Run `nested`, `office`, `vouch` and `crew` a few times each. Add the plan's scenario "a door shuts before the person is through" (from GAP-03): the fake door shuts itself after 8 seconds, and the technician must still be at it and open it again.
+- A round: `game.log` "opened X to let Y" should still appear once per asking. Watch one door: the technician should stand beside it, not in it, until the visitor is through; it should open, shut by itself, and open again if the visitor was slow. `grep -c "autoclose" code/modules/llm_crew/*.dm` should be 0.
+- A technician holding a mop or a crate's pull when asked: the door must still open (the hand is emptied first), and must not be hit.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. GAP-03 is the same fault (same lines, same fix) and is marked a duplicate of this one; what only it had is copied in above.
+
+- Read `hold_door_for`, `watch_door`, `let_door_close` and `step_away_from_door` in `crew_npc_doors.dm`. The quotes at 592, 600, 603 and 796 are what the code says today. The only caller is `CREW_TOOL_DOOR` in `crew_npc_hands.dm:240`.
+- Read the base door: `autoclose` is FALSE on `/obj/machinery/door` and TRUE on airlocks (`airlock.dm:84`); `/obj/machinery/door/airlock/open` only sets the 8-second timer `if(autoclose)`, and `autoclose()` itself does nothing unless `autoclose` is TRUE. So with the var switched off the door stays open until `let_door_close`. A player has no way to set it.
+- Read `try_to_activate_door` (`door.dm:334`): a click by someone allowed opens a shut door and shuts an open one. That is why step 1 must not click a door that is already open, which I added, along with the empty hand `ClickOn` needs.
+- Searched the change log and the plans: 4.8 of `LLM_CREW_PLAN_NO_CHEATS.md` and the table at line 83 list it; the 12:00 and 18:05 entries say it is still to be taken out. No entry builds it.
+- Counted the "opened X to let Y" lines in `data/logs/2026/11/19/round-20.43.32/game.log`: 16 by one technician for one janitor in twelve minutes, not 18. Corrected above.
+- Confirmed. Severity high stands: it breaks the no-cheats rule, and every round has it. Effort medium: one server file, plus a look at the brain's door task.

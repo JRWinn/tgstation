@@ -63,7 +63,13 @@ The only message that is meant to land here, `head.ts:1296`:
 
 ## How it was found
 
-Read from the code, and the senders checked: every fixed PDA line sent to a janitor (head.ts, cargo.ts, meetings.ts, pickups.ts) was looked up. Meeting calls, crate pickups and the wanted list are taken before the job's `readsMessage` (brain.ts:586), so they do not fall through. Not seen in a round.
+Run in a throwaway bun script in the system temp folder (fixtures `janitor(null)`, the real `readsMessage`, `syncTasks` and `planTask`): a janitor with nothing, blocked on having told its head, sent "Thanks, hang in there." by the Captain. It printed:
+
+    before blocked you have told your head what you need, and will hear when it has come
+    fields 3005 Cargo Lobby null
+    after open You have nothing to clean with, but your PDA says what you asked for has come and is in the Cargo Lobby. You are going there to get it. {"tool":"go_to","place":"Cargo Lobby"} needs: null
+
+Also read from the code, and the senders checked: every fixed PDA line sent to a janitor (head.ts, cargo.ts, meetings.ts, pickups.ts) was looked up. Meeting calls, crate pickups and the wanted list are taken before the job's `readsMessage` (brain.ts:586), so they do not fall through. Not seen in a round.
 
 ## How to fix it
 

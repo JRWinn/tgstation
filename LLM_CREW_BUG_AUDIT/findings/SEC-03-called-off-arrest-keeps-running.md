@@ -5,14 +5,17 @@ kind: bug
 severity: high
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:865, code/modules/llm_crew/crew_npc_security.dm:936, code/modules/llm_crew/crew_npc_security.dm:1145, code/modules/llm_crew/crew_npc_hands.dm:392, code/modules/llm_crew/crew_npc_hands.dm:171
 fix: Have make_arrest, baton_hits, close_with, put_cuffs_on, walk_steps, put_in_cell, set_free and the kit procs stop after any sleep once errand_serial is no longer the one they began with
 ---
 
 ## What is wrong
+
+See also: ARR-09 (the same break-off, on the window side: told to try again, it breaks off again at once).
 
 An errand's work is one long proc that sleeps: `make_arrest` can run for 15 seconds of chase, 7 more for the cuffs and a few more for the hold; `put_in_cell` for as long as the walk in, the cuffs and the walk out take. The proc is started by the tree leaf `crew_npc_do_errand` and nothing can stop it. When the errand is called off (`cancel_errand()`, or a new `start_errand()`), all that happens is that `errand_serial` goes up, so that the finished proc's answer is thrown away. The proc itself goes on to the end, clicking, stepping the body and laying hands on people, while the body has been given something else to do.
 
@@ -26,7 +29,7 @@ The case the design names, "hurt, under half its health, it breaks off":
 4. `baton_hits` is still in its `while` loop. It checks only that things exist, that the baton is held and that fewer than 8 swings and 15 seconds have gone. It calls `close_with`, which steps the body back toward the monkey with a bare `Move` every 0.2 seconds, against the walk that is taking it to its post. It swings. Then `put_cuffs_on` follows the monkey for up to 12 steps more, twice.
 5. If that ends with the cuffs on, `hold_arrested` sets `arrested` and takes the monkey by the arm. None of this is told to the brain: `perform_async` sees `errand_serial != serial` and drops the outcome. `work_arrests` has gone up, `game.log` says "arrested", and the brain thinks it ran away.
 
-So the officer that "broke off" stays in the fight, pulled two ways at once, for up to 20 seconds more. That is the round-19.33.50 beating again.
+So the officer that "broke off" stays in the fight, pulled two ways at once, for up to 20 seconds more. (If the cuffs do go on, the next state the window gets has `security.holding` set, so the brain is not wholly lost, but no "cuffed" outcome is pushed and the officer is now pulling a prisoner along the walk to its post.)
 
 Other ways the same thing happens, all read from the code:
 
@@ -87,15 +90,17 @@ and `jobs/arrests.ts:481`, the task it drops the arrest for:
 
 ## How it was found
 
-Read from the code, server and window. Not seen in a round as such. In round-19.33.50 the officer was beaten down after breaking off; the change log puts that down to its walking pace and to its saying it was hurt first, and nobody looked at whether the old arrest was still running.
+Read from the code, server and window. Not seen in a round. The round where an officer was beaten down after breaking off is `round-20.43.32` (change log entry of 20:53), not round-19.33.50; there the baton go had already ended ("hit Pun Pun with its baton 0 times ... could not get its baton into a free hand", 20:52:00) six seconds before it broke off, so that round does not show this fault either way.
 
 ## How to fix it
 
 1. In `crew_npc_hands.dm` add a helper:
 
-       /// TRUE if the errand this run belongs to has been called off, or the body is gone.
+       /// TRUE if the errand this run belongs to has been called off, or the body is gone. A null serial is a run that is not an errand.
        /datum/ai_controller/crew_npc/proc/errand_over(serial)
-           return QDELETED(src) || QDELETED(pawn) || errand_serial != serial
+           return QDELETED(src) || QDELETED(pawn) || (!isnull(serial) && errand_serial != serial)
+
+   The same test already exists for one errand: `still_forcing(door, serial)` in `crew_npc_forcing.dm:244`, and `crew_npc_grip.dm:259` checks `errand_serial != serial` in its loop. Follow that shape.
 
 2. In `make_arrest`, `put_in_cell`, `set_free` and `take_kit`, read `var/serial = errand_serial` on the first line (it is the same value `perform_async` read a moment before, with no sleep between).
 3. Pass `serial` down to `baton_hits`, `close_with`, `put_cuffs_on`, `walk_steps`, `draw_item`, `take_cuffs_off`, `kit_from_locker`, `wear_kit_belt`, `kit_from_belt` (a last argument that defaults to null, and `errand_over` treats null as "not on an errand" for `tool_jail`'s callers that are not errands, if any are added).
@@ -111,5 +116,16 @@ The same helper is worth using in the other long errands (hauling, forcing a doo
 ## How to test the fix
 
 - Server compile on a side copy.
+- Have `make_arrest` and `put_in_cell` write one `game.log` line when they leave because `errand_over` tripped ("Crew NPC X broke off its arrest of Y: called off"), so the round shows the fix working and not only the absence of a fault.
 - The simulator does not run server code, so no scenario shows this. `tools/llm_crew/security.ts` can hold a window-side case: hurt in mid-arrest, the next step is `go_to` the post (it passes today; it guards the driver side).
 - In a round, with a monkey that fights: after the "is hurt" PDA message, `game.log` must show no further "hit ... with its baton" line and no "arrested" line for that go, and the officer must be seen to walk off without turning back. Grep for "(force)" lines timed after the walk line "walking to".
+
+## Check
+
+Checked by Opus 5.5, from the code; nothing was run. Confirmed.
+
+- `crew_npc_hands.dm:171` `cancel_errand()` only bumps `errand_serial` and clears keys; `perform_async` (`:392`) looks at the serial once, after `do_errand` returns. `do_errand` (`:185`) calls `make_arrest`, `take_kit`, `put_in_cell` and `set_free` directly. DM cannot stop a sleeping proc from outside, so the run goes on.
+- `make_arrest`, `baton_hits`, `close_with`, `put_cuffs_on`, `walk_steps` and `draw_item` (`crew_npc_security.dm:302` to `1027`) check only `QDELETED` and what is held. None reads `errand_serial`. `click_as_body` (`crew_npc_machines.dm:259`) checks only reach and fitness, so swings and cuffing still land.
+- The window side holds: `syncBeat` makes `get_away` an emergency with `go_to` once `sayingHurt` (5 seconds, `HURT_WORD_DS = 50`) is over; `serveStep` for a hurt `force` warrant is not ready (`arrests.ts:756`); `orderToDrop` (`driver.ts:631`) drops the arrest task for it because `lastAct.task` is the warrant's; `tool_go_to` ends in `start_walk` (`crew_npc_tools.dm:397`), which calls `cancel_errand()`. The other `cancel_errand()` callers named (`taken_hold_of`, `crew_npc_guarding.dm:211`; `being_arrested`, `crew_npc_security.dm:1398`) are as described.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions a called-off errand that keeps running. The 20:53 entry's "a hurt officer still walks away ... does not defend itself" is a different matter (KNA-08).
+- Mended: the round named was wrong (the beating after breaking off was round-20.43.32, and the baton go there had already ended); the helper now treats a null serial as "not an errand", as step 3 says; the existing `still_forcing` helper is named; a log line for the test is added. Severity high and effort medium stand: the "breaks off hurt" rule fails in the fight it is for, and the change is about ten procs in one file.

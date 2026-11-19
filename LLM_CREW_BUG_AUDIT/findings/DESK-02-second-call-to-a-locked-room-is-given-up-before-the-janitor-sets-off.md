@@ -62,7 +62,13 @@ A grep of the window code for `letInAsks` finds it only in `janitor.ts` and the 
 
 ## How it was found
 
-Read from the code. The server side was checked for whether `person_in_view` would clear it in time: `crew_npc_senses.dm:192` only raises it for someone not seen in the last `CREW_NPC_SIGHT_MEMORY`, and a janitor blocked on this does not go near cargo, so it may never come. Not seen in a round.
+Read from the code, then run in a throwaway bun script in the system temp folder (fixtures `janitor('mop')`, the real `readsMessage`, `afterActing` and `syncTasks`): a call to the Cargo Bay, a knock and a message, let in and done, then the same call 9000 ds later. It printed:
+
+    asks after call1 {"Cargo Bay":{"at":3010,"count":2,"knocked":true,"messaged":true}}
+    task after in room done
+    call2 task 2 blocked nobody let you in, and you will ask again when someone who works there turns up
+
+The server side was checked for whether `person_in_view` would clear it in time: `crew_npc_senses.dm:192` only raises it for someone not seen in the last `CREW_NPC_SIGHT_MEMORY`, and a janitor blocked on this does not go near cargo, so it may never come. Not seen in a round.
 
 ## How to fix it
 
