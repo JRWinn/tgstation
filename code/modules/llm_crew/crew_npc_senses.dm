@@ -202,7 +202,9 @@
 		var/job = person.get_assignment(if_no_id = "", if_no_job = "")
 		var/distance = get_dist(body, person)
 		var/lying = person.body_position == LYING_DOWN
-		var/text = "[person.name][job ? ", [job]," : ""] comes into view [distance] tile\s away[lying ? ", lying on the floor" : ""]."
+		// What anyone sees at a glance: down and not getting up, or only lying there; and cuffs.
+		var/how_lying = crew_npc_person_down(person) ? ", lying on the floor, not moving" : (lying ? ", lying on the floor" : "")
+		var/text = "[person.name][job ? ", [job]," : ""] comes into view [distance] tile\s away[how_lying][person.handcuffed ? ", in handcuffs" : ""]."
 		emit_sense(CREW_SENSE_PERSON_IN_VIEW, text, list(
 			"handle" = handle_for(person),
 			"name" = person.name,
