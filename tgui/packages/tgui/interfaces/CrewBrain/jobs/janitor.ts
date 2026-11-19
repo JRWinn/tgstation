@@ -48,6 +48,8 @@ const PROPER_SUPPLY = /soap|space cleaner|mop$/i;
 const WAIT_AT_COUNTER_DS = 600;
 /** How long (deciseconds) a PDA message saying supplies are waiting is acted on. */
 const SUPPLIES_WAIT_DS = 6000;
+/** The fixed words of the head's PDA line saying what was asked for has come (head.ts). */
+export const HAS_COME = 'what you asked for has come';
 /** How long (deciseconds) a janitor must be in a room it was told is messy before it can say it saw no mess. */
 const LOOK_ABOUT_DS = 50;
 
@@ -831,8 +833,8 @@ export const JANITOR: Job = {
   takes: { [CLEAN]: A_MESS },
   soundsLike: { [CLEAN]: MESS_WORDS },
   // A message that names a mess and a room it knows is a call to come and clean: that goes on its
-  // list as something someone is waiting on. Any other message is, most likely, cargo saying the
-  // supplies are in.
+  // list as something someone is waiting on. Only its head's fixed line (HAS_COME) says the
+  // supplies are in; anything else changes nothing here.
   readsMessage: (brain, from, text, at, job) => {
     const heard = text.toLowerCase();
     // Word that a mess is beyond whoever sent it names a mess and a room, and is not a call.
@@ -919,9 +921,19 @@ export const JANITOR: Job = {
       }
       return;
     }
-    // Word that what it asked for has come, and where it is.
+    // Word that what it asked for has come, and where it is. Only its head's fixed line says so;
+    // any other message (a thank-you, a mess in a room it does not know) is no such word.
+    if (!heard.includes(HAS_COME)) {
+      return;
+    }
+    const where = heard
+      .split(HAS_COME)[1]
+      ?.match(/it is in (?:the )?(.+)/)?.[1];
     brain.suppliesSentAt = at;
-    brain.suppliesAt = placeNamedIn(brain, heard) ?? CARGO_LOBBY;
+    brain.suppliesAt =
+      (where ? placeNamedIn(brain, where) : undefined) ??
+      placeNamedIn(brain, heard) ??
+      CARGO_LOBBY;
     brain.toldHeadAt = null;
   },
   // Someone who works behind a door it is waiting at has turned up: the one reason to ask again.
