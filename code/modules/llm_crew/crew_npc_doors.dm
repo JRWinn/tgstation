@@ -188,25 +188,42 @@
 	var/mob/living/carbon/human/body = pawn
 	var/turf/here = get_turf(body)
 	var/room = current_place
+	// Just outside each door of the room it stands in is tried first: a short way, and a way out
+	// if there is one (DOOR-03). A door only touching the room, or blocked, is found out by the route.
+	// A door its ID does not open is no way out, and from a hallway it is a way into a locked room.
+	var/list/door_spots = list()
+	var/area/standing_in = get_area(body)
+	if(standing_in)
+		var/list/doors = crew_npc_doors_of(standing_in, here.z)
+		for(var/obj/machinery/door/airlock/door as anything in doors)
+			if(!door.allowed(body))
+				continue
+			var/list/sides = doors[door]
+			door_spots[sides[2]] = get_dist(here, sides[2])
+	// Then other rooms it has been in, leaving out any locked to it, which a route never reaches,
+	// and a hallway before a room as far off.
 	var/list/spots = list()
 	for(var/place in visited_places)
-		if(place == room)
+		if(place == room || place_locked_to_body(place))
 			continue
 		var/list/spot = visited_places[place]
 		var/turf/there = spot[3] == here.z ? locate(spot[1], spot[2], spot[3]) : null
-		if(there)
-			spots[there] = get_dist(here, there)
+		if(there && !door_spots[there])
+			spots[there] = get_dist(here, there) - (istype(get_area(there), /area/station/hallway) ? 0.5 : 0)
 	var/way_out = FALSE
 	var/tries_left = CREW_NPC_SHUT_IN_ROUTES
+	var/tested = 0
 	// What the test found, for the round's log: where it found a way to, and how long a way.
 	var/found
-	while(length(spots) && tries_left > 0 && !way_out)
+	while((length(door_spots) || length(spots)) && tries_left > 0 && !way_out)
 		tries_left--
+		var/list/from = length(door_spots) ? door_spots : spots
 		var/turf/nearest
-		for(var/turf/candidate as anything in spots)
-			if(isnull(nearest) || spots[candidate] < spots[nearest])
+		for(var/turf/candidate as anything in from)
+			if(isnull(nearest) || from[candidate] < from[nearest])
 				nearest = candidate
-		spots -= nearest
+		from -= nearest
+		tested++
 		var/list/route = get_path_to(body, nearest, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
 		if(QDELETED(src) || QDELETED(body))
 			return
@@ -214,13 +231,14 @@
 			way_out = TRUE
 			found = "a way of [length(route)] steps to [AREACOORD(nearest)]"
 	checking_shut_in = FALSE
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) tested whether it is shut in [room] at [AREACOORD(here)]: found [found || "no way out"].")
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) tested whether it is shut in [room] at [AREACOORD(here)], [tested] way\s tried: found [found || (tested ? "no way out" : "nowhere to test")].")
 	// It may have got out, or been let out, while the routes were being tested.
 	if(current_place != room)
 		return
 	if(way_out)
 		ways_out_failed = 0
-	else
+	// Nothing tested is no answer: the next failed walk tries again.
+	else if(tested)
 		shut_in = TRUE
 
 /// TRUE if the body remembers a mess, still there, in the room of this name.
