@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:102, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:196, code/modules/llm_crew/crew_npc_guarding.dm:59
 fix: In needStep ask the head of the body's own department, in view or by PDA, and treat the Captain as the one to ask only when the department has no head aboard
@@ -69,9 +70,25 @@ Read from the code. Not seen in a round.
 
 1. In `meetings.ts`, split the two ideas: `ownHeadInView` (a person in view whose job is `headOf(brain.job)`, not the Captain) and `headName` that prefers the own head in view, then the own head on the PDA, and only then the Captain (in view or on the PDA). The Captain is the last resort for a department with no head aboard, as the PDA sort already intends.
 2. In `needStep`, say the line aloud only to the own head in view; otherwise send the PDA to the own head; only with no own head aboard go to the Captain.
-3. Leave `headInView` as it is for its other use, `inMeeting`-style checks about whoever called a meeting, or rename it so it is not mistaken for "my head" again.
+3. `headInView` has no other caller (only `headName` and `needStep`, `meetings.ts:110` and `:214`), so it can simply be changed. But `headName` is also used by `wanted.ts:308`, to tell a head of a trespasser that would not leave. There the Captain in view is a fair person to tell. So do not change `headName` for everyone: add `ownHeadName(brain)` (own head in view, then own head on the PDA, else `headName`) and call it from `needStep` only; or change `headName` and check that `wanted.ts` still says the line aloud to whoever it picks. Either way `needStep`'s "is here" test must compare with the same person it picked, not with `headInView`.
+4. Keep the rule that a staff member with no head of its own aboard asks the Captain, as now.
 
 ## How to test the fix
 
 - Type check from `tgui/`.
 - Simulator: put the Captain in the room with a janitor who has just run out, with the Head of Personnel elsewhere. Pass if the janitor sends the head a PDA at once and says nothing to the Captain about supplies.
+- Same, with both the Captain and the Head of Personnel in view and the Captain first in `peopleInView`. Pass if the line is said to the Head of Personnel.
+- Same, with no Head of Personnel aboard. Pass if the janitor still asks the Captain.
+- In the next round's `game.log`, no "could you get it ordered" said to the Captain while a Head of Personnel is aboard.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes are the code today: `headInView` (`jobs/meetings.ts:102-106`), `headName` (`:109-121`), and the "is here" branch of `needStep` (`:214-220`). `answersTo` (`hierarchy.ts:111-117`) is TRUE for a Captain before it looks at the head; the server's `answers_to` (`crew_npc_guarding.dm:59-72`) returns TRUE for the Captain first too, and that is what `superior` is (`crew_npc_senses.dm:191`). So a Captain in view is taken by `find` whenever they come before the own head in `peopleInView`, and always when the own head is not in view.
+- Once the line is said, `meetingsAfterSaying` (`meetings.ts:637-638`) sets `toldHeadAt` on `ASKING_HEAD` whoever it was said to, and `needStep` then waits `TELL_AGAIN_DS` (4800 ds, eight minutes, `meetings.ts:61`). `janitor.ts:524-528` also blocks the supplies task for that time with "you have told your head".
+- The Head of Personnel does not pick it up second hand: the line is said to the Captain, so in its hearing it has `said_to === 'other'`, and `overhears` (`head.ts:1203-1209`) skips it. No Captain job exists under `jobs/`, so nothing in the code passes it on; a human Captain might.
+- Nothing in the change log or plans chooses this. The sort in `headName` ("its own head before the Captain") shows the intent is the other way.
+- The write-up's fix step 3 was wrong about `headInView` having another use; it has none, but `headName` has (`wanted.ts:308`). Step 3 is rewritten for that.
+
+Severity medium and effort small stand: a delay of up to eight minutes, only when the Captain is in sight, in one file. Read from the code only; nothing was run.

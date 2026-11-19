@@ -3,13 +3,14 @@ id: LOGB-03
 title: A door the server opens for some other janitor is booked by the brain as opened for the one it named, who is then let out of a room they were never in for good
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_doors.dm:511, code/modules/llm_crew/crew_npc_doors.dm:629, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1975, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1441
-fix: Send back who the door was opened for in the open_door result details and have the brain book that person, not task.item, and never book a let-in for a name the server did not find
+fix: Send back who the door was opened for (and which way) in the open_door result details, carried through finish_errand, and have afterActing book that person, not task.item, leaving the named person's call untouched when the two differ
 ---
 
 ## What is wrong

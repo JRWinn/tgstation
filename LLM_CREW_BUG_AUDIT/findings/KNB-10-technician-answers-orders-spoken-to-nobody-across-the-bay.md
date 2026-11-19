@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2186, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2222, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:136
 fix: Take a spoken order or a come-for-my-crate line only when it was said to this technician, or was said to nobody by someone standing at its counter
@@ -82,10 +83,13 @@ Seen in the round log quoted above. The cause was read from the code: `saidTo` w
           if (to === 'me') return true;
           if (to === 'other') return false;
           const seen = brain.peopleInView.find((person) => person.name === speaker);
-          return !!seen && (seen.distance ?? 99) <= COUNTER_REACH;
+          return (
+            !!seen &&
+            (seen.place === CARGO_LOBBY || (seen.distance ?? 99) <= COUNTER_REACH)
+          );
         }
 
-   with `COUNTER_REACH` of 2 or 3 tiles (the counter window is one tile from the post).
+   with `COUNTER_REACH` of 3 tiles (`FACING_RANGE` in `addressing.ts`). `seen.place` is the room the speaker stands in, sent by the server for everyone in view (`PersonInView.place`). A head at the counter is in the Cargo Lobby; the Captain in this case was in the Quartermaster's Office. Going by the room as well as the distance keeps the answer for a head at the counter while the technician is a few tiles back in the bay. `'group'` ("everyone, ...") falls to the same test, as it passes today too. `cargo.ts` does not import `CARGO_LOBBY` yet: take it from `../memory`, as `pickups.ts` does.
 2. Use it in place of `event.details.said_to !== 'other'` in both blocks quoted above.
 3. Check the other hooks in the same function for the same test and decide each: a knock or a door asked for aloud is rightly heard from further off, since the speaker is at a door and not at the counter. Leave those.
 4. `grep -n "said_to !== 'other'" jobs/*.ts` for the same pattern in other jobs (the Quartermaster's `overhears`, the heads'). Where the line triggers an action or a fixed answer, it wants the same care.
@@ -97,3 +101,7 @@ Keeps the rules: it is a senses matter (who was spoken to), decided by code, wit
 - Type check and lint.
 - `tools/llm_crew/addressing.ts` is the table of cases for who a line is to. Add the case above (Captain, seven tiles, no name, company present) and assert that a technician's `overhears` adds nothing to `brain.toTell`.
 - Simulator: `qm` and `qmbig`, where a head orders at the counter with a Quartermaster aboard, must still get "orders go through the Quartermaster" when the head stands at the counter.
+
+## Check
+
+Checked by Opus 5.5. The quoted lines are in `data/logs/2026/11/18/round-09.12.44/game.log` at lines 288 and 292 (the Captain at (81,152) in the Quartermaster's Office, the technician at (76,145) in the Cargo Bay: seven tiles). Read `saidTo` (`addressing.ts:83-136`) and ran it in a throwaway bun script (scratchpad, `knb10.ts`) with that line, the speaker seven tiles off, another technician beside the listener and the Quartermaster in view: it returned `{"to":"nobody"}` with the speaker facing away and facing toward. Read `overhears` in `jobs/cargo.ts:2083-2290`: the order block (2185-2214) and the crate block (2222-2262) only refuse `'other'`, so `'nobody'` and `'group'` pass; the door block at 2275 does the same, and the write-up rightly leaves it. The 12:00 entry of `LLM_CREW_CHANGELOG.md` (line 815) lists it as not looked into, and no later entry touches it. Confirmed. I changed the helper to go by the speaker's room (Cargo Lobby) as well as the distance, so a head at the counter is still answered when the technician stands a few tiles back.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/expected.ts:40, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1475, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1966, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1517, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1878
 fix: Strike the note when a let-out fails because they are not in that room, give the note an age limit, and do not let a standing door want switch off order-taking
@@ -21,12 +22,12 @@ A visitor can leave without any of the three. A janitor who is shut in a room wa
 The stale note then does all of this, for as long as that technician does not happen to see them elsewhere:
 
 1. **The door is tried every two minutes for good.** After three minutes (`LEFT_INSIDE_DS`) in a room with no mess left, `doorSought` returns a want to let them out. `open_door` is sent with their handle. The server finds them, sees they are neither in the room nor at its door, and answers "You cannot see that person, and they are not at the door of ..." or "You have no call to let ... into ...". `afterActing` only strikes the note when the answer is ok. The want is back on the next update, the driver backs the step off (20 seconds, rising to two minutes), and it is sent again, without end.
-2. **Orders are not offered.** `offers` returns nothing while `doorWanted(brain)` is set, and `hears` goes by `offers`. With no Quartermaster aboard, no head can order from that technician. The 15 second pause after an opened door (`lastOpened`) never comes, because the door never opens.
+2. **Orders are not offered.** `offers` returns nothing while `doorWanted(brain)` is set, and `hears` goes by `offers`. With no Quartermaster aboard, no head can order from that technician. The list is the department's, shared by every technician in the window, and the long stop has no test of whose door it is, so this is every technician at that post at once, not only the one who let them in. The 15 second pause after an opened door (`lastOpened`) never comes, because the door never opens.
 3. **No rounds, and no walk back to the post.** `syncRounds` is passed `!wants && !visitorToMind(brain)`, and `away` needs `!wants`.
 4. **No janitor is called to a mess in that room.** In `tidyStep`, for a locked room, `here` is whoever the list says was let in. The step is "X, a janitor, is here and can see the mess in the Warehouse." for good, and no call is sent. (With a mess in the room the long stop in point 1 does not run, so this is the state it sits in.)
 5. **The model is told something false.** `cues` says "X is inside the Warehouse and cannot get out by themselves ... You are opening the door for them now".
 
-One concrete case: Sam lets the janitor Jan into the Warehouse for a mess. Jan cleans it and wants out. Maria, hauling a crate to the Warehouse, opens its door by walking through. Jan sees the door open and leaves through it, then out to the lobby by the same means, while Sam is at the console. Sam did not open a door for Jan and has not seen Jan since. Three minutes on, Sam's `doorSought` returns `{ name: 'Jan Mopp', room: 'Warehouse', out: true }`. Sam's `open_door` is refused. The Head of Personnel comes to the counter and says "I need to order a crate of janitorial supplies." `offers` is empty for Sam. If Sam is the only technician, or the one spoken to, nothing is ordered.
+One concrete case: Sam lets the janitor Jan into the Warehouse for a mess. Jan cleans it and wants out. A miner, or a player, opens the Warehouse door from the bay, and Jan, seeing it open, leaves through it and on out of the bay by its far door while Sam and Maria are both in the lobby. Neither has seen Jan since. (A workmate who opens the door would see Jan as they pass and, being on the same list, strike the note: `syncTasks` at `jobs/cargo.ts:811-840`. The note stands only while no technician at the post sets eyes on Jan after Jan is out.) Three minutes on, Sam's `doorSought` returns `{ name: 'Jan Mopp', room: 'Warehouse', out: true }`. Sam's `open_door` is refused. The Head of Personnel comes to the counter and says "I need to order a crate of janitorial supplies." `offers` is empty for Sam, and for Maria too. Nothing is ordered, by the model or by `hears`.
 
 ## Where
 
@@ -94,7 +95,7 @@ Read from the code, not seen in a round. How often a visitor leaves unseen is no
 
 ## How to fix it
 
-1. Server, `tool_open_door`: when the person was found by handle or name and is not in the room, add `list("not_inside" = TRUE)` to the details of both refusals above.
+1. Server, `tool_open_door`: when the person was found by handle or name and is not in the room, add `list("not_inside" = TRUE)` to the details of both refusals above (`action_result` takes the details as its fourth argument, as `tool_order` does). Add it as well to "You do not know who that is, and there is nobody of that name at the door" when the handle no longer resolves: whoever it was is gone from the round or out of reach, and is not in there to be let out.
 2. Window, `afterActing` for a `door` task: when `!ok && task.out && details?.not_inside`, call `noteLetOut(brain.post, task.item, task.place)`. They are not in there, whatever the note says. `afterActing` already receives `details` as its sixth argument.
 3. `expected.ts`: give an `inside` entry an age limit as a long stop, for example drop `inside` (not the call) when `now - entry.at > 18000` (30 minutes) and nothing has renewed it. `noteLetIn` already resets `at`.
 4. Cap the long stop in `doorSought`: after two failed tries for one person and room, leave it until they knock or send word. Keep the count on the entry.
