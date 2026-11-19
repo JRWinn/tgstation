@@ -45,3 +45,15 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - TRUST-11: ask a head NPC by the Head of Security to have someone arrested: `crew_brain.log` shows "[sounded like an order: not said]", and `game.log` no warrant or arrest.
 - CHEAT-01: grep `game.log` for "standing in your way": present but not many; watch a meeting of four or more in a small office for anyone stuck; stand in a doorway in combat mode: a technician stops, not passes.
 - KNB-04: in `game.log`, "opened X to let Y" once per asking; the door opens, shuts by itself, and opens again if the visitor was slow, while the technician stands beside it.
+- ARR-02: in `game.log`, after "took hold of ... to walk them out" on an officer, no "was laid hands on by <keeper> ...: grab" and no "hit <keeper> with its baton"; an officer let in by a technician is not walked out within 5 minutes while the one the warrant is on is still uncuffed in the bay. A pull by your own body must still give "was laid hands on by ...: grab".
+- TRUST-06 (steps 4 and 5): `pda.log` has "Bring them in, N minutes. The Captain declared it." on the Captain's warrants; "I cannot bring in ... they are a head of staff" only on a head's warrant on a head.
+- SEC-01 (window): a "You were knocked down yourself" result in `game.log` is followed by the same arrest or jailing tried again, with no "lost" PDA to the Head of Security.
+- SEC-05: after a pardon of someone whose time already ran out, `game.log` has "came to let X out of Cell N and found X not in it", and no "stopped the timer of" for that cell.
+- KNA-01 (guarding): a janitor who sent "let me out" shows no "took hold of <janitor> ... to walk them out" before "opened ... to let <janitor> out of".
+- KNB-04 (step 7): after "opened X to let Y", the same technician starts no walk until Y is through or about 35 s pass; `crew_brain.log` shows "You are done holding the door of X for Y.", and the technician moves on within a second or two of it.
+- CARGO-06: a non-head asking a technician for supplies near a head gets nothing ordered (`crew_brain.log` "[nothing said called for it: not done]"); no order with order_for a janitor's name when there is no Quartermaster.
+- CHEAT-14 (steps 6 and 7): in the Crew Brain window, has_pda and has_locator are false for a body whose PDA an admin broke; in View Variables an engineer's PDA shows enabled early in the round.
+- KNB-06 (crate_collected): collecting a locked, welded or large wooden crate gives "you cannot unpack it" in the brain window, no "is unpacked in" in `pda.log`, and no take back of that crate.
+- TRC-01 (take_from_container): `game.log` "left the X open in Y: someone is on it." when something is taken from a locker or crate with someone on its tile.
+- ASYNC-08 (both halves): the Captain gives an order in passing and walks out of view at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk.
+- DRV-03: the step-aside line in `crew_brain.log` ("has asked you to step aside") comes within a second or two of the ask in `game.log`, and the body is out of the way at once.

@@ -51,9 +51,9 @@ Built: someone only being seen to the door after their work is never reported, a
 - A. Yes, as now, for anyone not just being seen to the door.
 - B. No: it takes the person being told to leave, refusing, and breaking the hold.
 
-## ARR-02: may a room's keeper walk out an officer who has a warrant to serve in it? (not built)
+## ARR-02: may a room's keeper walk out an officer who has a warrant to serve in it?
 
-ARR-02 was not fixed: its baton part is in crew_npc_security.dm and its welcome part in jobs/cargo.ts, and neither stands alone. It waits for a second round. Its step 3 is yours:
+ARR-02 steps 1 and 2 are built (second round). Its step 3 is yours:
 
 - Should an officer with a warrant to serve in a room be walked out of it by the room's keeper at all?
 - When the keeper is the person the warrant is on, does walking the officer out count as fighting back (five more minutes)?
@@ -106,3 +106,10 @@ Built: crew bodies no longer walk through people; they swap places as a player d
 
 - A. No, as built: everyone swaps or is stopped.
 - B. Yes, through crew NPCs only (never players), when can_mobswap_with says yes.
+
+## CHEAT-14: may the engine reading switch an engineer's PDA on by itself?
+
+Built in the second round: the engine monitor is read only on a PDA that is whole, readable and switched on. The reading runs at every window update, so an engineer's PDA that is off is switched on by its power button at the first update, and drains its cell from then on, as a player who keeps the monitor open would.
+
+- A. Keep it so (as built).
+- B. Read the engine only when the PDA is already on, and leave switching it on to when the body means to look.
