@@ -864,6 +864,10 @@ export type Task = {
   unheard?: number;
   /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
   walkedUp?: boolean;
+  /** Server time (deciseconds) of the last sync it was blocked at, or when open work began again (MEM-11). */
+  openSince?: number;
+  /** Server time (deciseconds) it was first seen blocked, since it was last open (MEM-11). */
+  blockedSince?: number;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */

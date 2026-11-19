@@ -45,6 +45,8 @@ import type { NpcBrain, Plan, Task, Urgency } from './types';
 const KEEP_DONE_DS = 6000;
 /** How long (deciseconds) a task may sit before it is given up on as forgotten business. */
 const GIVE_UP_DS = 18000;
+/** How long (deciseconds) work may wait blocked before it is given up on: an hour. */
+const BLOCKED_GIVE_UP_DS = 36000;
 /** Most tasks listed to the LLM. */
 const TASKS_SHOWN = 4;
 /** How many of the latest lines of whoever told it of work are read for that work. */
@@ -153,7 +155,16 @@ export function syncTasks(brain: NpcBrain): void {
       const owedWord = task.askedBy && !task.reported;
       return owedWord && brain.now - (task.doneAt ?? 0) < KEEP_DONE_DS;
     }
-    return brain.now - task.createdAt < GIVE_UP_DS || task.state === 'blocked';
+    // Blocked work is kept while it waits, up to a limit of its own. Open work is given up on as
+    // forgotten business only once it has been open that long: work that was blocked a long while
+    // and can go on at last is not dropped the moment it can.
+    if (task.state === 'blocked') {
+      task.blockedSince ??= brain.now;
+      task.openSince = brain.now;
+      return brain.now - task.blockedSince < BLOCKED_GIVE_UP_DS;
+    }
+    task.blockedSince = undefined;
+    return brain.now - (task.openSince ?? task.createdAt) < GIVE_UP_DS;
   });
 }
 
