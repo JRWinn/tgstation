@@ -324,6 +324,8 @@ export function readBook(
   self?: string,
 ): LedgerOrder[] {
   const orders: LedgerOrder[] = [];
+  // Orders that are themselves a lost crate ordered again: cargo orders one of those once only.
+  const reorders = new Set<number>();
   for (const line of lines) {
     const entry = line.trim().match(/^Order (\d+)\. (.*)$/);
     if (!entry) {
@@ -340,6 +342,9 @@ export function readBook(
         .map((part) => ({ crate: part[2], count: Number(part[1]) }));
       const order = newOrder(n, taken[1], taken[2], items, Number(taken[4]));
       order.own = !!self && taken[1] === self;
+      if (reorders.has(n)) {
+        order.reordered = true;
+      }
       orders.push(order);
       continue;
     }
@@ -389,6 +394,10 @@ export function readBook(
       order.unpacked = true;
     } else if (/^Lost: /.test(rest)) {
       order.reordered = true;
+      const again = rest.match(/\bOrdered again as order (\d+)\./);
+      if (again) {
+        reorders.add(Number(again[1]));
+      }
     }
   }
   return orders;
@@ -1714,6 +1723,9 @@ function crateLost(
     // Whoever cleared the order cleared this much of it already.
     again.approved = order.approved;
     order.reordered = true;
+    // Once by itself, and only once: if this one is lost too, whoever ordered is told, and it is
+    // theirs to order again. Each reorder its own once bought crate after crate.
+    again.reordered = true;
     ledger.orders.push(again);
     ledger.toWrite.push(BOOK.lost(order, written, again.n));
     ledger.toWrite.push(BOOK.taken(again));

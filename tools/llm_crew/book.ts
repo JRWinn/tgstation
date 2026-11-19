@@ -219,6 +219,30 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('a cancel written in the book is read back as off', readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. Cancelled by Hop Kins.'], 5000).map((order: any) => `${order.state} ${order.cancelledBy}`), ['refused Hop Kins']);
 }
 
+// QM-12: a lost crate is ordered again once by cargo, and the reorder, lost too, is not.
+{
+  const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400 };
+  qm.budget = 5000;
+  qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay'; qm.staffPost = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }];
+  qm.peopleInView = [{ handle: 'p2', name: 'Cora Tech', job: 'Cargo Technician' }];
+  qm.ledger = { orders: readBook(['Order 3. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 3. Given to Cora Tech.', 'Order 3. Docked: crate #12 (Janitorial Supplies Crate).'], 5000, 'Ada Finch'), next: 4, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+  const tell = (line: string) => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: 'Cora Tech', handle: 'p2', message: line, said_to: 'me' } } as any);
+  tell('Ada, crate #12 for Hop Kins is lost: nobody can get to it.');
+  add('the first loss is ordered again', qm.ledger.orders.map((order: any) => order.n), [3, 4]);
+  const four = qm.ledger.orders.find((order: any) => order.n === 4);
+  four.state = 'docked';
+  four.crates = [{ number: 13, kind: 'Janitorial Supplies Crate' }];
+  qm.ledger.toWrite = [];
+  tell('Ada, crate #13 for Hop Kins is lost: nobody can get to it.');
+  add('the reorder lost as well: not bought again', qm.ledger.orders.map((order: any) => order.n), [3, 4]);
+  add('and written as lost with no reorder', qm.ledger.toWrite, ['Order 4. Lost: crate #13.']);
+  const back = readBook(['Order 3. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 3. Lost: crate #12. Ordered again as order 4.', 'Order 4. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.'], 5000);
+  add('read back from the book: the reorder is known for one', back.map((order: any) => `${order.n} ${!!order.reordered}`), ['3 true', '4 true']);
+}
+
 // QM-05 (words only, not yet said): the Quartermaster sending a technician to let a workmate out.
 {
   const S = await import(ROOT + 'jobs/supply');
