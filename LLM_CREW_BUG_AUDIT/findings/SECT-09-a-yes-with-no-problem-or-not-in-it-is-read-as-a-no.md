@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:50, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:309, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:785
-fix: Read yes or no from how the answer begins, and only fall back to looking through the whole line when it begins with neither
+fix: Take out set phrases such as no problem and not yet, read the answer from how it begins (no first), and only then look through the whole line
 ---
 
 ## What is wrong
@@ -64,8 +64,12 @@ Read from the code. `yesOrNo("yes, donna, i asked tolly in to mop up. no need to
 2. Then look at how the answer begins, after an optional name and comma. Test the no first: `^\W*(?:\w+,\s*)?(?:no|nope|never|i did not|i didn'?t|not me)\b` is a no; then `^\W*(?:\w+,\s*)?(?:yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b` is a yes. The order matters: "I did not ask him" begins with "i did", and the yes test alone would take it for a yes.
 3. Only if it begins with neither, fall back to the whole-line test as now (no-words first), on the line with the phrases of step 1 taken out.
 4. In `vouchStep`, make `needs` say the answer comes first: `needs: new RegExp(`^\\W*${answer}\\b`, 'i')` (a plain RegExp; `has()` checks for the word anywhere). The plain line already begins that way, so a model line that does not is dropped for it.
-5. This also mends `verifyHeard` (`guarding.ts:793`), which uses the same `yesOrNo`.
+5. This also mends `verifyHeard` (`guarding.ts:799`), which uses the same `yesOrNo`.
 
 ## How to test the fix
 
-Add cases for `yesOrNo` (export it, or test through `guardOverhears`): "Yes, Donna, I asked Tolly in. No need to worry." is true; "Yes, he's not done yet" is true; "No, I did not ask him" is false; "Not me, ask Quin" is false; "Hmm?" is null. Run the `vouch` simulator scenario with a chatty LLM a few times and check the visitor stays.
+Add cases for `yesOrNo` (export it, or test through `guardOverhears`): "Yes, Donna, I asked Tolly in. No need to worry." is true; "Yes, he's not done yet" is true; "No, I did not ask him" is false; "Not me, ask Quin" is false; "Hmm?" is null; "I did not ask him in." is false; "Donna, yes, I did." is true; "Yeah, no worries" is true. "No problem, I asked him in." comes out null by these steps, which is harmless: the guard asks once more and then takes the word (`syncGuarding`, the `stranger.voucher` branch). Run the `vouch` simulator scenario with a chatty LLM a few times and check the visitor stays, and with the voucher saying no that the visitor is still put out.
+
+## Check
+
+Read `NO_WORDS`, `YES_WORDS` and `yesOrNo` (`guarding.ts:50`, 309), the two places that read a yes or no in `guardOverhears` (785 and 799), `vouchStep` (486), `has` (108), the `exact` and `needs` fields in `types.ts:890` to 901 (a line without `exact` is the model's own, and is used if it passes `needs`), and the calls in `cargo.ts` that write `noteSentFor` and the shared list. The quotes match. A bun script in the scratchpad gave the current regexes false for "yes, donna, i asked tolly in to mop up. no need to worry." and for "yes, he's not done yet", true for the plain line. No entry in the change log or plans speaks of it. Confirmed, though the ask is put less often than the write-up implied (added under What is wrong). The proposed fix was wrong in two places, both mended and run in a script: testing the yes first reads "I did not ask him" as a yes, and "No problem, ..." at the start read as a no. Whether a model adds such words was not tried.
