@@ -14,6 +14,8 @@ fix: In startTalk take the first queued NPC that is ready, not only the head of 
 
 ## What is wrong
 
+See also: DRV-05, which names the first point below (only the head of the queue is looked at) as one of the waits a line to say sits behind. This finding adds the second point, the choice that takes the model in the gap, and the fix for both.
+
 The model serves one call at a time. The comments say talk goes first, "because someone is waiting on an answer", and a choice between jobs "goes when no talk is ready to". Two things in `startTalk` undo that.
 
 1. **Only the head of the queue is looked at.** If the first NPC in the talk queue has to wait (1.5 s after its last call, or 4.2 s after it last spoke, `SAY_COOLDOWN_MS`), `startTalk` sets a timer and returns FALSE, even when the next NPC in the queue could be asked this instant. That NPC waits for the first one's cooldown for nothing.
