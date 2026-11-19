@@ -49,6 +49,14 @@ const VOUCH_WORDS = /did you (ask|call|send|let|tell|invite)/;
 /** What a no and a yes sound like. A line with both in it is a no: "no, I did not". */
 const NO_WORDS = /\b(no|nope|not|never|didn'?t)\b/;
 const YES_WORDS = /\b(yes|yeah|yep|aye|i did|i have|correct)\b/;
+/** Set phrases with a no-word in them that mean nothing of the kind. */
+const SET_PHRASES =
+  /\bno (?:problem|worries|trouble|bother)\b|\bno need\b[^.!?]*|\bnot (?:yet|done|finished)\b|\bnot a problem\b/g;
+/** An answer that begins, after a name and a comma, with a no or a yes. */
+const BEGINS_NO =
+  /^\W*(?:\w+,\s*)?(?:no|nope|never|i did not|i didn'?t|not me)\b/;
+const BEGINS_YES =
+  /^\W*(?:\w+,\s*)?(?:yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b/;
 /** What owning up to having no reason to be in a room sounds like. */
 const NO_REASON_WORDS =
   /nobody|no one|should not be|shouldn'?t be|no business|no reason|just looking|only looking|lost/;
@@ -473,21 +481,100 @@ function workmateNamedIn(
   heard: string,
   except: string[],
 ): string | null {
+  // The NPC's own name used to speak to it ("Donna, the QM sent me") names nobody (PARSE-07).
+  const line = unaddressed(heard, brain.name);
   const others = [...brain.workmates].filter(
     (name) => !except.includes(name) && name !== brain.name,
   );
+  // A job named ("the QM sent me") is the one workmate who holds it.
+  const byJob = (name: string) => {
+    const job = jobOf(brain, name);
+    return (
+      !!job &&
+      jobWords(job).test(line) &&
+      others.filter((other) => jobOf(brain, other) === job).length === 1
+    );
+  };
   return (
-    others.find((name) => namesPerson(heard, name)) ??
-    (namesPerson(heard, brain.name) ? brain.name : null)
+    others.find((name) => byName(line, name)) ??
+    others.find(byJob) ??
+    (byName(line, brain.name) ? brain.name : null)
   );
 }
 
+/** Openers before a name that is only speaking to someone: "hi Donna", "sorry Donna". */
+const ADDRESS_OPENERS = 'hi|hey|hello|sorry|ok|okay|oh|yes|yeah|well|look';
+
+/** These words, in lower case, with this person's first name taken out where it only speaks to them. */
+function unaddressed(heard: string, name: string): string {
+  const first = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .find((part) => part.length > 2);
+  if (!first) {
+    return heard;
+  }
+  return heard
+    .replace(new RegExp(`^\\W*(?:${ADDRESS_OPENERS})\\W+${first}\\b`), '')
+    .replace(new RegExp(`^\\W*${first}\\s*[,!:.]`), '')
+    .replace(new RegExp(`,\\s*${first}\\b(?=\\s*[,.!?]|\\s*$)`, 'g'), '');
+}
+
+/** TRUE if these words name this person: by first name, full name, or "Mr/Mrs/Ms" and surname. */
+function byName(heard: string, name: string): boolean {
+  const parts = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const [first, last] = [parts[0], parts[parts.length - 1]];
+  return (
+    (!!first && new RegExp(`\\b${first}\\b`).test(heard)) ||
+    (!!last && new RegExp(`\\b(?:mr|mrs|ms|miss)\\.? ${last}\\b`).test(heard))
+  );
+}
+
+/** The job this NPC knows someone by, from seeing them or its PDA list, or ''. */
+function jobOf(brain: NpcBrain, name: string): string {
+  return (
+    brain.peopleInView.find((person) => person.name === name)?.job ??
+    brain.pdaPeople.find((person) => person.name === name)?.job ??
+    ''
+  );
+}
+
+/** Short names the crew use for jobs. */
+const JOB_SHORT: Record<string, string> = {
+  quartermaster: 'qm',
+  'head of personnel': 'hop',
+  'chief engineer': 'ce',
+  'head of security': 'hos',
+  'chief medical officer': 'cmo',
+  'research director': 'rd',
+  'cargo technician': 'cargo tech',
+};
+
+/** A job's title, or its short name, as a word. */
+function jobWords(job: string): RegExp {
+  const title = job.toLowerCase();
+  const short = JOB_SHORT[title];
+  return new RegExp(`\\b(?:${title}${short ? `|${short}` : ''})\\b`);
+}
+
 /** What a yes-or-no answer, in lower case, comes to, or null if it is neither. */
-function yesOrNo(heard: string): boolean | null {
-  if (NO_WORDS.test(heard)) {
+export function yesOrNo(heard: string): boolean | null {
+  // "No problem", "not done yet" and the like are no no (SECT-09).
+  const line = heard.replace(SET_PHRASES, ' ');
+  // How the answer begins settles it, the no first: "I did not" begins with "I did".
+  if (BEGINS_NO.test(line)) {
     return false;
   }
-  return YES_WORDS.test(heard) ? true : null;
+  if (BEGINS_YES.test(line)) {
+    return true;
+  }
+  if (NO_WORDS.test(line)) {
+    return false;
+  }
+  return YES_WORDS.test(line) ? true : null;
 }
 
 /** Makes sure there is a task of this kind about this person or thing, and none about any other. */
@@ -522,7 +609,13 @@ export function syncGuarding(brain: NpcBrain): void {
     for (const person of brain.peopleInView) {
       if (person.belongs) {
         brain.workmates.add(person.name);
-      } else if (person.in_post) {
+      } else if (
+        person.in_post &&
+        // Someone seen to belong earlier in the round is a workmate whose card no longer opens
+        // the door, not a stranger (MULTI-03). Unless a superior has ordered them out.
+        (!brain.workmates.has(person.name) ||
+          !!brain.strangers[person.name]?.orderedBy)
+      ) {
         recordOf(brain, person.name).lastSeenAt = brain.now;
       }
     }
@@ -530,8 +623,10 @@ export function syncGuarding(brain: NpcBrain): void {
   for (const [name, stranger] of Object.entries(brain.strangers)) {
     const seen = brain.peopleInView.find((person) => person.name === name);
     // Seen outside the room, or not seen for a good while: they are gone, and so is the matter.
+    // A workmate is no stranger, unless ordered out.
     if (
       (seen && (!seen.in_post || seen.belongs)) ||
+      (brain.workmates.has(name) && !stranger.orderedBy) ||
       brain.now - stranger.lastSeenAt > GONE_DS
     ) {
       delete brain.strangers[name];
@@ -644,6 +739,15 @@ function explainStep(brain: NpcBrain): Plan {
     return { ready: false, step: 'Whoever asked has gone.' };
   }
   const why = reasonToBeHere(brain);
+  // Its own post is the one room it always has a reason to be in, card or no card (MULTI-03).
+  if (!why && brain.post && brain.location === brain.post) {
+    return {
+      ready: true,
+      step: `${by} has asked why you are in ${brain.location}. It is where you work. In "say", tell ${by} so, beginning with "I work here".`,
+      say: 'I work here.',
+      needs: has('work'),
+    };
+  }
   if (!why) {
     return {
       ready: true,
@@ -675,7 +779,8 @@ function vouchStep(brain: NpcBrain): Plan {
     say: did
       ? `Yes, ${firstName(asked.by)}, I asked ${firstName(asked.about)} to come in.`
       : `No, ${firstName(asked.by)}, I did not ask ${firstName(asked.about)} in here.`,
-    needs: has(answer),
+    // The answer comes first, so the one who asked reads it right (SECT-09).
+    needs: new RegExp(`^\\W*${answer}\\b`, 'i'),
   };
 }
 
@@ -940,7 +1045,12 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
     asked.askedAt !== undefined &&
     event.at >= asked.askedAt
   ) {
-    const voucher = workmateNamedIn(brain, heard, [speaker]);
+    // "You let me in", said to the NPC, names the NPC.
+    const voucher =
+      workmateNamedIn(brain, heard, [speaker]) ??
+      (/\byou (?:let me in|asked me|sent for me|sent me)\b/.test(heard)
+        ? brain.name
+        : null);
     if (voucher && voucher !== brain.name) {
       asked.voucher = voucher;
     } else if (voucher || NO_REASON_WORDS.test(heard)) {

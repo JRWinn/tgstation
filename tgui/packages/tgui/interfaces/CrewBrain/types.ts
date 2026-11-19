@@ -894,6 +894,8 @@ export type Task = {
   fails?: number;
   /** For a freight step put off after failing: what the body was told when it last failed (JOBS-04). */
   failedOn?: string;
+  /** For a mess: TRUE once picking up a bucket for it has failed, so it sets off without one. */
+  noBucket?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */

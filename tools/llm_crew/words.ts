@@ -48,6 +48,21 @@ for (const [line, room] of [['blood in the bar', 'Bar'], ['the bar is a mess', '
   add(`from its head, "${line}" is an order to clean the ${room}`, fromHead(line), room);
 }
 
+// ---- DESK-01: only the head's fixed line says the supplies have come
+const supplies = (line: string) => {
+  const b: any = janitor(null);
+  b.stowed = [];
+  b.toldHeadAt = 100;
+  know(b, ['Custodial Closet', 'Bridge']);
+  JANITOR.readsMessage(b, 'Zim Fire', line, 3005, 'Captain');
+  return [b.suppliesSentAt, b.suppliesAt, b.toldHeadAt];
+};
+for (const line of ['Thanks, hang in there.', "There's vomit all over the hallway outside medbay", 'Go to the Bridge', 'How is it going?']) {
+  add(`"${line}" is no word that supplies have come`, supplies(line), [null, null, 100]);
+}
+add('the head\'s "what you asked for has come" names the room', supplies('Zim, what you asked for has come. It is in the Custodial Closet.'), [3005, 'Custodial Closet', null]);
+add('the head\'s line with a room it does not know: the Cargo Lobby', supplies('Zim, what you asked for has come. It is in the Nowhere Room.'), [3005, 'Cargo Lobby', null]);
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
