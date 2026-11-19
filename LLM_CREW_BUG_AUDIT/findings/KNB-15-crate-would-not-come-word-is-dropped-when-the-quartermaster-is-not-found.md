@@ -72,7 +72,7 @@ Concrete case:
 
 ## How it was found
 
-Read from the code, starting from the two 09:20 lines. Not seen in a round: the logs read for this audit have no "could not get crate" line said to a Quartermaster at all, which fits the word never reaching it.
+Read from the code, starting from the two 09:20 lines. The face-to-face path is seen working: `grep -rh "GAME-SAY.*I could not get crate" data/logs` finds five such lines said to a Quartermaster (rounds 14.28.06, 15.52.18, 17.48.05 and 2026-11-19 20.43.32). The give-up path was not looked for in the logs: it leaves no line, which is part of the fault. Only some of the 27 "has given up hauling" lines in the logs are hauls `wontComeHow` names (collect_crate and take_back are not), so the five cannot be compared with them directly.
 
 ## How to fix it
 

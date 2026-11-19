@@ -45,8 +45,8 @@ Read from the code. Not seen in a round. It needs a player to remove the order f
 
 ## How to fix it
 
-1. Note on the controller whether the shuttle has been away since the order was placed: FALSE in `place_order`, TRUE whenever a step finds the shuttle anywhere but idle at `cargo_home` (in flight, or docked at `cargo_away`). Do not set it only where this body's own step moves the shuttle: a workmate's step or `send_shuttle` may move it instead, and `buy()` runs on the leg home whoever sent it. SUP-11 wants the same flag.
-2. In `supply_run_step`, if the order is gone and `supply_trip_made` is FALSE, it was not loaded. End the run with "Order [numbers] has been taken off the supply console's cart. It will not come." A body standing at the console would see the cart; one away from it would find out when it next looked. Owe the asker word of it, the same way SUP-02 asks for an order given up.
+1. Note whether the shuttle has loaded since the order was placed. `buy()` starts with `SEND_SIGNAL(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)`: one global listener can stamp the `world.time` of the last loading, and the step compares it with `supply_run_started_at`. Do not go by where this body's own step sees the shuttle: a workmate's step or `send_shuttle` may move it home from the far dock between two of its steps. SUP-11 wants the same stamp.
+2. In `supply_run_step`, if the order is gone and there has been no loading since `supply_run_started_at`, it was not loaded. End the run with "Order [numbers] has been taken off the supply console's cart. It will not come." A body standing at the console would see the cart; one away from it would find out when it next looked. Owe the asker word of it, the same way SUP-02 asks for an order given up.
 3. Leave the rest of the step as it is.
 
 ## How to test the fix
