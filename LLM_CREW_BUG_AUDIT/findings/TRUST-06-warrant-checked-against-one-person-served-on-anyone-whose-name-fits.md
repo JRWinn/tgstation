@@ -4,7 +4,7 @@ title: Who a warrant may be on is checked against one person, and the officer th
 kind: bug
 severity: medium
 effort: medium
-confidence: likely
+confidence: sure
 status: found
 found_by: Opus 5.5
 area: security
@@ -58,7 +58,13 @@ The same loose match is used to let people go. `strike` and the officer's `dropW
 
 ## How it was found
 
-Read from the code. Not run: a table case would show it in a few lines (see below). Not seen in a round.
+Read from the code, and a throwaway bun script (in the system temp folder) that imported `jobs/security.ts` printed:
+
+    readWarrant('Warrant for Jane, for theft.', ['Jane Doe', 'Jane Marsh', 'Bob Hale'])  -> {"name":"Jane","reason":"theft","minutes":null}
+    sameName('Jane', 'Jane Marsh') -> true    sameName('Doe', 'Jane Doe') -> true
+    readWarrant('Warrant for Doe, for theft.', ['Jane Doe', 'John Doe'])               -> {"name":"Doe","reason":"theft","minutes":null}
+
+`deskTakes` and `target` were not run; they were read. Not seen in a round.
 
 ## How to fix it
 
