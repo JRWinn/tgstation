@@ -29,7 +29,7 @@ And from the most recent round, `round-20.43.32` (2026-11-19, 03:00:05 in the lo
 
     ... was told by its brain to say: Abel Murphy, since you're already heading for Mining, tell Jean-Luc there's a door waiting for him in the hallway. Don't ask me to push it open myself; my hands are busy with your crowbar and the cont
 
-A grep of every round's `game.log` for says of 199 characters or more that do not end in a stop finds such lines in `round-23.57.07`, `round-19.33.50`, `round-20.00.21` and `round-20.43.32`, the last two of them a dozen between them.
+A grep of every round's `game.log` for says of 199 characters or more that do not end in a stop finds such lines in 31 of the rounds under `data/logs/2026/11/`, from one to sixteen a round (16 in `round-01.53.17`, 6 in `round-20.00.21`), 106 in all. Some of the 199-character lines may be whole lines that happen to end without a stop; nearly all end mid-word.
 
 ## Where
 

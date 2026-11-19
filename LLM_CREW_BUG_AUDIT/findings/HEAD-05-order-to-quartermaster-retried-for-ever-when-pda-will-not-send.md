@@ -2,14 +2,15 @@
 id: HEAD-05
 title: When its PDA will not send, the Head of Personnel's order to the Quartermaster is tried again for ever and never taken to the counter, and no staff meeting is held meanwhile
 kind: bug
-severity: high
-effort: small
+severity: medium
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:894, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1363, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:624, code/modules/llm_crew/crew_npc_cargo.dm:719
-fix: Start the wait for the Quartermaster's word from the first try to send, whether or not it went, so that after NOTED_WAIT_DS the order goes to the counter, and say at the counter that the Quartermaster has not answered
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:894, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1363, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1242, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:624, code/modules/llm_crew/crew_npc_cargo.dm:719
+fix: Note the first try to send the order whether or not it went, stop offering the same message, take a Noted that comes after the server resends it, and go to the counter once the server has stopped resending (about nine minutes)
 ---
 
 ## What is wrong

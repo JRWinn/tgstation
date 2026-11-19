@@ -49,17 +49,17 @@ Not listed in `LLM_CREW_PLAN_NO_CHEATS.md`. KNA-04 lists `free_a_hand` and `hand
 
 ## How it was found
 
-Read from the code. (The first write-up also said that a junk letter that cannot go into a full hand stays on the crate's tile and is counted as binned wrongly. That is not so: `put_in_hands` that finds no free hand moves the item to the body's `drop_location()` (`inventory.dm:331` and `transferItemToLoc` at :366), its feet, and that branch is only taken when the feet are not the crate's tile. The comment in the code is right.)
+Read from the code. (The first write-up also said that a junk letter that cannot go into a full hand stays on the crate's tile and is counted as binned wrongly. That is not so: `put_in_hands` that finds no free hand moves the item to the body's `drop_location()` (`inventory.dm:331` and `transferItemToLoc` at :368), its feet, and that branch is only taken when the feet are not the crate's tile. The comment in the code is right.)
 
 ## How to fix it
 
-1. Open the crate with a click as the body (`empty_clicking_hand()` then `click_as_body(crate)`), and check `crate.opened`. GAP-02 makes the same change for unpacking.
-2. For each letter, in turn: `empty_clicking_hand()`, `click_as_body(letter)` (picks it up; `click_as_body` waits `CREW_NPC_CLICK_GAP` first), check `body.is_holding(letter)`.
+1. The opening may stay as it is. `crate.open(body)` is the `open()` a click reaches through `toggle()`, with the lock and weld checks, and GAP-02 and KNB-06 both take it as the honest way to open a crate. A click (`empty_clicking_hand()` then `click_as_body(crate)`) also works, but mind GAP-02's note that the first click on a crate with a manifest only tears the manifest off.
+2. Keep `var/serial = errand_serial` at the start. For each letter, in turn: `empty_clicking_hand()`, `click_as_body(letter)` (picks it up; `click_as_body` waits `CREW_NPC_CLICK_GAP` first), check `body.is_holding(letter)`; if not, count it as left and go on.
    - Addressed to someone: `stow_in_bag(letter)` from `crew_npc_security.dm`, which clicks the bag with it in hand. If it stays in the hand the bag is full: drop it back (`dropItemToGround`) and count it as left.
-   - Addressed to nobody: step off the crate's tile first if standing on it (one `Move`), then `dropItemToGround(letter)`.
-3. After each letter check the errand is still current (`errand_serial`) and the body is still next to the crate (`can_reach_target_now`), and stop if not: a twelve-letter crate is now a twenty-second job and the body can be called away.
-4. Close the crate with a click.
-5. Count a junk letter as binned only if it is no longer on the crate's tile.
+   - Addressed to nobody: as now, drop it at its feet only when the feet are neither the crate's tile nor the shuttle (`may_drop`); otherwise `stow_in_bag` it too, as the code does today. A dead letter dropped aboard the shuttle stops it flying (change log (24)).
+3. After each letter check the errand is still current (`errand_serial == serial`), the body is still next to the crate (`can_reach_target_now(crate)`) and the crate is still open, and stop if not, reporting what was done so far: a twelve-letter crate is now a twenty-four-second job and the body can be called away or taken by the arm. This is LIFE-04's check, made once a letter.
+4. Close the crate as now (`crate.close(body)`), or with a click.
+5. The window waits on the result: `LOST_ACT_MS` in `driver.ts` is 12 seconds, but it does not count while `brain.doing` is set, and `describe_doing` reports "going to take the mail out of its crate" while the errand key is held. Check in a round that the window does not give the step up as lost part way through a long crate.
 
 What must keep working: change log (24), a mail crate with junk in it must end up truly empty, so the shuttle can fly.
 
@@ -67,3 +67,9 @@ What must keep working: change log (24), a mail crate with junk in it must end u
 
 - Server compile.
 - The simulator does not model letters; this needs a round. Grep `game.log` for the "take ... piece of mail" result and time it against the mail crate's letter count: it should take about two seconds a letter. Watch that the emptied mail crate is put aboard and the shuttle leaves.
+- With a full backpack: the letters that do not fit must be left in the crate and reported as "There was no room for the rest", not dropped on the floor.
+- Pull the technician away by the arm half way through: it must stop, and the letters not yet taken must stay in the crate.
+
+## Check
+
+Checked by Opus 5.5, read from the code. The quotes in `take_mail` (`crew_npc_freight.dm:520-560`) are as the code says: `crate.open(body)`, one `sleep(CREW_NPC_LOOK_TIME)`, then a loop with no wait that puts every addressed letter on the crate's tile into the bag with `equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE)` and junk into a hand and straight down. `equip_to_storage` (`inventory.dm:735`) is a direct `attempt_insert` with `override = TRUE`, a soft lock forced open and no messages; the base game uses it only to equip spawning mobs. No click on a letter or the bag happens, so this breaks the no-cheats rule and severity stays high. The proc runs in rounds (change log line 289: "(24) worked for a plain mail crate"). No entry accepts it. I refuted one side claim: a junk letter that finds no free hand is not left on the crate's tile, because `put_in_hands` drops it at the body's feet (`inventory.dm:331-368`) and that branch runs only off the crate's tile, so the old fix step 5 was dropped. I also corrected the click timing (the body's gap is one second, `crew_npc_machines.dm:39`), the base-game claim about quick-equip, and the GAP-07 cross-reference, and put back the shuttle case for junk, which the first fix steps left out. Effort is medium, not small: the loop with its checks and partial results is more than twenty lines. Nothing was run.
