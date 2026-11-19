@@ -70,7 +70,7 @@ The Captain is a player: asking them aloud is speech, and a player hears it. Not
 
 ## How to test the fix
 
-Cases in `tools/llm_crew/security.ts`: a shut-out warrant with the Captain in `peopleInView` gives a `say` to the Captain first, not a `message` to the Head of Personnel; with `hasPda` false and a keeper in view, a `say`, and with none in view a wait, not `gaveUp`. Simulator: no scenario has security shut out of a room (change log 16:50), so add one. Next round, `game.log`: "was told by its brain to say" with "Could you let me in" when a keeper is in the room.
+Cases in `tools/llm_crew/security.ts`: a shut-out warrant with the Captain in `peopleInView` gives a `say` to the Captain first, not a `message` to the Head of Personnel; with `hasPda` false and a keeper in view, a `say`, and with none in view a wait, not `gaveUp`. In the no-PDA cases give the brain what the server would really send: `pdaPeople` empty and `security.keepers` empty for the room (or the new in-view list once step 3 is built), or the case tests a state that cannot happen. After a `say`, `shut.asked` holds the keeper's name. Simulator: no scenario has security shut out of a room (change log 16:50), so add one. Next round, `game.log`: "was told by its brain to say" with "Could you let me in" when a keeper is in the room.
 
 ## Check
 

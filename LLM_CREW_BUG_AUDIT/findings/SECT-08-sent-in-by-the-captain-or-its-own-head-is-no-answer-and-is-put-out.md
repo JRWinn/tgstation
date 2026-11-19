@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:760, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:294, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:476
 fix: Let the answer name anyone the guard knows to be the Captain or a head as well as a workmate, ask them if they are in sight, and take the word otherwise, or ask the owner which

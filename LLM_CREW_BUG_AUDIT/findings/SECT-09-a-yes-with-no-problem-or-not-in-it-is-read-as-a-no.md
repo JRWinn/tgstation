@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:50, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:309, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:785
 fix: Read yes or no from how the answer begins, and only fall back to looking through the whole line when it begins with neither
