@@ -20,7 +20,7 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 Working down `LLM_CREW_BUG_AUDIT/SUMMARY.md` as it stood at the start (items 1 to 44: the critical bug, then the high bugs with small and medium fixes). Each finding fixed is marked `status: fixed` with its commit. What to look for in the next round is in `LLM_CREW_BUG_AUDIT/NEXT_ROUND_CHECKS.md`; questions for the owner in `LLM_CREW_BUG_AUDIT/QUESTIONS_FOR_OWNER.md`.
 
-**Tested:** server compile to a side copy after each server fix (0 errors, 0 warnings); type check and the tables of cases for window fixes. **Not played. No model tests. The normal build was not run.** Every server-side fix below is compile-checked only: none of it has been seen working in the game.
+**Tested:** server compile to a side copy after each server fix (0 errors, 0 warnings); type check, lint of the files changed, the tables of cases and the simulator scenarios named for window fixes. **Not played. No model tests. The normal build was not run.** Every server-side fix below is compile-checked only: none of it has been seen working in the game.
 
 ### Fixed
 
@@ -31,8 +31,16 @@ Working down `LLM_CREW_BUG_AUDIT/SUMMARY.md` as it stood at the start (items 1 t
 - **CHEAT-16: tidying picks up, sets down, puts in a bin and shuts a crate or locker by clicks**, with the hand chosen (`tidy_step` in `crew_npc_tidying.dm`). A flipped table is no longer taken for a shelf (`crew_npc_free_surface`). About a second slower for each thing.
 - **CORE-01: a walk given while another is under way is walked.** `start_walk` ends the old walk first, so the walk leaf is set up for the new spot; before, the body went on to the old spot and the new walk was failed as "no way through" (`crew_npc_tools.dm`, `crew_npc_motor.dm`).
 
+- **ENG-01: an emitter that will not switch off is tried twice and then passed over, so the others are still switched off.** The engineer then tells the Chief Engineer why, as an emergency ("Ada, I cannot switch the emitters off: its controls are locked."), and the Chief Engineer tells the Captain once ("The emitters will not go off: ... The engine is still firing.") and gives the order again every five minutes in place of every ninety seconds. The same for switching them on again, with no word to the Captain (`jobs/engineer.ts`, `jobs/chiefengineer.ts`, `notOffLine` in `jobs/engineering.ts`). `afterActing` now also gets what the body was told, word for word (`jobs/job.ts`, `driver.ts`). New cases in `tools/llm_crew/engine.ts` and a new simulator scenario, `enginelocked`.
+- **HAND-12: a large wooden crate is not searched or opened by hand** (it is pried apart with a crowbar in the game). Left out of `storage_to_search`, `look_inside` and the fetch (`crew_npc_storage.dm`, `crew_npc_hands.dm`).
+- **KNA-29: a fire door shut by the next room's pulled alarm no longer strands the body.** `fire_door_report` names the body's own room when the door is shared and that room has an alarm, and `crew_npc_alarm_was_pulled` counts as pulled a room whose alarm came on only because every shut door in it is shared with a room whose alarm was pulled. So the body resets the alarm on its own side, which opens the shared door. GAP-05 (dropping the pulled-or-real test) was not built.
+- **LOGA-01: a janitor called to the Delivery Office is let through the Cargo Bay.** In `learn_department` a door the technician's ID does not open, onto another department's locked room, no longer keeps a room off the list of rooms reached through another (`crew_npc_cargo.dm`).
+- **PARSE-01: "clean the bar", "mop the kitchen", "puked", "vomited", "bloodstains" and the like are read as a call to a mess** (`MESS_WORDS` in `jobs/janitor.ts`). Before, a PDA message like that was taken as word that supplies had come. New table `tools/llm_crew/words.ts`.
+- **PARSE-09 (medium, pulled forward with PARSE-01): from a superior, a question about a mess, "no need to clean the bar", or word that it is done, is no longer made an order by code** (`orderClauses` in `tasks.ts`). Those lines go to the model, as for anyone else. With the model down they are dropped.
+
 ### Known and not fixed
 
+- PARSE-09: one clause saying a mess is done ("its fine now") drops the whole line to the model, so "the kitchen is fine now, but clean the bar" is not taken by code.
 - CHEAT-07: if a line fails part way through a batch (it should not, as room on the sheet is checked first), the rest of that batch is dropped from the window's list rather than written twice.
 
 ---
