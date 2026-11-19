@@ -28,6 +28,8 @@ Concrete case, cargo:
 
 The same goes for walks, which are far more common. A janitor walking to the Kitchen for a mess (`lastAct` is `go_to Kitchen`) is asked the way to the Bar and leads the asker there. The walk to the Bar arriving is taken as the walk to the Kitchen arriving: the Kitchen walk's failure record is wiped, the loop count (`brain.repeats`) is kept against the Kitchen key, and `meetingsAfterActing` would mark a summoned body as having been told it arrived at its meeting (`summons.toldArrivedAt`) when it had been walking to it.
 
+When the two tools differ the answer is not mixed up, but the driver's step is still lost. A janitor on its way to clean (`lastAct` is `clean`) leads someone to the Bar instead. The `clean` errand was replaced on the server and no answer for it will ever come. Once the lead walk is over (`walking` false) and 12 seconds have passed since the clean was sent, `drive` takes the clean to have come to nothing (`LOST_ACT_MS`) and calls `fail` on it: the clean is held back for 20 seconds, then 40, and so on if it happens again, though it was never tried.
+
 ## Where
 
 `tgui/packages/tgui/interfaces/CrewBrain/driver.ts:943`, `noteResult`:
