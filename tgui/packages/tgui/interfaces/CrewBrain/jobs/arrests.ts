@@ -288,8 +288,17 @@ export function doorOpened(brain: NpcBrain, room: string): void {
 export function handBack(brain: NpcBrain): void {
   const beat = beatOf(brain);
   const holding = brain.security?.holding;
+  // One whose arrest is under way is kept too: the hold comes only at the end of the arrest,
+  // and handed back before it, the cuffs went on someone held on no warrant.
+  const last = brain.lastAct;
+  const arresting =
+    last?.act.tool === 'arrest' && last.act.how !== 'stop'
+      ? brain.tasks.find((it) => it.id === last.task && it.kind === SERVE)
+          ?.item
+      : undefined;
   beat.warrants = beat.warrants.filter(
-    (it) => !!holding && sameName(it.name, holding),
+    (it) =>
+      (!!holding && sameName(it.name, holding)) || it.name === arresting,
   );
 }
 

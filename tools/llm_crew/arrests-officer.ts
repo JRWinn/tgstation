@@ -277,6 +277,18 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add('ARR-08: once that arrest is done, Pun Pun is gone after', A.planBeat(f.o, f.task)?.ready, true);
 }
 
+// ---- ARR-13: a warrant whose arrest is under way is not handed back
+{
+  const f = wanted('Bar');
+  A.giveWarrant(f.o, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  f.o.lastAct = { key: 'x', tool: 'arrest', at: 0, act: { tool: 'arrest', person: 'p9', how: 'force' }, task: f.task.id };
+  A.handBack(f.o);
+  add('ARR-13: handing back mid-arrest keeps the one being arrested, and only that one', A.beatOf(f.o).warrants.map((it: any) => it.name), ['Pun Pun']);
+  f.o.lastAct = null;
+  A.handBack(f.o);
+  add('ARR-13: with the arrest done and nobody held, it is handed back', A.beatOf(f.o).warrants, []);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
