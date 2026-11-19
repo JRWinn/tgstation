@@ -692,10 +692,27 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 
 /// TRUE if a room's fire alarm is on because someone pulled it, and no fire door there has found anything wrong with the air.
 /proc/crew_npc_alarm_was_pulled(area/room)
-	if(!(room.fire || LAZYLEN(room.active_firelocks)) || room.fault_status != AREA_FAULT_MANUAL)
+	if(!(room.fire || LAZYLEN(room.active_firelocks)))
 		return FALSE
 	for(var/obj/machinery/door/firedoor/door as anything in room.firedoors)
 		if(door.alarm_type && door.alarm_type != FIRELOCK_ALARM_TYPE_GENERIC)
+			return FALSE
+	if(room.fault_status == AREA_FAULT_MANUAL)
+		return TRUE
+	// A room can catch a pulled alarm from next door: a fire door they share shuts for the
+	// neighbour's alarm and puts this room's alarm on as well, as if the air had set it off. It
+	// was pulled all the same if every shut door here is shared with a room whose alarm was pulled.
+	if(room.fault_status != AREA_FAULT_AUTOMATIC || !LAZYLEN(room.active_firelocks))
+		return FALSE
+	for(var/obj/machinery/door/firedoor/door as anything in room.active_firelocks)
+		if(door.alarm_type != FIRELOCK_ALARM_TYPE_GENERIC)
+			return FALSE
+		var/from_pulled = FALSE
+		for(var/area/neighbour as anything in door.affecting_areas)
+			if(neighbour != room && neighbour.fault_status == AREA_FAULT_MANUAL && (door in neighbour.active_firelocks))
+				from_pulled = TRUE
+				break
+		if(!from_pulled)
 			return FALSE
 	return TRUE
 
@@ -718,11 +735,17 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	if(isnull(nearest))
 		return ""
 	// The door may stand between two rooms. The one whose alarm is on is the one that shut it.
+	// Where both are, the body's own room is named when it has an alarm: that one is on the body's
+	// side, and resetting it opens the door they share.
 	var/area/alarmed
-	for(var/area/place as anything in nearest.affecting_areas)
-		if(place.fire || LAZYLEN(place.active_firelocks))
-			alarmed = place
-			break
+	var/area/here = get_area(body)
+	if((here in nearest.affecting_areas) && (here.fire || LAZYLEN(here.active_firelocks)) && length(here.firealarms))
+		alarmed = here
+	else
+		for(var/area/place as anything in nearest.affecting_areas)
+			if(place.fire || LAZYLEN(place.active_firelocks))
+				alarmed = place
+				break
 	alarmed ||= get_area(nearest)
 	var/alarmed_name = format_text(alarmed.name)
 	details["fire_doors"] = alarmed_name

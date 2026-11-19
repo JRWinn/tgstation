@@ -10,3 +10,4 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - CORE-01: compare counts of `walk failed (go_to` and `walk failed (step_aside` with earlier rounds; "there is no way through" right after a walk was replaced should be gone.
 - ENG-01: after "Emitters off, now" in `pda.log` or `game.log`, either "the emitters are off" or "I cannot switch the emitters off:" follows, and the Captain gets "The emitters will not go off" at most once.
 - HAND-12: no "look inside the large crate" in the brain log or `game.log`; a fetch that names one says it is "nailed shut".
+- KNA-29: with a pulled alarm in the next room, the body resets the alarm in its own room ("reset a fire alarm.") and walks on through the shared door, with no run of "Stopped at" lines on one square.
