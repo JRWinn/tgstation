@@ -69,12 +69,27 @@ const SENT_FOR_DS = 12000;
 const QUESTION_STANDS_DS = 600;
 /** How long (deciseconds) someone whose welcome is over is given to go before they are seen out. */
 const WELCOME_GRACE_DS = 600;
-/** The words by which someone the NPC answers to tells it to leave the room it is in. */
-const LEAVE_WORDS =
-  /\b(leave|get out|go away|clear off|clear out|out of here|out you go|off you go|not authori[sz]ed|unauthori[sz]ed)\b/;
-/** The words by which someone the NPC answers to tells it to put someone out of its post. */
-const PUT_OUT_WORDS =
-  /\b(toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b.*\bout\b|\bremove\b|\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
+/** Words taken off a clause before it is read as an order to leave: they do not change what is meant. */
+const LEAVE_FILLER =
+  /\b(please|right now|at once|now|immediately|just|ok|okay)\b/g;
+/** A clause that has a no in it is not an order to go: "don't leave the bar until it is clean". */
+const LEAVE_NOT = /\b(not|don'?t|do not|dont|never|no need to)\b/;
+/**
+ * The words by which someone the NPC answers to tells it to put someone out of its post: a verb
+ * and "out", with whom between them or just after ("get him out", "throw out the clown"), or
+ * "remove" and whom.
+ */
+const PUT_OUT_VERB =
+  /\b(?:toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b([^.,!?;]*?)\bout\b([^.,!?;]*)/g;
+/** "Remove" and whatever it is done to, up to the next "from", "of" or the like: "remove the crates from the janitor's closet" removes crates. */
+const REMOVE_VERB =
+  /\bremove\b((?:(?!\b(?:from|of|to|in|on|onto|into|at|by|with|for)\b)[^.,!?;])*)/g;
+/** Words that say someone has no right to be there. They put nobody out unless the line says who. */
+const NO_RIGHT_WORDS =
+  /\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
+/** Words that point at someone without naming them. They mean the one stranger in the post, if there is just one. */
+const POINTING_WORDS =
+  /\b(him|her|them|he|she|that one|this one|that person|this person|that guy|this guy)\b/;
 /** How long (milliseconds) it keeps out of a room it was told to leave, and does no work there. */
 const KEPT_OUT_MS = 600000;
 /** How long (milliseconds) being told to leave stands, if it cannot get out. */
@@ -112,6 +127,61 @@ export function has(...parts: (string | RegExp)[]): RegExp {
       : `(?=.*(?:${part.source}))`,
   );
   return new RegExp(`^${checks.join('')}`, 'is');
+}
+
+/**
+ * TRUE if these words, in lower case, tell the NPC to leave the room it is in. A clause of the
+ * line, with its name and "please" taken off, must be the order and nothing else: "Tolly, leave.",
+ * "Leave the bar, Tolly.", "Get out of here.", "Off you go.", "Tolly, you are not authorized in
+ * here." A word like "leave" or "out of here" anywhere else is not one: "don't leave the bar until
+ * it is clean", "leave the mop bucket by the door", "get that vomit out of here", "I have to leave
+ * now", "I cannot get out of here by myself".
+ */
+export function toldToLeaveHere(brain: NpcBrain, heard: string): boolean {
+  const names = brain.name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const room = (brain.location ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '.')
+    .trim();
+  const place = `(here|this room|this place|(this|the|my|our) (room|office)${room ? `|(the )?${room}` : ''})`;
+  const orders = [
+    // "Leave.", "Leave the bar.", "Leave us."
+    new RegExp(`^leave( ${place}| us| me)?$`),
+    // "Get out.", "Get out of here.", "Out.", "Off you go.", "Clear out of the bar."
+    new RegExp(
+      `^(get out|go away|clear off|clear out|off you go|out you go|out|go on out)( of ${place})?$`,
+    ),
+    // "You need to leave.", "You have to go now."
+    new RegExp(
+      `^you (need|have|ought|got|must|will have) (to )?(leave|go)( ${place})?$`,
+    ),
+  ];
+  // "You are not allowed in here." The one order with a "not" in it.
+  const notAllowed = new RegExp(
+    `^(you are not|you aren'?t|you'?re not) (allowed|authori[sz]ed|permitted|supposed to be)( to be)? (in )?${place}$`,
+  );
+  return heard
+    .replace(/[‘’]/g, "'")
+    .split(/[.,!?;:]+/)
+    .some((part) => {
+      let clause = ` ${part} `;
+      for (const name of names) {
+        clause = clause.replace(new RegExp(`\\b${name}\\b`, 'g'), ' ');
+      }
+      clause = clause.replace(LEAVE_FILLER, ' ').replace(/\s+/g, ' ').trim();
+      if (!clause) {
+        return false;
+      }
+      if (notAllowed.test(clause)) {
+        return true;
+      }
+      return (
+        !LEAVE_NOT.test(clause) && orders.some((order) => order.test(clause))
+      );
+    });
 }
 
 /**
@@ -174,12 +244,12 @@ function titleOf(brain: NpcBrain, name: string): string {
 }
 
 /**
- * Whoever in the post an order to put someone out means: someone named, failing that someone
- * spoken of by their job ("this janitor"), and failing that the only person in there who does not
- * belong. Null if it is not clear who is meant.
+ * Whoever in the post these words point at: someone named, failing that someone spoken of by their
+ * job ("this janitor"), and failing that, if the words say "him", "her" or "that one", the only
+ * person in there who does not belong. Null if they point at nobody: "the crates", "the mail".
  */
-function strangerMeant(brain: NpcBrain, heard: string): string | null {
-  const named = strangerNamedIn(brain, heard);
+function strangerMeant(brain: NpcBrain, words: string): string | null {
+  const named = strangerNamedIn(brain, words);
   if (named) {
     return named;
   }
@@ -190,12 +260,46 @@ function strangerMeant(brain: NpcBrain, heard: string): string | null {
     person.job
       .toLowerCase()
       .split(/[^a-z]+/)
-      .some((word) => word.length > 3 && new RegExp(`\\b${word}s?\\b`).test(heard)),
+      .some((word) => word.length > 3 && new RegExp(`\\b${word}s?\\b`).test(words)),
   );
   if (byJob.length === 1) {
     return byJob[0].name;
   }
-  return inPost.length === 1 ? inPost[0].name : null;
+  return inPost.length === 1 && POINTING_WORDS.test(words)
+    ? inPost[0].name
+    : null;
+}
+
+/**
+ * Whom these words, in lower case, order put out of the post, or null if they are no such order.
+ * The person must be what the verb is done to: "get him out", "put Tolly out", "throw out the
+ * clown", "remove him", or the one said to have no right there: "Tolly has no business here". A
+ * line about things ("take the crates out", "get the mail out") puts nobody out, and nor does a
+ * bare "get out of here", which is said to the stranger, who heard it.
+ */
+function putOutMeant(brain: NpcBrain, heard: string): string | null {
+  for (const match of heard.matchAll(PUT_OUT_VERB)) {
+    const between = match[1].trim();
+    const after = match[2].trim();
+    // Whom is between the verb and "out", or straight after "out" when nothing is between:
+    // "throw out the clown". Not after "out of" or "out to": "take the crates out to the janitor".
+    const words = between
+      ? between
+      : /^(of|to|from|on|onto|in|into|at|for|by|with)\b/.test(after)
+        ? ''
+        : after;
+    const target = words ? strangerMeant(brain, words) : null;
+    if (target) {
+      return target;
+    }
+  }
+  for (const match of heard.matchAll(REMOVE_VERB)) {
+    const target = match[1].trim() ? strangerMeant(brain, match[1]) : null;
+    if (target) {
+      return target;
+    }
+  }
+  return NO_RIGHT_WORDS.test(heard) ? strangerMeant(brain, heard) : null;
 }
 
 /** TRUE if this is a room the NPC has been told to leave, or is keeping out of since: it does no work there. */
@@ -686,7 +790,7 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   )?.superior;
   if (
     superior &&
-    LEAVE_WORDS.test(heard) &&
+    toldToLeaveHere(brain, heard) &&
     (event.details.said_to === 'me' || namesPerson(heard, brain.name)) &&
     brain.location !== brain.post
   ) {
@@ -707,12 +811,8 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   // Told by someone it answers to to put someone out of its post. That settles it, sent for or
   // not: the call that brought them is struck off. One of those at the post takes it, and the
   // rest stand back. Nobody lays a hand on the Captain or a head of staff, whoever orders it.
-  if (
-    superior &&
-    event.details.said_to !== 'other' &&
-    PUT_OUT_WORDS.test(heard)
-  ) {
-    const target = strangerMeant(brain, heard);
+  if (superior && event.details.said_to !== 'other') {
+    const target = putOutMeant(brain, heard);
     if (target) {
       const record = recordOf(brain, target);
       if (

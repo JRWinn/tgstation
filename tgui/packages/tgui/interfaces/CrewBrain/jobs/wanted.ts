@@ -358,6 +358,13 @@ export function wantedAfterActing(
   if (!name || !place || known.couldNot.some((it) => it.name === name)) {
     return;
   }
+  // Someone only being seen to the door when what they were sent for is done is no trespasser:
+  // a walk out that fails is the NPC's own, and they are seen out again, never reported. Put out
+  // on a superior's order, they are reported as before.
+  const stranger = brain.strangers[name];
+  if (stranger?.seenOut && !stranger.orderedBy) {
+    return;
+  }
   known.couldNot.push({ name, place, at: brain.now, done: false });
 }
 
