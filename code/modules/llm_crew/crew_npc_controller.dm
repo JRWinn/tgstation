@@ -243,6 +243,8 @@
 	var/work_machines_set = 0
 	/// Goes up each time an errand starts or is abandoned, so a finished step can tell whether it is still the current one.
 	var/errand_serial = 0
+	/// Goes up with each tool call that is carried out, other than speaking and holding still, so a tool that sleeps can tell whether a newer one has come since (CORE-07).
+	var/tool_serial = 0
 	/// TRUE if the body has water to hand that a dry mop can be wetted with: a sink in sight, a mop bucket or cart in sight with water in it, or a bucket of water in its other hand.
 	var/sink_in_view = FALSE
 	/// What that water is in, by name: "sink", "bucket", "janitorial cart". Null if there is none to hand.

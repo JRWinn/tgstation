@@ -326,6 +326,7 @@
 		return
 	// Already looking for a way to a door: the routes are still being tested.
 	if(finding_door)
+		action_result(CREW_TOOL_TO_DOOR, FALSE, "You are still working out the way.")
 		return
 	var/leaving = isnull(known)
 	var/area/room = leaving ? get_area(body) : crew_npc_station_places()[known]
@@ -374,6 +375,9 @@
 	// The first door it had no way to that opens from a room locked to it as well: the name of that room.
 	var/outer_name
 	finding_door = TRUE
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	while(length(scores) && tries_left > 0)
 		tries_left--
 		var/obj/machinery/door/airlock/nearest
@@ -414,6 +418,9 @@
 			continue
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door into [room_name], and looks for another.")
 	finding_door = FALSE
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [goal], and had been given something else to do meanwhile.")
+		return
 	if(isnull(best))
 		if(outer_name)
 			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))

@@ -23,6 +23,12 @@
 		return
 	if(!islist(arguments))
 		arguments = list()
+	// A tool that sleeps before it acts (explore, force_door, go_to_door test routes) keeps the count it
+	// began with, and does nothing more if a newer call has come since: that is what the brain is
+	// waiting on. A second call of one still working it out is turned away, and is no newer call.
+	var/still_working = (tool == CREW_TOOL_EXPLORE && choosing_where_to_explore) || (tool == CREW_TOOL_TO_DOOR && finding_door) || (tool == CREW_TOOL_FORCE_DOOR && finding_door_to_force)
+	if(tool != CREW_TOOL_SAY && tool != CREW_TOOL_HOLD && !still_working)
+		tool_serial++
 
 	switch(tool)
 		if(CREW_TOOL_SAY)
@@ -270,11 +276,18 @@
 /// Tool: walk to a part of the station the body has not been in.
 /datum/ai_controller/crew_npc/proc/tool_explore()
 	if(choosing_where_to_explore)
+		action_result(CREW_TOOL_EXPLORE, FALSE, "You are still working out the way.")
 		return
 	choosing_where_to_explore = TRUE
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	var/turf/destination = pick_somewhere_new()
 	choosing_where_to_explore = FALSE
 	if(QDELETED(src) || QDELETED(pawn))
+		return
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) worked out where to explore, and had been given something else to do meanwhile.")
 		return
 	if(isnull(destination))
 		if(nowhere_new_left)
