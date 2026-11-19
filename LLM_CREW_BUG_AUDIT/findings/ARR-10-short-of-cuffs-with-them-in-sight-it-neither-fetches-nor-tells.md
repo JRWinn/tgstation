@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:337, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:762, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:395, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1127
 fix: Let wantsKit send it for its kit while on lead when the kit is what stops the arrest, and tell whoever keeps the list at once that it is short
@@ -18,7 +19,7 @@ Three rules meet and leave security standing still, silent, for as long as the p
 
 1. `wantsKit` will not send it for its kit while `onLead` is true: the person is in sight, held, or was seen by it in the last two minutes (change log 14:15 entry, H2: "The officer does not go to the lockers while it is after someone").
 2. `serveStep` will not try the arrest without what it needs: with no cuffs it returns "you have no cuffs to hand", and with `warrant.force` set and no charged baton "you have no baton to hand". Both are `ready: false` with no `wait`.
-3. The only word that it is short is `cannot(name, 'no baton')`, and that needs `beat.kitTries >= 1`: a trip to the lockers that came to nothing. With no trip made, `kitTries` is 0. And any trip that got something sets it back to 0. There is no word at all for "no cuffs".
+3. The only word that it is short is `cannot(name, 'no baton')`, and that needs `beat.kitTries >= 1`: a trip to the lockers that came to nothing. With no trip made, `kitTries` is 0. And any trip that got something sets it back to 0. There is no word at all for "no cuffs", other than the `lacks` line in a staff meeting report, which waits for the next meeting.
 
 So with the person in sight it does not fetch, does not try, and does not say. The driver finds nothing ready, the job keeps its post (`keepsPost`), and `nextStep` gives null. It stands and watches. Two minutes after they leave its sight `onLead` goes false and it sets off for the lockers, but someone who stays put (Pun Pun on a bar stool, a player arguing in the office, someone across a counter) keeps it there for good.
 
@@ -101,3 +102,14 @@ Read from the code, the window and the server. Not seen in a round: the rounds r
 - `tools/llm_crew/security.ts`: add cases where `security.has_cuffs` is false and a warrant's person is in view, and where `has_baton` is false and `force` is set. `syncBeat` should open the `security_kit` task and push one `cannot` outcome; `planBeat` on the serve task should still say why it is not arresting.
 - A simulator scenario: the officer starts with a flat baton and Pun Pun in the Bar who will not stand still. It should go to the lockers, come back, and arrest; the Head of Security should hear "I cannot bring in Pun Pun: no baton" once.
 - In the next round, grep `game.log` for `found no baton` and `has its baton and cuffs` after an arrest, and `pda.log` for "no baton" or "no cuffs".
+
+## Check
+
+Checked by Opus 5.5, from the code. Nothing was run.
+
+- The quotes are what the code says: `wantsKit` (`arrests.ts:337`), the two `ready: false` branches in `serveStep` (about 762), the `kitTries >= 1` condition in `syncBeat` (about 395), the `kitTries = 0` reset in `beatAfterActing` (about 1127), `is_live_baton` and the `has_baton`/`has_cuffs` snapshot (`crew_npc_security.dm:434`, `:1654`).
+- Traced: with the person in sight, `target()` is true, so `onLead` is true and `wantsKit` false; `keep(KIT, false)` closes the kit task. The serve task is an emergency whose plan is not ready and has no `wait`, so `nextStep` skips it, finds nothing ready, and the officer's `keepsPost: true` (`officer.ts:407`) returns null. `serveStep` never sends an arrest in either case, so the server's own `no_baton`/`no_cuffs` answers do not come either.
+- The only other word that it is short is the officer's `lacks` line ("a stun baton and a pair of cuffs"), and that goes out only in a staff meeting report (`meetings.ts`). It is not sent when it happens.
+- `put_in_cell` leaves the cuffs on anyone who is not a crew NPC (`crew_npc_security.dm:1140`, `cuffs_left`), so being short of cuffs right after a jailing is ordinary.
+- Change log, 14:15 entry: H2 built `onLead` against trips to the lockers that came to nothing; its plan (`LLM_CREW_PLAN_ROUND_1428_SECURITY.md`, H2) says "Mostly moot once C1 is fixed". It did not weigh having nothing to make the arrest with. The same entry's "Known and not fixed" says the officer with no baton "tries the cuffs once and then stands by the suspect. It now says so, and stays." It no longer says so: the word waits on `kitTries >= 1`, and any trip that got something, or the arrest's own `no_baton` answer, sets `kitTries` to 0. The finding adds the cause and the fix to that known fault, as FORMAT.md rule 4 allows.
+- The fix keeps the rules: the kit comes from the security lockers by the body's own `get_kit`. A recharger in the Security Office would be the other honest way to mend a flat baton; nothing uses one today, so the lockers are the way. Severity medium and effort small stand.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:380, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1151, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1185, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:852
 fix: Clear the cannotTold keys for a name when its warrant leaves beat.warrants (jailed, dropped, handed back), and let a key be told again after a few minutes while the warrant still stands

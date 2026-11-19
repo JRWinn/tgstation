@@ -69,12 +69,19 @@ Read from the code and the base windoor and door timer (`code/game/machinery/doo
 
 ## How to fix it
 
-1. In `free_cell`, `continue` past a cell whose `door()` is null, or whose door is `machine_stat & BROKEN`. A player sees the smashed door at once, so this is no more than looking at it. If the body cannot see the cell from where it stands, that is the same knowledge question as CHEAT-03; keep whatever rule that fix settles on.
-2. In `put_in_cell`, if `cell.door()` is null when the body reaches the timer (it was broken while the prisoner was walked there), call `cell_refuses(cell, prisoner_name, "its door is broken")` and answer `reason = "no_way"`, so the window tries the next cell (`cellTries`).
-3. After `work_timer(timer, "start")`, check that a door is now shut (`door.density`), as well as that the prisoner is inside.
+1. In `free_cell`, `continue` past a cell whose `door()` is null. (A windoor has `integrity_failure = 0`, windowdoor.dm:12, so it never sits at `BROKEN`: at no integrity it is deconstructed and deleted, obj_defense.dm:215. A `BROKEN` test does no harm but catches nothing.) A player sees the smashed door at once, so this is no more than looking at it. If the body cannot see the cell from where it stands, that is the same knowledge question as CHEAT-03; keep whatever rule that fix settles on.
+2. In `put_in_cell`, next to the "is in use" check at the top and before the time is set or anyone walks in, if `cell.door()` is null (it was broken while the prisoner was walked there), call `cell_refuses(cell, prisoner_name, "its door is broken")` and answer `reason = "no_way"` with `prisoner` and `cell`, so the window tries the next cell (`cellTries`). It must come before `stop_pulling`: the window's `no_way` branch takes it that the body still has them by the arm, and a crew prisoner is uncuffed once it is let go.
+3. A last guard, optional: after the one-second sleep, if `cell.door()` is null or not `density`, stop the timer and answer `no_way` as in step 2. This also catches a door that is there but would not shut. A player prisoner is still cuffed and `tool_jail` takes them by the arm again; a crew prisoner has been uncuffed and would be lost to the window (`no_hold`), so steps 1 and 2 are the real fix and this one only stops a false "jailed".
+4. Remove the `|| timer` fallback at `var/atom/door = cell.door() || timer` once step 2 makes a null door impossible past that point.
 
 ## How to test the fix
 
 - Server compile.
 - In a round: smash a cell's glass door, then have a warrant served. `game.log` should show "could not put ... in Cell 1: its door is broken" or the next cell picked, and never "put ... in Cell 1" for the broken one.
 - The simulator does not model doors of cells; no window change is needed.
+
+## Check
+
+Confirmed. Read `free_cell` (crew_npc_security.dm:1075), `door()` (174), `crew_npc_brig_cells` (190-208, worked out once and kept for the round), `tool_jail` (1103), `put_in_cell` (1145-1230) and the base code it leans on: `/obj/atom_destruction` calls `deconstruct(FALSE)` (code/game/objects/obj_defense.dm:208-215); the windoor has `integrity_failure = 0` (code/game/machinery/doors/windowdoor.dm:12) so it goes straight from damaged to deleted, its `on_deconstruction` (335) drops shards; a brig windoor has 300 integrity (501), which fists or a toolbox get through. `timer_start` (code/game/machinery/doors/brigdoors.dm:96) checks only power and sets `timing = TRUE` whatever doors are left, dropping the dead weak references as it goes. Nothing in `free_cell`, `tool_jail` or `put_in_cell` asks for a door before the one-second check, which looks only at where the prisoner stands. `door()` is used at 1163 (with `|| timer`) and at 1178 (a log line) and nowhere else. A crew NPC prisoner is held by `custody_tick`'s `CELL` phase while the timer runs, so only players walk out, as written. Nothing in the change log or plans covers it; CHEAT-03 is the related question of the body knowing about cells it cannot see.
+
+Severity medium and effort small stand. The fix is mended: the `BROKEN` test catches nothing for a windoor, the door check in `put_in_cell` must come before the prisoner is let go, and the after-start check is a guard, not the fix.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:887, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:301, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:538
 fix: Skip a hallway in blockedPlaces, and count a walk to a hallway that came to nothing as that hallway looked at, so the round goes on to the next
@@ -72,8 +73,8 @@ Read from the code. Not seen in a round.
 
 ## How to fix it
 
-1. In `hallways()` (or where `halls` is used), leave out any hallway in `brain.blockedPlaces`. The server drops a place from that list after its own while (`is_blocked_place`), so a hallway whose fire doors open again comes back into the round.
-2. In `beatAfterActing`, for a `go_to` of a serve task whose `place` is `halls[beat.round.next]` and which failed, move `round.next` on by one, wrapping to 0 and setting `round.at` as the plan already does at the end of a round. Number the try (`attempt`) as the cell and door walks are, so that the driver does not hold the next hallway back for the failure of this one.
+1. In `serveStep`, where `halls` is used, step `round.next` past any hallway in `brain.blockedPlaces` (while `halls[round.next]` is blocked, add one; past the end, wrap to 0 and set `round.at`, as the plan already does). Do this rather than filtering `hallways()`: `round.next` is an index, and a filtered list that grows and shrinks as places are blocked and let go makes it skip or repeat hallways. The server drops a place from that list after its own while (`is_blocked_place`: 5 minutes, 15 after two failed walks), and at once when fire doors lift (`ways_reopened`), so a hallway whose fire doors open again comes back into the round. Every failed `go_to` puts its goal in that list (`crew_npc_tools.dm:486`), whatever the reason, so this step alone moves the search on. The next hallway is a different step to the driver, so it is not held back.
+2. Belt and braces, for the moment before the next state update brings the new `blocked_places`: in `beatAfterActing`, for a `go_to` of a serve task whose `place` is `halls[beat.round.next]` and which failed, move `round.next` on by one, wrapping to 0 and setting `round.at` as the plan already does at the end of a round. Number the try (`attempt`) as the cell and door walks are, so that the driver does not hold the next hallway back for the failure of this one.
 3. Keep the fixed order: it is what lets two security staff (if there are ever two searching) not need to share the list.
 
 ## How to test the fix
@@ -81,3 +82,13 @@ Read from the code. Not seen in a round.
 - `tools/llm_crew/security.ts`: a case with `blockedPlaces: ['Aft Primary Hallway']` and no sighting; the serve plan should be a `go_to` to the Central Primary Hallway.
 - A simulator scenario where the first hallway's walk fails: the officer should be in the second hallway within a few seconds of the failure, not two minutes later.
 - In the next round, grep `game.log` for `walk failed (go_to, ` with a Primary Hallway goal by the officer, and check the next `go_to` is to a different hallway.
+
+## Check
+
+Checked by Opus 5.5, from the code. Nothing was run.
+
+- The quotes are what the code says: the hallway walk in `serveStep` (`arrests.ts` about 887), `hallways()` (301), the `warrant?.opened` branch in `beatAfterActing` (about 1050), `blocked_places[goal] = world.time` (`crew_npc_tools.dm:486`).
+- Traced: `round.next` moves only in the branch where `brain.location === hall` and `HALLWAY_DS` has passed. A failed `go_to` to a hallway reaches `beatAfterActing` with no `warrant.opened`, so nothing there runs. The next plan is the same `go_to`, the same key, held back by `fail` (20 s times the count, up to 120 s). `hallways()` never reads `blockedPlaces`, though the server sends it (`blocked_place_names`, `crew_brain_link.dm:175`). Nothing else is ready and `keepsPost` is true, so it stands. Confirmed.
+- One softening of the fire door case: when a walk fails with "there is no way through" and a shut fire door is within 7 tiles of where the body stopped, the server adds `fire_doors` and the driver's `reset_alarm` step (`nextStep`, before any work) sends it to reset a hand-pulled alarm, and a reset clears every backoff. So the stall holds when the fire doors are not in view of where the walk stopped (the route planner found no way from the start), when that alarm is beyond them or was set off by the air, or when the hallway is lost for another reason (breach, another floor). Those are common enough that severity medium stands.
+- Change log and plans: nothing on `hallways()` or `round.next` since the hallway walk was built. KNA-07 is a different fault, as the write-up says.
+- Step 1 of the fix rewritten to step `round.next` past blocked hallways rather than filter the list, and to say that it alone moves the search on; step 2 marked as belt and braces. Effort small stands.

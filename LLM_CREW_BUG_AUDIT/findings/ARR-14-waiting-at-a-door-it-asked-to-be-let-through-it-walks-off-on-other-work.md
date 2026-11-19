@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:604, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:356, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:513
 fix: Set asked true on the wait in letInStep once it is at the door, as the janitor's wait at a door does, so the wait outranks its other asked work
@@ -26,7 +27,7 @@ So when the person it is shut out from is not in its sight (the serve task is th
 
 Whoever it asked then comes and opens the door to find nobody. A crew NPC holding the door (`hold_door_for`) waits a while and gives up. When the officer comes back, its 90 seconds have run out, so it asks the next person, and after three it gives up: "I cannot bring in Pun Pun: nobody has opened the Bar for security", and the Head of Security has engineering force a door that was opened.
 
-One concrete case: warrants on Pun Pun (the Captain sent "Pun Pun is in the Bar" a minute ago) and on Dana Reyes (no word). The Bar is locked to the officer and is in `blockedPlaces`, so Pun Pun's serve task goes to `letInStep`. The officer walks to the Bar's door (`go_to_door`) and messages the Captain. Next pass: Pun Pun's plan is the wait. Dana's plan is `go_to('Aft Primary Hallway')`, ready. Both tasks are `asked`. Dana's sorts first, so the officer walks to the Aft Primary Hallway, looks for ten seconds, goes on to the Central. The Captain walks to the Bar and opens the door. Nobody is there.
+One concrete case: warrants on Pun Pun (the Captain sent "Pun Pun is in the Bar" a minute ago) and on Dana Reyes (no word). The Bar is locked to the officer and is in `blockedPlaces`, so Pun Pun's serve task goes to `letInStep`. The officer walks to the Bar's door (`go_to_door`) and messages the Captain. Next pass: Pun Pun's plan is the wait. Dana's plan is `go_to('Aft Primary Hallway')`, ready. Both tasks are `asked`. Dana's sorts first, so the officer walks to the Aft Primary Hallway. Once it is there, Dana's plan is the look (a wait), and Pun Pun's is `go_to_door` again (it is no longer at the door, and a walk there that worked does not count against `DOOR_TRIES`), which is ready and wins. So it walks back to the Bar's door, where Pun Pun's plan is the wait again and Dana's is the walk to the hallway again. It goes back and forth between the two for the 90 seconds, and is at the door only for the moment between. The Captain walks to the Bar and opens the door. Most likely nobody is there.
 
 When the person it is after is in its sight through a window or across a counter, the serve task is an emergency and comes first, so the wait holds. The fault is in the far more common case, a sighting passed on by someone else.
 
@@ -86,3 +87,7 @@ Read from the code: the plan, the sort and the driver's loop. Not seen in a roun
 - `tools/llm_crew/security.ts`: two warrants, one with `shutOut` and `asked` set and `atDoorOf` equal to its door, the other with no sighting; `nextStep` should be null (waiting), not a `go_to` to a hallway.
 - A simulator scenario with two warrants and a locked room: the officer should stay at the door until it is opened or its 90 seconds are up.
 - In the next round, grep `pda.log` for "Could you let me in, please?" from security, and `game.log` for the officer's walks in the 90 seconds after it.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Read `letInStep` (arrests.ts:561-634; the wait at :604-611 has no `asked`), `workInOrder`, `isAskedWait` and `isCalledFor` (tasks.ts:335-384), the driver's loop over the sorted work (driver.ts:500-545: a non-routine wait stops the loop only while `ready` is still empty), the janitor's wait at a door (janitor.ts:689, which sets `asked: true`), `Plan.asked` (types.ts:912-916), `syncBeat`'s task urgencies (arrests.ts:445 the kit, :500 the serve task, `emergency` only with the person in sight or held) and `serveStep`'s sighting and hallway branches. The quotes match today's code. Another warrant's walk, or the kit trip, is `asked` and ready, so `isCalledFor` puts it before the wait, and the driver takes it. The change log's entry that built `isAskedWait` (LLM_CREW_CHANGELOG.md:664) did it for the janitor only; nothing says security was left out on purpose. One part was mended: the officer does not walk the hallways on and on, it goes back and forth between the door and the other work, because the serve task's plan turns into a ready `go_to_door` the moment it leaves. That does not save it. The fix is right and small: `asked: atDoor` on that one return. With it, the wait outranks every non-emergency task, the desk tasks of a Head of Security among them, for at most `LET_IN_WAIT_DS` (90 seconds) per person asked, which is what the janitor already does.

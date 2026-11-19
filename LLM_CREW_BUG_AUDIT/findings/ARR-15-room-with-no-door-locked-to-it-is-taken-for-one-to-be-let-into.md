@@ -3,13 +3,14 @@ id: ARR-15
 title: A room with no door locked to security, that it could not walk into for fire doors or a breach, is asked of the Captain and then forced open by engineering
 kind: bug
 severity: medium
-effort: small
-confidence: likely
-status: found
+effort: large
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:514, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:850, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1113, code/modules/llm_crew/crew_npc_security.dm:784
-fix: Treat an empty keepers answer from the server as no locked door, and in that case do not open shutOut but count a try and say what is in the way
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:514, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:850, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1113, code/modules/llm_crew/crew_npc_security.dm:784, code/modules/llm_crew/crew_npc_security.dm:1628
+fix: Have security_state send empty keepers lists too, treat an empty list as no locked door in keepersOf so no shutOut is opened, and tell the list once what is in the way
 ---
 
 ## What is wrong
@@ -30,10 +31,11 @@ So a room security could walk into if the way were clear becomes a room it is "s
 
 What follows is the whole let-in sequence for a door nobody needs to open: it walks to "the door" of the room (`go_to_door`), and, failing that twice, sends from where it stands. It messages the Captain: "Captain, I have a warrant for Pun Pun, who is in the Fore Primary Hallway. I cannot get to its door. Could you let me in, please?" It waits 90 seconds. Nobody comes, because nothing needs opening, and there is nobody else on the list. `shut.gaveUp` is set, the outcome "I cannot bring in Pun Pun: nobody has opened the Fore Primary Hallway for security" goes to the Head of Security, and `deskOutcome` reads "nobody has opened the X for security" and asks engineering to force a door of the Fore Primary Hallway (`askEngineering`).
 
-Two ways in:
+Three ways in (the third was added by the checker):
 
 1. **A sighting.** `serveStep`'s sighting branch: the sighting is fresh, the room is in `brain.blockedPlaces` (its walk there failed), so it calls `noteShutOut(brain, warrant, sighting.place)` with no keepers given. `brain.security.keepers[place]` is missing because the server left the empty answer out, so the Captain is used.
 2. **In sight, and the arrest's walk failed.** `security_details` answers `reason: 'no_way'`, the room, and `keepers: []`. `beatAfterActing` calls `noteShutOut(... details.keepers)`, `keepersOf` gets an empty array, and the Captain is used.
+3. **In sight, and the walk up to them failed.** `beatAfterActing`'s `approach` branch calls `noteShutOut(brain, warrant, seen.place)` with no keepers given, for anyone in sight further than `NEAR` in another room. `security_state` lists keepers for rooms it sees someone in only when the answer is not empty, so the Captain is used again. A person across a shut fire door in a hallway is in sight: fire doors can be seen through.
 
 One concrete case: the Captain sends "Pun Pun is in the Fore Primary Hallway". Pun Pun pulled the fire alarm there and the fire doors are shut. The officer's `go_to('Fore Primary Hallway')` fails with "there is no way through" and the server marks it blocked. Next plan: the sighting is fresh and blocked, `noteShutOut` makes a `shutOut` with keepers `['Zim Fire']` (the Captain). The officer goes to the door and asks the Captain to let it into a public hallway. Ninety seconds later the Head of Security has an engineer sent to pry open a door of the Fore Primary Hallway.
 

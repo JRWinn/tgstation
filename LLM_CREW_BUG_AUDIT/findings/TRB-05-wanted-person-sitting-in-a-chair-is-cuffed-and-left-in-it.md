@@ -4,12 +4,13 @@ title: Someone wanted who is sitting in a chair or lying in a bed is cuffed, the
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1027, code/modules/llm_crew/crew_npc_security.dm:1103, code/modules/llm_crew/crew_npc_security.dm:1150, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1200, tgui/packages/tgui/interfaces/CrewBrain/jobs/wanted.ts:280
-fix: In hold_arrested unbuckle a buckled prisoner by a click on what they are buckled to, as a player does, before the hold is taken, and answer no_hold if they are still buckled
+fix: In hold_arrested unbuckle a buckled prisoner by an empty-hand click on what they are buckled to, as a player does, before the hold is taken, and answer no_hold if they are still buckled
 ---
 
 ## What is wrong
