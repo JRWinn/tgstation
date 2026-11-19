@@ -165,6 +165,21 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('"Don\'t buy it." is a no', answered("Don't buy it."), 'refused, 1 in book, told no');
   add('"Yes. No." is asked about', answered('Yes. No.'), 'asking, 1 in book, asked');
   add('"No to order 3" is not about order 1', answered('No to order 3'), 'asking, 1 in book');
+  // PARSE-06: naming the kind of crate the waiting order is for does not make the yes a new order.
+  add('"Yes, the janitorial one." to a janitorial order is a yes', answered('Yes, the janitorial one.'), 'new (captain), 1 in book');
+  add('"Yes, and order some lights." is still a new order, and the yes is asked about', answered('Yes, and order some lights.'), 'asking, 2 in book, asked');
+  const paperQm = () => {
+    const qm = waitingQm();
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights', 'Bureaucracy Crate'];
+    qm.crateCosts['Bureaucracy Crate'] = 300;
+    qm.ledger.orders = readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Bureaucracy Crate. 300 cr.', 'Order 1. Asked the Captain.'], 5000);
+    return qm;
+  };
+  for (const [line, want] of [['Yes, the paper one.', 'new (captain)'], ['No, not the paper.', 'refused'], ['Yes, the lights.', 'asking']]) {
+    const qm = paperQm();
+    QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, 5100, 'Captain');
+    add(`"${line}" to an order of paper waiting on the Captain`, `${qm.ledger.orders[0].state}${qm.ledger.orders[0].approved ? ` (${qm.ledger.orders[0].approved})` : ''}`, want);
+  }
 }
 
 // QM-10: a head's line sorted into cancel, question, order or talk before anything is ordered.

@@ -39,7 +39,7 @@ import type {
   SenseEvent,
   Task,
 } from '../types';
-import { itemsAskedFor } from './cargo';
+import { itemsAskedFor, PAPER_WORDS } from './cargo';
 import {
   captainName,
   hearReport,
@@ -166,8 +166,6 @@ const ABOUT_ORDER_WORDS =
   /\b(orders?|crates?|purchase|buy|supplies|budget|credits)\b/i;
 /** How many times the Captain is asked what they meant about one order. */
 const UNCLEAR_ASKS = 2;
-/** The kind of crate that has paper in it, by the words in its name. */
-const PAPER_CRATE = /bureaucracy|paper|stationery/i;
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -564,10 +562,16 @@ function readAnswer(
     text,
   );
   const words = text.split(/\s+/).filter(Boolean).length;
-  if (
-    (!namesIt && words >= ANSWER_WORDS) ||
-    itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0
-  ) {
+  // A crate named is a new order, unless it is only the kind the order asked about is for, in a
+  // line that orders nothing: "yes, the paper one" is a yes to the paper order (PARSE-06).
+  const named = itemsAskedFor(text.toLowerCase(), brain.orderable);
+  const newKind =
+    named.length > 0 &&
+    (sortLine(text) === 'order' ||
+      named.some(
+        (item) => !order.items.some((theirs) => theirs.crate === item.crate),
+      ));
+  if ((!namesIt && words >= ANSWER_WORDS) || newKind) {
     return false;
   }
   const answer = yesOrNo(text);
@@ -2058,7 +2062,8 @@ export const QUARTERMASTER: Job = {
     // in it, through its own technician, like any other order.
     if (act.tool === 'get_paper' && !ok) {
       ledger.paperRetryAt = brain.now + PAPER_AGAIN_DS;
-      const crate = brain.orderable.find((kind) => PAPER_CRATE.test(kind));
+      // The kind of crate that has paper in it, by the same words anyone asks for paper by (PARSE-06).
+      const crate = brain.orderable.find((kind) => PAPER_WORDS.test(kind));
       if (crate) {
         orderForItself(brain, crate);
       }
