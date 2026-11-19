@@ -542,6 +542,7 @@ export function syncMeeting(
       brain.meeting = {
         calledAt: brain.now,
         room,
+        calledIn: brain.location === room,
         invited: [],
         copied: false,
         answers: {},
@@ -731,13 +732,28 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
     return {
       ready: true,
       step: `You have called your staff to a meeting in the ${room}, and are going there.`,
-      act: { tool: 'go_to', place: room, middle: true },
+      act: { tool: 'go_to', place: room },
     };
   }
-  // In the room already, it goes and stands in the middle of it, where its staff will look for
-  // it. A Quartermaster that held its meeting from by its office door, with both its technicians
-  // at the counter at the far end of the bay, saw neither and reported "0 of 2 there".
-  if (!meeting.wentIn && !meeting.fromHere) {
+  // In the room already when it called the meeting, it goes and stands in the middle of it,
+  // where its staff will look for it. A Quartermaster that held its meeting from by its office
+  // door, with both its technicians at the counter at the far end of the bay, saw neither and
+  // reported "0 of 2 there". Only then, though: a head that has walked in from outside is where
+  // its staff expect it. Offered to one that had just walked in, this step was the same walk
+  // over again, was held back as a walk that had just come to nothing, and the head went back to
+  // its office with all three of its staff standing in the room (round of 17:48).
+  // And once only: a walk there that came to nothing, or that nothing was heard of, is not asked
+  // for again. Held back by the driver, it would leave the head free to wander off instead.
+  const toMiddle = { tool: 'go_to', place: room, middle: true };
+  const triedMiddle = brain.failures.has(
+    `${findTask(brain, MEET)?.id ?? 'none'}:${JSON.stringify(toMiddle)}`,
+  );
+  if (
+    meeting.calledIn &&
+    !meeting.wentIn &&
+    !meeting.fromHere &&
+    !triedMiddle
+  ) {
     return {
       ready: true,
       step: `You are in the ${room} for your staff meeting, and are going to stand in the middle of it, where your staff will look for you.`,

@@ -264,7 +264,7 @@ const SENTENCE_WORDS =
   /^(?:and\s+|then\s+)?(?:lock|keep|hold|jail|detain|put|throw|leave|brig|arrest|cuff)\s+(?:him|her|them|it)\b/i;
 /** Words that say how soon or how politely, and are no part of anyone's name. */
 const FILLER =
-  /\b(?:right\s+now|right\s+away|at\s+once|thank\s+you|now|please|immediately|asap|quickly|thanks|today)\b/gi;
+  /\b(?:right\s+now|right\s+away|at\s+once|on\s+site|on\s+sight|on\s+the\s+spot|thank\s+you|now|please|immediately|asap|quickly|thanks|today)\b/gi;
 /** The other way round: "Pun Pun is wanted", "Joan, Dana Reyes is wanted for theft". Who it is on comes first. */
 const WANTED_AFTER =
   /^(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|are)\s+wanted\b[\s,]*(.*)$/is;
@@ -346,7 +346,7 @@ export function readWarrant(
     // Anyone else is named by the words up to where the reason or the time begins.
     const cut = rest.search(
       new RegExp(
-        `[,.:;!?]|\\s+for\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min`,
+        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min`,
         'i',
       ),
     );
@@ -397,6 +397,36 @@ export function readWarrant(
     reason: SENTENCE_WORDS.test(reason) ? '' : reason,
     minutes,
   };
+}
+
+/**
+ * Reads how long someone is to be held out of words that name nobody: "Keep him in jail for 30
+ * minutes", sent after the warrant. `asked` is what was said, `minutes` what a cell's timer
+ * allows of it. Null if these words give no time, or do not speak of anyone.
+ */
+export function readTerm(
+  written: string,
+): { minutes: number; asked: number } | null {
+  const text = mendWords(written);
+  if (!/\b(?:him|her|them|it|that\s+one)\b/i.test(text)) {
+    return null;
+  }
+  const said = text.match(MINUTES_SAID)?.[1].toLowerCase();
+  if (!said) {
+    return null;
+  }
+  const asked = /^\d/.test(said) ? Number(said) : NUMBER_WORDS.indexOf(said) + 1;
+  return { minutes: Math.min(MINUTES_MOST, Math.max(1, asked)), asked };
+}
+
+/** Security's word back when the time on a warrant is changed. It says so when a cell's timer allows less than was asked. */
+export function termLine(
+  to: string,
+  name: string,
+  minutes: number,
+  asked: number,
+): string {
+  return `${to}, I have that: ${name}, ${minutes} minutes.${asked > minutes ? ` ${MINUTES_MOST} is the most a cell's timer allows.` : ''}`;
 }
 
 /** A warrant as a head declares it by PDA: the same words the Captain would use. */
@@ -776,7 +806,11 @@ export function letInLine(
 ): string {
   return `${to}, I am at the ${which}door of the ${place} with a warrant for ${name}. Could you let me in, please?`;
 }
-export const LET_IN_WORDS = /\bwith a warrant for (.+?)\. Could you let me in\b/i;
+/** The same, from somewhere it could not get to the door from: it says so, and does not claim to be standing there. */
+export function letInFarLine(to: string, place: string, name: string): string {
+  return `${to}, I have a warrant for ${name}, who is in the ${place}. I cannot get to its door. Could you let me in, please?`;
+}
+export const LET_IN_WORDS = /\ba warrant for\b.*\bCould you let me in\b/i;
 
 // ---- an order that code could make nothing of, put to the LLM
 

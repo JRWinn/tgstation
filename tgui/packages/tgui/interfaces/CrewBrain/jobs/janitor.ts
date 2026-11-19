@@ -74,7 +74,7 @@ const NOT_LET_IN =
  * inside a locked room is got to through the outer one, so until it is standing in that one, the
  * outer one's door is the door it asks at.
  */
-function doorFor(brain: NpcBrain, place: string): string {
+export function doorFor(brain: NpcBrain, place: string): string {
   let door = place;
   // Followed outwards, room by room. No station nests them more than a few deep.
   for (let depth = 0; depth < 4; depth++) {

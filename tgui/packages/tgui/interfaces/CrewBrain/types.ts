@@ -511,7 +511,10 @@ export type BeatWarrant = {
     keepers: string[];
     asked: string[];
     askedAt: number;
-    atDoor?: boolean;
+    /** The room whose door it is asking at: this one, or the locked room this one lies inside. */
+    door?: string;
+    /** How many walks to that door have come to nothing. */
+    doorTries?: number;
     gaveUp?: boolean;
   };
 };
@@ -1398,6 +1401,8 @@ export type NpcBrain = {
     wantedSaid?: number;
     /** TRUE once it has been to the middle of the room, where its staff look for it, or tried to. */
     wentIn?: boolean;
+    /** TRUE if it was in the room already when it called the meeting. */
+    calledIn?: boolean;
   } | null;
   /** For a head: server time the next staff meeting is due, and whether it has held one yet. */
   nextMeetingAt: number;

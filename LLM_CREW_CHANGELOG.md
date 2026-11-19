@@ -16,6 +16,60 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 18:05: a meeting fault of my own from the last entry, and three wordings of a warrant (not committed, not in a build)
+
+**Tested:** type check, 127 cases in `tools/llm_crew/security.ts`, server compile to a side copy (0 errors, 0 warnings), simulator: see the last line. **Not played. The server was running, so the normal build was not run: the game has none of this until `BUILD.cmd` is run between rounds.**
+
+**Round that showed the faults:** `data/logs/2026/11/18/round-17.48.05` (MetaStation, read live from 17:54 to 18:01, on `83f63ee7`, the 17:34 build).
+
+### What that round showed working, of the last entry
+
+- **The officer put the security belt on at the first locker, 9 seconds into its shift,** and had its baton: `game.log` 23:49:14 "put on the security belt from the security officer's locker at (112,172)", then "has its baton and cuffs". It took four rounds to get here.
+- **No runtime errors in 13 minutes.**
+- "Place a new warrent out for Gratian Blyant for violating a goat. Lock them up for 25 minutes." was read whole: the name, the reason, and 15 minutes, which is the most a cell's timer allows.
+- The Quartermaster's meetings counted "2 of 2 there" both times, and engineering's "1 of 1".
+- Heads read the wanted list out at their meetings: the Quartermaster 46 seconds after the warrant, the Chief Engineer at its next meeting ten minutes later.
+- Not exercised: the cell, asking to be let in, getting away from an attacker. The one order put to the LLM reader ("Keep him in jail for 30 minutes") came back as a warrant on "him", which code rightly refused.
+
+### A fault of my own, from the last entry
+
+**The Head of Personnel's meeting reported "0 of 3 there" with all three janitors standing in the room.** The last entry had a head go to the middle of the room before its meeting. A head that had just walked in from outside was offered that as a second step. It was the same walk as the one it had just made, the driver had that walk down as one that had come to nothing (nothing was heard of it for 12 seconds while the head stopped to greet the Captain), so it held the step back, and with the meeting's step held back the head took its idle work and walked back to its office. Now:
+
+- The walk to the meeting from outside is the plain walk it always was, for heads and staff both (`jobs/head.ts`, `jobs/meetings.ts`).
+- Only a head that was in the room already when it called the meeting goes to the middle (`calledIn`), which is the Quartermaster's case that the change was for.
+- That step, and the staff's, is never offered again once it has failed or gone unheard (`brain.failures` is looked at), so a held-back step cannot leave a body free to wander off.
+
+### Three wordings
+
+- **"Arrest Pun Pun on site" made a warrant on "Pun Pun on site",** which names nobody: the officer walked the hallways for ten minutes and no sighting could have matched. "On site", "on sight" and "on the spot" are no part of a name (`FILLER` in `jobs/security.ts`), and a name stops at "and", "then" or "but".
+- **"Keep him in jail for 30 minutes", sent after the warrant, was not followed.** A time with no name in it now goes on the warrant that person last declared, if that was in the last five minutes, and is read back: "Captain, I have that: Pun Pun, 15 minutes. 15 is the most a cell's timer allows." `readTerm`, `termLine`, `setTerm` (`jobs/desk.ts`). The officer is given the warrant again with the new time (`giveWarrant` in `jobs/arrests.ts` now takes a changed time).
+- **A warrant declared again with a different time changes the time,** where it used to answer "there is already a warrant".
+
+### Asking to be let in, as it went the first time it was used (added at 18:15)
+
+The officer had a warrant on the Quartermaster, who was in the Quartermaster's Office. Two janitors sent sightings. The officer wrote to the Captain: "Captain, I am at the door of the Quartermaster's Office with a warrant for Gratian Blyant. Could you let me in, please?", waited 45 seconds, and reported that nobody had let it in. It asked the right person: only the Quartermaster and the Captain can open that office. Four things were wrong:
+
+- **It was not at the door. It was in the Starboard Primary Hallway, half the station away.** Its walk to the door failed at once, because that office opens off the Cargo Bay, which is locked to it as well, and I had any answer to that walk count as being at the door. Now it is at the door only when the server says so (`brain.atDoorOf`). A walk that fails is tried once more and then it asks from where it stands, in words that do not claim the door: "I have a warrant for X, who is in the Y. I cannot get to its door." (`letInFarLine`).
+- **It did not know to get into the Cargo Bay first.** It now asks at the door of the room the one it wants lies inside (`doorFor`, which janitors already used), and the server lists who can open that outer room as well (`security_state` in `crew_npc_security.dm`). In the Cargo Bay's case that is the technicians, who let security in.
+- **Between the failed walk and the ask it went off down the hallways after its other warrant.** The walk to the door is numbered, like a try at a cell, so the driver does not hold it back.
+- **The Head of Security passed it on as "Raelene cannot bring in Gratian Blyant: nobody has let me into the Quartermaster's Office".** The reason now reads the same whoever says it: "nobody has opened the Quartermaster's Office for security".
+
+And it waits 90 seconds on each person it asks, not 45: the Captain is a player and was busy.
+
+Server compile to a side copy (0 errors, 0 warnings), type check, 127 cases. No scenario has security shut out of a room, so none of this has run.
+
+### Seen and left alone
+
+- The Head of Personnel ordered a crate of janitorial supplies three times in nine minutes (23:52, 23:56, 00:00).
+- A janitor was shut in the Head of Personnel's Office.
+- A warrant with more than 15 minutes on it is cut to 15 without saying so, except in the answer to a time sent afterwards.
+- **Crates left on the stairs in the Cargo Bay** (the owner saw them). One technician hauling crate #7740 out to the lobby lost its grip on the stairs at (77,148) six times between 23:59:46 and 00:00:28, each time with "Monte Mcmullen is standing in the way": the other technician stood at the counter at the top of those stairs, which is its post, and did not move. The hauler gave up once and left the crate on the stairs.
+- **Crates the owner pushed about were hauled again, but the logs do not say where to.** A technician reported four hauls of a loose crate between 00:01:50 and 00:02:17, each "where a crate belongs". Nothing records the tile a crate ended on. Read in the code, not seen: a crate trails a step behind whoever hauls it, the last step that draws it onto the square is skipped when the tile beyond is taken, and a crate cargo has once left on a tile is never gone at again, on a square or not (`freight_hauled`, `misplaced_crates` in `crew_npc_freight.dm`).
+
+**Simulator:** all 46 scenarios with a quiet LLM, and `qm`, `warrant` and `crew` with a chatty or a dead one: 51 runs, after the meeting and wording fixes and before the let-in ones. 50 passed. `qm` with a chatty LLM failed one check (a technician told the Quartermaster of an order twice, not once) and passed three times out of three when run again: I take it for chance, and have not proved that. After the let-in fixes, `qm`, `warrant`, `nohos`, `badcell` and `loose` were run again and passed.
+
+---
+
 ## 2026-11-18, 16:50 to 17:35: security bugs from the second and third rounds: the baton, the cell door, a prisoner hauled about, loose wording, and meetings held out of sight (the commit that added this entry)
 
 **This entry was added to twice after it was first written, at 17:20 and 17:35, after the next round: read those two sections first. The build that has all of it was made at 17:34.**

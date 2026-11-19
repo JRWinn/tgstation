@@ -327,7 +327,38 @@ Layer 2 is a change to a standing rule: until now every line with a name or a nu
 - A janitor asked Marisol Burris to let it into the Cargo Bay six times while she was in cuffs, before it asked the other technician. Someone in cuffs cannot answer a door.
 - The Quartermaster's second meeting reported "0 of 2 there" after both technicians had answered that they were coming or already there.
 
-## Not in this plan
+## Proposed: an engineer opens a door security cannot get through
+
+The owner, 2026-11-18: "when security can not reach a fugitive call an engineer to bust open the door". **Not built. The questions at the end are the owner's.**
+
+### What the game allows, read in its code
+
+- A station engineer knows an airlock's wires. It comes with the job (the engineer's skill chip, `TRAIT_KNOW_ENGI_WIRES`, read by `code/datums/wires/airlock.dm`).
+- It wears a full tool belt: screwdriver, wirecutters, multitool, crowbar.
+- A door with no power can be pried open with a crowbar. A door with power cannot.
+- So the honest way through a locked door is what a player engineer does: open the door's panel with the screwdriver, pulse a power wire with the multitool so the door loses power for a while, and pry it open with the crowbar. No ID is used and nothing is spawned.
+- A bolted or welded door is not opened this way. The engineer says so.
+
+### How it would go
+
+1. The officer is shut out, has asked whoever can open the door, and nobody has (the "ask to be let in" already built). It tells the Head of Security "nobody has opened the X for security", as now.
+2. The Head of Security asks the Chief Engineer by PDA: "Kate, security needs the door of the X opened: Y is inside on a warrant." The Captain gets a copy. This is the chain the owner set for fire doors: up to the head, across, and down.
+3. The Chief Engineer gives it to an engineer, as it gives out engine work.
+4. The engineer walks to the door, opens the panel, pulses the power wire, pries the door open, and tells security the door is open.
+5. The officer, waiting at the door, goes in and makes the arrest.
+6. The engineer puts the door right: it shuts the panel. The power comes back by itself after the pulse.
+
+### What it needs
+
+- A server tool for the engineer, "force_door": each step a click with the tool in hand, and the wire pulsed through the wires window as "send what the window would send", which is how machines are already worked.
+- The asking chain in the brain window: three fixed lines, read by code.
+- The officer waiting at the door for the engineer, not giving up after three asks.
+
+### Questions for the owner
+
+1. **When is the engineer called:** only after nobody with the right ID has opened the door (my suggestion), or straight away?
+2. **Does it go up the chain** (Head of Security to Chief Engineer to engineer, Captain copied), or does the officer write to the engineer itself?
+3. **A door left open** lets anyone in. Should the engineer shut it again once security is through, or leave it?
 
 - Bugs in the round that are not security's.
 - Laws, and reactions by personality: the owner has put both off.

@@ -78,7 +78,9 @@ import {
   REFUSALS,
   readGiven,
   readOutcome,
+  readTerm,
   readWarrant,
+  termLine,
   SIGHTING_WORDS,
   sameName,
   seenLine,
@@ -278,6 +280,26 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
     );
   }
   dropWarrant(brain, who, pardoned);
+}
+
+/** How long (deciseconds) after a warrant is declared a time said with no name is taken to be for it. */
+const TERM_AFTER_DS = 3000;
+
+/** Changes how long a warrant earns, and sees that whoever is serving it hears of it. */
+function setTerm(brain: NpcBrain, warrant: Warrant, minutes: number): void {
+  warrant.minutes = minutes;
+  // Its officer is given the warrant again, with the new time on it.
+  if (warrant.given !== 'no') {
+    warrant.given = 'no';
+    warrant.gives = 0;
+  }
+  // Serving it itself, its own copy is put right.
+  giveWarrant(brain, {
+    name: warrant.name,
+    reason: warrant.reason,
+    minutes,
+    onlyIfHeld: true,
+  });
 }
 
 /**
@@ -486,13 +508,34 @@ export function deskTakes(
         ),
       );
     } else if (desk.warrants.some((it) => sameName(declared.name, it.name))) {
-      reply(
-        brain,
-        from,
-        REFUSALS.already(to, declared.name),
-        aloud,
-        why('There is one on them already, and you are telling them so.'),
+      const standingOne = desk.warrants.find((it) =>
+        sameName(declared.name, it.name),
       );
+      // Declared again with a time on it: the time is what is new.
+      if (
+        standingOne &&
+        declared.minutes !== null &&
+        declared.minutes !== standingOne.minutes
+      ) {
+        setTerm(brain, standingOne, declared.minutes);
+        reply(
+          brain,
+          from,
+          termLine(to, standingOne.name, declared.minutes, declared.minutes),
+          aloud,
+          why(
+            'There is one on them already, and what is new is how long. You are saying back what you have understood.',
+          ),
+        );
+      } else {
+        reply(
+          brain,
+          from,
+          REFUSALS.already(to, declared.name),
+          aloud,
+          why('There is one on them already, and you are telling them so.'),
+        );
+      }
     } else {
       const minutes = declared.minutes ?? MINUTES_USUAL;
       const unknown = !knownNames(brain).some((it) =>
@@ -527,6 +570,28 @@ export function deskTakes(
         );
       }
     }
+    return true;
+  }
+  // How long, said after the warrant and naming nobody: "Keep him in jail for 30 minutes". It
+  // goes on the warrant that person last declared, if that was in the last few minutes.
+  const term = declarer ? readTerm(text) : null;
+  const theirs = term
+    ? [...desk.warrants]
+        .reverse()
+        .find(
+          (it) =>
+            (it.by === from || captain) && brain.now - it.at < TERM_AFTER_DS,
+        )
+    : undefined;
+  if (term && theirs) {
+    setTerm(brain, theirs, term.minutes);
+    reply(
+      brain,
+      from,
+      termLine(to, theirs.name, term.minutes, term.asked),
+      aloud,
+      `${from} has said how long ${theirs.name} is to be held. You are saying back what you have understood, word for word.`,
+    );
     return true;
   }
   // Word of where someone wanted is.

@@ -431,7 +431,7 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: true,
       step: `${by} has called a staff meeting in the ${room}. That comes before everything else, and you are on your way there.`,
-      act: { tool: 'go_to', place: room, middle: true },
+      act: { tool: 'go_to', place: room },
     };
   }
   if (summons.said) {
@@ -474,7 +474,18 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
   // In the room already when it was called, and its head nowhere in sight: it goes to the middle
   // of the room, which is where its head goes to stand. Two technicians at their counter and a
   // Quartermaster by its office door stood in one bay for three minutes, out of each other's sight.
-  if (!head && brain.location === room && !summons.wentIn && !summons.said) {
+  // Once only: a walk there that came to nothing, or that nothing was heard of, is not asked for
+  // again. Held back by the driver, it would leave the body free to go off to its other work.
+  const triedMiddle = brain.failures.has(
+    `${task.id}:${JSON.stringify({ tool: 'go_to', place: room, middle: true })}`,
+  );
+  if (
+    !head &&
+    brain.location === room &&
+    !summons.wentIn &&
+    !summons.said &&
+    !triedMiddle
+  ) {
     return {
       ready: true,
       step: `You are in the ${room} for the staff meeting and cannot see ${by} from where you stand. You are going to the middle of the room to find them.`,

@@ -40,13 +40,14 @@ import type {
   Task,
 } from '../types';
 import { captainName } from './head';
-import { doorCalled } from './janitor';
+import { doorCalled, doorFor } from './janitor';
 import {
   ARREST_WORDS,
   addressOf,
   arrestLine,
   freeToGoLine,
   LET_IN_WORDS,
+  letInFarLine,
   letInLine,
   MINUTES_MOST,
   MINUTES_RESISTING,
@@ -100,7 +101,9 @@ const BRIG = 'Brig';
 const CELL_AGAIN_DS = 900;
 /** How long (deciseconds) it goes on asking to be let into one room, and how long it waits on each person it asks. */
 const SHUT_OUT_DS = 3000;
-const LET_IN_WAIT_DS = 450;
+const LET_IN_WAIT_DS = 900;
+/** How many walks to a door may come to nothing before it asks from where it stands. */
+const DOOR_TRIES = 2;
 /** How many people it asks to let it into a room before it gives that up. */
 const LET_IN_ASKS = 3;
 
@@ -124,10 +127,22 @@ export function beatOf(brain: NpcBrain): BeatWork {
 /** Takes a warrant into its own hands, unless it has it already. */
 export function giveWarrant(
   brain: NpcBrain,
-  warrant: { name: string; reason: string; minutes: number },
+  warrant: {
+    name: string;
+    reason: string;
+    minutes: number;
+    /** TRUE to do no more than put right the time on one it already has. */
+    onlyIfHeld?: boolean;
+  },
 ): void {
   const beat = beatOf(brain);
-  if (beat.warrants.some((it) => it.name === warrant.name)) {
+  const held = beat.warrants.find((it) => it.name === warrant.name);
+  // Given again, it is the time that has changed.
+  if (held) {
+    held.minutes = warrant.minutes;
+    return;
+  }
+  if (warrant.onlyIfHeld) {
     return;
   }
   beat.warrants.push({
@@ -357,7 +372,7 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // nobody it asked has opened the door.
     const shut = warrant.shutOut;
     if (shut?.gaveUp) {
-      cannot(warrant.name, `nobody has let me into the ${shut.place}`);
+      cannot(warrant.name, `nobody has opened the ${shut.place} for security`);
     }
     const last = warrant.lastSeen;
     if (
@@ -507,20 +522,37 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       step: `${name} is in the ${shut?.place ?? 'next room'}, which is locked to you, and nobody has let you in.`,
     };
   }
+  // The door it asks at: this room's, or that of the locked room this one lies inside. The
+  // Quartermaster's Office opens off the Cargo Bay, so it is the Cargo Bay it has to be let into
+  // first. Each door has its own people to ask.
+  const door = doorFor(brain, shut.place);
+  if (shut.door !== door) {
+    shut.door = door;
+    shut.asked = [];
+    shut.askedAt = 0;
+    shut.doorTries = 0;
+  }
+  const within =
+    door === shut.place ? '' : `, which is reached through the ${door}`;
   // A door held open for it is the way in.
-  if (brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === shut.place) {
+  if (brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door) {
     return {
       ready: true,
-      step: `The door into the ${shut.place} is being held open for you, and you are going through for ${name}.`,
-      act: { tool: 'go_to', place: shut.place },
+      step: `The door into the ${door} is being held open for you, and you are going through for ${name}.`,
+      act: { tool: 'go_to', place: door },
     };
   }
-  // It stands at the door it wants through, so that whoever opens it knows which one.
-  if (brain.atDoorOf !== shut.place && !shut.atDoor) {
+  // It stands at the door it wants through, so that whoever opens it knows which one. A walk
+  // there that comes to nothing is tried once more, at once, and then it asks from where it is:
+  // the try is numbered so that the driver does not hold it back and send the body off on its
+  // other warrant meanwhile.
+  const atDoor = brain.atDoorOf === door;
+  const tries = shut.doorTries ?? 0;
+  if (!atDoor && tries < DOOR_TRIES) {
     return {
       ready: true,
-      step: `${name} is in the ${shut.place}, which is locked to you. You are going to its door.`,
-      act: { tool: 'go_to_door', place: shut.place },
+      step: `${name} is in the ${shut.place}${within}, which is locked to you. You are going to the door of the ${door}.`,
+      act: { tool: 'go_to_door', place: door, attempt: tries + 1 },
     };
   }
   const last = shut.asked[shut.asked.length - 1];
@@ -528,10 +560,15 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     return {
       ready: false,
       wait: true,
-      step: `${name} is in the ${shut.place}, which is locked to you. You have asked ${last} to let you in, and are waiting at the door.`,
+      step: `${name} is in the ${shut.place}${within}, which is locked to you. You have asked ${last} to let you into the ${door}, and are waiting${atDoor ? ' at the door' : ''}.`,
     };
   }
-  const next = shut.keepers.find((keeper) => !shut.asked.includes(keeper));
+  const keepers = keepersOf(
+    brain,
+    door,
+    door === shut.place ? shut.keepers : undefined,
+  );
+  const next = keepers.find((keeper) => !shut.asked.includes(keeper));
   if (!next || shut.asked.length >= LET_IN_ASKS || !brain.hasPda) {
     shut.gaveUp = true;
     return {
@@ -539,18 +576,16 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       step: `${name} is in the ${shut.place}, which is locked to you, and nobody has let you in.`,
     };
   }
+  const to = addressOf(next, jobOf(brain, next));
   return {
     ready: true,
-    step: `${name} is in the ${shut.place}, which is locked to you. ${next}'s ID opens it. You are sending ${next} a PDA message asking to be let in.`,
+    step: `${name} is in the ${shut.place}${within}, which is locked to you. ${next}'s ID opens the ${door}. You are sending ${next} a PDA message asking to be let in.`,
     act: {
       tool: 'message',
       person: next,
-      text: letInLine(
-        addressOf(next, jobOf(brain, next)),
-        doorCalled(brain, shut.place),
-        shut.place,
-        name,
-      ),
+      text: atDoor
+        ? letInLine(to, doorCalled(brain, door), door, name)
+        : letInFarLine(to, door, name),
     },
   };
 }
@@ -943,9 +978,12 @@ export function beatAfterActing(
     }
     return;
   }
-  // At the door of a room it is shut out of, or as near as it could get.
+  // A walk to the door of a room it is shut out of that came to nothing is counted: after two it
+  // asks from where it stands.
   if (warrant?.shutOut && act.tool === 'go_to_door') {
-    warrant.shutOut.atDoor = true;
+    if (!ok) {
+      warrant.shutOut.doorTries = (warrant.shutOut.doorTries ?? 0) + 1;
+    }
     return;
   }
   // It has asked someone to let it in. Sent or not, that is one asked: the wait runs from here.

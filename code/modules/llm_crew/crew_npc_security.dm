@@ -1500,6 +1500,16 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		var/list/names = keepers_known(places[place], place)
 		if(length(names))
 			keepers[place] = names
+		// And the room it is reached through, if that is locked to it as well: the Quartermaster's
+		// Office opens off the Cargo Bay, and it is the bay's people who can let it that far.
+		var/through = reached_through[place]
+		for(var/step in 1 to 4)
+			if(isnull(through) || keepers[through])
+				break
+			var/list/outer_names = keepers_known(places[through], through)
+			if(length(outer_names))
+				keepers[through] = outer_names
+			through = reached_through[through]
 	if(can_look)
 		var/area/own_room = get_area(body)
 		for(var/mob/living/carbon/human/person in in_sight)
