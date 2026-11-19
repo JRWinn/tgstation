@@ -22,9 +22,9 @@ Two sides of one channel between controllers that no body could sense.
 
 Concrete cases:
 
-1. A janitor NPC with its back to the hallway is mopping. An officer with a warrant walks up behind it; `make_arrest` runs once the officer is next to it. The janitor stops dead, drops what it is pulling and is told "is arresting you" the instant the call runs, whether or not the officer's line was said or heard (the line is a separate brain step and may have been dropped by the say cooldown), and even if the janitor is `TRAIT_DEAF`.
+1. A janitor NPC with its back to the hallway is mopping. An officer with a warrant walks up behind it; `make_arrest` runs once the officer is next to it. The janitor stops dead, drops what it is pulling and is told "is arresting you" the instant the call runs. In the usual run the officer has said its line a step or two away first (`toldAt` is set only once the line is said, `beatAfterSaying`), but the call does not depend on it: it runs just the same for a janitor that is `TRAIT_DEAF`, for a quiet arrest made within `TOLD_STANDS_DS` of a line said earlier and out of its hearing, and for every arrest with the baton, which skips the second telling.
 2. A player and a crew NPC are both arrested quietly and both stand still. The NPC has its cuffs taken off in the cell; the player is left in them. Same behaviour, different treatment, decided by something the officer cannot see.
-3. The prisoner's sense line names the cell and the minutes. A player in a cell can read the timer on the wall outside if they look at it; the prisoner is told without looking, and even if the timer has no power.
+3. The prisoner's sense line names the cell and the minutes. A player in a cell can read the timer on the wall outside if they look at it; the prisoner is told without looking. (The timer must have power: `put_in_cell` cannot start it otherwise, and does not get this far.) `custody_tick` then follows the timer by reference (`custody_timer`) and frees the body when it stops, without the body looking at it; the open door would tell a player the same, so that part is a small matter.
 
 ## Where
 

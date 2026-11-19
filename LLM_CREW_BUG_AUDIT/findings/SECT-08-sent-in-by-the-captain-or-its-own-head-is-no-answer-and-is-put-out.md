@@ -25,6 +25,8 @@ The same happens to a technician sent by the Quartermaster into another departme
 
 One thing softens it. `brain.workmates` is everyone the guard has ever seen in its post with `belongs` true, and `belongs` is true for anyone the post's doors open for (`belongs_in_post` in `crew_npc_guarding.dm`), which takes in the Captain and heads with wide access. So if the Captain has once stood in the Cargo Bay while this technician was there, he is a "workmate" and his name is taken and checked. A Captain the technician has never seen in the bay, and a head whose ID does not open the bay, are not.
 
+A second thing narrows it. If a cargo body opened the door for the janitor, `noteLetIn` put it on the department's shared list (`cargo.ts:2000`, `2026`), so `sentFor` is true for every technician and nobody asks. The fault needs the janitor to have got in some other way: the Captain or a head opening the door, a door left open, or a player.
+
 ## Where
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:760`, in `guardOverhears`:

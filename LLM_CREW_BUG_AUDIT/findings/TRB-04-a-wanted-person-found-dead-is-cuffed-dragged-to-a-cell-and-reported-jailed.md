@@ -53,7 +53,7 @@ A player officer would see the body is dead (examining it says so), tell their h
                 if(person.stat != DEAD)
                     inside += person
 
-`crew_npc_security.dm:889`, in `make_arrest`, the only use of "down": it chooses the cuffs alone, it does not stop.
+`crew_npc_security.dm:889`, in `make_arrest`. Every use of "down" in `make_arrest` chooses how (cuffs alone, no baton, leave be for a stop); none stops an arrest on a warrant.
 
     if(how == CREW_ARREST_FORCE && crew_npc_person_down(person))
         if(put_cuffs_on(person, cuffs))
@@ -61,12 +61,12 @@ A player officer would see the body is dead (examining it says so), tell their h
 
 ## How it was found
 
-Read from the code, both halves, and the base `attempt_to_cuff` in `code/game/objects/items/handcuffs.dm:87`. Not seen in a round. Marked `likely` rather than `sure` only because I did not check that every map's cell timer starts with a corpse inside (nothing in `put_in_cell` or the timer looks at the prisoner's state, so I expect it does).
+Read from the code, both halves, and the base `attempt_to_cuff` in `code/game/objects/items/handcuffs.dm:87`. Not seen in a round. The checker found nothing in `put_in_cell` or the timer that looks at the prisoner's state (see Check).
 
 ## How to fix it
 
 1. Server, `look_around`: add `"dead" = person.stat == DEAD` to each person in view. A player can see this by looking (examine reads "no signs of life"), so it is not a cheat. Add `dead?: BooleanLike` to `PersonInView`.
-2. Window, `serveStep`: before anything else in the `if (seen)` branch, if `seen.dead`, push an outcome `{ what: 'cannot', name: warrant.name, why: 'they are dead, in the <place>' }` once (through the existing `cannot` helper in `syncBeat`, or `beat.cannotTold`), and drop the warrant from `beat.warrants`. Do not arrest.
+2. Window, `serveStep`: before anything else in the `if (seen)` branch, if `seen.dead`, push an outcome `{ what: 'cannot', name: warrant.name, why: 'they are dead, in the <place>' }` once (keyed in `beat.cannotTold` as the `cannot` helper in `arrests.ts:382` does) and return a step that does nothing. Do not arrest. Do not just drop the warrant from `beat.warrants`: `giveWarrant` adds it back the next time the Head of Security gives it, and the officer would then go after the body again. Leave it until the desk strikes it (step 3), and have `target` (`arrests.ts:281`) pass over anyone `dead`, so a body is never the one it walks up to. The `why` must hold no full stop: an officer's "I cannot bring in X: why." is read back by `readOutcome` (`security.ts:760`), which stops at the first one.
 3. Desk, `deskOutcome`: a `cannot` whose `why` begins "they are dead" strikes the warrant (`strike(brain, name, false)` without a let-go) and tells the Captain in fixed words: "Captain, Dana Reyes is dead, in the Bar. The warrant is struck." The owner may prefer the warrant kept until the Captain says so: that is the question to ask.
 4. Server, `make_arrest`: refuse `stat == DEAD` with reason `dead`, as a net for a stale step.
 5. Server, `occupants()`: count the dead as taking up the cell for `free_cell`, or the next prisoner is put in with a body. Keep `put_in_cell`'s "is the prisoner in the cell" checks as they are.
@@ -76,3 +76,16 @@ Read from the code, both halves, and the base `attempt_to_cuff` in `code/game/ob
 - Simulator: a variant of `warrant` where the suspect is reported `down: 1, dead: 1`. The officer must send no `arrest`, the Head of Security must tell the Captain, and the notice to the heads must be sent again without the name.
 - Type check, server compile.
 - In a round, kill a wanted monkey and watch `game.log` for "arrested" on it: there should be none.
+- Server side of step 5: with a body left in Cell 1 and Cell 2 empty, a jail should go to Cell 2.
+
+## Check
+
+Checked by Opus 5.5. Read today's code at each quote; all match (the `make_arrest` line is 889, now corrected). Traced it end to end:
+
+- `look_around` (`crew_npc_senses.dm:161`) takes `oview` with no stat filter, so a corpse is in `people_in_view` and in `last_seen_at`, so `recently_saw` passes in `tool_arrest`. The only fields that touch its state are `down` (`crew_npc_person_down` is `stat != STABLE || ...`, true for the dead) and `cuffed`.
+- In the window, `target` (`arrests.ts:281`) matches on name only, and `serveStep` reads `cuffed`, `distance`, `place`, never `down`; a grep of `CrewBrain/` for `.down` and `dead` finds no reader.
+- `tool_arrest` refuses only security, the unseen, self and the Captain. `make_arrest` with `quiet` goes to the cuffs-alone branch. Base `attempt_to_cuff` (`handcuffs.dm:87`) checks the cuff signal, clumsiness, already cuffed and `canBeHandcuffed`, then a `do_after` on the user; nothing about the victim's stat, and a corpse does not move, so it passes.
+- `hold_arrested` pulls: `can_be_pulled` (`atoms_movable.dm:1760`) does not look at stat. `tool_jail`, `free_cell` and `put_in_cell` (`crew_npc_security.dm:1103`, `1075`, `1145`) look at the hold, the cell and the timer only, so the body is put in and the timer started, and the outcome is `jailed`.
+- `occupants()` (`crew_npc_security.dm:165`) skips `stat == DEAD`, so once that timer runs out `free_cell` takes the cell as empty.
+
+Nothing in `LLM_CREW_CHANGELOG.md` or `LLM_CREW_PLAN_SECURITY.md` treats a dead suspect. GAP-13 (nobody notices the dead) and HOLE-08 (a dead officer counted on) are other faults. Confidence raised to sure: nothing in the chain could stop it. The one case where it does not happen is a body whose face is gone and wears no ID: it shows as "Unknown" and does not match the name. Effort raised to large by FORMAT.md's rule, since the fix needs both the server (the flag, the net in `make_arrest`, `occupants`) and the window (`serveStep`, `target`, `deskOutcome`), though it is well under 100 lines. Step 2 of the fix was mended: dropping the warrant from `beat.warrants` alone would not hold, because `giveWarrant` adds it back.

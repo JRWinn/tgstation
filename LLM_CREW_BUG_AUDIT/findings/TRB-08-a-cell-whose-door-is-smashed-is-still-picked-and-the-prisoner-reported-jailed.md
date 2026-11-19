@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1075, code/modules/llm_crew/crew_npc_security.dm:174, code/modules/llm_crew/crew_npc_security.dm:1163, code/modules/llm_crew/crew_npc_security.dm:1204
-fix: In free_cell pass over a cell whose door() is null or broken, and in put_in_cell answer no_way with a reason when the door is gone, calling cell_refuses
+fix: In free_cell pass over a cell whose door() is null, and at the top of put_in_cell answer no_way with cell_refuses when the door is gone, before anyone walks in
 ---
 
 ## What is wrong
