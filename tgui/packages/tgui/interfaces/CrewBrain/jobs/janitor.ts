@@ -108,10 +108,11 @@ export const NEEDS_SCRUBBING = 'it needs scrubbing with soap or a rag';
 /** The words of a call that asks a janitor to come only if it has that. */
 const ONLY_IF_WORDS = /needs scrubbing with soap or a rag\b.*\bif you have one\b/is;
 /**
- * The kinds of mess that only scrubbing shifts. A mop washes the floor and a spray washes what
- * it is sprayed at: neither moves these, and they stay when the floor round them is washed.
+ * The kinds of mess that only scrubbing shifts. A mop does not reach these and a spray only washes
+ * what it is sprayed at: they stay when the floor round them is mopped. Decomposing garbage and a
+ * gooey grey mass are not among them: a wet mop scrubs the floor and takes those up (JAN-02).
  */
-const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;
+const SCRUB_KINDS = /^(cobweb|rubble)$/i;
 
 /** Writes a short list the way it is said: "cobweb", "cobweb and rubble", "oil, ashes and dirt". */
 function listed(names: string[]): string {

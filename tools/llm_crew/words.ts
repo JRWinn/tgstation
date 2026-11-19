@@ -63,6 +63,19 @@ for (const line of ['Thanks, hang in there.', "There's vomit all over the hallwa
 add('the head\'s "what you asked for has come" names the room', supplies('Zim, what you asked for has come. It is in the Custodial Closet.'), [3005, 'Custodial Closet', null]);
 add('the head\'s line with a room it does not know: the Cargo Lobby', supplies('Zim, what you asked for has come. It is in the Nowhere Room.'), [3005, 'Cargo Lobby', null]);
 
+// ---- JAN-02: a wet mop takes up decomposing garbage and a gooey grey mass; only a cobweb or rubble wants scrubbing
+const called = (kinds: string) => {
+  const b: any = janitor('mop');
+  b.stowed = [];
+  JANITOR.readsMessage(b, 'Zim Fire', `There is a mess in the Bar: ${kinds}. Could you come and clean it up, please?`, 0, 'Captain');
+  const task = b.tasks.find((t: any) => t.kind === 'clean' && t.place === 'Bar' && t.state !== 'done');
+  return [task ? !!task.wantsScrub : null, b.toTell.length];
+};
+add('called to decomposing garbage with a mop: it comes with the mop', called('decomposing garbage'), [false, 0]);
+add('called to a gooey grey mass with a mop: it comes with the mop', called('gooey grey mass'), [false, 0]);
+add('called to garbage and a cobweb with a mop: it comes, for the garbage', called('decomposing garbage and cobweb'), [false, 0]);
+add('called to a cobweb alone with a mop and no rag: it says it cannot', called('cobweb'), [null, 1]);
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
