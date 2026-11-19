@@ -109,3 +109,15 @@ What must keep working: a janitor let in and still scrubbing is not let out unas
 - Simulator: `nested` and `office` are the scenarios with let-in and let-out. Add one in which the sim moves the janitor out of the room without an `open_door` and out of the technician's view, and then a head orders at the counter with no Quartermaster aboard. Checks: one `open_door` try at most, then none, and the order is placed.
 - Type check and server compile.
 - In a round: `crew_brain.log` should not show the same "ROUTINE (no LLM) ... You are going to open the door for them" step for one name every two minutes.
+
+## Check
+
+Confirmed, on Opus 5.5.
+
+- The quotes match the code today: `current` at `expected.ts:40`, the long stop at the end of `doorSought` (`jobs/cargo.ts:1475-1485`, `LEFT_INSIDE_DS = 1800` at `:168`), the door part of `afterActing` (`:1966-2027`, every list change under `if (ok && ...)`), `tidyStep` (`:1517`), the `doorWanted` test in `offers` (`:1878`), and the refusals in `tool_open_door` (`crew_npc_doors.dm:516-534`).
+- The only ways an `inside` note is struck are `noteLetOut` from a door opened outward (`afterActing`), from a technician seeing them elsewhere (`syncTasks`, `:811-840`, after `GONE_THROUGH_DS`), and `forgetExpected`. None runs on a failed `open_door`. The `DOOR` task is re-made by `syncTasks` while `doorWanted` returns the want, and the driver backs it off by `RETRY_MS * count` up to `RETRY_MAX_MS` (`driver.ts:52-53`, `:932-935`), so it is tried every two minutes for as long as the note stands.
+- `syncRounds` gets `!wants && !visitorToMind(brain)` and `away` needs `!wants` (`jobs/cargo.ts:907-927`); `visitorToMind` is true while `stillInside` has anyone for any own room. Points 3 to 5 hold.
+- Ran a throwaway bun script outside the repo: `noteLetIn('Cargo Lobby', 'Jan Mopp', 'Warehouse', ...)` at time 100, then the real `CARGO.offers` for the Head of Personnel in view with no Quartermaster. It returned no options for Sam and for Maria at time 2100, and still none at time 100000 (about 2.7 hours on). With the note put under another post, both got the `order` option. So the note does not lapse, and it switches off ordering for every technician at the post.
+- Mended in the write-up: point 2 and the case now say it is every technician at the post (the list is shared and the long stop does not ask whose door it is). The concrete case changed: as first written, a workmate opened the door, and that workmate would most likely have seen Jan leave and struck the note. The real trigger is that no technician sees Jan after Jan is out.
+- How often that happens is not known: confidence stays likely. CARGO-16 (the stand-in name for whoever is knocking booked as inside for the round) is one more way the same never-lapsing note is made; GAP-08 (an ask lost while a door is wanted) is the same switch in `offers` with a real door want. Neither is a duplicate of this.
+- Fix step 1 extended to the "do not know who that is" refusal. Steps 2 and 3 alone would stop the loop; I would build 1, 2, 3 and 5 and leave 4 out, since 2 already ends the tries once the server says they are not there.
