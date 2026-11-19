@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/options.ts:15, tgui/packages/tgui/interfaces/CrewBrain/options.ts:58, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:137, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1476
 fix: Offer the walk only when a line said to this NPC both asks the way and names a room, and have code check a go_to against what was said as it does an order
@@ -14,7 +15,7 @@ fix: Offer the walk only when a line said to this NPC both asks the way and name
 
 ## What is wrong
 
-Crew who keep no post (today that is the janitors) can agree to lead someone to a room. The offer is only meant to be on the table when someone asks to be shown or taken somewhere. It is decided by one loose pattern over everything said in the NPC's hearing since it last spoke, whoever said it and whoever it was said to.
+Crew who keep no post (today the janitors, and any crew whose job has no duties of its own: `CREW` in `jobs/index.ts`) can agree to lead someone to a room. The offer is only meant to be on the table when someone asks to be shown or taken somewhere. It is decided by one loose pattern over everything said in the NPC's hearing since it last spoke, whoever said it and whoever it was said to.
 
 The pattern takes single ordinary words: `take`, `way`, `walk`, `lost`, `get to`, `show`. So "I'll grab that space cleaner and get to work", "Please take it", "Allegria blocks my way", "I'm already on my way", "get lost" and "take that order to Personnel" all put the walk on offer. The rooms offered are then not rooms anyone named: with no room in what was said, the list is the rooms the janitor was last in or knows of.
 
@@ -95,7 +96,7 @@ Not in `LLM_CREW_CHANGELOG.md` or the plans as an open fault. The comment in `op
 2. `options.ts`: a walk is on offer only when a room is named in those lines (`named.length > 0`) and the line asks the way to it. Offer only the named rooms: drop `...knownPlaces(brain)` from `places`. Nobody can be led to a room they did not name.
 3. Narrow the pattern to wording that asks for a guide, tied to the person: `show me`, `take me`, `lead me`, `guide me`, `walk me`, `escort me`, `the way to`, `how do i get to`, `where is|where's` (with a room named), `i am lost|i'm lost`, `directions to`. Loose spelling still has to pass ("wheres the bar", "how do I get to teh bar" will not name the room: that is acceptable, the NPC can still answer in words).
 4. `brain.ts`, in `think`: check a `go_to` in code as an `order` is checked. Before `runTool`, require that `action.place` is named in a heard line that was said to it and that passes the pattern. If not, push `[nothing said called for it: not done]` and `continue`. Set `ledSomeone` only after that check, so a walk that is not taken does not hold the work for 20 seconds.
-5. Do not offer it when whoever spoke is one of the crew NPCs this window runs (`brains` has their names): they know every room aboard. That alone would have stopped seven of the ten. The owner may want NPCs to be able to lead each other later: say so if so.
+5. Optional, and for the owner to decide: do not offer it when whoever spoke is one of the crew NPCs this window runs (`brains` has their names). That alone would have stopped seven of the ten. But it uses something no body could sense, which is whether the speaker is a player or an NPC, so it sits badly with the "senses only" rule. Steps 1 to 4 are enough without it: the narrowed pattern of step 3 matches none of the ten lines. Leave step 5 out unless the owner asks for it.
 
 Keep: crew with a post never get the offer, nor does anyone shut in, nor for a room in `blockedPlaces`.
 
@@ -105,3 +106,15 @@ Keep: crew with a post never get the offer, nor does anyone shut in, nor for a r
 - `tools/llm_crew/voice.ts` (model test, card free) if it has a leading case: it should still pass.
 - Type check from `tgui/`.
 - Next round: in `crew_brain.log`, no reply should have `"tool": "go_to"` in `move` unless the report has someone asking the way.
+
+## Check
+
+Checked by Opus 5.5, from the code, one of the round cases, and a throwaway run.
+
+- The quotes still match: `ASKS_TO_BE_LED` and `ASKS_WHERE` (`options.ts:15`), `wantsLeading` and `places` with `...knownPlaces(brain)` (`options.ts:58`), `heard` built from every ` says: ` line of the report (`talk.ts:137`), and in `think` `ledSomeone = true` set before any test (`brain.ts:1476`). With no `agrees`, `calledFor` is `heardLines.at(-1) ?? ''`, never `undefined`, so the `go_to` always reaches `runTool` (`brain.ts:1486`). Only `jobs/cargo.ts` has `agrees`. `keepsPost: false` is on `JANITOR` and on the catch-all `CREW` job.
+- The offer needs `spokenTo` (someone spoke to it). But once that holds, every line in the report counts, including lines said to someone else.
+- Run (bun, a script outside the repo that imports `options.ts` with a made-up brain). `availableOptions` gave `go_to` for "I'll just grab my space cleaner and get to work on that dirt.", "crate #7741 is ready for you at the counter. Please take it" and "I am on my way". Each time the rooms offered were only the ones the NPC knew, none of them named. For "how are you today?" it gave `stay` only.
+- `data/logs/2026/11/18/round-20.12.30/crew_brain.log` at 02:13:36 and 02:13:39: both janitors were sent the go_to option and answered `"move": {"tool": "go_to", "place": "Cargo Lobby"}`. `game.log` 02:13:27 to 02:13:39 has only greetings about dirt and space cleaner. Nobody asked the way.
+- Nothing in the change log or the plans (searched `ASKS_TO_BE_LED`, "lead", "the way", `LEAD_PAUSE`).
+- Severity medium and effort small are right. Steps 2 and 3, which stop the fault, are a few lines in `options.ts`. Steps 1 and 4 add a few lines each to `talk.ts` and `brain.ts`.
+- Fix: steps 1 to 4 are sound and keep the rules. Step 5 is now marked optional and the owner's to decide (see above). For step 4 there is a helper to copy: the room-name test already in `availableOptions` (`allPlaces` and a word test).

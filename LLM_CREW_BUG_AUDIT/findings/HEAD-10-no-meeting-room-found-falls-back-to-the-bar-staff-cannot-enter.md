@@ -4,7 +4,7 @@ title: When the server finds no meeting room on the Head of Personnel's own deck
 kind: bug
 severity: medium
 effort: medium
-confidence: sure
+confidence: likely
 status: confirmed
 found_by: Opus 5.5
 checked_by: Opus 5.5
@@ -71,3 +71,7 @@ Read from the code, not seen in a round. The check added which decks the rooms a
 - Simulator: send the head `meeting_room: null`. Pass if no "Staff meeting in the Bar" message is sent and the Captain gets the one line.
 - Server compile (`tgstation_check.dme`).
 - On each map in rotation, check that the Head of Personnel's first "Staff meeting in the" message in `pda.log` names a room other than the Bar.
+
+## Check
+
+Read the Head of Personnel branch of `learn_starting_places` and `crew_npc_room_is_closed` in `crew_npc_cargo.dm`, `learn_place`, `create_crew_npc` and `spawn_test_crew` in `crew_npc_spawn.dm`, `meeting_room` in `crew_brain_link.dm:143` and `brain.ts:536`, `HOP_WAY` and `syncMeeting` in `jobs/head.ts`, the Service entry in `hierarchy.ts`, `knowsPlace` in `memory.ts`, and the area names in `code/game/area/areas/station/` (`/area/station/service/bar` is named "Bar"). The quotes are what the code says today. With `meeting_place` null the window takes `meetsIn` 'Bar', which `knowsPlace` always accepts, so the meeting is called there. To see whether it comes up, I ran a throwaway Python script (in the scratchpad, not kept) over the seven station `.dmm` files, listing the decks that hold the Head of Personnel's office, the four meeting rooms and the hallways; the results are in "What is wrong". Tramstation and NebulaStation are hit every round with the standing test crew; MetaStation is not. The old round `data/logs/2026/11/18/round-19.33.11` (MetaStation) has "Staff meeting in the Bar now" six times, but that is from before the server picked a room and is not this fault. Whether each map's Bar is shut to janitors (`crew_npc_room_is_closed`, the server's comment) was not checked map by map, so confidence stays likely. Effort set to medium: steps 2 and 3 are a small window change and fix the wrong room alone; step 1 adds a small server change, which makes it both sides. Searched the change log and plans for `meeting_place`, `meetsIn` and the Bar: nothing covers the fallback. Not run in a round.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1370, tgui/packages/tgui/interfaces/CrewBrain/prompt.ts:300, code/modules/llm_crew/crew_npc_tools.dm:151, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1954
 fix: Trim every say to the last whole sentence that fits in 200 characters in the window, before the needs test, and fall back to the plain line if the trimmed one no longer holds the needed words
@@ -64,9 +65,9 @@ Seen in round logs (the two lines quoted, by grep: `grep -h "was told by its bra
 
 ## How to fix it
 
-1. In `brain.ts`, where the reply's `say` actions are cleaned (right after `withoutHandles`, about line 1373), cut each line to fit: if it is over 200 characters, keep up to the last `.`, `!` or `?` at or before character 200; if there is none past about character 60, cut at the last space before 200 and add a full stop. Put the helper beside `withRemark` in `jobs/reports.ts` and use `SAY_MAX` from there, so there is one number. Move `SAY_MAX` to a shared place if `reports.ts` is the wrong home.
+1. In `brain.ts`, where the reply's `say` actions are cleaned (right after `withoutHandles`, about line 1373, so before the `exact` branch and the `mustSayNeeds` test at about line 1410), cut each line to fit: if it is over 200 characters, keep up to the last `.`, `!` or `?` at or before character 200; if there is none past about character 60, cut at the last space before 200 and add a full stop. Put the helper beside `withRemark` in `jobs/reports.ts` and use `SAY_MAX` from there, so there is one number. Move `SAY_MAX` to a shared place if `reports.ts` is the wrong home.
 2. Do the `mustSayNeeds` test after the cut, not before. A trimmed line that no longer holds the needed words falls back to `mustSay`, as it does today when the model leaves them out.
-3. The same for the PDA: `tool_message` cuts at `CREW_NPC_MESSAGE_MAX_LENGTH` (200) the same way. Lines sent by PDA through `toTell` that the model words need the same trim.
+3. The PDA needs nothing here. `tool_message` does cut at `CREW_NPC_MESSAGE_MAX_LENGTH` (200, `crew_npc_cargo.dm:702`) the same way, but the model never words a PDA message: the reply schema (`prompt.ts:290` on) has no `message`, and a `toTell` sent by PDA goes out as the code wrote it (`driver.ts:452`, `act: { tool: 'message', ..., text: tell.line }`). A code-built PDA line over 200 characters would be a separate fault.
 4. Optionally add `maxLength: 200` to `say` in the schema. It stops the model running on, but on its own it also cuts mid-word, so step 1 is still needed.
 5. Keep the server's cut: the window is untrusted, and the cut is the last guard. It should seldom fire after this.
 
@@ -77,3 +78,13 @@ This keeps the rules: code decides what is said, the model only words it, and a 
 - A small table of cases beside `tools/llm_crew/reports.ts`: a 250-character line with a full stop at 150 keeps 150; one with no stop is cut at a space and ends with a full stop; a line under 200 is unchanged; a `needs` line whose needed word lies past 200 falls back to the plain line.
 - Type check.
 - In the next round, the grep in "How it was found" should print nothing.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Confirmed.
+
+- The quotes are what the code says today: the server cut at `crew_npc_tools.dm:151`, `CREW_NPC_SAY_MAX_LENGTH 200` at `_defines.dm:98`; the `say` schema with no `maxLength` at `prompt.ts:300`; `SAY_MAX` read only in `withRemark` (`reports.ts:47`, `:231`); the `mustSayNeeds` test on the whole line in `brain.ts` at about `:1410`, after `withoutHandles` and before anything that bounds length. Nothing between `parseReply` and the `say` act trims it; `grep` for `SAY_MAX`, `slice(0, 200` and `maxLength` in the window finds no other limit on `say`.
+- The needs case is real: `cargo.ts:1954` builds `needs` as `<item>.*lobby`, tested on the model's whole line; the server then keeps only the first 200 characters.
+- Ran the finder's grep over `data/logs/2026/11/*/round-*/game.log`: 106 says of 199 characters or more that do not end in a stop, the same count.
+- Not in the change log or the plans as fixed. `LLM_CREW_PLAN_SECURITY.md:133` notes the 200-character cut as a fact. The "owner's notes" quoted are the session memory on the meeting design, not a repo file.
+- Corrected step 3: the PDA has no model-worded text to trim. Severity medium is right (players see it each round; work mostly still gets done, and the missed-needs half is read from code, not seen). Effort small.
