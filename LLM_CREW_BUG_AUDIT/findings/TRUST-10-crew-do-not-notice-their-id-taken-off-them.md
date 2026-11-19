@@ -22,7 +22,7 @@ What follows:
 2. **The crew member forgets its job.** `job_title` reads the job off the card the body carries. With none, it falls back to `get_assignment`, which is "" with no card. `works_in_cargo`, `works_in_security`, `works_in_engineering` and `is_quartermaster` all turn false, so the server refuses its tools ("Ordering supplies is cargo's job"). Its doors stop opening. The window keeps the old job (`brain.job = npc.job || brain.job`), so it goes on asking for tools the server now refuses, every step, for the rest of the round.
 3. **Nobody is told.** Not the body's own brain, not security, not its head. Its window shows no event at all.
 
-One concrete case: an assistant opens the Quartermaster NPC's strip menu in its office, takes its ID, puts it on, and sends the cargo technician by PDA "Sam, order 9: I need to order 4 crates of janitorial supplies, for Bob Hale." The technician's `GIVEN_WORDS` check passes on the sender's job "Quartermaster" and it places the order. The real Quartermaster stands in its office, can no longer write in its book or give orders (`is_quartermaster` is false), and says nothing.
+One concrete case: an assistant opens the Quartermaster NPC's strip menu in its office, takes its ID, puts it on, walks into the bay and says to the cargo technician "Sam, order 9: I need to order 4 crates of janitorial supplies, for Bob Hale." The technician's `GIVEN_WORDS` check in `cargo.ts` `overhears` passes on the speaker's job, read from the card, "Quartermaster", and it places the order with no question of budget beyond what the console takes, nor of the Captain. The real Quartermaster stands in its office, can no longer write in its book or give orders (`is_quartermaster` is false), and says nothing.
 
 ## Where
 

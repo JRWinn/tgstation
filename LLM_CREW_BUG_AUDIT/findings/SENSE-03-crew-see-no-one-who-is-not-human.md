@@ -22,7 +22,7 @@ Sight in `look_around` has two outputs: `people_in_view`, built from `for(var/mo
 
 Monkeys are not in this gap: in this codebase they are `/mob/living/carbon/human/species/monkey`, so Pun Pun is seen.
 
-One concrete case. A space carp gets into the Cargo Bay through a breached window (a random event, `Random Event triggering: Carp Migration` in `game.log`). It bites a cargo technician. The technician's `people_in_view` and `things_in_view` hold no carp. The brain has nothing to react to; the technician keeps hauling. Only security has a sense for being struck (`on_struck`), and that names nobody human to go after.
+One concrete case. A space carp gets into the Cargo Bay through a breached window (a random event, `Random Event triggering: Carp Migration` in `game.log`). It bites a cargo technician. The technician's `people_in_view` and `things_in_view` hold no carp. The brain has nothing to react to; the technician keeps hauling. Only security has a sense for being struck (`on_struck`), and a technician is not security.
 
 ## Where
 
