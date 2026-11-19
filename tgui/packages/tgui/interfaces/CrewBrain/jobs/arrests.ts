@@ -84,7 +84,8 @@ const WILL_NOT_STAND = 'they will not stand still for the baton or the cuffs';
 /** Why there is no arrest yet, of someone in sight it cannot walk to and has nobody to ask to let it through. */
 const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
 /** Why there is no arrest of someone the server would not let it touch: they wear or hold a Captain's ID. */
-const CAPTAIN_CARD = "they carry a Captain's ID, and nobody lays a hand on the Captain";
+const CAPTAIN_CARD =
+  "they carry a Captain's ID, and nobody lays a hand on the Captain";
 /** How long (deciseconds) someone the server would not let it arrest is passed over. They may take the card off. */
 const REFUSED_DS = 3000;
 /** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
@@ -272,7 +273,9 @@ export function doorOpened(brain: NpcBrain, room: string): void {
     ) {
       // A room locked again after this is told of again.
       for (const place of [room, shut?.door, shut?.place]) {
-        delete told[`${warrant.name}|nobody has opened the ${place} for security`];
+        delete told[
+          `${warrant.name}|nobody has opened the ${place} for security`
+        ];
       }
       warrant.shutOut = undefined;
       warrant.opened = { place: room, at: brain.now };
@@ -293,12 +296,10 @@ export function handBack(brain: NpcBrain): void {
   const last = brain.lastAct;
   const arresting =
     last?.act.tool === 'arrest' && last.act.how !== 'stop'
-      ? brain.tasks.find((it) => it.id === last.task && it.kind === SERVE)
-          ?.item
+      ? brain.tasks.find((it) => it.id === last.task && it.kind === SERVE)?.item
       : undefined;
   beat.warrants = beat.warrants.filter(
-    (it) =>
-      (!!holding && sameName(it.name, holding)) || it.name === arresting,
+    (it) => (!!holding && sameName(it.name, holding)) || it.name === arresting,
   );
 }
 
@@ -1111,7 +1112,10 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind === SERVE) {
     const warrant = beat.warrants.find((it) => it.name === task.item);
     if (!warrant) {
-      return { ready: false, step: 'That warrant is no longer yours to serve.' };
+      return {
+        ready: false,
+        step: 'That warrant is no longer yours to serve.',
+      };
     }
     // In the middle of arresting someone else: this one waits until that arrest is done, so the
     // cuffs going on are not walked away from when the other comes into sight.
@@ -1303,8 +1307,7 @@ export function beatAfterActing(
     const dropped =
       task?.kind === SERVE
         ? (beat.dropped ?? []).find(
-            (it) =>
-              it.name === task.item && brain.now - it.at < DROPPED_DS,
+            (it) => it.name === task.item && brain.now - it.at < DROPPED_DS,
           )
         : undefined;
     if (
