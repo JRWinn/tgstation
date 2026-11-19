@@ -360,6 +360,10 @@
 /datum/ai_controller/crew_npc/proc/has_budget_program()
 	var/mob/living/carbon/human/body = pawn
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
+		// Read on the screen only: not on a broken PDA, nor by someone who cannot read. Asked on
+		// every update of the window, so the PDA is not switched on here.
+		if(crew_npc_pda_broken(computer) || !body.can_read(computer, READING_CHECK_LITERACY, silent = TRUE))
+			continue
 		if(locate(/datum/computer_file/program/budgetorders) in computer.stored_files)
 			return TRUE
 	return FALSE

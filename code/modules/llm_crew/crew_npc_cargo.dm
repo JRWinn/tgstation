@@ -695,6 +695,33 @@
 			return messenger
 	return null
 
+/// TRUE if a PDA is broken past working: it will not boot, as the power button finds.
+/proc/crew_npc_pda_broken(obj/item/modular_computer/computer)
+	return computer.atom_integrity <= computer.integrity_failure * computer.max_integrity
+
+/**
+ * Whether the body can send with its PDA just now, as a player could at its screen: the PDA whole,
+ * switched on (pressing the power button if it is off, which draws on its cell from then on),
+ * its screen read, and sending not turned off. Returns null if it can, else what is in the way,
+ * in words. The first of the returned list is the words, the second TRUE if it is worth keeping
+ * the message to send when the PDA works again (broken or flat, it may be mended or charged).
+ */
+/datum/ai_controller/crew_npc/proc/pda_unusable(datum/computer_file/program/messenger/own_messenger)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/modular_computer/computer = own_messenger?.computer
+	if(isnull(computer))
+		return list("You have no PDA to send a message with.", FALSE)
+	if(crew_npc_pda_broken(computer))
+		return list("Your PDA is broken: it will not boot up.", TRUE)
+	if(!computer.enabled && !computer.turn_on(body, open_ui = FALSE))
+		return list("Your PDA will not turn on: it has no charge.", TRUE)
+	// The screen closes on anyone who cannot read it (computer_ui.dm).
+	if(!body.can_read(computer, READING_CHECK_LITERACY, silent = TRUE))
+		return list("You cannot make out the words on your PDA's screen.", FALSE)
+	if(!own_messenger.sending_and_receiving)
+		return list("Your PDA has sending turned off.", FALSE)
+	return null
+
 /// Tool: send someone a PDA message.
 /datum/ai_controller/crew_npc/proc/tool_message(person_name, text)
 	var/mob/living/carbon/human/body = pawn
@@ -723,18 +750,30 @@
 		return
 	var/to_name = target.computer.saved_identification
 	var/unsent_key = "[LOWER_TEXT(to_name)]|[text]"
-	if(!own_messenger.send_message_signal(body, text, list(target)))
+	// What a player at the screen would find first: a PDA that is broken, off and flat, that they
+	// cannot read, or that has sending turned off. Only the first two are worth trying again.
+	var/list/unusable = pda_unusable(own_messenger)
+	if(unusable && !unusable[2])
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and could not: [unusable[1]] Not sent: [text]")
+		action_result(CREW_TOOL_MESSAGE, FALSE, unusable[1])
+		return
+	// The screen's send, which refuses someone who has receiving turned off, and cleans the text.
+	if(!unusable && !target.sending_and_receiving)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], who has receiving turned off. Not sent: [text]")
+		action_result(CREW_TOOL_MESSAGE, FALSE, "[to_name] has their PDA set not to receive messages.")
+		return
+	if(unusable || !own_messenger.send_message(body, text, list(target)))
 		// Kept, and tried again until it goes. In a communications blackout every message for five
 		// minutes was lost for good, and the log said each had been sent: the Captain got no
 		// reports, and nobody was called to a meeting.
 		var/already_kept = !isnull(unsent_messages[unsent_key])
 		if(!already_kept)
 			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time)
-			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it. Kept to send again: [text]")
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it[unusable ? " ([unusable[1]])" : ""]. Kept to send again: [text]")
 		if(!unsent_retry_due)
 			unsent_retry_due = TRUE
 			addtimer(CALLBACK(src, PROC_REF(resend_unsent)), CREW_NPC_UNSENT_RETRY)
-		action_result(CREW_TOOL_MESSAGE, FALSE, "Your PDA would not send the message. You will try it again when your PDA is working.")
+		action_result(CREW_TOOL_MESSAGE, FALSE, "[unusable ? unusable[1] : "Your PDA would not send the message."] You will try it again when your PDA is working.")
 		return
 	// The same words, kept from a try that failed, have now gone.
 	unsent_messages -= unsent_key
@@ -778,8 +817,9 @@
 			unsent_messages -= unsent_key
 			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) gave up on the PDA message to [to_name] that would not send: [text]")
 			continue
-		// Still not working: the rest will not go either.
-		if(!own_messenger.send_message_signal(body, text, list(target)))
+		// Still not working: the rest will not go either. Nor while the PDA cannot be used, or the
+		// one it is for has receiving turned off.
+		if(pda_unusable(own_messenger) || !target.sending_and_receiving || !own_messenger.send_message(body, text, list(target)))
 			break
 		unsent_messages -= unsent_key
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) sent [to_name] the PDA message that would not go before: [text]")
@@ -810,6 +850,10 @@
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
 	if(!can_sense() || get_atom_on_turf(computer) != pawn)
+		return
+	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
+	var/mob/living/carbon/human/body = pawn
+	if(!body.is_literate())
 		return
 	var/message = html_decode("[signal.data["message"]]")
 	var/sender = "[sender_name || "Someone"]"
