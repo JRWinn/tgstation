@@ -113,6 +113,17 @@ Two things to watch when building step 1:
 
 ## How to test the fix
 
-- Simulator: `qmgone` (the Quartermaster not to be found) should end with the Quartermaster's ledger showing the order `docked` once the Quartermaster is back, and a second order being given to the same technician. Add that check.
+- Simulator: `qmgone` will not do. There the Quartermaster is a player who never acts (`spawnQuartermasterGone`, `sim.ts:1239`), so it has no book. Add a scenario from `spawnWithQuartermaster` (`qm`) in which the NPC Quartermaster gives order 1 for a head and is then moved out of the bay and its office (to another room, say) until after the shuttle docks and the technician has waited at the office door. Check that the technician sends both PDA lines, that the Quartermaster's ledger has order 1 `docked`, that a second order is given to the same technician, and that the head gets one "Your order has come in" and not two.
 - `tools/llm_crew/book.ts`: the PDA line against `DOCKED_WORDS`.
 - In a round: `pda.log` should show two messages from the technician after a wait at the office door, one to the head and one to the Quartermaster, and `game.log` "wrote in its order book: Order N. Docked".
+
+## Check
+
+Confirmed, Opus 5.5, 2026-11-19. Read from the code, nothing run.
+
+- The quotes are as the code reads today: the fall-back in `plan` (`cargo.ts:1063` on), `tellQuartermaster` (`cargo.ts:327`, which sets `task.byPda` after `AT_QM_DOOR_DS` at the office door or `TELL_TRIES` unheard), `tool_message` dropping the notice (`crew_npc_cargo.dm:709`), and `readsMessage` reading `DOCKED_WORDS` from a technician (`quartermaster.ts:1467`).
+- With `arrived.to` not the Quartermaster, the last branch runs and only whoever ordered is sent a PDA. After it the notice is gone, `orderInHand` is false, and `syncTasks` closes the `order` task as reported. Nothing is owed the Quartermaster.
+- I looked for another way the book could close a `given` order: `noteOwnCrate` (only for the Quartermaster's own order), `WAITING_TOLD_WORDS` (closes only its own), the `TAKEN_WAIT_DS` regive (only `!order.taken`). None closes someone else's order. So `freeTechnicians` (674) leaves that technician out for good and `moneyFree` (214) keeps the cost, as written.
+- Not a planned choice: `LLM_CREW_PLAN_QUARTERMASTER.md` line 101 chose the PDA to whoever ordered as the fall-back, but says nothing about the book, and nothing in the change log covers it.
+
+Changed: effort to medium (two files, `cargo.ts` and `quartermaster.ts`); the fix line and step 4 now say that a PDA to the Quartermaster goes against a rule the plan lists as Decided, so the owner is asked first; added a warning that a PDA to the Quartermaster drops any other notice owed to it; the simulator test, since `qmgone` has no NPC Quartermaster.
