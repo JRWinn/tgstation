@@ -1410,12 +1410,51 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 // Letting someone go
 
-/// TRUE if this name is the one asked for: the same, or, unless `whole` is set, the name asked for is part of it.
+/// TRUE if this name is the one asked for: the same, or, unless `whole` is set, the words of the name asked for are among its words.
 /datum/ai_controller/crew_npc/proc/is_named(mob/living/person, wanted, whole = FALSE)
 	var/lower = LOWER_TEXT(person.name)
-	return whole ? lower == wanted : !!findtext(lower, wanted)
+	return whole ? lower == wanted : crew_npc_name_fits(lower, wanted)
 
-/// The names in the list of who it put in a cell that are the one asked for: the whole name if any is, or else those the name asked for is part of.
+/// The words of a name, lower case, split on anything that is not a letter or a figure.
+/proc/crew_npc_name_words(name)
+	var/list/words = list()
+	for(var/word in splittext(LOWER_TEXT("[name]"), regex(@"[^a-z0-9]+")))
+		if(length(word))
+			words += word
+	return words
+
+/**
+ * TRUE if the name asked for names this one, as sameName does in the window: its words come in a
+ * row among this name's words ("dan" names "Dan Reyes", not "Jordan Smith"), or, written as one
+ * word of four letters or more, it is some of this name's words run together ("punpun", "Pun Pun").
+ */
+/proc/crew_npc_name_fits(name, wanted)
+	var/list/have = crew_npc_name_words(name)
+	var/list/need = crew_npc_name_words(wanted)
+	if(!length(need))
+		return FALSE
+	for(var/start in 1 to length(have) - length(need) + 1)
+		var/all = TRUE
+		for(var/index in 1 to length(need))
+			if(have[start + index - 1] != need[index])
+				all = FALSE
+				break
+		if(all)
+			return TRUE
+	var/run = jointext(need, "")
+	if(length(run) < 4)
+		return FALSE
+	for(var/start in 1 to length(have))
+		var/joined = ""
+		for(var/end in start to length(have))
+			joined += have[end]
+			if(joined == run)
+				return TRUE
+			if(length(joined) >= length(run))
+				break
+	return FALSE
+
+/// The names in the list of who it put in a cell that are the one asked for: the whole name if any is, or else those the name asked for names (crew_npc_name_fits).
 /datum/ai_controller/crew_npc/proc/jailed_names(wanted)
 	var/list/whole = list()
 	var/list/part = list()
@@ -1423,7 +1462,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		var/lower = LOWER_TEXT(name)
 		if(lower == wanted)
 			whole += name
-		else if(findtext(lower, wanted))
+		else if(crew_npc_name_fits(lower, wanted))
 			part += name
 	return length(whole) ? whole : part
 
@@ -1474,7 +1513,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		// In a cell it put them in, out of sight. It goes to the timer, and looks in before it stops it.
 		for(var/name in jailed)
 			var/lower = LOWER_TEXT(name)
-			if(whole ? lower != wanted : !findtext(lower, wanted))
+			if(whole ? lower != wanted : !crew_npc_name_fits(lower, wanted))
 				continue
 			var/datum/crew_npc_brig_cell/cell = jailed[name]
 			var/obj/machinery/status_display/door_timer/timer = cell?.timer_ref?.resolve()
