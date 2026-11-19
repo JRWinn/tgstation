@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1320, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1337
-fix: Carry the reorder mark onto the new order (again.reordered = true, or a reorderOf link) so a reorder that is lost in turn is told and written but not bought a third time
+fix: Mark the reorder itself as reordered in crateLost, and in readBook mark order N from a Lost line that says Ordered again as order N, so a lost reorder is told and written but not bought again
 ---
 
 ## What is wrong
@@ -52,10 +53,16 @@ Read from the code. Not run, not seen in a round.
 
 ## How to fix it
 
-1. In `crateLost`, set `again.reordered = true` as well, so the reorder is the last. Its loss then takes the `else if (order)` branch: written in the book as lost with no reorder, and the orderer told "It will have to be ordered again".
-2. Better, so that it survives the book being read back: add `reorderOf?: number` to `LedgerOrder`, set it on `again`, write it in the book's From line for a reorder ("Order 4. Reorder of order 3. From ..."), read it in `readBook`, and treat an order with `reorderOf` as already reordered.
+1. In `crateLost`, set `again.reordered = true` next to `order.reordered = true`, so the reorder is the last one cargo makes by itself. Its loss then takes the `else if (order)` branch: written in the book as lost with no reorder, and the orderer told "It will have to be ordered again".
+2. Make it survive the book being read back, with no new line in the book: in `readBook`, when a "Lost:" line ends "Ordered again as order N.", keep N in a set, and set `reordered = true` on order N when its "From" line is read (the Lost line is written just before the reorder's From line, see the two `toWrite.push` calls in `crateLost`, so N is in the set by then). Do not change `BOOK.taken`: its From line is what `readBook` parses as a new order.
 3. Since a head NPC does not act on "It will have to be ordered again" (HEAD-02), the second loss also needs telling the Captain or the head in words it acts on; that is HEAD-02's fix, not this one.
+
+A side point, not this fault: `reordered` is per order, not per crate. An order of two crates that loses one, then later the other, has only the first bought again. If the owner wants "each lost crate once", key the mark by crate number instead (a `reorderedCrates` list on the order).
 
 ## How to test the fix
 
-In `tools/llm_crew/book.ts`: an order docked as crate #12; a technician says it is lost; order 4 is made. Order 4 docks as crate #13; a technician says that is lost; no order 5 may be made, and the book gets "Order 4. Lost: crate #13." with no "Ordered again". Type check and lint.
+In `tools/llm_crew/book.ts`, driving `QUARTERMASTER.overhears` as the file already drives `readsMessage`: a Quartermaster whose book has order 3 docked as crate #12; a technician's line "Ada, crate #12 for Hop Kins is lost: nobody can get to it." makes order 4. Mark order 4 docked as crate #13; the same line for #13 must make no order 5, and `ledger.toWrite` must get "Order 4. Lost: crate #13." with no "Ordered again". Then a read-back case: `readBook` of the book with "Order 3. Lost: crate #12. Ordered again as order 4." followed by order 4's From line must give order 4 `reordered: true`. Type check and lint.
+
+## Check
+
+Read `crateLost` (`quartermaster.ts:1308`), `newOrder` (`:263`), `readBook` (`:296`, the Lost line at `:361`) and the `LOST_TOLD_WORDS` branch of `overhears` (`:1550`). The quotes are what the code says today. Ran a throwaway bun script (in the scratchpad, not the repo) that made a Quartermaster with order 3 docked as #12 and fed `QUARTERMASTER.overhears` three lost lines in turn, each for the crate of the last reorder. It printed `3:docked:R 4:new`, then `4:docked:R 5:new`, then `5:docked:R 6:new`: each loss bought another. `reordered` is set nowhere else (grep). The plans say cargo reorders "once by itself, since it is the order the head already gave" (`LLM_CREW_PLAN_SECURE_AREAS.md` section 5 and its decisions table, "Cargo, once"), so a chain of reorders with no word from the head goes against what the owner decided. Nothing in the change log changes it. Severity stays medium: it needs a loss that happens again and again, which is not most rounds, but each time it spends the budget. The fix in step 2 was changed: the original proposed a new "Reorder of order 3" wording in the From line, which `readBook`'s From parser would have to learn; the Lost line already carries the link.

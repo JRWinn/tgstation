@@ -25,7 +25,7 @@ As with SUP-11, a Quartermaster's book would hold Maria's order below for money 
 
 The base game already writes the number on the crate: `buy()` does `crate.name += " - #[spawning_order.id]"`. So even with the manifest gone a player can read which order a crate is, and the code could too. It reads only the start of the name.
 
-A concrete case, with two technicians:
+A concrete case, with two technicians and no Quartermaster:
 
 1. The cargo budget has 600 credits. Sam places order #4, a Janitorial Supplies Crate (400) for the Head of Personnel. The budget then has 600 credits, as nothing is paid until loading.
 2. Maria places order #5 and #6 for the Captain: a Janitorial Supplies Crate (400) and Replacement Lights (200). Each check in `tool_order` passes (SUP-11).
@@ -62,9 +62,15 @@ Read from the code, with `buy()` and `generateManifest()` read. Not seen in a ro
 ## How to fix it
 
 1. In the second pass of `order_arrived`, skip a crate for which `crew_npc_manifest_number(crate)` is not null: its manifest is on, and the first pass has already said whose it is.
-2. When the manifest is off, read the number off the end of the name first: a regex `- #(\d+)$` on `crate.name`. If it gives a number, the crate is that order's and is matched only if the number is in `unmatched`. Only a crate with neither manifest nor number in its name is matched by kind, as now.
+2. When the manifest is off, read the number off the name first: a regex `- #(\d+)` on `crate.name`, first match, not anchored to the end (a label stuck on by `stick_to_atom` or a hand labeler adds " (...)" after it through `apply_label`, so `$` would miss a labelled crate). If it gives a number, the crate is that order's and is matched only if the number is in `unmatched`. Only a crate with neither manifest nor number in its name is matched by kind, as now.
 3. Tell the brain when some of an order did not come: after both passes, if `unmatched` is not empty, add to the success text "[crew_npc_numbers_written(unmatched)] did not come with it." The asker is owed that word too; SUP-02 and CARGO-01 cover how word of an order that did not come should be sent, and this case should use the same notice.
 
 ## How to test the fix
 
 A table case in `tools/llm_crew/` cannot reach `order_arrived`; this is server-only. Compile, then in a round with two technicians order two crates of one kind on one trip with too little money for both, and check `game.log` for which technician was told "cannot see what you ordered", and the held crate's label against its manifest.
+
+## Check
+
+Checked by Opus 5.5. Read `order_arrived` and `place_order` (`crew_npc_cargo.dm`), `crew_npc_manifest_number` (`crew_npc_held.dm:127`), and in the base game `buy()`, `supply_pack/generate` (`_packs.dm:82`, the crate is named `crate_name`) and `generateManifest`. The second pass loops over `aboard`, skips only crates already `found` or held, and matches by `findtext(crate.name, pack.crate_name) == 1`, which is TRUE for "janitorial supplies crate - #4" against an unmatched #5 of the same pack. Nothing checks that the crate's manifest is gone. The pack costs (Janitorial Supplies Crate is `CARGO_CRATE_VALUE * 2`, 400) give the case as written: #4 paid, #5 skipped by `continue`, #6 paid. Sam's run then sees its #4 already held and reports nothing aboard.
+
+Corrected: a full shuttle floor cannot cause it (`break` leaves out the pending order as well), and the case needs no Quartermaster, since `moneyFree` in `jobs/quartermaster.ts` counts given orders and would hold Maria's order. The regex in fix step 2 was anchored with `$`, which misses a labelled crate; changed to the first match. Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers it. Severity left at medium: the wrong asker's crate is held, but only when same-kind orders share a trip and one is unpaid. Not run.
