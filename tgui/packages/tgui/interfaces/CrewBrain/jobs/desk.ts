@@ -51,7 +51,7 @@ import { captainName } from './head';
 import {
   addressOf,
   againLine,
-  CANCEL_WORDS,
+  cancelAsked,
   closeIn,
   mendWords,
   type Reading,
@@ -62,6 +62,7 @@ import {
   giveLine,
   HEARD_WORDS,
   heardLine,
+  isNoName,
   isOfficer,
   isSecurity,
   letGoLine,
@@ -359,7 +360,7 @@ export function deskTakes(
   const anyone = [...standing, ...Object.keys(desk.held)];
 
   // A warrant taken back by whoever declared it, or by the Captain.
-  if (CANCEL_WORDS.test(text)) {
+  if (cancelAsked(text)) {
     const name = nameIn(text, standing) ?? closeIn(text, standing);
     const warrant = desk.warrants.find((it) => it.name === name);
     if (!declarer) {
@@ -506,6 +507,18 @@ export function deskTakes(
           'They are neither the Captain nor a head of department, and you are telling them so.',
         ),
       );
+    } else if (isNoName(declared.name)) {
+      // "Unknown" is anyone with their face hidden and no ID on show: a warrant on it is on
+      // every one of them, and on nobody once the mask is off.
+      reply(
+        brain,
+        from,
+        REFUSALS.noName(to),
+        aloud,
+        why(
+          'That is how anyone with their face hidden is seen, not a name, and you are telling them so.',
+        ),
+      );
     } else if (/captain/i.test(theirJob)) {
       reply(
         brain,
@@ -629,7 +642,8 @@ export function deskTakes(
     return true;
   }
   // Word of where someone wanted is.
-  const seen = nameIn(text, standing);
+  // A first name alone, a misspelling or a name run together is taken, as for a pardon.
+  const seen = nameIn(text, standing) ?? closeIn(text, standing);
   const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
   if (seen && place && SIGHTING_WORDS.test(text)) {
     const warrant = desk.warrants.find((it) => it.name === seen);
@@ -993,6 +1007,19 @@ export function syncDesk(brain: NpcBrain): void {
     }
   }
   const officer = serving(brain);
+  // An officer to send who was not sending before (told to try again, or come aboard): every
+  // warrant is given to it, but the one on whoever it has by the arm itself.
+  if (officer && officer !== (desk.servedBy ?? null)) {
+    const holding = brain.security?.holding;
+    for (const warrant of desk.warrants) {
+      if (!holding || !sameName(warrant.name, holding)) {
+        warrant.given = 'no';
+        warrant.gives = 0;
+        warrant.walkedUp = false;
+      }
+    }
+  }
+  desk.servedBy = officer;
   // With an officer to send, whoever keeps the list does not go after anyone itself.
   if (officer) {
     handBack(brain);

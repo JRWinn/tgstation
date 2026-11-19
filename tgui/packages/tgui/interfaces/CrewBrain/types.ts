@@ -467,6 +467,8 @@ export type DeskWork = {
   }[];
   /** When it last put an order to the LLM to read (this window's clock). */
   readingAt?: number;
+  /** Who served its warrants at the last sync: its officer, or null for itself. A change gives them all again. */
+  servedBy?: string | null;
 };
 
 /** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */

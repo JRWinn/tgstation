@@ -33,7 +33,9 @@ import {
   ARREST_WORDS,
   COULD_NOT_WORDS,
   couldNotLine,
+  hiddenLine,
   isHeadOfSecurity,
+  isNoName,
   isOfficer,
   isSecurity,
   MEETING_LINE_WORDS,
@@ -134,7 +136,9 @@ function declareTrespass(brain: NpcBrain, name: string, place: string): void {
   const known = brain.wanted;
   const desk = securityDesk(brain);
   const key = name.toLowerCase();
+  // "Unknown" is how anyone with their face hidden is seen: no name a warrant could be on.
   if (
+    isNoName(name) ||
     !desk ||
     !brain.hasPda ||
     known.entries.some((entry) => sameName(entry.name, name)) ||
@@ -281,8 +285,13 @@ export function syncWanted(brain: NpcBrain): void {
   ) {
     for (const person of brain.peopleInView) {
       const entry = known.entries.find((it) => sameName(it.name, person.name));
-      // Not itself, and not someone security already has in cuffs.
-      if (!entry || person.name === brain.name || person.cuffed) {
+      // Not itself, not someone security already has in cuffs, and not anyone seen as Unknown.
+      if (
+        !entry ||
+        person.name === brain.name ||
+        person.cuffed ||
+        isNoName(person.name)
+      ) {
         continue;
       }
       const place = person.place ?? brain.location;
@@ -314,12 +323,16 @@ export function syncWanted(brain: NpcBrain): void {
     if (!head) {
       continue;
     }
-    const line = couldNotLine(head, failed.name, failed.place);
+    // Someone seen as Unknown has no name to give: the head is told plainly, and declares nothing.
+    const hidden = isNoName(failed.name);
+    const line = hidden
+      ? hiddenLine(head, failed.place)
+      : couldNotLine(head, failed.name, failed.place);
     const here = brain.peopleInView.some((person) => person.name === head);
     brain.toTell.push({
       to: head,
       line,
-      why: `You tried to put ${failed.name} out of the ${failed.place} and could not. You are telling ${head}, who you answer to${here ? '' : ', by PDA'}.`,
+      why: `You tried to put ${hidden ? 'someone with their face hidden' : failed.name} out of the ${failed.place} and could not. You are telling ${head}, who you answer to${here ? '' : ', by PDA'}.`,
       byPda: !here,
       exact: true,
       at: Date.now(),
