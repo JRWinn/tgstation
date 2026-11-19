@@ -18,7 +18,7 @@ See also: HOLE-09 (the whole picture, unmeasured) and CORE-05 (the ack). This fi
 
 `emit_sense` calls `brain_link.on_sense_event`, which calls `SStgui.update_uis`. That does `INVOKE_ASYNC(ui, /datum/tgui/proc/process, ..., TRUE)`, which runs straight away: `ui_interact`, `try_update_ui`, `send_update`, `ui_data` for every body, `json_encode`, `url_encode`, and `output()` to the client. Nothing gathers events up. So:
 
-- A line said in a room with eight crew is heard by seven of them, in one tick, and that is seven full rebuilds and seven full sends in that tick.
+- A line said in a room with eight crew is heard by seven of them, in one tick, and that is seven full rebuilds and seven full sends in that tick. They run inside the speaker's own `say` call (`on_pre_hear` is a signal handler on each hearer, and `INVOKE_ASYNC` runs `process` at once), so when the speaker is the player, all of it is paid inside the player's own say verb.
 - The whole crew's looks fire in the same tick each second (PERF-03), so every "comes into view" event of that second lands in one tick as well.
 - Each send carries every body's last 30 events in full (`"events" = npc.sense_events`), though the window skips every event at or below its own `lastSeq` (`brain.ts:566`). Only one or two of the thirty are ever new.
 
