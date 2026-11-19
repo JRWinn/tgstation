@@ -61,6 +61,8 @@ export type PersonInView = {
   cuffed?: BooleanLike;
   /** TRUE if this person is lying on the floor and cannot get up: knocked down, or out cold. */
   down?: BooleanLike;
+  /** Who is pulling this person, null if nobody. Left out by a server that does not say. */
+  pulled_by?: string | null;
 };
 
 /**

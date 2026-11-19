@@ -336,6 +336,14 @@ function target(
   );
 }
 
+/** TRUE if someone other than itself is pulling them, or the server does not say who is. */
+function heldByAnother(brain: NpcBrain, person: PersonInView): boolean {
+  return (
+    person.pulled_by === undefined ||
+    (!!person.pulled_by && person.pulled_by !== brain.name)
+  );
+}
+
 /**
  * TRUE if whoever the warrant is on, in view, is a head of staff by their ID, and the Captain did
  * not declare it. Only the Captain may have a head arrested: such a warrant is not served on them.
@@ -494,6 +502,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     }
     // The one it has found is a head of staff, going by their ID, and the Captain did not declare
     // the warrant. Only the Captain may have a head arrested, whatever went wrong with the name.
+    // In cuffs it did not put on, and in someone else's hold: it leaves them be, and says whose.
+    // Not when that is security: the list hears of that arrest from them.
+    const cuffedSeen = target(brain, warrant);
+    if (
+      cuffedSeen?.cuffed &&
+      !warrant.cuffedByMe &&
+      cuffedSeen.pulled_by &&
+      cuffedSeen.pulled_by !== brain.name &&
+      !/security|warden/i.test(jobOf(brain, cuffedSeen.pulled_by))
+    ) {
+      cannot(warrant.name, `${cuffedSeen.pulled_by} has them in cuffs`);
+    }
     if (headSpared(brain, warrant)) {
       cannot(
         warrant.name,
@@ -832,9 +852,11 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         step: `${seen.name} is here, and you could not take them a moment ago. You are leaving them be for now. The warrant stands.`,
       };
     }
-    // In cuffs that it did not put on: someone else from security has them. Two do not pull at
-    // one prisoner, so it leaves them to whoever made the arrest.
-    if (seen.cuffed && !warrant.cuffedByMe) {
+    // In cuffs that it did not put on, and someone else has them by the arm: two do not pull at
+    // one prisoner, so it leaves them to whoever has them. In cuffs with nobody holding them (the
+    // Captain cuffed them and let go), it takes them by the arm itself. Until the server says who
+    // is pulling whom, it leaves them, as before.
+    if (seen.cuffed && !warrant.cuffedByMe && heldByAnother(brain, seen)) {
       return {
         ready: false,
         step: `${seen.name} is in cuffs already. Someone else from security has made the arrest, and you are leaving them to it.`,
@@ -844,7 +866,9 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     if (seen.cuffed) {
       return {
         ready: true,
-        step: `${seen.name} is in cuffs and not in your hold. You are taking them by the arm again.`,
+        step: warrant.cuffedByMe
+          ? `${seen.name} is in cuffs and not in your hold. You are taking them by the arm again.`
+          : `${seen.name} is in cuffs, and nobody has them by the arm. You are taking them by the arm.`,
         act: { tool: 'arrest', person: seen.handle, how: 'quiet' },
       };
     }

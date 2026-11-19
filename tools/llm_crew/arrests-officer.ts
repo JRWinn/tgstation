@@ -199,6 +199,21 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add(`ARR-19: someone ${label}, in a room it is shut out of: it goes to the door, no arrest`, act?.tool, 'go_to_door');
 }
 
+// ---- TRB-01: someone wanted, in cuffs it did not put on, with nobody holding them, is taken in
+{
+  const f = wanted('Bar');
+  f.o.peopleInView[0] = { ...f.o.peopleInView[0], distance: 1, cuffed: 1 };
+  add('TRB-01: until the server says who is pulling them, it leaves them as before', A.planBeat(f.o, f.task)?.ready, false);
+  f.o.peopleInView[0].pulled_by = null;
+  add('TRB-01: in cuffs and nobody holding them: it takes them by the arm', A.planBeat(f.o, f.task)?.act, { tool: 'arrest', person: 'p9', how: 'quiet' });
+  f.o.peopleInView[0].pulled_by = 'Joan Hale';
+  A.syncBeat(f.o);
+  add('TRB-01: in the Head of Security\'s hold: it leaves them to her, and tells nobody', [A.planBeat(f.o, f.task)?.ready, A.takeOutcomes(f.o)], [false, []]);
+  f.o.peopleInView[0].pulled_by = 'Zim Fire';
+  A.syncBeat(f.o);
+  add('TRB-01: in the Captain\'s hold: it leaves them, and says whose, once', [A.planBeat(f.o, f.task)?.ready, A.takeOutcomes(f.o), (A.syncBeat(f.o), A.takeOutcomes(f.o))], [false, [{ what: 'cannot', name: 'Pun Pun', why: 'Zim Fire has them in cuffs' }], []]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
