@@ -471,6 +471,8 @@ export type DeskWork = {
   readingAt?: number;
   /** Who served its warrants at the last sync: its officer, or null for itself. A change gives them all again. */
   servedBy?: string | null;
+  /** Warrants it kept in its own hands when its officer came to serve, being mid-arrest or holding them (ARR-13): given to the officer once it lets go of them. */
+  keptBack?: string[];
 };
 
 /** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */

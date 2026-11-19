@@ -155,17 +155,34 @@ export function syncTasks(brain: NpcBrain): void {
       const owedWord = task.askedBy && !task.reported;
       return owedWord && brain.now - (task.doneAt ?? 0) < KEEP_DONE_DS;
     }
-    // Blocked work is kept while it waits, up to a limit of its own. Open work is given up on as
-    // forgotten business only once it has been open that long: work that was blocked a long while
-    // and can go on at last is not dropped the moment it can.
-    if (task.state === 'blocked') {
-      task.blockedSince ??= brain.now;
-      task.openSince = brain.now;
-      return brain.now - task.blockedSince < BLOCKED_GIVE_UP_DS;
+    const kept = keepsGoing(brain, task);
+    if (!kept && task.askedBy) {
+      // Work someone asked for and never got: at least the window shows it was given up on.
+      brain.lastJob = {
+        time: new Date().toLocaleTimeString(),
+        what: `Gave up on, not done: ${describeTask(brain, task)}`,
+      };
     }
-    task.blockedSince = undefined;
-    return brain.now - (task.openSince ?? task.createdAt) < GIVE_UP_DS;
+    return kept;
   });
+}
+
+/**
+ * FALSE once a task that is not done has sat too long and is given up on as forgotten business.
+ * Blocked work is kept while it waits, up to a limit of its own. Open work is given up on only once
+ * it has been open that long, so work that was blocked a long while and can go on at last is not
+ * dropped the moment it can (MEM-11). A job may keep open work longer with keepUntil, as a crate
+ * errand does from when the crate is out (JOBS-02).
+ */
+function keepsGoing(brain: NpcBrain, task: Task): boolean {
+  if (task.state === 'blocked') {
+    task.blockedSince ??= brain.now;
+    task.openSince = brain.now;
+    return brain.now - task.blockedSince < BLOCKED_GIVE_UP_DS;
+  }
+  task.blockedSince = undefined;
+  const openLimit = (task.openSince ?? task.createdAt) + GIVE_UP_DS;
+  return brain.now < Math.max(openLimit, task.keepUntil ?? 0);
 }
 
 /**

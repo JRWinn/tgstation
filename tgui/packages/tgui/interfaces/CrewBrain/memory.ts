@@ -241,8 +241,12 @@ export function recordStorage(brain: NpcBrain, event: SenseEvent): void {
     return;
   }
   // Whatever was here before and is not now has been taken out, but this is still where it goes.
-  for (const item of memory.items.keys()) {
-    memory.items.set(item, false);
+  // Not on a look at one standing open: most often a workmate has it open, and shuts it again
+  // with all of that inside, so only what was seen is added (MULTI-04).
+  if (state !== 'open') {
+    for (const item of memory.items.keys()) {
+      memory.items.set(item, false);
+    }
   }
   for (const item of contents ?? []) {
     memory.items.set(item.name, true);

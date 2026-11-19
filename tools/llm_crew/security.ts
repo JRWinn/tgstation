@@ -362,6 +362,40 @@ add('with no officer aboard the warrant goes into its own hands', beatOf(b).warr
   late.pdaPeople = PDA;
   syncDesk(late);
   add('no officer aboard, then one: the warrant is given to it', [giving(late), beatOf(late).warrants.length], [['Pun Pun'], 0]);
+
+  // ARR-13: a warrant kept back in its own hands, mid-arrest, is not also given to the officer.
+  const { addTask } = await import(ROOT + 'tasks');
+  const m = head();
+  deskTakes(m, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(m);
+  deskTakes(m, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(m, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  syncDesk(m);
+  const serve = addTask(m, { kind: 'serve_warrant', urgency: 'asked', source: 'told', item: 'Dana Reyes' });
+  m.lastAct = { key: 'x', tool: 'arrest', at: 0, act: { tool: 'arrest', person: 'p9', how: 'force' }, task: serve.id };
+  deskTakes(m, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(m);
+  add('ARR-13: told to try again mid-arrest: the one being arrested is kept, the other given', [giving(m), beatOf(m).warrants.map((w: any) => w.name)], [['Pun Pun'], ['Dana Reyes']]);
+  syncDesk(m);
+  add('ARR-13: and a sync later, still not given while the arrest is under way', [giving(m), beatOf(m).warrants.map((w: any) => w.name)], [['Pun Pun'], ['Dana Reyes']]);
+  m.lastAct = null;
+  syncDesk(m);
+  add('ARR-13: the arrest failed and nobody is held: it is given to the officer then', [giving(m).sort(), beatOf(m).warrants.length], [['Dana Reyes', 'Pun Pun'], 0]);
+  // Kept back, then jailed: off the list, never given.
+  const j = head();
+  deskTakes(j, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(j);
+  deskTakes(j, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(j);
+  j.security = { ...(j.security ?? {}), holding: 'Dana Reyes' };
+  deskTakes(j, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(j);
+  add('ARR-13: holding them when the officer is back: kept, not given', [giving(j), deskOf(j).keptBack], [[], ['Dana Reyes']]);
+  deskOutcome(j, { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 1', minutes: 5, resisted: false }, j.name, false);
+  j.security = { ...j.security, holding: null };
+  beatOf(j).warrants = [];
+  syncDesk(j);
+  add('ARR-13: then jailed: off the list, and never given', [giving(j), deskOf(j).warrants.length, deskOf(j).keptBack], [[], 0, []]);
 }
 
 // ---- TRUST-06: a warrant is settled on one person at once, and a name two share is asked about
@@ -621,6 +655,14 @@ add('a warrant read', S.readReading('{"kind":"warrant","name":"pun pun","minutes
 add('a name the message does not have in it is not taken', S.readReading('{"kind":"warrant","name":"Dana Reyes","minutes":0}', 'could you see that pun pun spends ten minutes behind bars'), null);
 add('"neither" is nothing', S.readReading('{"kind":"neither","name":"","minutes":0}', 'how are you'), null);
 add('nor is anything that is not JSON', S.readReading('Sure! I think that is a warrant.', 'how are you'), null);
+// BRAIN-11: the minutes are read from the message by code, never taken from the LLM.
+add('the LLM is not asked for minutes', [/minutes/i.test(S.buildReading('bring pun pun to me').user), 'minutes' in (S.buildReading('bring pun pun to me').schema as any).properties], [false, false]);
+add('a message with no time: the LLM\'s minutes are not taken', S.readReading('{"kind":"warrant","name":"Pun Pun","minutes":10}', 'Bring that clown Pun Pun to me when you get a chance, he took my hat'), { kind: 'warrant', name: 'Pun Pun', minutes: 0 });
+add('a message with a time in digits: that time, whatever the LLM says', S.readReading('{"kind":"warrant","name":"pun pun","minutes":3}', 'see that pun pun gets 7 minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 7 });
+add('a time in words, the LLM giving none', S.readReading('{"kind":"warrant","name":"pun pun"}', 'could you see that pun pun spends twelve minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 12 });
+add('an hour said: capped at the most a cell allows', S.readReading('{"kind":"warrant","name":"pun pun","minutes":60}', 'pun pun should sit in a cell for an hour'), { kind: 'warrant', name: 'pun pun', minutes: S.MINUTES_MOST });
+add('"an hour ago" is no time held', S.readReading('{"kind":"warrant","name":"pun pun","minutes":5}', 'pun pun took my hat an hour ago, sort him out'), { kind: 'warrant', name: 'pun pun', minutes: 0 });
+add('a pardon keeps no minutes the LLM made up', S.readReading('{"kind":"pardon","name":"pun pun","minutes":9}', 'pun pun has done enough, let him off'), { kind: 'pardon', name: 'pun pun', minutes: 0 });
 add('as an order', S.readingAsOrder({ kind: 'warrant', name: 'pun pun', minutes: 10 }), 'Warrant for pun pun, 10 minutes.');
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'could you see that pun pun spends ten minutes behind bars', 0, 'Captain');

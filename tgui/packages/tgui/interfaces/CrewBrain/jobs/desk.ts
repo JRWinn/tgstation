@@ -39,6 +39,7 @@ import type {
 } from '../types';
 import {
   arrestAgain,
+  beatOf,
   dropWarrant,
   forgetWarrant,
   giveWarrant,
@@ -1007,23 +1008,42 @@ export function syncDesk(brain: NpcBrain): void {
     }
   }
   const officer = serving(brain);
-  // An officer to send who was not sending before (told to try again, or come aboard): every
-  // warrant is given to it, but the one on whoever it has by the arm itself.
-  if (officer && officer !== (desk.servedBy ?? null)) {
-    const holding = brain.security?.holding;
-    for (const warrant of desk.warrants) {
-      if (!holding || !sameName(warrant.name, holding)) {
-        warrant.given = 'no';
-        warrant.gives = 0;
-        warrant.walkedUp = false;
-      }
-    }
-  }
-  desk.servedBy = officer;
-  // With an officer to send, whoever keeps the list does not go after anyone itself.
+  // With an officer to send, whoever keeps the list does not go after anyone itself. It keeps only
+  // the warrant on whoever it has by the arm, and one whose arrest is under way (ARR-13).
   if (officer) {
     handBack(brain);
   }
+  const ownHands = (name: string) =>
+    beatOf(brain).warrants.some((it) => sameName(it.name, name));
+  // An officer to send who was not sending before (told to try again, or come aboard): every
+  // warrant is given to it, but those still in its own hands, which wait until it lets go of them.
+  if (officer && officer !== (desk.servedBy ?? null)) {
+    desk.keptBack = [];
+    for (const warrant of desk.warrants) {
+      if (ownHands(warrant.name)) {
+        desk.keptBack.push(warrant.name);
+      } else {
+        giveAgain(warrant);
+      }
+    }
+  } else if (officer && desk.keptBack?.length) {
+    // One it kept back and has let go of, the arrest failed or the person got away, goes to the
+    // officer then. One served in the meantime is off the list.
+    desk.keptBack = desk.keptBack.filter((name) => {
+      if (ownHands(name)) {
+        return true;
+      }
+      const warrant = desk.warrants.find((it) => it.name === name);
+      if (warrant) {
+        giveAgain(warrant);
+      }
+      return false;
+    });
+  }
+  if (!officer) {
+    desk.keptBack = undefined;
+  }
+  desk.servedBy = officer;
   for (const warrant of desk.warrants) {
     if (!officer) {
       // Nobody to send. It serves the warrant itself.
@@ -1088,6 +1108,13 @@ export function syncDesk(brain: NpcBrain): void {
 /** TRUE if the Captain declared this warrant. Whoever serves it is told so: only then is it served on a head of staff. */
 function byCaptain(warrant: Warrant): boolean {
   return /captain/i.test(warrant.byJob);
+}
+
+/** Sets a warrant to be given to its officer afresh. */
+function giveAgain(warrant: Warrant): void {
+  warrant.given = 'no';
+  warrant.gives = 0;
+  warrant.walkedUp = false;
 }
 
 /** What giving its officer a warrant comes down to right now: to its face if it is there, and by PDA if not. */

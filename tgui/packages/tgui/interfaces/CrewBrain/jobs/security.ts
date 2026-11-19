@@ -1027,7 +1027,7 @@ export const LET_IN_WORDS = /\ba warrant for\b.*\bCould you let me in\b/i;
 
 // ---- an order that code could make nothing of, put to the LLM
 
-/** What the LLM made of an order: what it is, who it names as the order wrote them, and for how long. */
+/** What the LLM made of an order: what it is and who it names as the order wrote them, with the minutes code read from the order. */
 export type Reading = {
   kind: 'warrant' | 'pardon' | 'withdraw' | 'neither';
   name: string;
@@ -1055,7 +1055,6 @@ export function buildReading(text: string): {
       'Does it ask for someone to be arrested, locked up or put on the wanted list ("warrant")? Does it ask for someone to be let go, freed or forgiven ("pardon")? Does it take back a warrant, or call off an arrest, asked for before ("withdraw")? Or is it something else ("neither")?',
       '"kind": warrant, pardon, withdraw or neither.',
       '"name": the name of that person, spelt as the message spells it. "" if it names nobody.',
-      '"minutes": how many minutes in a cell the message says. 0 if it does not say.',
     ].join('\n'),
     schema: {
       type: 'object',
@@ -1065,9 +1064,8 @@ export function buildReading(text: string): {
           enum: ['warrant', 'pardon', 'withdraw', 'neither'],
         },
         name: { type: 'string', maxLength: NAME_MAX },
-        minutes: { type: 'integer' },
       },
-      required: ['kind', 'name', 'minutes'],
+      required: ['kind', 'name'],
     },
   };
 }
@@ -1078,7 +1076,7 @@ export function buildReading(text: string): {
  * and cannot make one up.
  */
 export function readReading(reply: string, text: string): Reading | null {
-  let body: { kind?: unknown; name?: unknown; minutes?: unknown };
+  let body: { kind?: unknown; name?: unknown };
   try {
     body = JSON.parse(reply);
   } catch {
@@ -1097,14 +1095,13 @@ export function readReading(reply: string, text: string): Reading | null {
   if (words.length === 0 || !words.every((word) => written.includes(word))) {
     return null;
   }
-  const minutes = Number(body.minutes);
+  // The minutes are read from the message by code, as readWarrant reads them, never taken from
+  // the LLM: 0 when the message gives no time, so the usual term applies (BRAIN-11).
+  const said = minutesIn(text);
   return {
     kind: body.kind,
     name,
-    minutes:
-      Number.isFinite(minutes) && minutes >= 1
-        ? Math.min(MINUTES_MOST, Math.round(minutes))
-        : 0,
+    minutes: said === null ? 0 : Math.min(MINUTES_MOST, Math.max(1, said)),
   };
 }
 
