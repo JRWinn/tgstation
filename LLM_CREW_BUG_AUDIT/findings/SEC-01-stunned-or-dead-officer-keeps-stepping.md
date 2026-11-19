@@ -96,3 +96,15 @@ Keep: a body that is only cuffed or held by the arm must still be able to take t
 - Server compile on a side copy (see README).
 - No simulator scenario covers this: the simulator does not run server code.
 - In a round: have a monkey or the player shove an officer down against a wall, or slip it on a wet floor, while it is chasing someone on a warrant. It must stay where it fell. In `game.log` the "hit ... with its baton 0 times" line should give the new reason, and there should be no "could not put X in Cell N" line from a fall inside a cell.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes are what the code says today: `close_with` (`crew_npc_security.dm:373`, bare `body.Move` at 386 and 397, only `QDELETED` and `isturf` tests) and `walk_steps` (`:410`, bare `body.Move` at 423). Callers: `make_arrest` (`:877`), `baton_hits` (`:966`), `put_cuffs_on` (`:1011`), `put_in_cell` (`:1173`, `:1184`, `:1194`) and `set_free` (`:1346`, `:1348`).
+- Base game: `/mob/living/Move` (`living.dm:1046`), `/mob/living/carbon/Move` (`carbon_movement.dm:9`) and `/mob/living/carbon/human/Move` (`human_movement.dm:27`) test neither `stat` nor `mobility_flags`; a buckled body moves its buckle. There is no `/mob/Move`. The refusal lives in `/client/Move` (`mob_movement.dm`: `stat == DEAD`, `Process_Grab`, `buckled`, `MOBILITY_MOVE`), which a body with no player never goes through.
+- Traits: `Paralyze`, `Stun`, `Immobilize` and the knocked-out status add `TRAIT_IMMOBILIZED`, which clears `MOBILITY_MOVE` (`init_signals.dm`). Death and hard crit add `TRAIT_KNOCKEDOUT` (`living.dm`, stat traits), which applies the knocked-out status. So the one `MOBILITY_MOVE` test covers stunned, out cold and dead. `Knockdown` alone (the monkey's first tackle, `human_defense.dm`, `Knockdown(30)`) only floors: a player can crawl, and the crawl slowdown reaches `movement_delay` through `update_movespeed`, so that case is not a cheat. The second tackle while still down is `Paralyze(40)`, as the write-up says.
+- Nothing else stops the loop: `get_able_to_run` makes the controller unable to run when incapacitated (`crew_npc_controller.dm:313`), but that only stops the controller's own movement; `make_arrest` is a sleeping proc and runs on.
+- Change log and plans: `close_with` and `walk_steps` are named only for the 12-step chase and the 3-second cell step. Nothing says a downed body should keep moving.
+- Not run: this is server code and the simulator does not run it. Not seen in a round.
+- Mended "How to fix it" step 1: `MOBILITY_MOVE`, `stat == DEAD` and `buckled` are the test, with an aggressive grab added and a note that `can_move` itself is too strict (it refuses a passive pull). `IS_UNCONSCIOUS` and `TRAIT_IMMOBILIZED` are already inside `MOBILITY_MOVE`. Severity stays high (the no-cheats rule is broken), effort small (one file, under 20 lines for steps 1 to 3; step 4's window line is one more).
