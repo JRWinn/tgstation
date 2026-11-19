@@ -789,6 +789,8 @@ export type Talk = {
   lastHeardAt: number;
   /** Server world time (deciseconds) the NPC last spoke in reply to this speaker, if it has. Kept when they go quiet. */
   repliedAt?: number;
+  /** Server world times (deciseconds) of its latest replies to this speaker, kept when they go quiet (BRAIN-01). */
+  replyTimes?: number[];
 };
 
 /**

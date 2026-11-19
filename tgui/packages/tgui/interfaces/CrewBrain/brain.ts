@@ -90,11 +90,13 @@ const SAME_LINE_SHARE = 0.6;
 /** The most lines of events kept waiting for the next time the LLM is asked. */
 const PENDING_MAX_LINES = 30;
 /**
- * How many times an NPC will speak in reply to the same speaker before it stops being woken by them.
- * The LLM is told to stay quiet unless it has something to add; this is the backstop for when it does not,
- * so two NPCs cannot talk in circles forever.
+ * How many times in REPLY_WINDOW_DS an NPC will speak in reply to the same speaker before it stops
+ * being woken by them. The LLM is told to stay quiet unless it has something to add; this is the
+ * backstop for when it does not. A fellow NPC of this window gets one reply, then waits for quiet.
  */
 const MAX_REPLIES_PER_TALK = 6;
+/** The span (deciseconds of server time) over which replies to someone who is not a fellow NPC are counted. */
+const REPLY_WINDOW_DS = 600;
 /** A speaker who has been quiet this long (deciseconds of server time) starts a fresh conversation. */
 const TALK_RESET_DS = 300;
 /** How long (deciseconds of server time) after answering a fellow NPC before it answers them again, unless they ask it something. */
@@ -1047,7 +1049,7 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
       }
       brain.lastSpokenToAt = Date.now();
       brain.remarksUnanswered = 0;
-      return hearSpeaker(brain, event);
+      return hearSpeaker(brain, event, line);
     default:
       return false;
   }
@@ -1115,23 +1117,65 @@ function forgetFailuresForDoor(brain: NpcBrain): void {
   }
 }
 
-/** Notes that a person spoke and returns whether this NPC is still willing to be woken by them. */
-function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
+/** Counts what the NPC just said as a reply to each of these speakers. */
+export function noteReplies(brain: NpcBrain, speakers: string[]): void {
+  for (const speaker of speakers) {
+    const talk = brain.talks.get(speaker);
+    if (talk) {
+      talk.replies++;
+      talk.repliedAt = brain.now;
+      talk.replyTimes = [...(talk.replyTimes ?? []), brain.now].slice(
+        -MAX_REPLIES_PER_TALK,
+      );
+    }
+  }
+}
+
+/**
+ * Notes that a person spoke and returns whether this NPC is still willing to be woken by them.
+ * Exported for the tables in tools/llm_crew.
+ */
+export function hearSpeaker(
+  brain: NpcBrain,
+  event: SenseEvent,
+  /** The line as the NPC heard it (describeEvent's words). */
+  line: string,
+): boolean {
   const speaker = event.details.handle ?? event.details.speaker ?? 'someone';
   let talk = brain.talks.get(speaker);
   if (!talk || event.at - talk.lastHeardAt > TALK_RESET_DS) {
-    talk = { replies: 0, lastHeardAt: event.at, repliedAt: talk?.repliedAt };
+    talk = {
+      replies: 0,
+      lastHeardAt: event.at,
+      repliedAt: talk?.repliedAt,
+      replyTimes: talk?.replyTimes,
+    };
     brain.talks.set(speaker, talk);
   }
-  talk.lastHeardAt = event.at;
   // Two NPCs will answer each other for as long as they are let. One reply each is a conversation;
-  // more is a loop. A player gets a proper back-and-forth.
+  // more is a loop. A player gets a proper back-and-forth: it is cut off only by answering six
+  // times in one minute, which no one typing does, so a player keeps being heard however long
+  // the talk goes on.
   const fellow = [...brains.values()].some(
     (other) => other !== brain && other.name === event.details.speaker,
   );
-  if (talk.replies >= (fellow ? 1 : MAX_REPLIES_PER_TALK)) {
+  if (fellow) {
+    talk.lastHeardAt = event.at;
+  }
+  const lately = (talk.replyTimes ?? []).filter(
+    (at) => event.at - at < REPLY_WINDOW_DS,
+  ).length;
+  if (fellow ? talk.replies >= 1 : lately >= MAX_REPLIES_PER_TALK) {
+    // Not answered, but an order from someone it answers to is not lost for that: it is made out
+    // by code, as when the LLM is down.
+    const from = speakerHeard(brain, event.details);
+    if (from?.superior) {
+      workInWords(brain, [line], from.name, true);
+    }
     return false;
   }
+  // A line that was let pass does not put off the fresh start.
+  talk.lastHeardAt = event.at;
   // Two NPCs who work side by side each say what they are off to do, every minute or so, and each
   // such line started the two of them off again: the same few sentences, back and forth, for the
   // whole of a shift. Having answered a fellow NPC, it does not answer them again for a while
@@ -1716,13 +1760,7 @@ async function think(brain: NpcBrain): Promise<void> {
         brain.toldOfMess.set(brain.location, brain.now);
       }
       // Speaking after hearing someone counts as a reply to them.
-      for (const speaker of speakers) {
-        const talk = brain.talks.get(speaker);
-        if (talk) {
-          talk.replies++;
-          talk.repliedAt = brain.now;
-        }
-      }
+      noteReplies(brain, speakers);
     }
   } catch (error) {
     if (mySession !== session) {
