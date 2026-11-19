@@ -103,6 +103,8 @@ const WORD_BACK_DS = 900;
 const GATHER_MAX_DS = 1800;
 /** How long (deciseconds) it waits for someone it has called on to give their report before it goes on to the next. */
 const TURN_WAIT_DS = 450;
+/** How long (deciseconds) after the last turn it waits for someone called who has not had one, before it ends the meeting. */
+const STRAGGLER_DS = 300;
 /** How long (deciseconds) a meeting may run in all before it is given up on. */
 const MEETING_MAX_DS = 4200;
 /** How near (tiles) it stands to someone before it calls them to a meeting aloud, or calls on them: near enough to be sure of being heard. */
@@ -477,10 +479,14 @@ function endMeeting(brain: NpcBrain, way: MeetingWay): void {
   if (!meeting) {
     return;
   }
-  // Called and not heard from: they send their report by PDA, and are told so the same way. Not
-  // where the staff are called aloud: nothing between that head and its staff goes by PDA.
-  for (const name of way.aloud ? [] : meeting.invited) {
-    if (!meeting.reports[name]) {
+  // Called and not heard from: they send their report by PDA, and are told so the same way. Where
+  // the staff are called aloud, only those never called on: they did not hear the meeting end, and
+  // would stand waiting for it until their summons ran out.
+  for (const name of meeting.invited) {
+    if (
+      !meeting.reports[name] &&
+      !(way.aloud && meeting.turns.some((turn) => turn.who === name))
+    ) {
       brain.toTell.push({
         to: name,
         line: `${firstName(name)}, the staff meeting is over. Send me your report by PDA, please.`,
@@ -858,6 +864,22 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
       say: `${opening ? 'Thank you for coming, everyone. ' : ''}${first}, ${CALLING_ON}.`,
       // Whoever is called on has to hear their own name, and that it is their report that is wanted.
       needs: new RegExp(`\\b${first}\\b.*\\breport\\b`, 'i'),
+    };
+  }
+  // Someone called who has said they are coming, or has hardly had time to, and has not had a turn
+  // may only have stepped out of sight: it waits a short while for them before it ends.
+  const stragglers = meeting.invited.filter(
+    (name) =>
+      !meeting.turns.some((turn) => turn.who === name) &&
+      awaited(brain, meeting, name),
+  );
+  const lastHeard = meeting.turns.at(-1)?.askedAt ?? meeting.startedAt;
+  if (stragglers.length > 0 && brain.now - lastHeard < STRAGGLER_DS) {
+    return {
+      ready: false,
+      wait: true,
+      inside: brain.location === room,
+      step: `You are waiting for ${listed(stragglers)}, who ${stragglers.length === 1 ? 'is' : 'are'} on the way or somewhere in the ${room}, before you end the meeting.`,
     };
   }
   // Who security is looking for is read out at every head's meeting: see jobs/wanted.ts.
