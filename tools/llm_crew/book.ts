@@ -133,6 +133,92 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('a count of crates is no order number', orderAnswered(waiting, 'yes, 1 crate is fine')?.n, 2);
 }
 
+// QM-01: the Captain's answer about an order waiting on their say, read for both yes and no.
+{
+  const waitingQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 600;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 1. Asked the Captain.'], 5000), next: 2, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    return qm;
+  };
+  const answered = (line: string) => {
+    const qm = waitingQm();
+    QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, 5100, 'Captain');
+    const one = qm.ledger.orders[0];
+    const said = qm.toTell.map((tell: any) => tell.line).join(' | ');
+    return `${one.state}${one.approved ? ` (${one.approved})` : ''}, ${qm.ledger.orders.length} in book${/yes or a no/.test(said) ? ', asked' : ''}${/said no/.test(said) ? ', told no' : ''}${/cannot order/i.test(said) ? ', cannot order' : ''}`;
+  };
+  add('"Sure, no worries." is a yes', answered('Sure, no worries.'), 'new (captain), 1 in book');
+  add('"Approved, but don\'t spend more than that." is a yes', answered("Approved, but don't spend more than that."), 'new (captain), 1 in book');
+  add('"Yes, go for it. No need to ask again." is a yes', answered('Yes, go for it. No need to ask again.'), 'new (captain), 1 in book');
+  add('"No one goes into the vault today." is no answer', answered('No one goes into the vault today.'), 'asking, 1 in book');
+  add('"No rush, but order me a crate of replacement lights." is a new order, and order 1 waits', answered('No rush, but order me a crate of replacement lights.'), 'asking, 2 in book');
+  add('"Ok, order me a crate of replacement lights." is a new order, and the ok is asked about', answered('Ok, order me a crate of replacement lights.'), 'asking, 2 in book, asked');
+  add('"Go for it" is a yes', answered('Go for it'), 'new (captain), 1 in book');
+  add('"Affirmative" is a yes', answered('Affirmative'), 'new (captain), 1 in book');
+  add('"Yes, place that order." is a yes, and nothing is sent back', answered('Yes, place that order.'), 'new (captain), 1 in book');
+  add('"No, not now." is a no', answered('No, not now.'), 'refused, 1 in book, told no');
+  add('"Not approved." is a no', answered('Not approved.'), 'refused, 1 in book, told no');
+  add('"Don\'t buy it." is a no', answered("Don't buy it."), 'refused, 1 in book, told no');
+  add('"Yes. No." is asked about', answered('Yes. No.'), 'asking, 1 in book, asked');
+  add('"No to order 3" is not about order 1', answered('No to order 3'), 'asking, 1 in book');
+}
+
+// QM-10: a head's line sorted into cancel, question, order or talk before anything is ordered.
+{
+  const clearedQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 2000;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. No Captain aboard: approved by me.'], 5000), next: 2, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    qm.ledger.orders[0].state = 'cleared';
+    return qm;
+  };
+  const sent = (line: string, from = 'Cap Tain', job = 'Captain') => {
+    const qm = clearedQm();
+    QUARTERMASTER.readsMessage(qm, from, line, 5100, job);
+    return qm;
+  };
+  const toldOf = (qm: any) => qm.toTell.map((tell: any) => `${tell.to}: ${tell.line}`).join(' | ');
+  {
+    const qm = sent('Cancel the replacement lights order, we do not need it.');
+    add('"Cancel the replacement lights order" cancels order 1 and orders nothing', [qm.ledger.orders.length, qm.ledger.orders[0].state, qm.ledger.toWrite], [1, 'refused', ['Order 1. Cancelled by Cap Tain.']]);
+    add('and Hop Kins is told, in words the head reads as the order not coming', qm.toTell.some((tell: any) => tell.to === 'Hop Kins' && REFUSED_WORDS.test(tell.line)), true);
+    add('and the Captain is told it is cancelled', qm.toTell.some((tell: any) => tell.to === 'Cap Tain' && /order 1: .* is cancelled/i.test(tell.line)), true);
+  }
+  for (const line of ['Has the janitorial order come in yet?', 'Why did you order janitorial supplies?', 'Did order 1 for lights arrive?']) {
+    const qm = sent(line);
+    add(`"${line}" orders nothing, and is answered from the book`, [qm.ledger.orders.length, qm.toTell.length === 1 && qm.toTell[0].to === 'Cap Tain'], [1, true]);
+  }
+  add('the answer names order 1 and where it stands', toldOf(sent('Did order 1 for lights arrive?')), 'Cap Tain: Order 1, 1 Replacement Lights for Hop Kins: cleared, and being given to a technician to place.');
+  {
+    const qm = sent("Don't order any more lights.");
+    add('"Don\'t order any more lights." orders nothing and cancels nothing', [qm.ledger.orders.length, qm.ledger.orders[0].state], [1, 'cleared']);
+  }
+  {
+    const qm = sent('Has my order come in?', 'Hal Pott', 'Chief Engineer');
+    add('"Has my order come in?" from a head with none: no order, and no "I cannot order that"', [qm.ledger.orders.length, /cannot order/i.test(toldOf(qm)), /no order from you/.test(toldOf(qm))], [1, false, true]);
+  }
+  add('"Can we get a crate of replacement lights?" is an order', sent('Can we get a crate of replacement lights?').ledger.orders.length, 2);
+  add('"Could you order janitorial supplies, please?" is an order', sent('Could you order janitorial supplies, please?').ledger.orders.length, 2);
+  {
+    const qm = sent('Cancel my lights order.', 'Hal Pott', 'Chief Engineer');
+    add('a head cannot cancel another head\'s order', [qm.ledger.orders[0].state, /no order like that/.test(toldOf(qm))], ['cleared', true]);
+  }
+  {
+    const qm = clearedQm();
+    qm.ledger.orders[0].state = 'given'; qm.ledger.orders[0].givenTo = 'Cora Tech';
+    QUARTERMASTER.readsMessage(qm, 'Hop Kins', 'Please cancel order 1.', 5100, 'Head of Personnel');
+    add('an order already with a technician is said to be past calling off', [qm.ledger.orders[0].state, /already with Cora Tech/.test(toldOf(qm))], ['given', true]);
+  }
+  add('a cancel written in the book is read back as off', readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. Cancelled by Hop Kins.'], 5000).map((order: any) => `${order.state} ${order.cancelledBy}`), ['refused Hop Kins']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

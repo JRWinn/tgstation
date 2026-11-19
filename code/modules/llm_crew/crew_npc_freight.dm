@@ -66,6 +66,8 @@
 /obj/structure/closet/crate/var/crew_npc_came_by_shuttle = FALSE
 /// The tile cargo's crew last left this crate standing on. A crate still there is where they meant it to be, on a marked square or not: it is not moved again until someone moves it.
 /obj/structure/closet/crate/var/turf/crew_npc_left_on
+/// TRUE while this crate stands open where someone who collected it unpacked it, its things on its tile for the taking. Nobody tidying shuts it on them.
+/obj/structure/closet/crate/var/crew_npc_unpacked = FALSE
 
 /**
  * Returns the marked squares on the floor of a room: the tiles painted with a box, which is where
@@ -453,8 +455,11 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			destination = shuttle_spot()
 	if(isnull(destination))
 		return list(FALSE, tool == CREW_TOOL_RECYCLE ? "There is no room aboard the supply shuttle for the [crate_name]." : "There is no room to put the [crate_name].")
-	// A crate goes back shut, with whatever worthless thing spilled out of it back inside.
+	// A crate goes back shut, with whatever worthless thing spilled out of it back inside. Not
+	// shut on someone lying in it: that would send them off aboard the shuttle.
 	if(tool == CREW_TOOL_RECYCLE && crate.opened)
+		if(crew_npc_someone_on(get_turf(crate)))
+			return list(FALSE, "Someone is in the way of the [crate_name]: you cannot shut it to send it back.")
 		crate.close(body)
 	body.start_pulling(crate)
 	if(body.pulling != crate)
@@ -533,28 +538,49 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	// own tile, where shutting the crate would take it back in, nor the deck of the shuttle.
 	var/turf/feet = get_turf(body)
 	var/may_drop = feet != get_turf(crate) && !istype(get_area(feet), /area/shuttle)
+	// Each letter by hand, as a player does it: a click on the letter with an empty hand, and a
+	// click on the bag with it. About two seconds a letter, so the errand may be called off, or the
+	// body taken away, part way through: then it stops, and what is not taken stays in the crate.
+	var/serial = errand_serial
+	var/stopped = FALSE
 	for(var/obj/item/mail/letter in crew_npc_crate_holds(crate))
+		if(!stopped && (QDELETED(src) || QDELETED(body) || QDELETED(crate) || errand_serial != serial || !crate.opened || !can_reach_target_now(crate)))
+			stopped = TRUE
+		if(stopped)
+			left++
+			continue
+		if(QDELETED(letter) || get_turf(letter) != get_turf(crate))
+			continue
+		if(!empty_clicking_hand() || !click_as_body(letter) || QDELETED(letter) || !body.is_holding(letter))
+			left++
+			continue
 		var/whose = crew_npc_mail_for(letter)
-		if(isnull(whose))
+		if(isnull(whose) && may_drop)
 			// Addressed to nobody: junk. It comes out all the same, or the crate can never go
-			// back. Picked up and dropped, to be binned with the rest of the rubbish.
-			if(may_drop)
-				// With both hands full it goes straight to the floor at its feet, which is where it was going.
-				if(body.put_in_hands(letter))
-					body.dropItemToGround(letter)
-				binned++
-			else if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
+			// back. Dropped at its feet, to be binned with the rest of the rubbish.
+			body.dropItemToGround(letter)
+			binned++
+			continue
+		// Into the bag: mail for someone, and junk where it may not be dropped (the crate's own
+		// tile, where shutting the crate would take it back in, or the deck of the shuttle).
+		if(stow_in_bag(letter))
+			if(isnull(whose))
 				binned++
 			else
-				left++
+				taken++
+				names |= whose
 			continue
-		if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
-			taken++
-			names |= whose
-		else
-			left++
-	// Shutting it takes back in whatever is still lying there: any mail there was no room for.
-	if(crate.opened)
+		// The bag is full, or there is none. The letter goes back in the open crate, by a click on
+		// the crate with it, and the rest stay where they are.
+		if(!QDELETED(crate) && crate.opened)
+			click_as_body(crate)
+		left++
+		stopped = TRUE
+	if(QDELETED(body) || QDELETED(crate))
+		return list(FALSE, "You could not get to it.")
+	// Shutting it takes back in whatever is still lying there: any mail there was no room for. Not
+	// with someone on its tile, who would be shut in with it.
+	if(crate.opened && !crew_npc_someone_on(get_turf(crate)))
 		crate.close(body)
 	freight_changed()
 	var/junk_words = binned ? " You [taken ? "also " : ""]take out [binned == 1 ? "a letter" : "[binned] letters"] addressed to nobody: junk, for the bin." : ""
@@ -631,6 +657,10 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 
 /// Sends the shuttle away from the console the body is standing by.
 /datum/ai_controller/crew_npc/proc/send_shuttle_back(obj/machinery/computer/cargo/console)
+	// A console with no power, or broken, shows no screen to send the shuttle from (can_interact,
+	// as the game's window asks). Found out standing at it.
+	if(QDELETED(console) || !console.can_interact(pawn))
+		return list(FALSE, "The supply console is dead: it has no power, or it is broken, so the shuttle cannot be sent from it.")
 	var/obj/docking_port/mobile/supply/shuttle = docked_supply_shuttle()
 	if(isnull(shuttle))
 		// Away, with empties here to go back: it is called in for them.

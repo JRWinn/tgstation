@@ -124,7 +124,8 @@
 		if(!already_there[thing])
 			inside[format_text(thing.name)]++
 	sleep(CREW_NPC_LOOK_TIME)
-	if(!QDELETED(container) && container.opened)
+	// Shut again, unless someone has come to be on its tile meanwhile, the body included: they would be shut inside.
+	if(!QDELETED(container) && container.opened && !crew_npc_someone_on(get_turf(container)))
 		container.close(body)
 	return list("state" = "looked", "contents" = inside)
 

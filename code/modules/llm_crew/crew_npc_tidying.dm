@@ -68,10 +68,32 @@
 			return FALSE
 	return TRUE
 
+/**
+ * TRUE if someone is on this tile who would be shut inside a crate or locker shut there: anyone
+ * alive bigger than tiny (tiny ones the game takes in as things). The body itself counts: standing
+ * on an open locker's tile, it would shut itself in. A crate refuses a person standing, but not
+ * one lying down, and a locker takes anyone.
+ */
+/proc/crew_npc_someone_on(turf/spot)
+	if(!isturf(spot))
+		return FALSE
+	for(var/mob/living/someone in spot)
+		if(someone.mob_size > MOB_SIZE_TINY)
+			return TRUE
+	return FALSE
+
 /// TRUE if an open crate or locker has things lying spilled around it, and could be shut on them.
 /datum/ai_controller/crew_npc/proc/wants_shutting(obj/structure/closet/container)
 	if(!container.opened || !isturf(container.loc))
 		return FALSE
+	// Not on someone lying or standing in it.
+	if(crew_npc_someone_on(container.loc))
+		return FALSE
+	// A crate someone collected and unpacked where it stands: its things are there for the taking.
+	if(istype(container, /obj/structure/closet/crate))
+		var/obj/structure/closet/crate/crate = container
+		if(crate.crew_npc_unpacked)
+			return FALSE
 	var/skipped_at = tidy_skipped[REF(container)]
 	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
 		return FALSE
@@ -213,6 +235,12 @@
 	if(istype(target, /obj/structure/closet))
 		var/obj/structure/closet/container = target
 		var/container_name = format_text(container.name)
+		// Looked at again now it is here: someone may have fallen or stepped there on the way.
+		if(container.opened && crew_npc_someone_on(get_turf(container)))
+			tidy_skipped[REF(container)] = world.time
+			tidy_changed()
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) left the [container_name] open in [place]: someone is on it.")
+			return list(FALSE, "Someone is in the way of the [container_name]: you leave it open.")
 		// Shut by an empty-handed click, as a player shuts one: a click with something in hand would put it inside.
 		if(container.opened && (!empty_clicking_hand() || !click_as_body(container) || container.opened))
 			tidy_skipped[REF(container)] = world.time
