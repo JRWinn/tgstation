@@ -5,7 +5,8 @@ kind: bug
 severity: high
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 962a0c5f785
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: driver

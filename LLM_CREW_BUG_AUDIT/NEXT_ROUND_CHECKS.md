@@ -16,3 +16,32 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - PARSE-09: grep `crew_brain.log` for "[an order, made out from what was said]" and read the line before each: none should be a question, a "no need", or word that the mess is gone.
 - QM-08: with two orders waiting on the Captain, a bare "yes" in `pda.log` is followed by "The Captain said yes" for the order asked about last, in the Quartermaster's book lines in `game.log`.
 - QM-14: in `game.log`, "I have that" from the Quartermaster follows each technician's word within a few seconds all round; no "Your order has come in" PDA from a technician to a head while the Quartermaster is aboard.
+- SECT-01: Captain sends "Joan, do not arrest <name>": `pda.log` must have no "I have that: a warrant for <name>" after it.
+- SECT-02: grep `pda.log` for "is pardoned" and check each against the Captain's message just before it.
+- SECT-03: grep `pda.log` for "I have that: a warrant for" and read each name for words that are not part of it.
+- TRB-03: grep `pda.log` for "is in a cell: the warrant is served", and for two "is in Cell" lines to the Captain for one name on one warrant.
+- TRUST-06: grep `pda.log` for "by that name:" and check each is a real shared name; grep `game.log` for an arrest of a head on a warrant a head declared.
+- RT-01: in `attack.log`, no 8.0 to 9.5 s gaps between one janitor's "fired a puff of reagents" lines on neighbouring tiles; in `crew_brain.log`, "will not come off" no longer shows for dirt when the janitor holds space cleaner.
+- HAND-01: in `game.log`, "hit X with its baton 3 times" is followed by "arrested X ... after 3 baton hits", not another baton line; no "would not stay still" after a third hit.
+- SEC-01: grep `game.log` for "was knocked down itself while arresting"; while `attack.log` shows the officer stunned, no movement lines for it, and no "could not put X in Cell" from a fall in a cell.
+- SEC-05: grep `game.log` for "found X not in it" and "stopped the timer of": the second must not show for a name whose cell holds somebody else.
+- SEC-03: grep `game.log` for "broke off its arrest" and "broke off putting"; after an officer's "is hurt" PDA, no further baton or "arrested" line for that go.
+- JAN-04: grep `game.log` for "could not get to the sink" or "for water.": on MetaStation at most one for the Medbay Central sink seen from the Medbay Lobby, not a run of them.
+- SECT-06: grep `game.log` for "I am going." said by a crew member: the line its head or the Captain said just before is a plain order to leave.
+- SECT-07: grep `game.log` for "I am putting": the head's line just before names the person, or says him, her or that one.
+- MULTI-08: grep `pda.log` for "Warrant for" lines that name a janitor, and `game.log` for "could not put" or "you were knocked down" next to a janitor's name.
+- QM-01: as Captain, answer a big purchase with "Sure, no worries": the `game.log` line "wrote in its order book: Order" shows "The Captain said yes"; `pda.log` shows "is that a yes or a no" after a mixed line.
+- QM-10: as Captain, send the Quartermaster "Has the janitorial order come in?": `pda.log` has an "Order N, ..." answer and no "Noted, order"; grep `game.log` for "Cancelled by".
+- KNA-01: in `game.log`, every "I am coming to the ... door of the ... to let you out" is followed within about a minute by "opened ... to let X out of ...". Count the ones that are not.
+- CHEAT-08: time the "take ... piece of mail" result in `game.log` against the crate's letter count (about 2 s a letter); the emptied mail crate is put aboard and the shuttle leaves.
+- CHEAT-14: grep `game.log` for "and could not:", "who has receiving turned off" and "would not send it (" with a reason.
+- KNB-06: after a collection, the crate's things lie on one tile, and the crate is back in the lobby or bay, shut and empty; grep `game.log` for "unpack it there".
+- SUP-01 (check this first): with power on, orders are still placed ("You order ... at the supply console" and the crates arrive); with the bay APC off, the order result reads "The supply console is dead".
+- TRC-01: grep `game.log` for "open: someone is on it"; lie on an open crate in the Cargo Bay with an item on its tile: the technician leaves it open.
+- ASYNC-08: give an order in passing and walk on at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk to that room.
+- MEM-05: with two crew in view, give one an order by name, then speak to the other: no work(...) [an order...] entry for the other in `crew_brain.log`.
+- KNB-13: "Excuse me" lines in `game.log`, each within a few seconds of a "lost its grip ... Next to the crate: <person>" line; "has given up hauling" with a person beside the crate is rare.
+- KNB-08: no more than one "opened X to let <janitor> into Cargo Bay" per janitor message in `game.log`; the janitor is in the outer room within seconds of the door opening.
+- TRUST-11: ask a head NPC by the Head of Security to have someone arrested: `crew_brain.log` shows "[sounded like an order: not said]", and `game.log` no warrant or arrest.
+- CHEAT-01: grep `game.log` for "standing in your way": present but not many; watch a meeting of four or more in a small office for anyone stuck; stand in a doorway in combat mode: a technician stops, not passes.
+- KNB-04: in `game.log`, "opened X to let Y" once per asking; the door opens, shuts by itself, and opens again if the visitor was slow, while the technician stands beside it.
