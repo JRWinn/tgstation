@@ -8,6 +8,8 @@ const { saidTo, callsOn } = await import(ROOT + 'addressing');
 const zim = { handle: 'p1', name: 'Zim Fire', job: 'Captain' };
 const josh = { handle: 'p2', name: 'Josh Reed', job: 'Assistant' };
 const billy = { handle: 'p3', name: 'Billy Marsh', job: 'Janitor' };
+const al = { handle: 'p6', name: 'Al Haines', job: 'Cargo Technician' };
+const mo = { handle: 'p7', name: 'Mo Tran', job: 'Cargo Technician' };
 /** Amber, a janitor, in a room with these people, hearing this from that speaker. */
 function hears(text: string, opts: { from?: any; with?: any[]; tiles?: number; facing?: boolean; nearest?: boolean; post?: boolean; talking?: boolean; others?: string[] } = {}) {
   const b = makeBrain('Amber Holt', opts.post ? 'Cargo Technician' : 'Janitor');
@@ -60,6 +62,24 @@ const cases: [string, string, string][] = [
   ['"May, could you open the door?", May Rees not in view', hears('May, could you open the door?', { tiles: 1, facing: true, others: ['May Rees'] }), 'other:May Rees'],
   ['"May, could you open the door?", May Rees in view', hears('May, could you open the door?', { with: [{ handle: 'p5', name: 'May Rees', job: 'Cook' }], others: [] }), 'other:May Rees'],
   ['"May I come in?" with May Rees in view: the word, not the name', hears('May I come in?', { tiles: 1, with: [{ handle: 'p5', name: 'May Rees', job: 'Cook' }], others: [] }), 'me'],
+  // TRA-03, KNB-10: a first name of two letters is a name when it opens the line or is set off by commas.
+  ['"Al, take this" with Al Haines in view', hears('Al, take this', { tiles: 1, with: [al] }), 'other:Al Haines'],
+  ['"Sorry, Mo, I am not holding a crate by that number." with Mo in view', hears('Sorry, Mo, I am not holding a crate by that number.', { tiles: 1, with: [mo] }), 'other:Mo Tran'],
+  ['"Hey Mo: the door" with Mo in view', hears('Hey Mo: the door', { tiles: 1, with: [mo] }), 'other:Mo Tran'],
+  ['"Thanks, Al." with Al Haines in view', hears('Thanks, Al.', { tiles: 1, with: [al] }), 'other:Al Haines'],
+  ['"Al, take this" with Al Haines aboard but not in view', hears('Al, take this', { tiles: 1, others: ['Al Haines'] }), 'other:Al Haines'],
+  ['"Haines, take this": the surname still calls, as before', hears('Haines, take this', { tiles: 1, with: [al] }), 'other:Al Haines'],
+  ['"I gave the mop to al earlier" does not call on Al', hears('I gave the mop to al earlier', { tiles: 1, with: [al] }), 'me'],
+  ['"Al take this", no comma: too short to be a name unset', hears('Al take this', { tiles: 1, with: [al] }), 'me'],
+  ['"So, what now?" does not call on So Park: the word', hears('So, what now?', { tiles: 1, with: [{ handle: 'p8', name: 'So Park', job: 'Cook' }] }), 'me'],
+  ['callsOn: "Ed, the crate" calls on Ed Ng (no part over two letters)', String(callsOn('Ed, the crate', 'Ed Ng')), 'true'],
+  ['callsOn: "Edit the crate" does not call on Ed Ng', String(callsOn('Edit the crate', 'Ed Ng')), 'false'],
+  ['Al hears "Al, take this" with Josh in the room: said to it', (() => {
+    const b = makeBrain('Al Haines', 'Janitor');
+    b.peopleInView = [zim, josh];
+    const event = { seq: 1, time: '', at: 100, kind: 'speech_heard', text: '', details: { speaker: zim.name, handle: zim.handle, source: 'person', message: 'Al, take this', distance: 5, facing: false } };
+    return saidTo(b, event as any, [], true).to;
+  })(), 'me'],
 ];
 let failed = 0;
 for (const [label, got, want] of cases) {
