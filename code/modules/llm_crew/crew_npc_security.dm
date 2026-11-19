@@ -68,6 +68,8 @@
 	var/datum/weakref/arrest_target
 	/// Why its last go with the baton stopped short, in words for the log. Null if it landed what it meant to.
 	var/baton_stopped
+	/// Why it last failed to take something of its own into a hand, in words for the log. Null if it did.
+	var/draw_stopped
 	/// Who can open each room the body has asked about, by the room's name: list(world.time it was worked out, the names).
 	var/list/keepers_cache = list()
 	/// world.time the body last could not get a prisoner into each cell, by the cell's name.
@@ -299,22 +301,55 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/draw_item(obj/item/thing, gap = CREW_NPC_KIT_GAP)
 	var/mob/living/carbon/human/body = pawn
+	draw_stopped = null
 	if(QDELETED(thing))
+		draw_stopped = "it was gone"
 		return FALSE
 	if(body.is_holding(thing))
 		return hand_to(thing)
-	if(!empty_clicking_hand())
-		return FALSE
-	sleep(gap)
-	if(QDELETED(src) || QDELETED(body) || QDELETED(thing))
-		return FALSE
-	if(body.is_holding(thing))
-		return hand_to(thing)
-	if(!empty_clicking_hand())
-		return FALSE
-	if(!click_as_body(thing, null, 0) || QDELETED(thing) || !body.is_holding(thing))
-		return FALSE
-	return hand_to(thing)
+	// Twice: a click that comes to nothing is made once more, a moment later.
+	for(var/go in 1 to 2)
+		if(!empty_clicking_hand())
+			draw_stopped = "it had no hand it could empty"
+			return FALSE
+		sleep(go == 1 ? gap : 0.3 SECONDS)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(thing))
+			draw_stopped = "it was gone"
+			return FALSE
+		if(body.is_holding(thing))
+			return hand_to(thing)
+		if(!empty_clicking_hand())
+			draw_stopped = "something was put in its hand as it reached"
+			continue
+		if(!click_as_body(thing, null, 0))
+			draw_stopped = "it was in no state to reach for it"
+			continue
+		if(QDELETED(thing))
+			draw_stopped = "it was gone"
+			return FALSE
+		if(body.is_holding(thing))
+			draw_stopped = null
+			return hand_to(thing)
+		draw_stopped = "the click on it did not bring it to hand"
+	return FALSE
+
+/**
+ * Lets go of whatever the body is holding that is not its own baton or cuffs, the way anyone
+ * drops what they have in their hands to draw a weapon. It goes on the floor at its feet: there
+ * is no time to find a table for it. The owner: "when they need to pull their weapon they should
+ * probably drop whatever they are holding".
+ */
+/datum/ai_controller/crew_npc/proc/drop_for_weapon()
+	var/mob/living/carbon/human/body = pawn
+	var/list/dropped = list()
+	for(var/obj/item/held in body.held_items.Copy())
+		if((held.item_flags & ABSTRACT) || istype(held, /obj/item/melee/baton/security) || istype(held, /obj/item/restraints/handcuffs))
+			continue
+		var/held_name = format_text(held.name)
+		if(body.dropItemToGround(held))
+			dropped += held_name
+	if(length(dropped))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw its baton.")
 
 /// Puts something the body holds into the bag on its back, by a click on the bag. Returns FALSE if it is still in its hand.
 /datum/ai_controller/crew_npc/proc/stow_in_bag(obj/item/thing)
@@ -902,8 +937,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/mob/living/carbon/human/body = pawn
 	var/landed = 0
 	baton_stopped = null
+	// Whatever else it is holding goes on the floor first. An officer with a circuit board in one
+	// hand that it had not picked up never got its baton out, and was beaten down with a toolbox.
+	drop_for_weapon()
 	if(!draw_item(baton))
-		baton_stopped = "it could not get its baton into a free hand"
+		baton_stopped = "it could not get its baton into a free hand[draw_stopped ? ": [draw_stopped]" : ""]"
 		return 0
 	// A click on what is in the hand, with that hand, is using it: that switches a baton on.
 	if(!baton.active)

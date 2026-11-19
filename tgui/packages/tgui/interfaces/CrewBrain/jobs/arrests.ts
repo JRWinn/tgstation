@@ -91,6 +91,8 @@ const HALLWAY_DS = 100;
 const BETWEEN_WALKS_DS = 900;
 /** The health (percent) under which it breaks off and uses no more force. */
 const HURT_BELOW = 50;
+/** How long (deciseconds) after it breaks off hurt that saying so comes before getting away. */
+const HURT_WORD_DS = 50;
 /** How long (deciseconds) someone who has attacked it is someone to stop. */
 const ATTACK_FRESH_DS = 200;
 /** How long (deciseconds) it waits for a cell to come empty before it tries the brig again. */
@@ -356,6 +358,7 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   // Hurt: it breaks off, and whoever keeps the list is told.
   if (security && security.health < HURT_BELOW && !beat.hurt) {
     beat.hurt = true;
+    beat.hurtAt = brain.now;
     const about =
       beat.warrants.find((it) => target(brain, it) || holds(brain, it)) ??
       beat.warrants[0];
@@ -466,12 +469,22 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   // Being hit by someone it cannot stop, with no baton or hurt: it does not stand and take it,
   // and it does not walk on with its work. It gets out of their reach. An officer with no baton
   // walked off down a hallway at its usual pace while a monkey with a club beat it unconscious.
+  // Not until it has said that it is hurt, if it has a PDA to say it with and has only just
+  // broken off: the message takes a moment, and an officer that walked off first was beaten
+  // down ten seconds later with nobody told.
+  const sayingHurt =
+    beat.hurtAt !== undefined &&
+    brain.now - beat.hurtAt < HURT_WORD_DS &&
+    brain.hasPda &&
+    (beat.outcomes.some((it) => it.what === 'hurt') ||
+      beat.words.some((it) => it.outcome.what === 'hurt'));
   const away =
     !!security &&
     beat.struckAt !== undefined &&
     brain.now - beat.struckAt < AWAY_DS &&
     (!security.has_baton || beat.hurt) &&
-    !security.holding;
+    !security.holding &&
+    !sayingHurt;
   keep(brain, AWAY, away, 'emergency');
   // Someone with no warrant on them who attacked it, and whom it could not stop: whoever keeps
   // the list is told, so that the Captain can declare a warrant.

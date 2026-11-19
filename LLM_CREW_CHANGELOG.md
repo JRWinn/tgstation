@@ -16,6 +16,49 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 20:53 to 21:05: the officer lost a fight with Pun Pun: it drops what it holds to draw its baton, and says it is hurt before it walks off (the commit that added this entry, on the branch `security-arrest`)
+
+**Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (none new), server compile to a side copy (0 errors, 0 warnings), simulator: the nine security scenarios with a quiet LLM, none failing. In `hurt`, traced, the officer now sends "I could not take Pun Pun. I am hurt." and then gets away, five seconds apart. **Not played. No model tests. The normal build has not been run:** the server was up. Dropping what it holds and the second try at taking its kit out are server code, compile-checked only.
+
+**Round that showed it:** `data/logs/2026/11/19/round-20.43.32` (MetaStation, read live from 20:53 to 20:55, on the build made at 20:43:24, which has `8545d97b` in it).
+
+### What happened
+
+The Captain's "Put out an APB for Pun Pun. Lock him up for 30 minutes" was read whole at 20:50:13, with 15 minutes as the most a cell allows. The Head of Personnel reported the monkey at 20:51:38 and the officer was beside it nine seconds later.
+
+- 20:51:53: the cuffs alone. Pun Pun stepped off 0.2 seconds in.
+- 20:51:56: Pun Pun began hitting the officer with an emergency toolbox, about 8 damage every 1.3 seconds.
+- 20:52:00: the go with the baton. `game.log`: "hit Pun Pun with its baton 0 times ... (force): it could not get its baton into a free hand".
+- 20:52:06: under half its health, the officer broke off and set out for the Security Office at a walk. Pun Pun followed, hitting it.
+- 20:52:16: the officer went down in the Courtroom at -2.3, after 12 hits with the toolbox (two of them thrown) and one tackle. A thirteenth landed as it fell.
+- Nothing more of it in any log by 20:55. No word was sent to the Head of Security, who went on believing the warrant was being served.
+
+### Why
+
+- **The baton never came out.** The brain's step at 20:51:59 has the officer "holding airlock electronics", which it had not picked up. They came into its hand while the try with the cuffs was under way, and anything that lands in a hand during an errand is taken for its own doing (`on_item_in_hand`), so nothing put them down. **Which step of taking the baton out failed is not known:** there is no "put away its ... to free a hand" line, so the hand was not cleared the usual way, and the log said no more than that.
+- **"I am hurt" was never sent.** Getting away from an attacker is an emergency and telling the Head of Security was not, so the word waited behind a walk it did not live to finish.
+
+### What is changed
+
+- **It drops whatever it is holding, other than its own baton and cuffs, before it takes the baton out** (`drop_for_weapon`, called at the top of `baton_hits` in `crew_npc_security.dm`). On the floor at its feet, with a line in `game.log`: "dropped X ... to draw its baton". The owner: "when they need to pull their weapon they should probably drop whatever they are holding".
+- **A click that does not bring its kit to hand is made once more** (`draw_item`), and the log says which step came to nothing: "it had no hand it could empty", "something was put in its hand as it reached", "it was in no state to reach for it", "the click on it did not bring it to hand". That goes after "it could not get its baton into a free hand".
+- **That it is hurt, has been attacked, or has lost its baton is word that goes at once**, as an emergency and by PDA unless the Head of Security is standing there (`syncTasks` in `jobs/officer.ts`).
+- **It says it is hurt before it gets away** (`sayingHurt` in `syncBeat`, `jobs/arrests.ts`): for five seconds after it breaks off, while that word is still unsent and it has a PDA. The Head of Security then tells the Captain and serves the warrants itself, which was built already.
+
+### Known and not fixed
+
+- **A hurt officer still walks away from someone who is hitting it, and does not defend itself.** "Hurt, it breaks off and uses no more force" is the rule as built. Against something that follows, that is ten seconds of being hit. Whether a hurt officer with a working baton should stop whoever is on it is the owner's to say.
+- **Saying it is hurt costs a few seconds of standing there.** In this fight that would have been two or three more hits.
+- **Nobody goes to an officer who is down.** There are no medical staff among the crew.
+- Things that land in its hand during an errand are still taken for its own doing. Before the baton they are now dropped. Before the cuffs alone they are not.
+- The Captain's second warrant, on the Head of Personnel, was given to the officer 40 seconds before the fight and was never acted on.
+
+### What to grep for next round (`game.log`)
+
+"to draw its baton", "with its baton" and what follows "free hand:", and in `pda.log` "I am hurt".
+
+---
+
 ## 2026-11-18, 20:19 to 20:40: the last entry played, and why nobody could get into the bar (the commit that added this entry, on the branch `security-arrest`)
 
 **Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (six new), server compile to a side copy (0 errors, 0 warnings), simulator: twelve scenarios with a quiet LLM (the nine security ones, `nested`, `engine`, `crew`), none failing. **Not played. No model tests. The normal build has not been run:** the server was up. The simulator runs none of the server code, so which door a body makes for, and which door an engineer forces, are compile-checked only.
