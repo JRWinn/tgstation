@@ -1406,9 +1406,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 // Letting someone go
 
-/// TRUE if this name is the one asked for: the same, or the name asked for is part of it.
-/datum/ai_controller/crew_npc/proc/is_named(mob/living/person, wanted)
-	return !!findtext(LOWER_TEXT(person.name), wanted)
+/// TRUE if this name is the one asked for: the same, or, unless `whole` is set, the name asked for is part of it.
+/datum/ai_controller/crew_npc/proc/is_named(mob/living/person, wanted, whole = FALSE)
+	var/lower = LOWER_TEXT(person.name)
+	return whole ? lower == wanted : !!findtext(lower, wanted)
 
 /// The names in the list of who it put in a cell that are the one asked for: the whole name if any is, or else those the name asked for is part of.
 /datum/ai_controller/crew_npc/proc/jailed_names(wanted)
@@ -1438,41 +1439,47 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!length(wanted))
 		action_result(CREW_TOOL_FREE, FALSE, "You did not decide who to let go.", list("reason" = "who"))
 		return
-	// By the arm, or arrested and still about.
+	// The whole name is looked for first, everywhere, and only then a name the one asked for is
+	// part of: told to let "Pun Pun" go, it does not open the cell on Pun Pun II with Pun Pun in
+	// the next one.
 	var/mob/living/carbon/human/held = arrested?.resolve()
-	if(!QDELETED(held) && is_named(held, wanted) && (body.pulling == held || recently_saw(held)))
-		start_errand(held, CREW_TOOL_FREE, held.name)
-		return
-	// What it can see goes before what it remembers. Its list of who it put where is not kept up
-	// when a time runs out or someone else lets them out, and the cell is given to the next one:
-	// gone by first, it opened a cell on somebody else.
-	// In a cell it can see them in.
 	var/list/in_sight = view(CREW_NPC_VISION_RANGE, body)
-	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
-		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
-		if(isnull(timer) || !timer.timing)
-			continue
-		for(var/mob/living/carbon/human/person as anything in cell.occupants())
-			if(is_named(person, wanted) && (person in in_sight))
-				jail_cell = cell
-				start_errand(timer, CREW_TOOL_FREE, person_name)
-				return
-	// Standing about in cuffs, in sight.
-	for(var/mob/living/carbon/human/person in in_sight)
-		if(person != body && person.handcuffed && is_named(person, wanted))
-			start_errand(person, CREW_TOOL_FREE, person.name)
+	for(var/whole in list(TRUE, FALSE))
+		// By the arm, or arrested and still about.
+		if(!QDELETED(held) && is_named(held, wanted, whole) && (body.pulling == held || recently_saw(held)))
+			start_errand(held, CREW_TOOL_FREE, held.name)
 			return
-	// In a cell it put them in, out of sight. It goes to the timer, and looks in before it stops it.
-	var/list/remembered = jailed_names(wanted)
-	for(var/name in remembered)
-		var/datum/crew_npc_brig_cell/cell = jailed[name]
-		var/obj/machinery/status_display/door_timer/timer = cell?.timer_ref?.resolve()
-		if(isnull(timer) || !timer.timing)
-			continue
-		jail_cell = cell
-		start_errand(timer, CREW_TOOL_FREE, person_name)
-		return
-	for(var/name in remembered)
+		// What it can see goes before what it remembers. Its list of who it put where is not kept up
+		// when a time runs out or someone else lets them out, and the cell is given to the next one:
+		// gone by first, it opened a cell on somebody else.
+		// In a cell it can see them in.
+		for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
+			var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+			if(isnull(timer) || !timer.timing)
+				continue
+			for(var/mob/living/carbon/human/person as anything in cell.occupants())
+				if(is_named(person, wanted, whole) && (person in in_sight))
+					jail_cell = cell
+					start_errand(timer, CREW_TOOL_FREE, person.name)
+					return
+		// Standing about in cuffs, in sight.
+		for(var/mob/living/carbon/human/person in in_sight)
+			if(person != body && person.handcuffed && is_named(person, wanted, whole))
+				start_errand(person, CREW_TOOL_FREE, person.name)
+				return
+		// In a cell it put them in, out of sight. It goes to the timer, and looks in before it stops it.
+		for(var/name in jailed)
+			var/lower = LOWER_TEXT(name)
+			if(whole ? lower != wanted : !findtext(lower, wanted))
+				continue
+			var/datum/crew_npc_brig_cell/cell = jailed[name]
+			var/obj/machinery/status_display/door_timer/timer = cell?.timer_ref?.resolve()
+			if(isnull(timer) || !timer.timing)
+				continue
+			jail_cell = cell
+			start_errand(timer, CREW_TOOL_FREE, name)
+			return
+	for(var/name in jailed_names(wanted))
 		jailed -= name
 	action_result(CREW_TOOL_FREE, TRUE, "Nothing is holding [person_name] that you know of.", list("freed" = person_name, "nothing" = TRUE))
 
@@ -1489,10 +1496,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		var/datum/crew_npc_brig_cell/cell = jail_cell
 		var/wanted = LOWER_TEXT("[freed]")
 		var/mob/living/carbon/human/prisoner
-		for(var/mob/living/carbon/human/person as anything in cell?.occupants())
-			if(is_named(person, wanted))
-				prisoner = person
-				freed = person.name
+		var/list/inside = cell?.occupants()
+		for(var/whole in list(TRUE, FALSE))
+			for(var/mob/living/carbon/human/person as anything in inside)
+				if(is_named(person, wanted, whole))
+					prisoner = person
+					freed = person.name
+					break
+			if(prisoner)
 				break
 		// Nobody of that name is in there now: their time ran out, or someone let them out, and the
 		// cell may hold somebody else. The timer is left alone, and what it remembered is put right.
@@ -1703,11 +1714,27 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(isliving(attacker))
 		tell_struck(attacker, (attack_flags & ATTACKER_SHOVING) ? "shove" : "hit")
 
-/// Someone has taken hold of the body.
+/// Someone has taken hold of the body. Whether that is an attack is settled a moment later, in grab_felt:
+/// the pull signal comes inside start_pulling, before a keeper walking the body out has told it so.
 /datum/ai_controller/crew_npc/proc/on_grabbed(datum/source, mob/living/puller)
 	SIGNAL_HANDLER
 	if(isliving(puller))
-		tell_struck(puller, "grab")
+		addtimer(CALLBACK(src, PROC_REF(grab_felt), WEAKREF(puller)), 0)
+
+/**
+ * Tells the brain of a hold on the body, unless the body already knows why it is held: whoever
+ * has it by the arm to walk it out of a room (it was told so in words), or whoever has arrested it.
+ * A hold by anyone else is told as before.
+ */
+/datum/ai_controller/crew_npc/proc/grab_felt(datum/weakref/puller_ref)
+	var/mob/living/puller = puller_ref?.resolve()
+	if(QDELETED(src) || QDELETED(pawn) || QDELETED(puller))
+		return
+	if(world.time < in_hand_until && in_hand_of == puller.name)
+		return
+	if(in_custody() && arrested_by?.resolve() == puller)
+		return
+	tell_struck(puller, "grab")
 
 /// Its baton or its cuffs have left the body. A moment later it looks at whose hands they are in.
 /datum/ai_controller/crew_npc/proc/on_kit_gone(datum/source, obj/item/item)

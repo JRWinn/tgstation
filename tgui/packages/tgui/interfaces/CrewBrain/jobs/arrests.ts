@@ -135,6 +135,8 @@ export function giveWarrant(
     name: string;
     reason: string;
     minutes: number;
+    /** TRUE if the Captain declared it: only then is it served on a head of staff. */
+    byCaptain?: boolean;
     /** TRUE to do no more than put right the time on one it already has. */
     onlyIfHeld?: boolean;
   },
@@ -144,6 +146,9 @@ export function giveWarrant(
   // Given again, it is the time that has changed.
   if (held) {
     held.minutes = warrant.minutes;
+    if (warrant.byCaptain !== undefined) {
+      held.byCaptain = warrant.byCaptain;
+    }
     return;
   }
   if (warrant.onlyIfHeld) {
@@ -153,6 +158,7 @@ export function giveWarrant(
     name: warrant.name,
     reason: warrant.reason,
     minutes: warrant.minutes,
+    byCaptain: !!warrant.byCaptain,
     lastSeen: null,
     lookedAt: null,
     toldAt: null,
@@ -310,6 +316,14 @@ function target(
   );
 }
 
+/**
+ * TRUE if whoever the warrant is on, in view, is a head of staff by their ID, and the Captain did
+ * not declare it. Only the Captain may have a head arrested: such a warrant is not served on them.
+ */
+function headSpared(brain: NpcBrain, warrant: BeatWarrant): boolean {
+  return !warrant.byCaptain && !!target(brain, warrant)?.command;
+}
+
 /** TRUE if it has this warrant's person by the arm. */
 function holds(brain: NpcBrain, warrant: BeatWarrant): boolean {
   const holding = brain.security?.holding;
@@ -440,6 +454,14 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // In cuffs and by the arm, and every cell has refused them.
     if (holds(brain, warrant) && (warrant.cellTries ?? 0) >= cells) {
       cannot(warrant.name, 'I cannot get them into a cell');
+    }
+    // The one it has found is a head of staff, going by their ID, and the Captain did not declare
+    // the warrant. Only the Captain may have a head arrested, whatever went wrong with the name.
+    if (headSpared(brain, warrant)) {
+      cannot(
+        warrant.name,
+        'they are a head of staff, and the Captain did not declare it',
+      );
     }
   }
   // Someone has its baton in their hand. That is told once.
@@ -748,6 +770,12 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   }
   const seen = target(brain, warrant);
   if (seen) {
+    if (headSpared(brain, warrant)) {
+      return {
+        ready: false,
+        step: `${seen.name} is here, and is a head of staff. Only the Captain may have a head arrested, and the Captain did not declare this warrant. You leave them be, and report that you cannot bring them in.`,
+      };
+    }
     if (brain.now < warrant.restUntil) {
       return {
         ready: false,
@@ -1139,6 +1167,11 @@ export function beatAfterActing(
       );
       return;
     }
+    // Knocked down itself before it was done: that is no try at them, and says nothing of
+    // whether they would stand still. It goes at them again once it is up.
+    if (reason === 'down') {
+      return;
+    }
     // Would not stand still for the cuffs. The baton comes first from now on.
     if (reason === 'moved') {
       warrant.force = true;
@@ -1204,8 +1237,14 @@ export function beatAfterActing(
       beat.warrants = beat.warrants.filter((it) => it !== warrant);
       return;
     }
-    warrant.cellAttempts = (warrant.cellAttempts ?? 0) + 1;
     const reason = String(details.reason ?? '');
+    // Knocked down itself on the way in or out: the cell did not refuse them, and they did not get
+    // away. The same try is made again once it is up. It keeps its number, so that the try is
+    // held back like any step that failed, and not made over and over while it lies there.
+    if (reason === 'down') {
+      return;
+    }
+    warrant.cellAttempts = (warrant.cellAttempts ?? 0) + 1;
     if (reason === 'no_cell') {
       warrant.noCellAt = brain.now;
       return;

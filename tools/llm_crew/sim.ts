@@ -299,7 +299,7 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 const SEC_OFFICE = 'Security Office';
@@ -319,6 +319,8 @@ const secWork: { at: number; who: string; tool: string; how?: string; ok: boolea
 const walkedFree: { who: string; at: number; why: string }[] = [];
 const bitten: { who: string; at: number }[] = [];
 const custody = new Map<string, string>();
+// Who each of the security staff remembers putting in which cell, as the server keeps it: not put right when a time runs out, so it may name a cell that now holds someone else.
+const jailedBy = new Map<string, Map<string, string>>();
 // A cell's door opens: its time is up, or someone stopped the timer. Whoever was in it walks free, and a crew NPC is told so.
 function openCell(cell: (typeof cells)[number], why: string) {
   const name = cell.occupant;
@@ -328,6 +330,9 @@ function openCell(cell: (typeof cells)[number], why: string) {
   const npc = bodies.find((other) => other.name === name);
   if (npc) { custody.delete(name); npc.inHandUntil = 0; emit(npc, 'knowledge', 'You are free to go.', { set_free: 1 }); }
   if (punPun?.name === name) { punPun.cell = null; punPun.cuffed = false; punPun.room = punPun.route[0] ?? 'Bar'; punPun.movedAt = clock; }
+  // TRB-03: in the scenario where the Head of Security served the warrant, the monkey, let out, goes where the hurt officer is.
+  const officer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && punPun?.name === name && officer) punPun.room = officer.room;
 }
 
 // ---- the engine: its room's machines as the server names them to engineering staff, how each is set, and the crystal.
@@ -1003,7 +1008,10 @@ function toolCall(body: Body, tool: string, args: any) {
         // A crew NPC stands for having the cuffs taken off. Anyone else is left in them.
         if (npc) { moveTo(npc, BRIG); custody.set(name, cell.name); npc.inHandUntil = clock + minutes * 60_000; mine.cuffs = true; emit(npc, 'knowledge', `${body.name} has put you in ${cell.name} for ${minutes} minutes.`, { in_cell: cell.name, minutes }); }
         if (punPun?.name === name) { punPun.room = BRIG; punPun.cell = cell.name; }
-        cell.occupant = name; cell.until = clock + minutes * 60_000; cell.by = body.name;
+        // In the scenario about a cell given to the next prisoner, the first one's timer runs out early, as if it had been set short.
+        cell.occupant = name; cell.until = clock + (VARIANT === 'recell' && name === 'Hop Kins' ? 30_000 : minutes * 60_000); cell.by = body.name;
+        if (!jailedBy.has(body.name)) jailedBy.set(body.name, new Map());
+        jailedBy.get(body.name)!.set(name, cell.name);
         mine.holding = null;
         note(true, { cell: cell.name, minutes });
         result(body, 'jail', true, `You put ${name} in ${cell.name} and start its timer: ${minutes} minutes.`, { cell: cell.name, minutes, prisoner: name, cuffs_left: npc ? 0 : 1 });
@@ -1022,9 +1030,16 @@ function toolCall(body: Body, tool: string, args: any) {
         note(true);
         return result(body, 'free', true, `You let go of ${name} and take the cuffs off.`, { freed: name, from: 'hold' });
       }
-      // It lets out only someone it put in a cell itself, or can see in one.
-      const cell = cells.find((it) => it.occupant === name && (it.by === body.name || body.room === BRIG));
-      if (!cell) { note(true, { reason: 'nothing' }); return result(body, 'free', true, `Nothing is holding ${name}.`, { nothing: 1 }); }
+      // It lets out someone it can see in a cell, or goes to the cell it remembers putting them in and looks in first, as the server does
+      // (SEC-05). Someone not in the cell it remembers is not let out: the cell may hold somebody else now.
+      const remembered = jailedBy.get(body.name)?.get(name);
+      const cell = cells.find((it) => it.occupant === name && body.room === BRIG) ?? cells.find((it) => it.name === remembered && it.occupant === name);
+      if (!cell) {
+        jailedBy.get(body.name)?.delete(name);
+        note(true, { reason: 'nothing', cell: remembered });
+        return result(body, 'free', true, remembered ? `${name} is not in ${remembered} any more.` : `Nothing is holding ${name}.`, { freed: name, nothing: 1 });
+      }
+      jailedBy.get(body.name)?.delete(name);
       return busy(body, 8, `going to let ${name} out of ${cell.name}`, true, () => {
         moveTo(body, BRIG);
         openCell(cell, 'let out');
@@ -1271,7 +1286,7 @@ function spawnSecurity() {
   for (const body of staff) for (const place of [SEC_OFFICE, HOS_OFFICE, BRIG]) body.known.add(place);
   players.push({ name: SEC_CAPTAIN, job: 'Captain', room: 'Bridge' });
   if (VARIANT === 'warrant') staff.push(spawn('Hop Kins', 'Head of Personnel'), spawn('Jan Itor', 'Janitor'), spawn('Mo Pper', 'Janitor'));
-  if (VARIANT === 'arresthead' || VARIANT === 'pardon') staff.push(spawn('Hop Kins', 'Head of Personnel'));
+  if (VARIANT === 'arresthead' || VARIANT === 'pardon' || VARIANT === 'recell') staff.push(spawn('Hop Kins', 'Head of Personnel'));
   if (VARIANT !== 'arresthead' && VARIANT !== 'pardon') {
     // In the long scenario the monkey keeps out of everyone's way until the list has been read out, and then goes round where people are. In the rest it sits in the Bar.
     punPun = { name: 'Pun Pun', job: '', room: VARIANT === 'warrant' ? 'Library' : 'Bar', route: VARIANT === 'warrant' ? ['Bar', HOP_OFFICE] : [], from: 300, every: 70, movedAt: 0, cuffed: false, cell: null, busy: false, bites: VARIANT === 'fight' ? 1 : VARIANT === 'hurt' ? 2 : 0, hard: VARIANT === 'hurt' ? 30 : 10, slips: VARIANT === 'hurt' ? 1 : 0 };
@@ -1279,7 +1294,7 @@ function spawnSecurity() {
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'arresthead' || VARIANT === 'nobaton' ? 480 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' ? 480 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
@@ -1289,13 +1304,26 @@ function securityTick(second: number) {
   const pun = punPun;
   if (pun && pun.route.length && !pun.cuffed && !pun.cell && !pun.busy && second >= pun.from && clock - pun.movedAt >= pun.every * 1000) { pun.room = pun.route[(pun.route.indexOf(pun.room) + 1) % pun.route.length]; pun.movedAt = clock; }
   const desk = bodies.find((other) => other.job === 'Head of Security') ?? bodies.find((other) => other.job === 'Security Officer')!;
-  const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon';
+  const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon' || VARIANT === 'recell';
   if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
   // Told it was not followed, the Captain says it again in the words it was given.
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
   if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
+  // SEC-05: once the Head of Personnel's time is up, the monkey is wanted and put in the same cell; then the Captain pardons the Head of Personnel.
+  const hurtOfficer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && pun && hurtOfficer && !pun.cell && walkedFree.some((it) => it.who === pun.name && it.why === 'time up') && inSight(hurtOfficer, pun.room)) freedInSight++;
+  if (VARIANT === 'recell') {
+    const out = walkedFree.find((it) => it.who === 'Hop Kins' && it.why === 'time up');
+    if (out && !recell.warrantAt && clock - out.at >= 5000) { recell.warrantAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, for theft.'); }
+    if (recell.warrantAt && !recell.seenAt && clock - recell.warrantAt >= 5000) { recell.seenAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pun Pun is in the Bar.'); }
+    if (!recell.inAt && cells[0].occupant === 'Pun Pun') recell.inAt = clock;
+    if (recell.inAt && !recell.pardonAt && clock - recell.inAt >= 10_000) { recell.pardonAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.'); }
+  }
 }
+const recell = { warrantAt: 0, seenAt: 0, inAt: 0, pardonAt: 0 };
+// TRB-03: how many seconds the hurt officer has had the monkey in sight since it was let out.
+let freedInSight = 0;
 const FULL = !VARIANT || VARIANT === 'crew' || VARIANT === 'shutout' || VARIANT === 'qm' || VARIANT === 'qmgone';
 const HOP_ORDERS_AT = 90;
 const CAPTAIN_ORDERS_AT = 150;
@@ -1875,7 +1903,20 @@ if (ENGINE) {
     check('nobody orders them off', told(ada, 'Ada Volt', 'Sam Rees', /Emitters off, now/) === 0);
   }
 }
-if (SECURITY) {
+if (VARIANT === 'recell') {
+  const hale = crew.find((body) => body.job === 'Security Officer')!;
+  const jailings = secWork.filter((work) => work.tool === 'jail' && work.ok);
+  const listed = secWork.map((it) => `${it.who} ${it.tool}${it.how ? ' ' + it.how : ''} ${it.ok ? 'ok' : it.reason}${it.target ? ' ' + it.target : ''}${it.cell ? ' ' + it.cell : ''}`).join('; ');
+  const hop = jailings.find((work) => work.target === 'Hop Kins');
+  const pun = jailings.find((work) => work.target === 'Pun Pun');
+  check('the Head of Personnel is put in Cell 1, and walks free when its time runs out', hop?.cell === 'Cell 1' && walkedFree.some((it) => it.who === 'Hop Kins' && it.why === 'time up'), listed);
+  check('the monkey is then put in the same cell', !!hop && pun?.cell === 'Cell 1' && pun.at > hop.at, listed);
+  const free = secWork.find((work) => work.tool === 'free' && work.target === 'Hop Kins');
+  check('pardoned after, the Head of Personnel is let go: the officer goes to the cell it remembers', !!pun && !!free && free.at > pun.at && free.who === hale.name, listed);
+  check('and finds them not in it, and opens nothing', free?.reason === 'nothing' && free.cell === 'Cell 1', listed);
+  check('the monkey is still in the cell', !walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'let out') && (cells[0].occupant === 'Pun Pun' || walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'time up')), `${cells[0].occupant ?? 'nobody'} in Cell 1; ${walkedFree.map((it) => `${it.who} ${it.why}`).join(', ')}`);
+}
+if (SECURITY && VARIANT !== 'recell') {
   const began = clock - SECONDS * 1000;
   const seconds = (at: number) => Math.round((at - began) / 1000) + ' s in';
   const joan = crew.find((body) => body.job === 'Head of Security');
@@ -2003,6 +2044,13 @@ if (SECURITY) {
     check('the Head of Security tells the Captain, once', sentTo(joan, SEC_CAPTAIN, /Captain, Hale could not take Pun Pun and is hurt\. I am serving the warrants myself\./).length === 1);
     check('fetches a baton of its own', secWork.some((work) => work.tool === 'get_kit' && work.who === joan!.name));
     check('and makes the arrest itself', jailings[0]?.who === joan!.name, listed(secWork.filter((work) => work.who === joan!.name)));
+    // TRB-03: the officer gives up its copy of the warrant the Head of Security served, so the monkey let out is not arrested again.
+    check('the officer is told the warrant is served', told(joan, hale.name, /Hale, Pun Pun is in a cell: the warrant is served\./) >= 1);
+    const out = walkedFree.find((it) => it.who === 'Pun Pun' && it.why === 'time up');
+    check("let out when its time is up, the monkey is in the officer's sight for a while", !!out && freedInSight >= 10, out ? `${freedInSight} s in sight` : 'never let out');
+    const again = secWork.filter((work) => work.tool === 'arrest' && work.target === 'Pun Pun' && !!out && work.at > out.at);
+    const toldAgain = saidBy(hale.name, /^Pun Pun, you are under arrest/).filter((line) => !!out && line.at > out.at);
+    check('and nobody arrests it again', !!out && again.length === 0 && toldAgain.length === 0 && jailings.length === 1, listed(again) || `${toldAgain.length} told`);
   }
 }
 const tooSoon = crew.reduce((total, body) => total + body.setOffTooSoon, 0);

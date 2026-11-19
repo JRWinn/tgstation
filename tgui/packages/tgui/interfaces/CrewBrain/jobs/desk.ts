@@ -1000,7 +1000,7 @@ export function syncDesk(brain: NpcBrain): void {
   for (const warrant of desk.warrants) {
     if (!officer) {
       // Nobody to send. It serves the warrant itself.
-      giveWarrant(brain, warrant);
+      giveWarrant(brain, { ...warrant, byCaptain: byCaptain(warrant) });
       warrant.given = 'taken';
     } else if (
       warrant.given === 'said' &&
@@ -1058,13 +1058,24 @@ export function syncDesk(brain: NpcBrain): void {
   }
 }
 
+/** TRUE if the Captain declared this warrant. Whoever serves it is told so: only then is it served on a head of staff. */
+function byCaptain(warrant: Warrant): boolean {
+  return /captain/i.test(warrant.byJob);
+}
+
 /** What giving its officer a warrant comes down to right now: to its face if it is there, and by PDA if not. */
 function giveStep(brain: NpcBrain, warrant: Warrant): Plan {
   const officer = serving(brain);
   if (!officer) {
     return { ready: false, step: 'You have no officer to give it to.' };
   }
-  const line = giveLine(officer, warrant.name, warrant.reason, warrant.minutes);
+  const line = giveLine(
+    officer,
+    warrant.name,
+    warrant.reason,
+    warrant.minutes,
+    byCaptain(warrant),
+  );
   const why = `${warrant.by} has declared a warrant on ${warrant.name}${warrant.reason ? `, for ${warrant.reason}` : ''}.`;
   const seen = brain.peopleInView.find((person) => person.name === officer);
   if (seen) {

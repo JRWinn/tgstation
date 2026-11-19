@@ -137,3 +137,9 @@ Checked by Opus 5.5. Confirmed.
 - Change log and plans: the "Fighting back" entry counts "takes hold of" on purpose, and `LLM_CREW_PLAN_SECURITY.md` 3.7 says a crew NPC cannot fight back. Neither foresaw the crew's own walk out. No later entry changes `on_grabbed` or `securityFeels`.
 - Merged in from SEC-02 (now its duplicate): the Head of Security's `hold_arrested` case, the player-pull case, the server-side skip on `in_hand_of` and `arrested_by` in a deferred check. Corrected: the window-side match on `in_hand` proposed in step 1 would not work, as the grab event comes first. Added who can be walked out at all (an officer posted to the department has its access).
 - Severity stays high: the wrong person is hit with a stun baton. Effort stays medium for both steps; step 1 alone is small (one file, about 15 lines). Confidence raised to sure for the fault; how often it comes up still depends on an officer being inside someone else's locked room for a minute, which no round has shown.
+
+## Fix note
+
+Step 1 (the baton) is built, on the server only: `on_grabbed` in `crew_npc_security.dm` no longer tells at once. It sets a zero timer to a new `grab_felt`, which resolves the puller and tells nothing when the body is held by the arm by that same person (`world.time < in_hand_until && in_hand_of == puller.name`, set by `taken_hold_of` for a walk out and by the custody hold) or when it is in custody and `arrested_by` is the puller. Any other grab is told as before. A case in `tools/llm_crew/security.ts` keeps a grab that is told (a player's pull) an attack. Server compile to a side copy: 0 errors, 0 warnings. Not played; the simulator runs no server code, and no scenario walks an officer out.
+
+Step 2 (the welcome in `jobs/cargo.ts` and `jobs/guarding.ts`) is another worker's in this round. Step 3 is the owner's question and is not built.

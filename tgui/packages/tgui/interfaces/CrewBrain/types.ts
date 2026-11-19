@@ -484,6 +484,8 @@ export type BeatWarrant = {
   name: string;
   reason: string;
   minutes: number;
+  /** TRUE if the Captain declared it. Only then may it be served on a head of staff. */
+  byCaptain?: boolean;
   /** Where they were last seen, and when. */
   lastSeen: { place: string; at: number } | null;
   /** When it last looked for them where they were last seen. */
