@@ -324,6 +324,8 @@ export function readBook(
   self?: string,
 ): LedgerOrder[] {
   const orders: LedgerOrder[] = [];
+  // Orders that are themselves a lost crate ordered again: cargo orders one of those once only.
+  const reorders = new Set<number>();
   for (const line of lines) {
     const entry = line.trim().match(/^Order (\d+)\. (.*)$/);
     if (!entry) {
@@ -340,6 +342,9 @@ export function readBook(
         .map((part) => ({ crate: part[2], count: Number(part[1]) }));
       const order = newOrder(n, taken[1], taken[2], items, Number(taken[4]));
       order.own = !!self && taken[1] === self;
+      if (reorders.has(n)) {
+        order.reordered = true;
+      }
       orders.push(order);
       continue;
     }
@@ -389,6 +394,10 @@ export function readBook(
       order.unpacked = true;
     } else if (/^Lost: /.test(rest)) {
       order.reordered = true;
+      const again = rest.match(/\bOrdered again as order (\d+)\./);
+      if (again) {
+        reorders.add(Number(again[1]));
+      }
     }
   }
   return orders;
@@ -1250,6 +1259,19 @@ function syncTasks(brain: NpcBrain): void {
   if (atDoor && !answer) {
     addTask(brain, { kind: KNOCK, urgency: 'asked', source: 'own' });
   } else if (!atDoor && answer) {
+    // Out of its office after a knock there: the knock is answered. Cleared here, as well as when
+    // the walk's result comes in, since the task the result looks for is gone by then if the body
+    // was seen in the bay first, and the same knock sent it out again and again for a minute.
+    // A knock gone stale while it is still in the office leaves it where it is: it never came out.
+    if (
+      knock &&
+      brain.office &&
+      knock.room === brain.office &&
+      brain.location !== brain.office
+    ) {
+      brain.knockAt = null;
+      ledger.cameOutAt = brain.now;
+    }
     finishTask(brain, answer);
   }
 
@@ -1675,6 +1697,11 @@ function crateLost(
     it.crates?.some((crate) => numbers.includes(crate.number)),
   );
   let again: LedgerOrder | null = null;
+  // Its own crate, lost: it can never be opened now. Done with, so that it is not tried for the
+  // rest of the round and it may order for itself again.
+  if (order?.own) {
+    order.unpacked = true;
+  }
   if (order && !order.reordered) {
     // What kind each lost crate was, as the book has it: the same again, crate for crate.
     const kinds = new Map<string, number>();
@@ -1693,9 +1720,14 @@ function crateLost(
       costOf(brain, items),
     );
     again.own = order.own;
-    // Whoever cleared the order cleared this much of it already.
-    again.approved = order.approved;
+    // Whoever cleared the order cleared this much of it already. Not a big purchase, though: a
+    // technician's word that a crate is lost is all this rests on, so that goes to the Captain
+    // as any big order does.
+    again.approved = again.cost > BIG_PURCHASE_CR ? null : order.approved;
     order.reordered = true;
+    // Once by itself, and only once: if this one is lost too, whoever ordered is told, and it is
+    // theirs to order again. Each reorder its own once bought crate after crate.
+    again.reordered = true;
     ledger.orders.push(again);
     ledger.toWrite.push(BOOK.lost(order, written, again.n));
     ledger.toWrite.push(BOOK.taken(again));
@@ -1932,7 +1964,9 @@ export const QUARTERMASTER: Job = {
       const failed = heard.match(NOT_PLACED_WORDS);
       if (failed) {
         const order = ledger.orders.find((it) => it.n === Number(failed[1]));
-        if (order && order.state === 'given') {
+        // Only from whoever has the order: from anyone else it would be given again while it is
+        // being placed, and bought twice.
+        if (order && order.state === 'given' && order.givenTo === speaker) {
           order.state = 'new';
           order.givenTo = null;
           order.pick = null;
@@ -2005,7 +2039,7 @@ export const QUARTERMASTER: Job = {
       ledger.toWrite.push(BOOK.given(order, order.pick));
     }
   },
-  afterActing: (brain, act, task, ok, looped) => {
+  afterActing: (brain, act, task, ok, looped, details) => {
     const ledger = ledgerOf(brain);
     meetingActed(brain, act, ok, looped);
     // What it wrote is written. What it could not write waits for paper.
@@ -2036,6 +2070,18 @@ export const QUARTERMASTER: Job = {
     // Its own crate is open, and what was in it is out where it can be got at.
     if (task?.kind === UNPACK && act.tool === 'open_own_crate' && ok) {
       const order = ledger.orders.find((it) => String(it.n) === task.item);
+      if (order) {
+        order.unpacked = true;
+      }
+      ledger.paperRetryAt = 0;
+    }
+    // Cargo holds no such crate for it any more: lost, or opened or collected by someone else. It
+    // is done with, and paper is looked for again at once: its paper may be out already.
+    if (act.tool === 'open_own_crate' && !ok && details?.no_such_crate) {
+      const order = ledger.orders.find(
+        (it) =>
+          it.own && it.crates?.some((crate) => crate.number === act.number),
+      );
       if (order) {
         order.unpacked = true;
       }

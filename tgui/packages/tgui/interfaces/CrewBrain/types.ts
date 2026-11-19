@@ -481,6 +481,8 @@ export type ForcingWork = {
   jobs: { room: string; by: string; tries: number }[];
   /** For the Chief Engineer: each door it has sent an engineer to, and who asked for it. */
   sent: { room: string; to: string; askedBy: string; at: number }[];
+  /** For the Chief Engineer: when it told whoever asked that nobody from engineering had said a room in `sent` was open, by room. */
+  sentGivenUp?: Record<string, number>;
 };
 
 /** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */

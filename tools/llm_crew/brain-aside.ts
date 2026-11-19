@@ -86,6 +86,31 @@ const issue = () => 'none';
   add('just spoken to, nothing asked of it: it does not walk off', walk(Date.now()), null);
 }
 
+// ---- JOBS-06: a step aside that found nowhere to go holds back only that asking
+{
+  const b: any = janitor();
+  at(b, 3000, 'Cargo Bay', [monte]);
+  const first = Date.now() - 10000;
+  b.asideAsked = { by: 'Monte Mcmullen', handle: 'p5', at: first, done: true };
+  // The first asking's step aside failed: nowhere to step to.
+  b.failures.set(`stepping-aside:${first}`, { count: 1, until: Date.now() + 20000 });
+  b.asideAsked = { by: 'Monte Mcmullen', handle: 'p5', at: Date.now(), done: false };
+  add('asked again ten seconds after a step aside failed: it steps aside', drive(b, issue, speak)?.act?.tool, 'step_aside');
+}
+{
+  // Busy walking, with this very asking's step aside held back: its own walk is not sent again.
+  const b: any = janitor();
+  at(b, 3000, 'Cargo Bay', [monte]);
+  const asked = Date.now();
+  b.asideAsked = { by: 'Monte Mcmullen', handle: 'p5', at: asked, done: false };
+  b.failures.set(`stepping-aside:${asked}`, { count: 1, until: Date.now() + 20000 });
+  b.walking = true;
+  b.lastAct = { key: 'none:{"tool":"go_to","place":"Bar"}', tool: 'go_to', at: Date.now(), act: { tool: 'go_to', place: 'Bar' } };
+  const sent: string[] = [];
+  drive(b, (act: any) => { sent.push(act.tool); return act.tool; }, speak);
+  add('busy, the step aside held back: nothing is sent over its walk', sent, []);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
