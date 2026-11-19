@@ -757,8 +757,10 @@ function letInStep(
       say: `${caller.name.split(' ')[0]}, I am at the ${which}door${within || which ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
       needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
       // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
-      // for it would only get it opened a second time.
-      sayIf: () => !brain.doorHeld,
+      // for it would only get it opened a second time. Only this door counts: one held to let it
+      // out of the room behind it, or the door of some other room, is no way in (BRAIN-03).
+      sayIf: () =>
+        !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door),
     };
   }
   if (brain.now - asks.at < LET_IN_WAIT_DS) {
