@@ -88,4 +88,4 @@ Not seen in a round log.
 ## How to test the fix
 
 - A table in `tools/llm_crew/` running `guardOverhears` with the rows above, wanting: the first three "no verdict, voucher Ann Moss" where Ann is the Quartermaster and the line names the quartermaster, or "no verdict" otherwise; "Donna let me in" go; "the QM sent me" voucher the Quartermaster.
-- The `secure` scenarios of the simulator must still pass.
+- `bun tools/llm_crew/sim.ts quiet vouch` and `quiet evict` must still pass.

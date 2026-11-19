@@ -101,5 +101,5 @@ So the janitor sets off for the Bar thinking its order from cargo is there (when
 ## How to test the fix
 
 - Add a table to `tools/llm_crew/` (beside `addressing.ts`) that runs `workInWords` and the janitor's `readsMessage` over the lines above and wants `clean <room>` for each, and wants nothing for "thanks", "how is it going", "what you asked for has come and is in the Cargo Lobby".
-- Simulator: a scenario where the Captain sends the janitor "clean the bar pls" by PDA with the model dead; the janitor should go to the Bar with a mess task, not a supplies trip.
+- Simulator (new scenario, or an addition to `dead`): a scenario where the Captain sends the janitor "clean the bar pls" by PDA with the model dead; the janitor should go to the Bar with a mess task, not a supplies trip.
 - Next round, grep `crew_brain.log` for `your PDA says what you asked for has come` and check each against `pda.log`: it should only follow the head's fixed message.
