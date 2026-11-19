@@ -52,8 +52,8 @@ Read from the code and the base helper. Not seen in a round.
 
 ## How to fix it
 
-1. In `on_pda_message`, replace `get_atom_on_turf(computer) != pawn` with a test that the PDA is carried by the body wherever the body is: `get_atom_on_turf(computer, /mob/living) != pawn` (the `stop_type` form returns the first living mob on the way up), or a small loop up `computer.loc` until it meets `pawn` or a turf.
-2. The same pattern is used for the order book (`order_book_sheets`, `get_atom_on_turf(sheet) == pawn`, see SUP-03) and may be used elsewhere; grep `get_atom_on_turf(` in `code/modules/llm_crew/` and use the same helper (`crew_npc_carries(thing)`) in each.
+1. In `on_pda_message`, replace `get_atom_on_turf(computer) != pawn` with a test that the PDA is carried by the body wherever the body is: `get_atom_on_turf(computer, /mob/living) != pawn`. The `stop_type` form (`turfs.dm:116` to `:128`) returns the first living mob met on the way up, and null if there is none, so a PDA in a pocket, in hand or in the body's own bag passes, and a PDA dropped loose in the same locker does not. The base game itself shows the message to `computer.loc` if that is a living mob (`messenger_program.dm`, `receive_message`), with no test of where that mob stands, so this is what a player in a locker gets.
+2. The same pattern is used for the order book (`order_book_sheets`, `crew_npc_quartermaster.dm:69`, `get_atom_on_turf(sheet) == pawn`, see SUP-03): a Quartermaster in a locker loses sight of its own book's sheets for as long. Put the test in one helper (`crew_npc_carries(thing)`) and use it in both. Leave `crew_npc_cleaning.dm:574` alone: `ismob(get_atom_on_turf(device))` asks whether anyone is carrying the gear, a different question.
 3. With CORE-02's fix (keep messages that come while the body cannot read them), a message that comes while the body is unconscious in the pipes is read when it wakes.
 
 ## How to test the fix

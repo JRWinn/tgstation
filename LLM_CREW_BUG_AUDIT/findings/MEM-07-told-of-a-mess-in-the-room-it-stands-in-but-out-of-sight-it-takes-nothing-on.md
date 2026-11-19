@@ -3,13 +3,14 @@ id: MEM-07
 title: Told of a mess in the room it is standing in but cannot see from where it stands, a janitor takes nothing on, even from its head
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:205, code/modules/llm_crew/crew_npc_cleaning.dm:240
-fix: In takeToldWork take the work in the room it stands in as told work like any other, and let the janitor's look-about rule close it if there is nothing there
+files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:205, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:423, code/modules/llm_crew/crew_npc_cleaning.dm:240
+fix: Drop the early return in takeToldWork for the room it stands in, but only together with DESK-08's look-round, or the task closes at once and the janitor tells its head the mess is cleaned up
 ---
 
 ## What is wrong
@@ -45,7 +46,7 @@ The comment's other half, "if it does, it has the task already, and this only sa
 
 `code/modules/llm_crew/crew_npc_cleaning.dm:240`, `remember_messes`: a mess is remembered only from `in_sight`.
 
-`jobs/janitor.ts`, `syncTasks`: a told-of clean task with no remembered mess is closed once the janitor "has gone there, looked about, and seen none" (`lookedAbout`: standing in the room for `LOOK_ABOUT_DS`). Standing in the room already, it would close after that wait, not after walking the room.
+`jobs/janitor.ts`, `syncTasks`: a told-of clean task with no remembered mess is closed once the janitor "has gone there, looked about, and seen none" (`lookedAbout`: `brain.now - brain.inPlaceSince >= LOOK_ABOUT_DS`). `inPlaceSince` is when it came into the room, so a janitor that has been standing there five seconds or more would have the task closed at the very next sync, and the driver would then owe its head word (`sayDone`: "the mess in the Central Primary Hallway is cleaned up"). That is why the early return cannot simply go.
 
 ## How it was found
 
@@ -54,11 +55,20 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 ## How to fix it
 
 1. In `takeToldWork`, drop the early return. Take the work on as told work (`source: 'told'`, `askedBy`), as for any other room.
-2. Then the janitor's own closing rule needs to mean "looked about": in `jobs/janitor.ts` `syncTasks`, a told-of clean task in the room it is in should not close on `LOOK_ABOUT_DS` of standing still alone. Have it walk the room first. The simplest general way: give the task a `via`-like note of what was said ("down by the Bridge" names another room: walk towards that room's door, `go_to_door`), or, simpler still, use the server's `explore` tool limited to the current room, and close the task when the body has stood at a few spots of it and seen no mess. If that is too much for now, step 1 alone still helps: the janitor at least shows the task, and if the mess is within sight of anywhere it walks in the next minute the server remembers it.
+2. Then the janitor's own closing rule needs to mean "looked about": in `jobs/janitor.ts` `syncTasks`, a told-of clean task in the room it is in should not close on `LOOK_ABOUT_DS` of standing still alone. Have it walk the room first. The simplest general way: give the task a `via`-like note of what was said ("down by the Bridge" names another room: walk towards that room's door, `go_to_door`), or, simpler still, use the server's `explore` tool limited to the current room, and close the task when the body has stood at a few spots of it and seen no mess. This is the same look-round DESK-08 asks for (a told mess in a big room closed after five seconds at the door, with "it is cleaned up" said); build MEM-07 with DESK-08 or after it, not before. Step 1 alone is worse than today: checked by script, a told clean task in the room the janitor has stood in for a while is `done` at the next `syncTasks` and `wordOwed` holds its head, so it would say at once, to its head's face, that a mess it never saw is cleaned up.
+2a. Until the look-round exists, leave the early return as it is, but stop the model being told to promise: the janitor's `whenAsked` line "If they tell you of a mess somewhere, tell them you will see to it." could say instead, for its own room, that it sees no mess from here and will look about. That is wording only, and optional.
 3. A question for the owner: should "where" carry a hint inside a big room ("by the Bridge")? A room name is all the window has today.
 
 ## How to test the fix
 
-- A table of cases: the case above gives an open `clean` task in the Central Primary Hallway with `askedBy` Zim Fire and urgency `emergency`.
+- A table of cases: the case above gives an open `clean` task in the Central Primary Hallway with `askedBy` Zim Fire and urgency `emergency`; after one more `syncTasks` with the janitor long in the room and no mess seen, the task is still open and `wordOwed(brain)` is empty (today's look-about rule fails this row).
 - Simulator: a scenario with a long hallway where the mess is more than seven tiles from where the janitor is told of it; the janitor walks to it and cleans it.
 - In a round: stand at one end of a hallway with a janitor, have a mess at the far end, tell the janitor of it.
+
+## Check
+
+Checked by Opus 5.5. The guard quoted at `tasks.ts:205` is what the code says today, and has been since the first crew commit (82810bef671). It applies only to the job's own kinds (`own &&`), so a superior's look order is not touched. `remember_messes` (`crew_npc_cleaning.dm:240`) keeps only messes from `in_sight`, and `view(CREW_NPC_VISION_RANGE, ...)` is what it is fed; MetaStation's `Central Primary Hallway` area (`hallway.dm:27`) is far longer than seven tiles. The janitor's `whenAsked` (`jobs/janitor.ts:763`) does tell the model to say it will see to it. Nothing in the change log or the plans speaks of the guard.
+
+Ran a throwaway script (bun, in the scratchpad): `janitor()` in the Central Primary Hallway with Zim Fire in view; `takeToldWork(b, 'a mess that needs cleaning', 'Central Primary Hallway', 'Zim Fire', true)` gave null, `workInWords` on the quoted line gave null, and `b.tasks` stayed empty, while the same call for the Bar gave `clean Bar emergency`. Confirmed.
+
+Then checked the proposed fix by adding the told task by hand (`addTask` with `source: 'told'`, `askedBy: 'Zim Fire'`) to a janitor that had been in the hallway 50 seconds: at the next sync the task was `done` and `wordOwed` returned Zim Fire. So step 1 on its own turns "takes nothing on" into "tells its head the mess is cleaned up", which is worse. The fix line and step 2 now say it must come with DESK-08's look-round, and effort is raised to medium for that reason. Severity medium stands.
