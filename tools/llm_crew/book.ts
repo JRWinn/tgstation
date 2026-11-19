@@ -284,6 +284,17 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('but a big reorder does not carry the Captain\'s yes over: it is asked again', again?.approved, null);
 }
 
+// CARGO-14: "for <name>" of someone on the Quartermaster's PDA list is who it is for, not a crate.
+{
+  const qm = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+  qm.budget = 2000;
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Paige Rags', job: 'Janitor' }];
+  QUARTERMASTER.readsMessage(qm, 'Hop Kins', 'I need to order a crate of replacement lights for Paige Rags, please.', 5100, 'Head of Personnel');
+  add('"lights for Paige Rags" orders lights only', qm.ledger?.orders.at(-1)?.items, [{ crate: 'Replacement Lights', count: 1 }]);
+}
+
 // QM-05 (words only, not yet said): the Quartermaster sending a technician to let a workmate out.
 {
   const S = await import(ROOT + 'jobs/supply');

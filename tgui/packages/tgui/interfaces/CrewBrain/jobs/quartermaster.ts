@@ -171,6 +171,21 @@ function firstName(name: string): string {
   return name.split(' ')[0];
 }
 
+/**
+ * The kinds of crate a line asks for, and how many, read as a technician reads them: "for <name>"
+ * of anyone on its PDA list is who it is for, not a kind of crate (CARGO-14).
+ */
+function kindsAskedFor(
+  brain: NpcBrain,
+  text: string,
+): { crate: string; count: number }[] {
+  return itemsAskedFor(
+    text.toLowerCase(),
+    brain.orderable,
+    brain.pdaPeople.map((person) => person.name),
+  );
+}
+
 /** Writes a short list the way it is said: "a", "a and b", "a, b and c". */
 function listed(names: string[]): string {
   return names.length < 2
@@ -418,7 +433,7 @@ function takeOrder(
   said: string,
 ): void {
   const ledger = ledgerOf(brain);
-  const items = itemsAskedFor(said.toLowerCase(), brain.orderable);
+  const items = kindsAskedFor(brain, said);
   if (items.length === 0) {
     // Only an outright order for something it cannot get is answered. Anything else is talk, and
     // so is a line about an order in the book by its number: "no to order 3".
@@ -564,7 +579,7 @@ function readAnswer(
   const words = text.split(/\s+/).filter(Boolean).length;
   // A crate named is a new order, unless it is only the kind the order asked about is for, in a
   // line that orders nothing: "yes, the paper one" is a yes to the paper order (PARSE-06).
-  const named = itemsAskedFor(text.toLowerCase(), brain.orderable);
+  const named = kindsAskedFor(brain, text);
   const newKind =
     named.length > 0 &&
     (sortLine(text) === 'order' ||
@@ -626,7 +641,7 @@ function askWhatWasMeant(
     !order ||
     (!plainly &&
       (!ABOUT_ORDER_WORDS.test(text) ||
-        itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0)) ||
+        kindsAskedFor(brain, text).length > 0)) ||
     (order.unclear ?? 0) >= UNCLEAR_ASKS
   ) {
     return false;
@@ -703,9 +718,7 @@ function ordersMeant(
   const captain = /captain/i.test(job);
   const theirs = (order: LedgerOrder) => captain || order.from === from;
   const named = numbersNamed(text);
-  const kinds = itemsAskedFor(text.toLowerCase(), brain.orderable).map(
-    (item) => item.crate,
-  );
+  const kinds = kindsAskedFor(brain, text).map((item) => item.crate);
   let found: LedgerOrder[];
   if (named.length > 0) {
     found = ledger.orders.filter((order) => named.includes(order.n));
@@ -781,7 +794,7 @@ function answerAbout(
   if (
     !/\border/i.test(text) &&
     numbersNamed(text).length === 0 &&
-    itemsAskedFor(text.toLowerCase(), brain.orderable).length === 0
+    kindsAskedFor(brain, text).length === 0
   ) {
     return;
   }
