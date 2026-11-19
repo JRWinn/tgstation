@@ -56,7 +56,7 @@ It is reached only from security's PDA reader. `mendWords` (`jobs/security.ts:17
 
 ## How it was found
 
-Read from the code against the plan and the change log. No model was called.
+Read from the code against the plan and the change log. No model was called. `desk.ts` and the callers of `mendWords` were read. The other rows of the table were found by searching for each job's word lists, not by reading each reader end to end, so the right-hand column is what the code suggests, not what a round showed: whoever builds this should try each with one misspelt line first.
 
 ## How to fix it
 
