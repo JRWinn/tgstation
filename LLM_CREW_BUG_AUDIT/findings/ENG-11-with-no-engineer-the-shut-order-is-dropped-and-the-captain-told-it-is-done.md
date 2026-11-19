@@ -78,7 +78,7 @@ Read from the code. Not seen in a round.
 
 ## How to test the fix
 
-- `tools/llm_crew/engine.ts`: a Chief Engineer with no engineer in `peopleInView` or `pdaPeople`, reading integrity 90: the Captain's line must say there is no engineer, and the shut order must still be there after the sync.
+- `tools/llm_crew/engine.ts`: a Chief Engineer with no engineer in `peopleInView` or `pdaPeople`, reading integrity 90: the Captain's line must say there is no engineer, and `engineWords` must not say "has been shut off".
 - Same brain, then an engineer added to `pdaPeople`: the next plan is the PDA "Emitters off, now".
 - Same brain with no engineer: a staff meeting must still be called on time (guards against the fix holding meetings back).
 
