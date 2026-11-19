@@ -505,10 +505,21 @@
 		blocked_tries -= arrived_in
 		action_result(tool, TRUE, "You arrive in [arrived_in].", list("place" = arrived_in))
 	else
+		// Fire doors shut across the way are not a locked room. It is not shut in, only held up, and
+		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
+		var/list/stop_details = list("place" = arrived_in)
+		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
+		// Each way to a room it knows that comes to nothing adds up to being shut in. A room that is
+		// locked to it does not count: failing to get into one says nothing about getting out of here.
+		var/area/goal_room = isturf(target) ? get_area(target) : null
+		var/getting_out = reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room))
+		if(getting_out)
+			note_way_out_failed()
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
 		// Only when the way was the trouble: a walk cut short by a fall, or by someone in the way, says
-		// nothing about the room (LIFE-01).
-		if(tool == CREW_TOOL_GO_TO && goal && (reason == CREW_NPC_NO_WAY || reason == "it was taking too long"))
+		// nothing about the room (LIFE-01). Nor does a walk that failed because the body is shut in
+		// where it stands: the room it was going to was never the trouble (KNB-14).
+		if(tool == CREW_TOOL_GO_TO && goal && (reason == CREW_NPC_NO_WAY || reason == "it was taking too long") && !(getting_out && shut_in))
 			blocked_places[goal] = world.time
 			if(reason == CREW_NPC_NO_WAY)
 				blocked_tries[goal]++
@@ -522,15 +533,6 @@
 		// Somewhere new that turned out not to be reachable after all is not tried again.
 		if(tool == CREW_TOOL_EXPLORE && isturf(target))
 			unreachable_places[get_area_name(target, TRUE)] = TRUE
-		// Fire doors shut across the way are not a locked room. It is not shut in, only held up, and
-		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
-		var/list/stop_details = list("place" = arrived_in)
-		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
-		// Each way to a room it knows that comes to nothing adds up to being shut in. A room that is
-		// locked to it does not count: failing to get into one says nothing about getting out of here.
-		var/area/goal_room = isturf(target) ? get_area(target) : null
-		if(reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room)))
-			note_way_out_failed()
 		action_result(tool, FALSE, "You stop on the way to [goal]: [why].[fire_doors] You are in [arrived_in].", stop_details)
 
 /**
