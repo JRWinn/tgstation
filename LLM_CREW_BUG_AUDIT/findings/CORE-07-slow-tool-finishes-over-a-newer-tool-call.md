@@ -4,9 +4,10 @@ title: A tool that takes time to choose (explore, force_door, go_to_door) starts
 kind: bug
 severity: medium
 effort: small
-confidence: sure
-status: found
+confidence: likely
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_tools.dm:265, code/modules/llm_crew/crew_npc_tools.dm:36, code/modules/llm_crew/crew_npc_tools.dm:65, code/modules/llm_crew/crew_npc_forcing.dm:105, code/modules/llm_crew/crew_npc_doors.dm:298
 fix: Count accepted tool calls on the controller, have each slow tool note the count when it starts and, when it is done choosing, drop its walk and say nothing if the count has moved on
@@ -22,7 +23,9 @@ While they sleep, the window can send another tool call, and the server takes it
 
 The guards that are there stop only a second call of the same tool (`choosing_where_to_explore`, `finding_door_to_force`, `finding_door`). There is an `errand_serial` for errands, but nothing like it covers tool calls as a whole.
 
-One concrete case. A janitor with nothing to do is told to `explore`. `pick_somewhere_new` starts testing routes. The Captain walks up and says "move, please" in the doorway; the window sends `step_aside`. `tool_step_aside` starts a walk to a spot a tile away. Half a second later the route test comes back and `tool_explore` calls `start_walk(destination, CREW_TOOL_EXPLORE, ...)`. The janitor walks off to explore (or, because of CORE-01, keeps heading for the step-aside spot while the walk leaf waits for the far room). The step aside is never reported, so the window's `lastAct` for it is only dropped after `LOST_ACT_MS` once the body stops walking, and the step goes into back-off as a failure.
+How often the window can send that second call: `drive()` (`driver.ts`) sets `brain.driveAfter` to 2.5 seconds (`SETTLE_MS`) after any step it issues, 5 seconds (`IDLE_GAP_MS`) after an idle `explore`, and issues nothing before then, `step_aside`, `orderToDrop` and `dropToLeave` included. So through `drive()` alone the race needs the route tests to take longer than that, which happens only when the server is lagging or the pathfinder is backed up. The ungated way in is a tool the model agrees to when someone speaks: `brain.ts` runs those with `runTool` at once (around line 1512, a `go_to` to lead someone, a `walk_to`), and the `hears` request a few lines later (`runTool(brain, request)`). Those land whenever the model's answer comes back, with no regard to `driveAfter`.
+
+One concrete case. A janitor in a job step is sent to `go_to_door` the Bar, or told to `explore`. While the route tests run, a visitor who spoke a few seconds earlier gets the model's answer: the janitor agrees to lead them to Medbay, and `runTool` sends `go_to`. `tool_go_to` starts a walk to Medbay. The route test comes back and the older tool calls `start_walk` for its own target, replacing the walk to Medbay; the visitor is never led and no result for `go_to` comes. The same with a step aside when the server is slow: the window sends `step_aside`. `tool_step_aside` starts a walk to a spot a tile away. The route test comes back and `tool_explore` calls `start_walk(destination, CREW_TOOL_EXPLORE, ...)`. The janitor walks off to explore (or, because of CORE-01, keeps heading for the step-aside spot while the walk leaf waits for the far room). The step aside is never reported, so the window's `lastAct` for it is only dropped after `LOST_ACT_MS` once the body stops walking, and the step goes into back-off as a failure.
 
 ## Where
 

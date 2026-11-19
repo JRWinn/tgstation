@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:534, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:574, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:338
 fix: Call no meeting while the head is shut in, and once the gathering wait has run out with the head still not in place, end the meeting so its staff are told by PDA and send their reports
@@ -88,3 +89,7 @@ Read from the code, not seen in a round. How often a head is shut in when a meet
 - A scenario where the head's `go_to` to the meeting room always fails: pass if the janitors are sent "the staff meeting is over" about three minutes after the call and send their reports by PDA.
 - Type check from `tgui/`.
 - In a round's `pda.log`, the time between a head's "Staff meeting in the" and its "the staff meeting is over" should never be more than about four minutes when its staff have arrived.
+
+## Check
+
+Read `syncMeeting`, `inPlace`, `awaited`, `endMeeting`, `reportToCaptain` and the PDA-calling part of the meeting step (`head.ts` about 700-760) in `jobs/head.ts`; `syncMeetings`, `readSummons` and `planMeetings` in `jobs/meetings.ts`; the shut-in hold on walks in `driver.ts:769-773`. The quotes are what the code says today. The PDA calls and the Captain's copy go out before the `go_to` step, so a shut-in head does call everyone; with the head not `inPlace`, neither branch of the gathering block can be taken, and the only ends left are `MEETING_MAX_DS` (4200) on the head's side and `SUMMONS_STANDS_DS` (4200) or `headGone` (needs a report given) on the staff side. `readSummons` turns "the staff meeting is over" into `missed` even when the summons has just lapsed, so the PDA report does follow. The fix is right for the PDA heads: the new branch sits inside `everyoneCalled`, so for heads that call aloud (Quartermaster, Chief Engineer, Head of Security), whose staff are never called until the head is in the room, it changes nothing. One note on step 2: put the new `else if (waited && !inRoom)` after the existing one, so a meeting with nobody there still closes the old way. Searched the change log and plans for shut-in heads and meetings that never began: nothing covers it. Not run; not seen in a round.

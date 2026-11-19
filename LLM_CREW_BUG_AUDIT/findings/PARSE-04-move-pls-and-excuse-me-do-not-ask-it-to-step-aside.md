@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/aside.ts:16, tgui/packages/tgui/interfaces/CrewBrain/jobs/aside.ts:26
-fix: Match ASIDE_WORDS against the whole short line for move, excuse me and coming through, accept u and pls, and refuse out of the way and you move when an object follows or the speaker speaks of themselves
+fix: Match ASIDE_WORDS against the whole short line for move, excuse me and coming through, accept u and pls, and refuse you move when an object follows and out of the way when a thing is named before it
 ---
 
 ## What is wrong
@@ -71,11 +72,21 @@ Not seen in a round log. The crew's own ask (`driver.ts:481`, "Excuse me, X, cou
 
 1. Split the reader in two: words that are an ask wherever they stand ("step aside", "stand aside", "make way", "let me past/through/by/pass/thru", "move over", "scoot over", "budge up", "get this past you", "you are in my way", "you're in the way", "coming through"), and words that are an ask only when they are the whole line, give or take a name, "please"/"pls"/"plz" and punctuation ("move", "move it", "excuse me", "step back", "out of the way", "outta the way").
 2. For "you move": allow `you|u`, and refuse it when a noun follows the verb ("move the crate", "move that", "move it to"): test `\b(could|can|would|will) (you|u) (please |pls )?move\b(?!\s+(the|that|this|it\s+to|those|these|a|an)\b)`.
-3. For "out of the way": refuse it when the line begins with "I", "I'll", "I will", "I moved", "we": the speaker is talking of themselves.
-4. Keep it code only, as now: it must work with the model down.
+3. For "out of the way": refuse it when a thing, not the hearer, is what goes out of the way: a word such as "the", "that", "this", "it", "my", "those", "these", "a" and a noun stand between a verb and "out of the way" ("moved the bucket out of the way", "put it out of the way"). Do not refuse on a line that merely begins with "I": "I need you out of the way" and "I can't get past, out of the way please" are asks. "Get out of the way" and "move out of the way" match today and must keep matching.
+4. Keep it code only, as now: it must work with the model down. It is the only thing that moves the body: the model's answer cannot ask for `step_aside` (that tool is asked for only by code, `prompt.ts:129`).
 
 ## How to test the fix
 
-- Add a table to `tools/llm_crew/` that runs `asideOverhears` on a fixture brain with `said_to: 'me'` for each line above and checks `brain.asideAsked`.
+- Add a table to `tools/llm_crew/` that runs `asideOverhears` on a fixture brain with `said_to: 'me'` for each line above and checks `brain.asideAsked`. There is no such table yet; copy the shape of `tools/llm_crew/addressing.ts` and use `makeBrain` from `fixtures.ts`. Give the event a `handle` (or set `brain.handles[speaker]`), or `asideOverhears` returns before setting anything. Rows wanting an ask: every "Missed" line above, plus "get out of the way", "move out of the way", "I need you out of the way", and the crew's own line from `driver.ts:481`. Rows wanting none: "I moved the bucket out of the way", "I'll move the crate out of the way", "can you move the crate to the bay", and an ordinary "excuse me, where is the bar?".
 - `bun tools/llm_crew/sim.ts quiet aside` must still pass (the crew's own ask).
 - Next round, grep `game.log` for `step_aside` and check each against what was said in the lines before it.
+
+## Check
+
+Checked by Opus 5.5. The quotes at `aside.ts:16` and `aside.ts:26` are what the code says today. `asideOverhears` is called from `brain.ts:662` for every line a person says, after `saidTo` has set `said_to` (`brain.ts:610`); nothing else reads a spoken ask to step aside. The step itself comes only from `asideStep` (`driver.ts:279`), and the model's answer cannot ask for `step_aside`. So the word list is the whole reader, as the finding says.
+
+Ran the expression, copied from `aside.ts:16`, with bun on lower-cased lines. False: "excuse me", "coming through", "move", "move pls", "pls move", "can u move", "you are in my way", "let me pass", "let me thru", "scoot over". True: "i moved the bucket out of the way", "can you move the crate to the bay", and the crew's own line. "get out of the way" and "move out of the way" are true, so the plainest asks do work.
+
+How much it matters: a player who is not hauling can usually walk through a crew body anyway (base mob swap, `MobBump` in `code/modules/mob/living/living.dm`), so the missed asks bite mostly on someone pulling a crate or a cart. The wrong asks cost one step and a 15 second hold. Medium stands. Nothing in `LLM_CREW_CHANGELOG.md` or the plans changes the word list; the memory note "loose wording for orders" says the owner wants loose wording understood.
+
+Changed fix step 3: refusing "out of the way" whenever the line begins with "I" would also refuse "I need you out of the way". It now refuses when a thing is named between the verb and "out of the way".

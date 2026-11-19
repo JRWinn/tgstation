@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1715, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1094, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:880
-fix: Give callOllama a temperature argument and pass 0 for readOrder, and take the minutes only when a number of minutes is written in the message
+fix: Give callOllama a temperature argument and pass 0 for readOrder, and read the minutes from the message with MINUTES_SAID instead of taking the model's number
 ---
 
 ## What is wrong
@@ -63,9 +64,17 @@ Read from the code. Not run against the model (the task forbids model calls), so
 ## How to fix it
 
 1. Give `callOllama` a `temperature` parameter, defaulting to `TEMPERATURE`. In `readOrder` pass `0`. Keep `num_ctx` the same for all calls, so Ollama does not reload the model between them.
-2. In `readReading`, keep `minutes` only when the message has a number or a number word next to "minute", "min" or "m" (the same reading `security.ts` already does for code-read orders, `MINUTES_SAID` at `security.ts:291`); otherwise use 0, so the code's own default applies.
+2. In `readReading` (same file as `MINUTES_SAID`, `security.ts:291`, so no export is needed), do not take the model's `minutes` at all: read `text.match(MINUTES_SAID)` the way `readWarrant` does (digits, or `NUMBER_WORDS.indexOf(word) + 1`, capped at `MINUTES_MOST`), and use 0 when it does not match, so the code's own default term applies. That also stops a number the model got wrong when the message does give a time. Drop `minutes` from the schema and the prompt in `buildReading`, which shortens the reader's prompt.
 3. Leave the choice of job at 0.7: there the variety is wanted (`buildChoice` shuffles for the same reason).
 
 ## How to test the fix
 
 A table of messages for `readReading` in `tools/llm_crew/`: replies with minutes for messages with and without a time in them; only those with a time keep it. With a free GPU (see the owner's note on model tests), run the reader 10 times on each of a few hard messages ("do not arrest Dana Reyes", "bring Pun Pun to me") at 0 and at 0.7 and compare how often the kind changes. Run the type check.
+
+## Check
+
+Read `readOrder` (`brain.ts:1082`), `callOllama` (`brain.ts:1693`, one `temperature: TEMPERATURE` = 0.7 for every call), `buildReading`, `readReading` and `readingAsOrder` (`security.ts:832-898`), `readWarrant` and `MINUTES_SAID` (`security.ts:291-340`), and `deskUnread` and `deskRead` (`desk.ts:660-707`). The quotes are what the code says today.
+
+I ran a throwaway bun script (outside the repo) that imports `readReading` and `readingAsOrder` by absolute path. For the message "Bring that clown Pun Pun to me when you get a chance, he took my hat" and the reply `{"kind":"warrant","name":"Pun Pun","minutes":10}`, it returns `minutes: 10` and the order "Warrant for Pun Pun, 10 minutes.". So minutes the message never gave are taken. `deskUnread` sends every head's message that code could not read to the reader, so the case can happen. How often 0.7 flips the kind was not measured (that would need the model), so the confidence stays `likely`.
+
+The changelog entry (M5, line 324) that built the reader says nothing about temperature or minutes, so neither was chosen on purpose. One thing limits the harm: `deskRead` sends the sender the fixed words back, so a wrong reading can be seen and pardoned. Medium and small stand. Fix 2 was mended to read the minutes from the message with `MINUTES_SAID` and stop taking the model's number at all.

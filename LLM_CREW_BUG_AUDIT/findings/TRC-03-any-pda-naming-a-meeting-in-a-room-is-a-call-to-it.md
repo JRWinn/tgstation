@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:266, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:65, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:77, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:587
 fix: In readSummons take a call only in the words a head calls by (Staff meeting in the X now) and take meeting is over only from a summons already standing from that sender
@@ -84,3 +85,15 @@ Read from the code, then checked with a throwaway bun script (kept outside the r
 
 - `tools/llm_crew/addressing.ts` or a new table: feed `readSummons` the head's two lines (both TRUE) and "Did you get to the meeting in the Bar Lounge?", "Good work at the meeting in the Bar Lounge.", "Tell me when the meeting is over." from the Captain (all FALSE, `brain.summons` unchanged).
 - Simulator: a janitor working, sent the Captain's "Did you get to the meeting in the Bar Lounge?". It should not send "On my way" and should not leave its work.
+
+## Check
+
+Checked by Opus 5.5. `readSummons` (`meetings.ts:262-300`), `CALL_WORDS` (`meetings.ts:65`), `OVER_WORDS` (`meetings.ts:77`) and the call in `brain.ts:587` are as quoted. `answersTo` (`hierarchy.ts:111-117`) is TRUE for a Captain sender for every job but the Captain's own.
+
+Ran it: a throwaway bun script in the scratchpad imported `jobs/meetings.ts` and called `readSummons` with a bare brain (`places` holding the Bar Lounge), `from` "Zim Fire", job "Captain". "Did you get to the meeting in the Bar Lounge?" (janitor) and "Good work at the meeting in the Bar Lounge." (Head of Personnel) both returned TRUE with a summons for the Bar Lounge; "Tell me when the meeting is over." returned TRUE with room "" and `missed: true`. The head's own call line returned TRUE, as it should.
+
+Followed the summons on: `syncMeetings` adds an `emergency` meeting task; `planMeetings` sends "On my way to the Bar Lounge." first, then walks; for `missed` with no room it sends "Sorry I missed the meeting. ..." by PDA. With the Captain as `by`, `headGone` needs `summons.said`, which never comes, so the summons stands until `SUMMONS_STANDS_DS` (`meetings.ts:50`, 4200 ds).
+
+Our own PDA lines with these words are only the two the write-up names: every PDA `toTell` line is sent word for word (`driver.ts:452`, the `message` act carries `tell.line`), so step 2's match on the head's exact over line is safe. Nothing in the change log or plans covers `CALL_WORDS` or `readSummons`.
+
+Severity medium (needs a player to write one of these words to a crew member, then costs up to seven minutes of its work) and effort small (two patterns in `readSummons`) both stand.

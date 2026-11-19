@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:422, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1558, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1622, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:486
 fix: Mark a finished task reported only when the line said names its asker and was the done line or holds the done words, and say one done line per asker
@@ -63,7 +64,7 @@ Read from the code. Not seen in a round: the log does not record `reported`, and
 ## How to fix it
 
 1. Change `afterSaying(brain)` to `afterSaying(brain, said: string[])`, given the texts that were said this turn.
-2. Mark a task reported only if one of the lines calls on its asker by name (`callsOn` from `addressing.ts`, exported; or the first name as a word, as the done line does) and holds the done words (`job.sayDone?.(task)`, or "done", "finished", "clean" as a fallback test). A line that is the driver's done line for that task (the `mustSay` equals the step's `say`) always counts.
+2. Mark a task reported only if one of the lines names its asker (the first name as a word, as the done line and `think`'s `spokeTo` test at `brain.ts:1543` do; `callsOn` in `addressing.ts:65` is stricter and not exported; for an asker who is the Captain or a head, accept the title too, since the model is apt to say "Captain, ...") and holds the done words (`job.sayDone?.(task)`, or "done", "finished", "clean" as a fallback test). A line that is the driver's done line for that task (the `mustSay` equals the step's `say`) always counts. A done line the model words badly leaves the task owed. The driver then says it again once its backoff has passed (`fail(brain, step.key)` at `driver.ts:806`), so this cannot spam.
 3. In both callers in `brain.ts`, pass the texts of the `say` actions that went out (and `[mustSay]` in the `catch`).
 4. Leave the driver's one-line-per-turn as it is: with the fix, the second asker's task stays owed, and the next turn says "Zim, that is done." 4 seconds later.
 5. Keep jobs that set `task.reported` themselves (`cargo.ts`, `orders.ts`, `pickups.ts`) as they are.
@@ -71,3 +72,11 @@ Read from the code. Not seen in a round: the log does not record `reported`, and
 ## How to test the fix
 
 A sim scenario in `tools/llm_crew/`: a janitor with two finished told-of tasks from two people, both in view. Before the fix `game.log` has one done line; after it, two, one to each. A second scenario: a finished task for someone in view and a newcomer walking in; the greeting must not mark the task reported, and the done line follows. Run the type check.
+
+## Check
+
+Read `wordOwed`, `afterSaying` and `describeWork` (`tasks.ts:408-470`), the done step in `nextStep` (`driver.ts:485-497`), the busy gate in `drive` (`driver.ts:725-744`), the say path with its backoff (`driver.ts:804-809`), and both callers in `think` (`brain.ts:1558`, `1622`). The quotes are what the code says today. The only other places that set `task.reported` are the job files the write-up names (cargo, orders, pickups), and none of them touches a janitor's told task.
+
+I ran a throwaway bun script (outside the repo) that imports `wordOwed` and `afterSaying` by absolute path. A brain has two done tasks, asked by Ann Lee and Zim Fire, both in view. `wordOwed` gives 2 before one `afterSaying(brain)` call and 0 after it, so one line clears both. The driver offers one done line per turn (`wordOwed(brain)[0]`), so the second asker is never told.
+
+Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this. Medium and small stand. The fix was mended: name matching by first name or title, since `callsOn` is not exported, and a note that a missed match is retried under backoff.

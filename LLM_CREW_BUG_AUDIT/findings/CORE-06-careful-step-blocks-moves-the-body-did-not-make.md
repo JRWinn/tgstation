@@ -4,9 +4,10 @@ title: The careful step near slippery things blocks every move of the body, incl
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_senses.dm:70, code/game/atoms_movable.dm:761, code/game/atoms_movable.dm:884, code/game/atoms_movable.dm:671
 fix: In mind_its_step, only slow down for a step the body takes itself, and return at once when the move comes from a pull, a throw or being carried
@@ -25,7 +26,7 @@ For a pull this breaks the grip. The puller has already stepped. The pulled body
 
 One concrete case. An officer arrests a cargo technician and walks it to the brig by the arm (`custody_phase`, the officer pulling). The hallway has a bar of soap on it that the technician saw a minute ago, so it is in `slippery_seen`. As the officer drags it onto that tile, the technician's own handler blocks the move and switches it to walk. The officer is now two tiles ahead with nothing in hand. Its walk to the brig fails on `CREW_NPC_GRIP_LOST` or its own lost-hold check, and the arrest reports the prisoner got away. The same happens to anyone walked out of a room by the arm (`throw_out` by a cargo technician of a janitor, `in_hand_until`) and to a crew member the Captain drags. If GAP-04's proposal is built (teaching `knows_slippery` to see a wet floor), every mopped hallway will do this.
 
-Being thrown at a slippery tile, the throw stops short there and counts as hitting it (`/datum/thrownthing` ends on a failed `Move`). That is wrong too, but rarer.
+Being thrown at a slippery tile, the throw stops short there (`/datum/thrownthing/tick`, `code/controllers/subsystem/throwing.dm:186`, calls `finalize()` on a failed `Move`, without counting it as a hit). That is wrong too, but rarer. A conveyor's push is held back one step only, since the body is then at a walk and the next push goes through.
 
 ## Where
 
@@ -83,3 +84,7 @@ Read from the code. Not seen in a round. `likely` because I did not check whethe
 - Server compile.
 - In a round, drop a bar of soap in a hallway in sight of a crew NPC, then pull it across the soap's tile. Before the fix the pull breaks on that tile; after, it follows.
 - Have a cargo technician throw a janitor out of the bay over a banana peel; grep `game.log` for the eviction's outcome.
+
+## Check
+
+Checked by Opus 5.5. The quotes match the code. Traced the pull: in the base `Move` (`atoms_movable.dm`) the puller moves first, then calls `pulling.move_from_pull(src, target_turf, ...)` with the puller's old tile; that is the pulled body's own `Move`, which sends `COMSIG_MOVABLE_PRE_MOVE` (`:761`) to `mind_its_step`. The body's `move_intent` is RUN on almost every step (the handler itself sets RUN whenever the next tile is not known slippery), so on the step onto a tile with a seen slippery thing it sets WALK and blocks. `/mob/living/Move` (`living.dm:1046`) adds nothing that would let the move through for an unbuckled body. The puller then calls `check_pulling()`, finds `get_dist > 1` and calls `stop_pulling()` (`:671`). `knows_slippery` also counts any slippery thing on a tile in `oview(1)`, so the thing need not have been seen earlier: the tile being dragged onto is always next to the body. Crew bodies do pull people (`crew_npc_guarding.dm:173`, `crew_npc_security.dm:1033`), and `crew_npc_motor.dm:107` fails such a walk with "they got away from you" when `pulling` is null, so the arrest and eviction cases hold. A dragged body turning a corner can end up diagonal (distance 1) and keep the pull, so not every such drag breaks, but a straight one does. The guard in the fix uses real vars (`moving_from_pull`, `throwing`, `pulledby`, `buckled` on `/atom/movable` and `/mob/living`); `buckled` is needed because `handle_buckled_mob_movement` moves the mob with its own `Move` after the chair. Nothing in the change log (`mind_its_step` entries near lines 911 and 1033) considers being pulled. Confidence raised to sure.

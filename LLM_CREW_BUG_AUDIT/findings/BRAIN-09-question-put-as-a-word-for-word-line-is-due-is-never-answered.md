@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1305, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:157, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1315, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1564
 fix: When a word-for-word line goes out in a call that also had speakers, put the speakers and their lines back and wake the NPC again so the next call answers them, unless the line was said to one of them
@@ -24,7 +25,7 @@ When someone has also just spoken to the NPC, their words are in the same call (
 
 Nothing puts them back. The question is never put to the model as a question, and the NPC never answers it. The `order` move and others are still in the reply schema (the options come from `availableOptions(brain, spokenTo, ...)`), but the moment text tells the model there is nothing to take on, so a request in the same breath is very unlikely to be agreed to.
 
-Word-for-word lines are common for cargo, the Quartermaster, the heads and security: 20 places in `jobs/` set `exact: true`, many of them `toTell` lines said "at once ... whatever it is doing" (`whileBusy`). So the timing is not rare: a line someone is waiting to hear is due exactly when people are standing at the NPC talking.
+Word-for-word lines are common for cargo, the Quartermaster, the heads and security: 28 places in `jobs/` set `exact: true` (count of 2026-11-19), many of them `toTell` lines said "at once ... whatever it is doing" (`whileBusy`). So the timing is not rare: a line someone is waiting to hear is due exactly when people are standing at the NPC talking.
 
 One concrete case:
 
@@ -84,9 +85,9 @@ Read from the code. Not seen in a round: the brain log shows the aside prompt an
 
 ## How to fix it
 
-1. In `think`, after the reply is handled in the `mustSay && exact` branch, if `speakers.length > 0` and the word-for-word line does not call on any of the speakers by name (use `callsOn` from `addressing.ts`, exported, against each speaker's name from `brain.peopleInView`), then:
+1. In `think`, after the reply is handled in the `mustSay && exact` branch, if `speakers.length > 0` and the word-for-word line does not call on any of the speakers by name (use `callsOn` from `addressing.ts:65` against each speaker's name from `brain.peopleInView`; it is not exported today, so add `export`), then:
    - put the speakers back: `for (const s of speakers) brain.pendingSpeakers.add(s)`;
-   - put their heard lines back at the front of `brain.pending` (the report lines that include `' says: '` and `(person <handle>`);
+   - put their heard lines back at the front of `brain.pending` (the report lines that include `' says: '` and `(person <handle>`), and set `reported = false` again on their `brain.talkLog` entries (1312 marked every entry reported), or the next prompt shows them twice, as history and as news;
    - set `brain.wake = true`;
    - skip the `talk.replies++` loop for them.
    The NPC is then queued again at the end of `think` (`if (brain.wake && brain.awake)`), waits out the 4.2-second say cooldown in `startTalk`, and the next call is an ordinary "someone has just spoken to you" call.
@@ -97,3 +98,11 @@ Read from the code. Not seen in a round: the brain log shows the aside prompt an
 ## How to test the fix
 
 A sim scenario in `tools/llm_crew/`: a technician with a word-for-word line due to the Quartermaster, and the Captain speaking to it in the same update. Before the fix `game.log` has one say (the line and a remark) and no answer; after it, a second say a few seconds later answering the Captain. Also the reverse: the Quartermaster gives an order and the technician's word-for-word "Order 3, I have that." must not be followed by a second answer. Run the type check.
+
+## Check
+
+Read `think` in `brain.ts` (1273-1644), `hearSpeaker` (1006), `buildTalk` in `talk.ts` (120-230), `MOMENTS.aside` in `person.ts`, the `whileBusy` path in `drive` (`driver.ts:700-722`), the cargo line at `jobs/cargo.ts:377` and cargo's `overhears` (`cargo.ts:2083`). The quotes are what the code says today.
+
+The case holds step by step. `buildTalk` checks `moment.exact && mustSay !== null` before `spokenTo`, so a speaker in the same call gets the aside prompt. `think` clears `pendingSpeakers` (1315), marks every talk line reported (1312), and adds to each speaker's `replies` after the say (1564). Nothing puts any of it back. `ordered` (a superior's order of work) is still made out by code in that call, and `overhears` hooks still catch some fixed phrases (door asks, the Quartermaster's words). But a question, or an `order` request left to the model like the toolbox, is lost. The second way (the `needs` loop at 1409 swapping the answer for the plain line) also holds.
+
+Corrected in the body: `exact: true` is now set 28 times, not 20. `callsOn` is not exported. The talk log has to be un-marked when the lines are put back. Nothing in `LLM_CREW_CHANGELOG.md` or the plans treats this as chosen. Medium and small stand; build the put-back as one helper and share it with BRAIN-07's path 2.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_brain_link.dm:76, code/modules/llm_crew/crew_npc_cleaning.dm:217, code/modules/llm_crew/crew_npc_cargo.dm:628, code/modules/llm_crew/crew_npc_security.dm:1583, code/modules/llm_crew/crew_npc_cargo.dm:11
 fix: Work out each body's sense-derived fields once per look into a snapshot list on the controller, have ui_data copy the snapshot and add only the cheap live fields, and pass the look's sight list to security_state and engineering_state
@@ -71,7 +72,7 @@ Read from the code: every proc named in `ui_data`, and the procs they call, coun
 1. On the controller, add `var/list/look_snapshot`. At the end of `look_around` (both the normal path and the early returns, which set it to the "sees nothing" values), fill it with the fields that come from senses and memory: `beyond_kinds`, `mess_places`, `workable_mess_places`, `work_area_messes`, `inventory`, `cleaning_tool`, `poor_tool`, `mop_needs_water`, `wants_bucket`, `dry_mop`, `has_locator`, `has_pda`, `pda_people`, `pda_janitors`, `door_keepers`. Work out `pda_messenger()` and `job_title()` once at the top of the look and pass them down where the procs take them.
 2. In `ui_data`, copy `look_snapshot` into the body's record (`record += look_snapshot`), and keep building on the spot only what is live and cheap: `location`, `walking`, `doing`, `door_held`, `in_hand`, `at_door_of`, `acked_seq`, `events`, and the like.
 3. `people_on_pda` and `janitors_on_pda` give the same list to every body with a PDA, less its own entry. Work the list out once per look on the brain link (or once a second, kept with a time) and have each body take it and drop its own messenger's name. HOLE-09 proposes the same.
-4. Give `security_state` and `engineering_state` the look's own sight list instead of a new `view()`: keep the last `in_sight` from `look_around` on the controller for the length of one look (`var/list/last_sight`, cleared on the next look), and use `view` only if it is null. Note `look_around` uses `oview`, which leaves out the body's own tile; the cells and machines are never on it, so that is fine.
+4. Give `security_state` and `engineering_state` the look's own sight list instead of a new `view()`: keep the last `in_sight` from `look_around` on the controller for the length of one look (`var/list/last_sight`, cleared on the next look), and use `view` only if it is null. Note `look_around` uses `oview`, which leaves out the body's own tile. The cells and machines are never on it, but `security_state` also looks for the officer's own baton lying on the floor (`isturf(lost.loc) && (lost in in_sight)`), and a baton knocked out of its hand where it stands is on its own tile. So add the body's own turf and what is on it to the kept list (`last_sight + get_turf(body) + get_turf(body).contents`), or test `get_turf(lost) == get_turf(body)` as well, or that baton is never seen.
 5. Check every proc moved for side effects first: `held_state` has some (PERF-07), and `workable_mess_places` calls `mind_what_it_holds`, which can clear `stubborn_messes`. Moving that to the look is right (it is about what the body holds), but it must still run before `tool_clean` reads `stubborn_messes`.
 
 What must keep working: a body that picks something up must have its new tools in the window at once. `tool_pick_up` and the others end in `action_result`, which calls `look_around` before it emits, so the snapshot is fresh when the event goes.

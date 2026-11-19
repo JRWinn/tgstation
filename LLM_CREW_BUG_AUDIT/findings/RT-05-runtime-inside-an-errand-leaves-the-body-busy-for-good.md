@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_hands.dm:391, code/modules/llm_crew/crew_npc_storage.dm:218, code/datums/ai/_ai_behavior.dm:105, code/modules/llm_crew/crew_brain_link.dm:195, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:726
-fix: Wrap do_errand and look_inside in try-catch in their perform_async so a thrown error still closes the errand with a failed result, and give the window a limit on how long it believes a body is walking
+fix: Wrap do_errand and look_inside in try-catch in their perform_async so a thrown error still closes the errand with a failed result, and add a server-side time limit on an errand that clears its key
 ---
 
 ## What is wrong
@@ -102,7 +103,9 @@ Two parts. The first is the one that matters; the second is a backstop for waits
 
    Then go on as now: `finish_async` and `finish_errand(outcome)`. The runtime is still logged (`stack_trace`) so it gets fixed, but the body is free and the brain is told the step failed, which puts it in back-off rather than freezing the body. `do_errand` returns a list in every path, so `outcome[1]`/`outcome[2]` are safe.
 2. Do the same in `crew_npc_look_inside/perform_async` around `look_inside`, with `result = list("state" = "unreached")` on error, so `storage_done` moves the search on.
-3. Window side: in `drive`, do not let `brain.walking` alone hold off the lost-step timeout for ever. Keep a `walkingSince` time (set when `walking` turns true, cleared when it turns false) and, once it is older than the longest walk the server allows (`CREW_NPC_TRAVEL_TIMEOUT` plus the errand's own longest wait, a few minutes), treat the step as lost: `fail(brain, brain.lastAct.key)`, `lastAct = null`. The server already gives every walk a time limit, so a walk that the window has seen for longer than that is not a walk.
+3. Backstop for a leaf that never finishes for any reason, on the server (not in the window). In `start_errand`, after `errand_serial++`, start `addtimer(CALLBACK(src, PROC_REF(errand_overdue), errand_serial), CREW_NPC_ERRAND_LIMIT)` with a new define of a few minutes (longer than the 3 minute reach limit plus the longest errand, say 5 minutes). `errand_overdue(serial)` returns if `errand_serial != serial` or the errand key is empty; otherwise it writes a `log_game` line, keeps `tool = errand_tool`, calls `cancel_errand()` and then `action_result(tool, FALSE, "You could not finish that.")`. `cancel_errand` clears the key, the decorator aborts and the reset frees the stuck leaf (`finish_action` sets `async_running = FALSE`). Do the same for the storage key with `cancel_search`.
+
+   A window-only limit, as first proposed here, does not free the body: after `fail` and `lastAct = null`, `busy` is still TRUE because `brain.walking` comes from the errand key, which the server still holds, so `drive` sends nothing. It would also have to ignore a stale `walking` so that the next step goes out, and only a step that clears or replaces the errand key (`start_walk` calls `cancel_errand`; `start_errand` replaces the key through `set_blackboard_key`, which clears it first) would free the leaf. The server timer is simpler and certain.
 
 Keep: errands whose proc starts a walk (haul, collect, release, evict) change `errand_serial` and return early on purpose; the try-catch must not change that.
 

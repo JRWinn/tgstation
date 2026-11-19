@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:71, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1338, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:734, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:805, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1138
 fix: Give a line the work calls for its own short wait, after which the plain line is said without the model, and give talk calls a shorter time limit
@@ -104,8 +105,8 @@ Not in `LLM_CREW_CHANGELOG.md` or the plans (searched `THINK_TIMEOUT`, "60 secon
 
 1. Note when a line was asked for. In the `speak` callback in `ingest` (`brain.ts:753`) set `brain.mustSayAt = Date.now()` (new field on `NpcBrain` in `types.ts`, 0 when there is none).
 2. Pull the "said plainly" part of the `catch` in `think` (`brain.ts:1612` to `1623`: `runTool` say, `lastSayAt`, the six `afterSaying` hooks) into one function, `sayPlainly(brain, line)`. Both places then do the same thing.
-3. In `ingest`, after `drive` and before the brain is queued, add the deadline: if `brain.mustSay !== null`, `brain.status === 'queued'` (its call has not started) and `Date.now() - brain.mustSayAt > MUST_SAY_WAIT_MS` (8000, the same wait a choice gets), then check `mustSayIf`, call `sayPlainly`, clear `mustSay`, `mustSayNeeds`, `mustSayIf`, `mustSayExact`, and leave the brain queued only if `pendingSpeakers.size > 0`. Otherwise take its id out of `queue` and set `status = 'idle'`, `wake = false`.
-4. For a call that is already out and carries a line (`sayingNow`), pass a shorter limit to `callOllama`: `mustSay !== null ? MUST_SAY_CALL_MS : THINK_TIMEOUT_MS`, with `MUST_SAY_CALL_MS` about 15000 (the longest real call in the logs is under 6 seconds). Do not make the second, "without think" call when the first already used most of that.
+3. In `ingest`, just before `drive` is called (so that the body, freed of the line, gets its next step on the same pass: `drive` returns null for as long as `mustSay` is set), add the deadline: if `brain.mustSay !== null`, `brain.status === 'queued'` (its call has not started) and `Date.now() - brain.mustSayAt > MUST_SAY_WAIT_MS` (8000, the same wait a choice gets), then check `mustSayIf`, call `sayPlainly`, clear `mustSay`, `mustSayNeeds`, `mustSayIf`, `mustSayExact`, and leave the brain queued only if `pendingSpeakers.size > 0`. Otherwise take its id out of `queue` and set `status = 'idle'`, `wake = false`.
+4. For a call that is already out and carries a line (`sayingNow`), pass a shorter limit to `callOllama`: `mustSay !== null ? MUST_SAY_CALL_MS : THINK_TIMEOUT_MS`, with `MUST_SAY_CALL_MS` about 15000 (the longest real call in the logs is under 6 seconds). There is precedent: the choice between jobs and the reading of an order already pass 15 seconds (`CHOICE_TIMEOUT_MS`, `READING_TIMEOUT_MS`, `brain.ts:134` and `:137`); only talk gets the full 60. Do not make the second, "without think" call when the first already used most of that.
 5. Consider bringing `THINK_TIMEOUT_MS` itself down to 20 to 30 seconds. Nobody is still standing there after a minute to hear the answer.
 6. Keep: a line with `exact` is said word for word either way. `mustSayIf` is still honoured (a workmate may have asked first). The plain line is not said to an empty room (`brain.peopleInView.length > 0`, as the `catch` does).
 

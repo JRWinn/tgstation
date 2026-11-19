@@ -3,10 +3,11 @@ id: HEAD-04
 title: Anything a janitor says near the Head of Personnel with "I need", "out of" or "supplies" in it is noted as asking for supplies, and a crate is ordered
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:136, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1203, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1040, tgui/packages/tgui/interfaces/CrewBrain/jobs/reports.ts:163, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:481
 fix: Take an ask only from the set asking line or a line that says I need something for my work, and take a report only from the person whose turn it is, or one that begins with the head's first name and reads as a report
@@ -18,12 +19,12 @@ The Head of Personnel notes a need from anything one of its staff says in its he
 
 Two fixed lines of our own match:
 
-- The driver's step-aside line, said by a body hauling a crate to whoever is in its way: "Excuse me, <first>, could you step aside, please? I need to get this past you." (`driver.ts:481`). A janitor hauling the head's own crate back from the Cargo Lobby, with the head standing in the lobby or a hallway, says it to the head: `said_to` is `'me'`, "I need" matches, "need nothing" does not, and the head notes that the janitor is short of supplies, minutes after sending it for some.
+- The driver's step-aside line, said by a body hauling a crate to whoever is in its way: "Excuse me, <first>, could you step aside, please? I need to get this past you." (`driver.ts:481`). A janitor hauling the head's own crate back from the Cargo Lobby, with the head standing in the lobby or a hallway, says it to the head: `said_to` is `'me'`, "I need" matches, "need nothing" does not, and the head notes that the janitor is short of supplies, minutes after sending it for some. (Correction from the check: `noteAsk` does nothing for someone who already has an ask not yet told, so this only bites when the hauler is not one of those who asked. That is common: `sendFor` picks `turns[brain.pickupTurn % turns.length]`, and `pickupTurn` grows every time, so the janitor sent is often one who did not ask.)
 - Any LLM line said to the head, or to nobody in particular: "Just on my way out of the closet", "Morning! I need to get back to the hallway", "The supply closet is a mess". `said_to` of `'group'` and `'nobody'` both pass the `!== 'other'` test.
 
 During a meeting it is worse. `hearReport` takes any line from any of its staff, at any time from the call to the end, that `readReport` accepts, and `readReport` accepts any line with "I need" in it as a report (`told` is true, with no counts). So a janitor greeting the head on its way in with "I need a minute to put my mop away" has given its report: `need: true`, `noteAsk` runs, and an order follows, whatever it says when it is actually called on.
 
-Concrete case: no janitor is short. At 14:00 the head is at the counter for some other reason, or simply in the hallway, and a janitor hauling a crate says to it "Excuse me, Hop, could you step aside, please? I need to get this past you." `overhears` reaches the last `if`: `said_to` is `'me'`, `NEED_WORDS` matches "I need", `NO_NEED_WORDS` does not match, `noteAsk` pushes `{ who: janitor, what: 'something to clean with' }`. Two minutes later (`BATCH_DS`) the head orders a crate of janitorial supplies.
+Concrete case: no janitor is short. At 14:00 the head is at the counter for some other reason, or simply in the hallway, and a janitor hauling a crate says to it "Excuse me, Hop, could you step aside, please? I need to get this past you." `overhears` reaches the last `if`: `said_to` is `'me'`, `NEED_WORDS` matches "I need", `NO_NEED_WORDS` does not match, `noteAsk` pushes `{ who: janitor, what: 'something to clean with' }`. After the first meeting (`metOnce`) the head makes the order at once, with no meeting or order already on; before it, two minutes later (`BATCH_DS`). Either way a crate of janitorial supplies is ordered that nobody needs.
 
 ## Where
 
@@ -76,7 +77,8 @@ Read from the code, not seen in a round. The step-aside case needs the head in a
 1. Make the outside-a-meeting ask strict. Our own staff ask in set words: `needStep` says or sends "<first>, I need <need> for my work. Could you get it ordered, please?" Take an ask only when the line has `could you get it ordered`, or matches `/\bI need (.+?) for my work\b/i`. Drop "out of", "supply" and the bare "I need" from `NEED_WORDS`.
 2. For a player's loose wording ("we're out of mops"), the owner has approved an LLM as last-resort reader in its own small prompt (memory: loose wording for orders). Route a line that is near the old pattern but not the set words to that reader instead of taking it straight. If that reader is not built yet, leave such lines alone; the next meeting asks every janitor anyway.
 3. In `hearReport`, take a report only from the person whose turn it is (`meeting.turns.at(-1)?.who === speaker` and not yet heard), or from a line that begins with the head's first name and a comma, which is how `spokenReport` begins. Anything else from its staff during a meeting is not a report.
-4. In `readReport`, a line with "I need" and no counts is a report only if it is the whole of the need sentence (`needWords` writes "I need <x>." or "I need nothing."), not any line with the two words in it. Keep the reading in step with `reportWords` in the same file.
+4. In `readReport`, a line with "I need" and no counts is a report only if it has the shape `reportWords` and `spokenReport` give it: a work sentence, then the need sentence last (`needWords` writes "I need <x>." or "I need nothing."). Ending in "I need <x>." alone is not enough: "Hop, I need a minute." would still pass step 3 and this one. So also count `need: true` only when `<x>` is a need some job can name (today only `'something to clean with'`, janitor.ts `NEED`; take the list from the jobs, not a copy). `readReport` is also used for PDA reports (`REPORT_BY_PDA`), `noteReported` and `meetingsAfterSaying`, so run `tools/llm_crew/reports.ts` after.
+5. Steps 3 and 4 must not drop a real report given early because the staff side took a stray line for its call-on (HEAD-07). Such a report begins with the head's first name and a comma, so step 3 keeps it; keep that branch.
 
 ## How to test the fix
 
@@ -84,3 +86,7 @@ Read from the code, not seen in a round. The step-aside case needs the head in a
 - Simulator: a janitor that says the step-aside line to the head while hauling; pass if no new order is made.
 - Type check from `tgui/`.
 - In the next round's `pda.log`, every "I need to order" from the Head of Personnel should follow a janitor's "Could you get it ordered" or a meeting report with a need.
+
+## Check
+
+Read `NEED_WORDS`, `NO_NEED_WORDS`, `noteAsk`, `syncTasks`, `sendFor`, the unpacked branch of `readsMessage`, `hearReport` and `overhears` in `jobs/head.ts`; `readReport` and `needWords` in `jobs/reports.ts`; the step-aside step in `driver.ts:481`; `saidTo`/`callsOn` in `addressing.ts`; and the call site in `brain.ts:660`, which runs `overhears` for every `speech_heard` from a person, with `said_to` already set. The quotes are what the code says today. "Excuse me, Hop, ..." gives `said_to` `'me'` for the head (`callsOn`, the "excuse me" opener), so the last `if` in `overhears` runs; nothing in `noteAsk` asks whether the speaker is really short. In a meeting, `hearReport` takes any staff line `readReport` accepts, and `readReport` accepts any line with "I need" in it; the ask noted from it stays even if the real report later says "I need nothing" (the report is overwritten, the ask is not). Searched `LLM_CREW_CHANGELOG.md` and the plans for `NEED_WORDS`, `hearReport`, `readReport` and the step-aside line: nothing fixes or chooses this. Two corrections made: the step-aside case needs a hauler with no untold ask of its own (`noteAsk` skips one), which `sendFor`'s rotating `pickupTurn` makes common; and after the first meeting the order is made at once, not after `BATCH_DS`. Effort raised to medium: the fix is in two files (`head.ts`, `reports.ts`) and needs new table cases. Not run; not seen in a round.
