@@ -59,7 +59,7 @@ Read from the code and the base grenade code.
 ## How to fix it
 
 1. In `held_grenade()`, only count a grenade that can still go off: not `active` and `!(grenade.dud_flags & GRENADE_USED)`. The body can tell a spent casing by looking (its sprite and examine text change). That keeps a spent casing out of `best_grenade_spot` and `grenade_messes`.
-2. In `throw_grenade`, make the grenade's hand the active one (already done), then prime it the player's way: `body.mode()` (`code/modules/mob/mob.dm:779`, what the use-in-hand key reaches), which calls the held item's `attack_self`. Wait a click gap first (`CREW_NPC_CLICK_GAP` in `crew_npc_machines.dm`).
+2. In `throw_grenade`, make the grenade's hand the active one (already done), then prime it the player's way: `body.execute_mode()` (`code/modules/mob/mob.dm:783`, what the use-in-hand key reaches through `mode()`; `mode()` itself may queue the call to the next tick), which refuses while incapacitated and calls the held item's `attack_self`. Wait a click gap first (`CREW_NPC_CLICK_GAP` in `crew_npc_machines.dm`).
 3. Check `grenade.active` after. If it is not active and the grenade is still in hand, return "The grenade will not prime." and do not throw. If it was fumbled (active, and the body is clumsy), the throw still goes ahead, which is the best a player could do.
 4. Throw as now: `throw_item` is what the throw key and a click reach.
 
