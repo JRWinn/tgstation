@@ -89,3 +89,14 @@ With all four, the round above would have had at most about 2,400 sends instead 
 - The simulator plays the server and sends all thirty events itself (`sim.ts`, `events: [...body.events]`): change it to send only those past `acked_seq` as well, and run the `crew` scenario four times before and after. Nothing the brains do should change.
 - In a round, add a debug counter to `ui_data` (calls a minute, and `length(json_encode(data))` once a minute) and read it in `game.log`: with eleven crew the calls a minute should fall from about 265 to 135 or fewer, and the size to about a tenth.
 - Watch that greetings and answers still come: a body must still hear every line said to it.
+
+## Check
+
+Checked by Opus 5.5. Read from the code and the round's logs; the sizes were not measured again.
+
+- The quotes match the code today: `on_sense_event` calls `SStgui.update_uis(src)` (`crew_brain_link.dm:55`), `ui_data` sends `"events" = npc.sense_events` (line 201, 30 kept by `CREW_NPC_EVENT_HISTORY`), `emit_sense` calls `on_sense_event` after each event (`crew_npc_senses.dm:98`), and `ingest` skips events at or below `lastSeq` (`brain.ts:565`).
+- Base code: `update_uis` (`code/controllers/subsystem/tgui.dm:218-228`) does `INVOKE_ASYNC(ui, process, ..., TRUE)` for each open window, with no gathering up; `/datum/tgui/process` with `force` calls `ui_interact` at once (`code/modules/tgui/tgui.dm:326-328`), which goes through `try_update_ui` to `send_update` and `tgui_window.send_message`, which `output()`s straight to the client once the window is ready (`tgui_window.dm:245-257`). `on_message` calls `update_uis` again whenever `ui_act` returns TRUE (`tgui.dm:400-401`), and `ui_act` returns TRUE for `ack` and `tool_call`. The window acks only when it took in a new event (`brain.ts:741-744`), so the ack does not loop.
+- Counts re-run on `data/logs/2026/11/19/round-20.43.32/href.log`: 1,262 `Action: ack`, 998 `Action: tool_call`, and the highest acked seq summed over the 11 bodies about 1,270. They match the write-up.
+- Severity lowered from high to medium. Nothing fails or loops today: the same round's `perf-NULL-MetaStation.csv` has an average time dilation of about 1 percent, the highest 6.9 percent in the first minutes. The cost is real and grows with the crew (HOLE-09), but at 11 crew no one would notice it. At 40 crew it may well be high; that is not measured.
+- Not in the change log or plans. Overlaps HOLE-09 (the whole picture) and CORE-05 (step 3 is its fix); the one-update-a-tick change in step 1 is this finding's own, and is small and server-only by itself.
+- The fix's step 2 was mended: the list for `nearestToSpeaker` must be filled from all bodies before any is read, since `ingest` (`brain.ts:219-221`) takes the bodies one by one. `Details.tsx:50` and `sim.ts:1142` are as the fix says.

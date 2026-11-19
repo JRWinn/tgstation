@@ -3,13 +3,14 @@ id: TRC-01
 title: Tidying shuts an open crate on a person lying on its tile, or a locker on a person standing in it, and shuts them inside
 kind: bug
 severity: high
-effort: small
-confidence: likely
-status: found
+effort: medium
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
-files: code/modules/llm_crew/crew_npc_tidying.dm:68, code/modules/llm_crew/crew_npc_tidying.dm:209, code/game/objects/structures/crates_lockers/closets.dm:493, code/game/objects/structures/crates_lockers/closets.dm:575
-fix: In wants_shutting, and again in tidy_step just before close, leave the container open if any living mob bigger than tiny is on its tile
+files: code/modules/llm_crew/crew_npc_tidying.dm:68, code/modules/llm_crew/crew_npc_tidying.dm:212, code/modules/llm_crew/crew_npc_freight.dm:458, code/game/objects/structures/crates_lockers/closets.dm:493, code/game/objects/structures/crates_lockers/closets.dm:575
+fix: Add a helper that finds any living mob bigger than tiny on a tile, the body itself included, and call it in wants_shutting, in tidy_step before close, and before every other close() our code makes
 ---
 
 ## What is wrong
