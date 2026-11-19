@@ -9,7 +9,7 @@ status: found
 found_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:420, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:285, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:731, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:800, tools/llm_crew/sim.ts:1570
-fix: Record leftPlace in ingest only when the body was not on a walk of its own, and clear it when the driver sends a walk to somewhere else, so stillIn means pushed out and not walked out
+fix: Record leftPlace in ingest only when the body was not walking and the driver has no walk of its own in hand, so stillIn means pushed out and not walked out
 ---
 
 ## What is wrong
@@ -87,8 +87,10 @@ The cause was then read in `ingest`, `stillIn` and `meetStep`: at 00:17:21 the b
 
 ## How to fix it
 
-1. In `ingest` (`brain.ts:419`), record `leftPlace` only when the body was **not** on a walk: `if (brain.location && !brain.walking)`. At that line `brain.walking` still holds the value from the last update (it is set at line 436, after), which is what is wanted: a body that was walking somewhere when its room changed has left it; one that was standing still and finds itself outside was pushed.
-2. In `driver.ts`, when a `go_to`, `walk_to`, `approach` or `go_to_door` is sent to a place other than `brain.leftPlace?.place`, set `brain.leftPlace = null`. This covers the first tick of a walk, before the server has said it is walking.
+1. In `ingest` (`brain.ts:419`), record `leftPlace` only when the body was **not** on a walk of its own. Two signs, either is enough to skip it:
+   - `brain.walking` as it stood before this update (it is overwritten at line 436, after this block, so at line 419 it still holds the last value). Note that the server leaves the walk back to the post out of this flag (`crew_brain_link.dm:195`, `npc.walk_tool != CREW_TOOL_RETURN`), so this sign alone misses that walk;
+   - a walk the driver sent and has not yet heard the end of. Have `driver.ts` set `brain.walkSent = { to: place, at: Date.now() }` when it sends `go_to`, `walk_to`, `approach`, `go_to_door` or a return to post, and clear it when the `tool_result` for that call comes back. In `ingest`, `if (brain.location && !brain.walking && !brain.walkSent)`.
+2. Add the new field to the blank brain in `ingest` and to `tools/llm_crew/fixtures.ts` (see CHK-01: the fixture brain is built by hand).
 3. Leave `NUDGED_OUT_MS` and `stillIn` as they are: what they are for (a body bumped out of the doorway by someone walking past) still works.
 4. Check the LOGA-06 case after the change: a Quartermaster that walks out into the lobby to call a technician must no longer count as in the Cargo Bay. Whether it should call from the lobby at all is LOGA-06's question.
 
