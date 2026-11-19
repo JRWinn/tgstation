@@ -10,6 +10,7 @@ Where things are:
 
 - Change log: `LLM_CREW_CHANGELOG.md`
 - What the project is and what was decided: `LLM_CREW_BRIEF.md`
+- The design as built, in outline (layers, rules, how the parts fit): `LLM_CREW_DESIGN.md`
 - Plans, each with a Status section: `LLM_CREW_PLAN_*.md`
 - Server code: `code/modules/llm_crew/`
 - Brain window code: `tgui/packages/tgui/interfaces/CrewBrain/`
