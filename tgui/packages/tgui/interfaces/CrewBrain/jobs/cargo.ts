@@ -24,6 +24,7 @@ import {
   takeOrder,
 } from '../expected';
 import { isHead } from '../hierarchy';
+import { CARGO_LOBBY } from '../memory';
 import { addTask, blockTask, findTask, finishTask } from '../tasks';
 import type {
   Action,
@@ -33,6 +34,7 @@ import type {
   Option,
   PersonInView,
   Plan,
+  SenseEvent,
   Task,
 } from '../types';
 import {
@@ -47,7 +49,7 @@ import {
 import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
-import { COLLECT_WORDS, crateNumberIn } from './pickups';
+import { comeForCrate, crateNumberIn } from './pickups';
 import { isSecurity } from './security';
 import {
   describeRounds,
@@ -94,13 +96,26 @@ const CRATE_HOLDS: Record<string, string> = {
 };
 
 /**
+ * The words the paper crate is asked for by (PARSE-06). Exported so that the Quartermaster's own
+ * reading of its order book can go by the same words.
+ */
+export const PAPER_WORDS =
+  /bureaucra|paper|stationery|\bpens?\b|clipboards?|office supplies|folders?/i;
+
+/**
  * The words each kind of crate is asked for by. An order may be for several kinds at once ("two
  * crates of janitorial supplies and a crate of light bulbs"), and which kinds, and how many of
  * each, are read off what was said, not left to the LLM.
  */
 const CRATE_ASKED_AS: Record<string, RegExp> = {
-  'Janitorial Supplies Crate': /janitor|cleaning|cleaner|\bmops?\b|\bsoap\b/i,
-  'Replacement Lights': /\blights?\b|\bbulbs?\b|light tubes?/i,
+  // The supplies, not the person: "the janitor says the bar is dark" asks for no soap (CARGO-14).
+  // Run-together and short words count: "jani supplies" (PARSE-06).
+  'Janitorial Supplies Crate':
+    /janitorial|\bjani\b|\bjanitor'?s? (supplies|kit|gear|stuff)|custodial|cleaning|cleaner\b(?! (says|said|wants|needs))|\bmops?\b|\bsoap\b|\bbuckets?\b|\bbrooms?\b|\brags?\b/i,
+  // "lightbulbs" as well as "light bulbs" (PARSE-06).
+  'Replacement Lights':
+    /\blight\s*(bulb|tube)s?\b|\blights?\b|\bbulbs?\b|\btubes?\b/i,
+  'Bureaucracy Crate': PAPER_WORDS,
 };
 
 /** The kinds of task cargo staff have: an order to see through, and getting back to their post. */
@@ -114,6 +129,20 @@ const TIDY = 'tidy';
  */
 const SUPPLY_WORDS =
   /order|crate|suppl|soap|cleaner|\bmops?\b|bucket|janitorial|broom|\brags?\b|grenade|purchase|\bbuy|stuff|gear|equipment/i;
+/**
+ * The words of an ask, and the words of a line about an order already made, or of one called off
+ * (CARGO-07). "Has my order come in yet?", "Where is my crate?" and "Cancel that order." name an
+ * order and ask for none. A bare "in" or "not" is no sign: "a crate of lights in for the bar" and
+ * "soap, not lights" are asks.
+ */
+const ASK_WORDS =
+  /\b(order|need|want|get|send|bring|could|can|please|requisition)\b/i;
+const NOT_AN_ASK =
+  /\b(my|the|that|this|your|an?) (order|crate)\b.*\b(come in|arrived|ready|yet|here)\b|\b(cancel|do not|don't|never mind)\b|\bwhere\b/i;
+/** TRUE if these words ask for something to be ordered, and are not about an order already made. */
+function asksToOrder(words: string): boolean {
+  return ASK_WORDS.test(words) && !NOT_AN_ASK.test(words);
+}
 /** A held crate to bring out to the lobby for whoever has come for it. The task's item is its manifest number. */
 const HANDOVER = 'handover';
 /** Going to see which crates are still waiting in the bay to be collected. */
@@ -165,9 +194,22 @@ const DOOR_WATCH_DS = 350;
 /** How long (deciseconds) after seeing them through it stays, for the door to be shut behind them. */
 const DOOR_WATCH_SETTLE_DS = 20;
 /** The words that mark what someone says as asking for a door to be opened. */
-const DOOR_WORDS = /\bdoor\b|let (me|us) (in|out|through)|open up/i;
-/** The words that mark a request for a door as wanting out, not in. */
-const LET_OUT_WORDS = /\bout\b|\bdone in\b/i;
+const DOOR_WORDS =
+  /\bdoor\b|let (me|us) (in|out|through|leave)|get (me|us) out|i want out|open up/i;
+/**
+ * The words that mark a request for a door as wanting out, not in. Not the bare word "out": "I'm
+ * locked out" and "I'm out here at the door" want in (PARSE-08).
+ */
+const LET_OUT_WORDS =
+  /let (me|us) out|\bleave\b|get (me |us )?out|outta here|\bdone in\b|\b(i'?m|i am) (done|finished)\b|\b(shut|locked|stuck) in\b|\bi want out\b|\b(need|have|got) to go\b/i;
+/** The words that mark a request for a door as wanting in, which win over the words for out. */
+const LET_IN_WORDS =
+  /let (me|us) in\b|locked out|\b(i'?m|i am) (out here|outside)|\bcome in\b|\bget in\b/i;
+
+/** TRUE if the words of an ask for a door want out: words for out, and none for in (PARSE-08). */
+function wantsOutByWords(text: string): boolean {
+  return LET_OUT_WORDS.test(text) && !LET_IN_WORDS.test(text);
+}
 /** How long (deciseconds) after a door is opened for someone before seeing them outside it means they are out. */
 const GONE_THROUGH_DS = 300;
 /** How long (deciseconds) a request to be let out stands. Longer: they ask once, and cannot leave until it is answered. */
@@ -293,13 +335,59 @@ function leftTo(brain: NpcBrain, duty: string | null): string | null {
   if (holders.length === 0 || holders.includes(brain.name)) {
     return null;
   }
+  // Seen on their feet and free: a workmate lying in view, or in cuffs, is not about to do it,
+  // and being seen like that does not count as seen (CARGO-12).
   return (
     holders.find(
       (name) =>
-        brain.peopleInView.some((person) => person.name === name) ||
-        brain.now - (brain.people.get(name)?.at ?? -Infinity) < HOLDER_ABOUT_DS,
+        ableInView(brain, name) ||
+        brain.now - (brain.ableAt?.[name] ?? -Infinity) < HOLDER_ABOUT_DS,
     ) ?? null
   );
+}
+
+/** How near (tiles) someone stands to be at the counter with it, as addressing.ts's FACING_RANGE. */
+const COUNTER_REACH = 3;
+
+/**
+ * TRUE if a line was put to this technician, or to nobody in particular by someone standing at its
+ * counter (KNB-10). The Captain in the Quartermaster's Office, speaking to the Quartermaster, is
+ * heard across the bay as speaking to nobody, and is not at the counter.
+ */
+function atMyCounter(
+  brain: NpcBrain,
+  event: SenseEvent,
+  speaker: string,
+): boolean {
+  const to = event.details.said_to;
+  if (to === 'me') {
+    return true;
+  }
+  if (to === 'other') {
+    return false;
+  }
+  const seen = brain.peopleInView.find((person) => person.name === speaker);
+  return (
+    !!seen &&
+    (seen.place === CARGO_LOBBY || (seen.distance ?? 99) <= COUNTER_REACH)
+  );
+}
+
+/** TRUE if it can see this person on their feet and free to work: not down, not in cuffs. */
+function ableInView(brain: NpcBrain, name: string): boolean {
+  return brain.peopleInView.some(
+    (person) => person.name === name && !person.down && !person.cuffed,
+  );
+}
+
+/** Notes when each person in view was last seen on their feet and free (CARGO-12). */
+function noteAble(brain: NpcBrain): void {
+  brain.ableAt ??= {};
+  for (const person of brain.peopleInView) {
+    if (!person.down && !person.cuffed) {
+      brain.ableAt[person.name] = brain.now;
+    }
+  }
 }
 
 /** TRUE while there is work of this sort that is this NPC's own to be getting on with. */
@@ -430,12 +518,15 @@ function cratesWritten(numbers: number[]): string {
 /**
  * The held crate someone at the counter means. It goes by the number they gave. With no number, or
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
- * that name, and for a head their job will do as well.
+ * that name, and for a head their job will do as well. With no number given, the one crate held
+ * for whoever is asking comes first: "I'm here for my crate" from the one it is for (CARGO-08).
+ * With several held for them and no number, it does not pick: they are asked which.
  */
 function crateMeant(
   brain: NpcBrain,
   number: number | null,
   heard: string,
+  speaker = '',
 ): HeldCrate | undefined {
   const named =
     number === null
@@ -443,6 +534,11 @@ function crateMeant(
       : brain.heldCrates.find((crate) => crate.number === number);
   if (named) {
     return named;
+  }
+  // Only when no number was given: one who gave a wrong number is told so, not handed another.
+  const theirs = number === null ? heldFor(brain, speaker) : [];
+  if (theirs.length === 1) {
+    return theirs[0];
   }
   const said = heard.toLowerCase();
   const says = (words: string) =>
@@ -458,6 +554,15 @@ function crateMeant(
       brain.pdaPeople.find((person) => person.name === crate.for)?.job ?? '';
     return says(crate.for) || says(firstName(crate.for)) || says(job);
   });
+}
+
+/** The held crates for this person that are still in the bay, not brought out or taken. */
+function heldFor(brain: NpcBrain, name: string): HeldCrate[] {
+  return name
+    ? brain.heldCrates.filter(
+        (crate) => crate.for === name && !crate.out && !crate.takenBy,
+      )
+    : [];
 }
 
 /**
@@ -731,6 +836,7 @@ function describeHeld(task: Task): string | null {
  * the order, watches the shuttle, and remembers who is owed a message.
  */
 function syncTasks(brain: NpcBrain): void {
+  noteAble(brain);
   const order = findTask(brain, ORDER);
   if (orderInHand(brain)) {
     const task =
@@ -1192,8 +1298,14 @@ function visitorToMind(brain: NpcBrain): boolean {
   const inside =
     brain.peopleInView.some((person) => !!seenInside(brain, person)) ||
     ownRooms(brain).some((room) => stillInside(post, room, brain.now).length > 0);
+  // A technician on its feet: one lying there, in cuffs, or the Quartermaster (who does not open
+  // the department's doors) does not see to them (CARGO-12).
   const workmateAtPost = brain.peopleInView.some(
-    (person) => person.in_post && isCargo(person.job),
+    (person) =>
+      person.in_post &&
+      isTechnician(person.job) &&
+      !person.down &&
+      !person.cuffed,
   );
   return inside && !workmateAtPost;
 }
@@ -1321,13 +1433,13 @@ function mayPass(
   const already =
     !!person &&
     (wanted === post ? !!person.in_post : seenInside(brain, person) === wanted);
-  if (out || already || (inside && !person && inside.room === wanted)) {
-    return null;
-  }
+  const there = already || (!!inside && !person && inside.room === wanted);
   // Security at the door, asking to be let in: it has a warrant on someone inside, and the
   // warrant is the permission. It was left standing in the lobby calling an arrest through the
-  // counter until the Captain came and opened the door.
+  // counter until the Captain came and opened the door. Whatever words it asked in: one not seen
+  // inside is let in (PARSE-08).
   if (
+    !there &&
     isSecurity(
       person?.job ??
         brain.pdaPeople.find((known) => known.name === name)?.job ??
@@ -1335,6 +1447,9 @@ function mayPass(
     )
   ) {
     return { name, room: wanted, out: false };
+  }
+  if (out || there) {
+    return null;
   }
   // Sent for to a room further in, which has no way to it but through this one.
   const beyond = boundBeyond(brain, name, wanted);
@@ -1481,7 +1596,7 @@ function doorIsMine(brain: NpcBrain, at: number, toMe: boolean): boolean {
   if (toMe || !keeper || keeper === brain.name) {
     return true;
   }
-  if (brain.peopleInView.some((seen) => seen.name === keeper)) {
+  if (ableInView(brain, keeper)) {
     return false;
   }
   return brain.now - at > KEEPER_WAIT_DS;
@@ -1574,17 +1689,28 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       roomsKeeper(brain)
         ? doorIsMine(brain, knock.at, false)
         : by
-          ? by === brain.name ||
-            !brain.peopleInView.some((seen) => seen.name === by)
+          ? by === brain.name || !ableInView(brain, by)
           : !brain.peopleInView.some(
-              (seen) => isCargo(seen.job) && seen.name < brain.name,
+              (seen) =>
+                isTechnician(seen.job) &&
+                !seen.down &&
+                !seen.cuffed &&
+                seen.name < brain.name,
             );
     if (knock.inside) {
       // From inside: someone it let in there. Failing that, in its post, which it can see into,
       // whoever is in there who does not work there.
-      const letIn = stillInside(post, knock.room, brain.now)[0];
+      // Only someone let in before the knock can have knocked: one let out and let back in since
+      // is not knocking again, and a stale knock let a janitor out mid-scrub (LOGA-04).
+      const inThere = stillInside(post, knock.room, brain.now);
+      const letIn = inThere.find((entry) => entry.at < knock.at);
+      const lateIn = inThere
+        .filter((entry) => entry.at >= knock.at)
+        .map((entry) => entry.name);
       const seen = brain.peopleInView.find(
-        (person) => seenInside(brain, person) === knock.room,
+        (person) =>
+          seenInside(brain, person) === knock.room &&
+          !lateIn.includes(person.name),
       );
       const inside = letIn ?? seen;
       if (inside && mine(letIn?.by)) {
@@ -1594,7 +1720,13 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       // is locked. Whoever it is cannot get out, and that is reason enough to go and open it:
       // the body finds who is standing at the door. A janitor that had walked back into a room
       // it had been let out of knocked, and was left there, because the record said it was out.
-      if (!inside && brain.closedRooms.includes(knock.room) && mine(undefined)) {
+      // Not a knock older than someone let in since: that knock was answered (LOGA-04).
+      if (
+        !inside &&
+        lateIn.length === 0 &&
+        brain.closedRooms.includes(knock.room) &&
+        mine(undefined)
+      ) {
         return { name: SOMEONE_INSIDE, room: knock.room, out: true };
       }
     } else {
@@ -1697,12 +1829,29 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // Once the Quartermaster has divided the work, sending for a janitor goes with the rooms. Each
   // technician keeps its own note of who it called and who said they could not shift it, so two
   // who both called sent the same janitor the same five calls four times over, and one called
-  // again to a mess two janitors had already told the other was beyond them.
-  const keeper = roomsKeeper(brain);
-  if (keeper && keeper !== brain.name) {
+  // again to a mess two janitors had already told the other was beyond them. That holds while the
+  // keeper is about, as every other piece of the standing work does: a keeper in the Brig, shut
+  // in, or dead leaves the calling to whoever is here (CARGO-11).
+  const keeper = leftTo(brain, 'rooms');
+  if (keeper) {
     return {
       ready: false,
       step: `There is a mess in the ${place}. ${keeper} has the rooms this shift, and sends for a janitor when one is wanted.`,
+    };
+  }
+  // Stepping in for a keeper who is away, it does not know whom they sent for: the department's
+  // list does. A janitor they sent for here not long since is not sent for on top of.
+  const away = roomsKeeper(brain);
+  const sentFor =
+    away && away !== brain.name && brain.post
+      ? expectedAt(brain.post, place, brain.now).find(
+          (it) => it.by !== brain.name && brain.now - it.at < CALL_AGAIN_DS,
+        )
+      : undefined;
+  if (sentFor) {
+    return {
+      ready: false,
+      step: `There is a mess in the ${place}. ${sentFor.by} sent for ${sentFor.name}, a janitor, not long ago.`,
     };
   }
   // One call from a post is enough. Whoever is slower to it leaves it a while longer when a
@@ -1992,23 +2141,39 @@ function asksFor(crate: string, said: string): boolean {
  * Everything an order asks for: each kind of crate named, and how many of it. "Two crates of
  * janitorial supplies and a crate of light bulbs" is two kinds, in one order. The words must be
  * in lower case. A kind that is only named again ("soap and mops") is not ordered twice.
+ * Who it is for is no kind: "light bulbs for the janitors" is lights (CARGO-14). The names of
+ * those it knows, if given, are taken out the same way ("for Jan Mopp").
  */
 export function itemsAskedFor(
   said: string,
   orderable: string[],
+  names: string[] = [],
 ): { crate: string; count: number }[] {
+  let words = said.replace(
+    /\bfor (the |my |our |a |your )?(janitors?|cleaners?|custodians?|staff|crew|department)\b/g,
+    ' ',
+  );
+  for (const name of names) {
+    const escaped = name.toLowerCase().replace(/[^a-z0-9 ]/g, '.');
+    const first = escaped.split(' ')[0];
+    words = words.replace(
+      new RegExp(`\\bfor (${escaped}|${first})\\b`, 'g'),
+      ' ',
+    );
+  }
   const items: { crate: string; count: number }[] = [];
-  for (const part of said.split(/[,;.]|\band\b|\bplus\b|\balso\b|\bas well as\b/)) {
-    const crate = orderable.find((kind) => asksFor(kind, part));
-    if (!crate) {
-      continue;
-    }
+  for (const part of words.split(
+    /[,;.?!]|\band\b|\bplus\b|\balso\b|\bas well as\b/,
+  )) {
     const numbered = /\b(\d+|one|two|three|four|an?)\s+crates?\b/.test(part);
-    const item = items.find((it) => it.crate === crate);
-    if (!item) {
-      items.push({ crate, count: cratesAskedFor(part) });
-    } else if (numbered) {
-      item.count += cratesAskedFor(part);
+    // Every kind the clause names, not only the first on the list.
+    for (const crate of orderable.filter((kind) => asksFor(kind, part))) {
+      const item = items.find((it) => it.crate === crate);
+      if (!item) {
+        items.push({ crate, count: cratesAskedFor(part) });
+      } else if (numbered) {
+        item.count += cratesAskedFor(part);
+      }
     }
   }
   return items;
@@ -2107,8 +2272,8 @@ export const CARGO: Job = {
       ? 'All that takes is a PDA message to a janitor.'
       : null,
   // A message sent about a mess is a janitor called to it.
-  afterActing: (brain, act, task, ok) => {
-    afterFreight(brain, act, task);
+  afterActing: (brain, act, task, ok, _looped, _details, text) => {
+    afterFreight(brain, act, task, ok, text);
     // The order the Quartermaster gave it is placed, or could not be. Either way it is done with
     // here: one that could not be placed goes back to the Quartermaster, who gives it again.
     const given = brain.givenOrder;
@@ -2295,8 +2460,9 @@ export const CARGO: Job = {
       mayOrderFrom(brain, sayer) &&
       !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       SUPPLY_WORDS.test(words) &&
+      asksToOrder(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
-      !COLLECT_WORDS.test(words) &&
+      !comeForCrate(words, crateNumberIn(words)) &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
     );
   },
@@ -2307,7 +2473,11 @@ export const CARGO: Job = {
       return;
     }
     const said = spokenIn(heard).toLowerCase();
-    const items = itemsAskedFor(said, brain.orderable);
+    const items = itemsAskedFor(
+      said,
+      brain.orderable,
+      brain.pdaPeople.map((person) => person.name),
+    );
     if (items.length > 0) {
       action.items = items;
       action.crate = items[0].crate;
@@ -2426,9 +2596,10 @@ export const CARGO: Job = {
       speakerSeen &&
       !isCargo(speakerJob) &&
       (!!speakerSeen.command || isHead(speakerJob)) &&
-      event.details.said_to !== 'other' &&
+      // Said to it, or at its counter: not the Captain across the bay telling the Quartermaster (KNB-10).
+      atMyCounter(brain, event, speaker) &&
       ORDERING_WORDS.test(heard) &&
-      !COLLECT_WORDS.test(heard)
+      !comeForCrate(heard, crateNumberIn(heard))
     ) {
       if (QM_SILENT_WORDS.test(heard)) {
         brain.qmSilent = { by: speaker, at: brain.now };
@@ -2457,12 +2628,22 @@ export const CARGO: Job = {
     const number = crateNumberIn(heard);
     const theirJob =
       brain.peopleInView.find((person) => person.name === speaker)?.job ?? '';
+    // Said to a workmate who cannot answer (lying there, in cuffs, or gone), it is this one's to
+    // answer (CARGO-13).
+    const saidToName = String(event.details.said_to_name ?? '');
+    const toUnableWorkmate =
+      !!saidToName &&
+      saidToName !== brain.name &&
+      [...brain.peopleInView, ...brain.pdaPeople].some(
+        (person) => person.name === saidToName && isTechnician(person.job),
+      ) &&
+      !ableInView(brain, saidToName);
     if (
       speaker &&
       !isCargo(theirJob) &&
-      event.details.said_to !== 'other' &&
-      COLLECT_WORDS.test(heard) &&
-      (number !== null || /\bcrates?\b/i.test(heard)) &&
+      (atMyCounter(brain, event, speaker) || toUnableWorkmate) &&
+      // An order that says who will come for it is an order, not someone come for one (CARGO-15).
+      comeForCrate(heard, number) &&
       takeOrder(
         brain.post ?? '',
         `${speaker}, for a crate`,
@@ -2470,20 +2651,37 @@ export const CARGO: Job = {
         brain.now,
       )
     ) {
-      const crate = crateMeant(brain, number, heard);
+      const crate = crateMeant(brain, number, heard, speaker);
       brain.pickupAsked = {
         name: speaker,
         number: crate?.number ?? null,
         at: brain.now,
       };
       const first = firstName(speaker);
-      if (!crate) {
+      const theirs = heldFor(brain, speaker);
+      if (!crate && number === null) {
+        // No number given: "by that number" would be untrue. Ask which (CARGO-08).
         brain.toTell.push({
           to: speaker,
-          line: `Sorry, ${first}, I am not holding a crate by that number.`,
-          why: `${speaker} has come to collect a crate. You are holding none by the number they gave, nor one for anyone they named, and are telling them so.`,
-          // A plain no, whatever else is said: they are standing there waiting for a crate.
-          needs: /\b(not|no|none|cannot|can't|don't|isn't)\b/i,
+          line:
+            theirs.length > 1
+              ? `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. Which number is it?`
+              : `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
+          why: `${speaker} has come to collect a crate and gave no number. ${theirs.length > 1 ? `You are holding ${theirs.length} for them, and are asking which one.` : 'You are holding none for them, nor one for anyone they named, and are asking for the number.'}`,
+          needs: /\b(which|number)\b/i,
+          at: Date.now(),
+        });
+      } else if (!crate) {
+        brain.toTell.push({
+          to: speaker,
+          // The number is in it, so that another collector at the counter knows it is not theirs (TRA-03).
+          line: `Sorry, ${first}, I am not holding a crate by that number: crate ${number}.`,
+          why: `${speaker} has come to collect crate ${number}. You are holding none by that number, nor one for anyone they named, and are telling them so.`,
+          // A plain no, and the number, whatever else is said: they are standing there waiting for a crate.
+          needs: new RegExp(
+            `^(?=.*\\b(not|no|none|cannot|can't|don't|isn't)\\b)(?=.*\\b${number}\\b)`,
+            'i',
+          ),
           at: Date.now(),
         });
       } else if (crate.out || crate.takenBy) {
@@ -2514,6 +2712,18 @@ export const CARGO: Job = {
     // unless they ask to be let out.
     const workmateTalk =
       isCargo(asker?.job ?? '') && !LET_OUT_WORDS.test(heard);
+    // In or out goes by where the asker stands, when it can see them: inside one of its rooms is
+    // out, unless they name a room further in, reached through the one they stand in. Out of
+    // sight, by the words (PARSE-08).
+    const standsIn = asker ? seenInside(brain, asker) : undefined;
+    const out = asker
+      ? !!standsIn &&
+        !(
+          askedRoom &&
+          askedRoom !== standsIn &&
+          brain.roomsThrough[askedRoom] === standsIn
+        )
+      : wantsOutByWords(heard);
     if (
       speaker &&
       event.details.said_to !== 'other' &&
@@ -2528,7 +2738,7 @@ export const CARGO: Job = {
         // The room they named, if they named one of the department's. Said aloud, an ask used to
         // carry no room, and was taken for the post whatever room it named.
         room: askedRoom,
-        out: LET_OUT_WORDS.test(heard),
+        out,
         // The door they named, or failing that the door they were standing at when they said it.
         door:
           doorNamed(heard) ??
@@ -2570,7 +2780,8 @@ export const CARGO: Job = {
       at,
       room: roomAskedIn(brain, text),
       byPda: true,
-      out: LET_OUT_WORDS.test(text),
+      // By PDA, only the words say which way (PARSE-08).
+      out: wantsOutByWords(text),
       door: doorNamed(text),
     });
   },
@@ -2589,16 +2800,28 @@ export const CARGO: Job = {
       }
     }
   },
-  // Plain words for supplies, said to it, are an order for the crate, if it can take one.
+  // Plain words asking for a kind of crate it can order, said to it, are an order for that crate,
+  // if it can take one. Words that name no kind, or ask for nothing ("Has my order come in yet?"),
+  // order nothing: never the first crate on the list (CARGO-07).
   hears: (brain, heard) => {
-    const asker = brain.peopleInView.find(
-      (person) => person.name === speakerOf(heard),
+    const handle = heard.match(/\(person (\w+)/)?.[1];
+    const asker =
+      brain.peopleInView.find((person) => person.handle === handle) ??
+      brain.peopleInView.find((person) => person.name === speakerOf(heard));
+    const said = spokenIn(heard).toLowerCase();
+    const items = itemsAskedFor(
+      said,
+      brain.orderable,
+      brain.pdaPeople.map((person) => person.name),
     );
     return asker &&
+      items.length > 0 &&
+      asksToOrder(said) &&
+      !comeForCrate(said, crateNumberIn(said)) &&
+      !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       offers(brain, [asker]).length > 0 &&
-      /\b(order|crate|suppl\w*|soap|cleaner|mop)\b/i.test(heard) &&
       takeOrder(brain.post ?? '', asker.name, brain.name, brain.now)
-      ? { tool: 'order', crate: brain.orderable[0] }
+      ? { tool: 'order', crate: items[0].crate }
       : null;
   },
 };

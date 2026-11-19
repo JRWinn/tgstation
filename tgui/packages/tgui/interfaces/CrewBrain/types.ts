@@ -880,6 +880,20 @@ export type Task = {
   openSince?: number;
   /** Server time (deciseconds) it was first seen blocked, since it was last open (MEM-11). */
   blockedSince?: number;
+  /** For a crate to collect: the technician it last asked for it at the counter (CARGO-13). */
+  askedOf?: string;
+  /** For a crate to collect: how many times it has asked at the counter since it last told its head nothing came of it (CARGO-13). */
+  asks?: number;
+  /** For a crate to collect: TRUE while it has put the errand off because cargo did not bring the crate out when asked (CARGO-13). */
+  notBroughtOut?: boolean;
+  /** Server time (deciseconds) until which the task is kept, in place of the half hour from createdAt (JOBS-02). */
+  keepUntil?: number;
+  /** For a crate to collect: server time someone else last asked at the counter for a crate, after this one asked (TRA-03). */
+  otherAskedAt?: number;
+  /** For a freight step: how many times running it has failed (JOBS-04). */
+  fails?: number;
+  /** For a freight step put off after failing: what the body was told when it last failed (JOBS-04). */
+  failedOn?: string;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -1557,6 +1571,8 @@ export type NpcBrain = {
   lastDecision?: Decision;
   /** TRUE while the LLM is being asked only for a remark of the NPC's own accord (ASYNC-07). */
   remarking?: boolean;
+  /** Server world time (deciseconds) each workmate was last seen on their feet and free (CARGO-12): one lying in view is not about to do their share. */
+  ableAt?: Record<string, number>;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
