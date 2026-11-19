@@ -104,7 +104,8 @@
 	var/turf/best
 	var/best_score = INFINITY
 	for(var/obj/machinery/door/airlock/door as anything in doors)
-		if(door.locked || door.welded || !door.allowed(body))
+		// A shut door with no power will not open, and no route goes through it. One left standing open is still a way out.
+		if(door.locked || door.welded || !door.allowed(body) || (door.density && !door.hasPower()))
 			continue
 		var/list/sides = doors[door]
 		var/turf/outside = sides[2]
