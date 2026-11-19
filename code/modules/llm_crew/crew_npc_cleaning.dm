@@ -510,7 +510,37 @@
 		body.swap_hand(tool_hand)
 	// A mop works on the floor under the mess; soap and spray work on the mess itself.
 	var/atom/target = istype(tool, /obj/item/mop) ? get_turf(mess) : mess
-	body.ClickOn(target)
+	// A spray sets a wait of most of a second before the next click is let through, and the next
+	// mess is often one step away. Clicked inside that wait, nothing was sprayed, and the mess was
+	// written off as one that would not come off. So the body waits, as a player's client makes
+	// them, and if a click still does nothing it is tried once more and then left, not written off.
+	var/serial = errand_serial
+	var/landed = FALSE
+	for(var/go in 1 to 2)
+		if(go > 1)
+			sleep(1 SECONDS)
+		if(!wait_to_click(TRUE) || errand_serial != serial)
+			return list(FALSE, "You could not get to it.")
+		if(QDELETED(mess))
+			return list(TRUE, "The [mess_name] is gone already.")
+		if(!body.is_holding(tool))
+			return list(FALSE, "You have nothing to clean with.")
+		tool_hand = body.get_held_index_of_item(tool)
+		if(tool_hand != body.active_hand_index)
+			body.swap_hand(tool_hand)
+		var/volume_before = tool.reagents?.total_volume
+		var/next_move_before = body.next_move
+		body.ClickOn(target)
+		// Something came of the click: the mess went, a scrub began, the spray was used, or the
+		// game set the wait that every use of a held thing sets.
+		if(QDELETED(mess) || length(body.do_afters) || tool.reagents?.total_volume != volume_before || body.next_move != next_move_before)
+			landed = TRUE
+			break
+	// Twice clicked and nothing came of it: left as a mess it could not get to is, this one alone and
+	// not tried again, but not counted against its kind in this room as one that would not come off.
+	if(!landed)
+		stubborn_messes[REF(mess)] = TRUE
+		return list(FALSE, "You could not get to it.")
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment

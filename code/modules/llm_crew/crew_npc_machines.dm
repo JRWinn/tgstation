@@ -255,6 +255,10 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
  *
  * Returns FALSE, without clicking, if the body is in no state to reach it. A click with a key
  * held that cannot reach its target falls through to code that needs a player.
+ *
+ * A plain click that comes before the last swing or use is ready again is waited out first
+ * (wait_to_click()), up to two seconds more: the game would throw it away unseen, and the caller
+ * would be told it was made.
  */
 /datum/ai_controller/crew_npc/proc/click_as_body(atom/target, modifiers, gap = CREW_NPC_CLICK_GAP)
 	var/mob/living/carbon/human/body = pawn
@@ -262,10 +266,44 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		sleep(gap)
 	if(QDELETED(body) || QDELETED(target) || QDELETED(src))
 		return FALSE
+	// The game holds back a plain or right click while the last swing or use is not ready again.
+	// A click with a key held is let through before that test, and need not wait for it.
+	var/list/held_keys = params2list(modifiers)
+	var/plain = !LAZYACCESS(held_keys, SHIFT_CLICK) && !LAZYACCESS(held_keys, CTRL_CLICK) && !LAZYACCESS(held_keys, ALT_CLICK) && !LAZYACCESS(held_keys, MIDDLE_CLICK)
+	if(!wait_to_click(plain) || QDELETED(target))
+		return FALSE
 	if(!body.can_perform_action(target, target.interaction_flags_click | SILENT_ADJACENCY))
 		return FALSE
 	body.face_atom(target)
 	body.ClickOn(target, modifiers)
+	return TRUE
+
+/**
+ * Waits, as a player's own client makes them, until the body may click again: until the game would
+ * not throw the click away for coming too soon. A swing, a spray or a try with the cuffs sets a
+ * wait of most of a second before the next plain click is let through, and a click made inside it
+ * does nothing at all.
+ *
+ * `plain` is TRUE for a plain or right click, the ones the game holds back while the last use is
+ * not ready. Every click waits for the one before it to be taken (`next_click`).
+ *
+ * Waits two seconds at most: a body in cuffs is held back again on every click. Returns FALSE if
+ * the body or this controller is gone, or if a plain click would still be thrown away or thrown.
+ */
+/datum/ai_controller/crew_npc/proc/wait_to_click(plain = TRUE)
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	var/ready_at = body.next_click + 1
+	if(plain)
+		ready_at = max(ready_at, body.next_move)
+	var/wait = min(ready_at - world.time, 2 SECONDS)
+	if(wait > 0)
+		sleep(wait)
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	if(plain && (body.next_move > world.time || body.throw_mode))
+		return FALSE
 	return TRUE
 
 /**
