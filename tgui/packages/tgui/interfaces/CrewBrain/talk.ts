@@ -30,7 +30,7 @@ import {
 } from './jobs/engineering';
 import { ALOUD_CALL_WORDS, OVER_WORDS } from './jobs/meetings';
 import {
-  CANCEL_WORDS,
+  cancelAsked,
   GIVE_WORDS,
   LET_GO_WORDS,
   PARDON_WORDS,
@@ -146,10 +146,9 @@ export type TalkCall = {
 /**
  * Words other crew act on when they hear them said: a head's order to its staff, a word of a
  * crate, the engine, a meeting. These are the hearers' own patterns, not copies of them, so that
- * the two cannot drift apart. A warrant and a pardon are tested apart, below.
+ * the two cannot drift apart. A warrant, a pardon and a warrant taken back are tested apart, below.
  */
 const ACTED_ON_WORDS: RegExp[] = [
-  CANCEL_WORDS,
   GIVE_WORDS,
   SEEN_WORDS,
   LET_GO_WORDS,
@@ -195,6 +194,10 @@ export function soundsLikeOrder(text: string, brain: NpcBrain): boolean {
     PARDON_WORDS.test(text) &&
     known.some((name) => lower.includes(name.toLowerCase()))
   ) {
+    return true;
+  }
+  // A warrant taken back, as whoever keeps the list reads it: "Do not cancel it" is none.
+  if (cancelAsked(text)) {
     return true;
   }
   return ACTED_ON_WORDS.some((words) => words.test(text));

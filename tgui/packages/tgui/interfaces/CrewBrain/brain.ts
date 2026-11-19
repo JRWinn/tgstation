@@ -28,7 +28,7 @@ import { deskRead } from './jobs/desk';
 import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
-import { drive, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
+import { drive, isWalk, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
 import { jobFor } from './jobs';
 import {
   addNote,
@@ -440,8 +440,14 @@ export function ingest(npcs: Npc[], now: number): void {
       brain.outAsks = null;
       brain.cameFrom = brain.location || brain.cameFrom;
       // Where it was a moment ago, and when it left. Someone pushed a tile out of a room has not left it.
-      // A body that walked out on a walk of its own has (brain.walking is still the last update's).
-      if (brain.location && !brain.walking) {
+      // A body that walked out on a walk of its own has (brain.walking is still the last update's),
+      // and so has one sent off by the driver on a step not yet heard back from. A step aside is
+      // the case this is kept for: a body stepping clear of a doorway (CHK-07).
+      const sentOff =
+        !!brain.lastAct &&
+        isWalk(brain.lastAct.act.tool) &&
+        brain.lastAct.act.tool !== 'step_aside';
+      if (brain.location && !brain.walking && !sentOff) {
         brain.leftPlace = { place: brain.location, at: Date.now() };
       }
     }
@@ -663,10 +669,12 @@ export function ingest(npcs: Npc[], now: number): void {
             Date.now() + FIRE_CLOSED_MS;
         }
       }
-      // An alarm that is not its to reset, or that it cannot get to: that room is left alone a while.
+      // An alarm that is not its to reset, that it cannot get to, or that would not reset when it
+      // tried (no power, broken: DOOR-11): that room is left alone a while.
       for (const closed of [
         event.details.real_alarm,
         event.details.alarm_out_of_reach,
+        event.details.alarm_dead,
       ]) {
         if (typeof closed === 'string') {
           brain.fireClosed[closed] = Date.now() + FIRE_CLOSED_MS;
@@ -1501,6 +1509,63 @@ function holdDriverAfterDrop(brain: NpcBrain): void {
   );
 }
 
+/**
+ * Some jobs have things they must not say aloud, a warrant to whoever it is on among them
+ * (KNA-32). Each line the model wrote is looked over by the job; code's own line is said as it
+ * stands. A line put aside is replaced by the line its work calls for, if any, else by the job's
+ * plain line. Who a line is said to is whoever in view it calls on by name, else the first of
+ * those it answers (`answering`). Gives back what was put aside, for the window.
+ */
+export function vetLines(
+  brain: NpcBrain,
+  replied: Action[],
+  mustSay: string | null,
+  exact: boolean,
+  answering: string[],
+): string[] {
+  const vetsSay = jobFor(brain.job).vetsSay;
+  const notes: string[] = [];
+  if (!vetsSay) {
+    return notes;
+  }
+  for (const action of replied) {
+    const text = String(action.text ?? '');
+    if (action.tool !== 'say' || text === mustSay) {
+      continue;
+    }
+    // Given back with the fixed line at its head, only the remark after it is the model's.
+    const own =
+      exact &&
+      mustSay !== null &&
+      text.toLowerCase().startsWith(mustSay.toLowerCase())
+        ? text.slice(mustSay.length).trim()
+        : text;
+    // Of those it calls on, the one named first: "Zim, Pun Pun is in the Bar" is to Zim.
+    const lower = text.toLowerCase();
+    const called = brain.peopleInView
+      .filter((person) => callsOn(text, person.name))
+      .map((person) => ({
+        name: person.name,
+        at: lower.indexOf(
+          person.name
+            .split(/[^A-Za-z]+/)
+            .find((part) => part.length > 2)
+            ?.toLowerCase() ?? '',
+        ),
+      }))
+      .sort((a, b) => a.at - b.at);
+    const to = called[0]?.name ?? answering[0] ?? null;
+    const vetted = vetsSay(brain, own, to);
+    if (vetted !== null) {
+      notes.push(
+        `say(${JSON.stringify(text)}) [not to be said aloud: said instead ${JSON.stringify(mustSay ?? vetted)}]`,
+      );
+      action.text = mustSay ?? vetted;
+    }
+  }
+  return notes;
+}
+
 /** Asks the LLM what one NPC does about its pending sense reports, then carries out its tool calls. */
 async function think(brain: NpcBrain): Promise<void> {
   const mySession = session;
@@ -1650,6 +1715,9 @@ async function think(brain: NpcBrain): Promise<void> {
         );
       }
     }
+    decision.calls.push(
+      ...vetLines(brain, replied, mustSay, exact, asked.names),
+    );
     const actions = replied.filter((action) => {
       if (action.tool !== 'say') {
         return true;
@@ -1924,11 +1992,11 @@ async function think(brain: NpcBrain): Promise<void> {
     const request =
       speakers.length > 0 ? jobFor(brain.job).hears?.(brain, heard) : null;
     if (request) {
-      const asker = brain.peopleInView.find((seen) =>
-        speakers.includes(seen.handle),
-      );
+      // It is for whoever said the line it was made out of, not whoever else spoke in the same
+      // moment (CARGO-07).
+      const asker = heard.match(/\(person (\w+)/)?.[1];
       if (request.tool === 'order' && asker) {
-        request.for = asker.handle;
+        request.for = asker;
       }
       // How many, and where to, are read off what was said, as they are when the LLM agrees.
       if (request.tool === 'order') {

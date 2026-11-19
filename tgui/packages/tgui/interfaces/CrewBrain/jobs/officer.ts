@@ -38,6 +38,7 @@ import {
   planBeat,
   syncBeat,
   takeOutcomes,
+  warrantTalk,
 } from './arrests';
 import {
   describeDesk,
@@ -56,7 +57,7 @@ import { describeRounds, planRounds, roundsInHand, syncRounds } from './rounds';
 import {
   AGAIN_WORDS,
   addressOf,
-  CANCEL_WORDS,
+  cancelAsked,
   firstName,
   HEARD_WORDS,
   isHeadOfSecurity,
@@ -386,7 +387,7 @@ function sendOn(
     !isHead(fromJob) ||
     !(
       readWarrant(text, []) ||
-      CANCEL_WORDS.test(text) ||
+      cancelAsked(text) ||
       /\bpardon\b/i.test(text) ||
       (PARDON_WORDS.test(text) &&
         beatOf(brain).warrants.some((it) =>
@@ -495,6 +496,8 @@ export const OFFICER: Job = {
       word.toldAt = brain.now;
     }
   },
+  // A warrant is not talked about with people it meets (KNA-32).
+  vetsSay: (brain, text, to) => warrantTalk(brain, text, to),
   afterActing: (brain, act, task, ok, _looped, details) => {
     const beat = beatOf(brain);
     beatAfterActing(brain, act, task, ok, details);

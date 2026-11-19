@@ -75,6 +75,10 @@ const STAYS = new Set([
   'note',
   'word_passed',
 ]);
+/** TRUE if this tool takes the body off where it stands: anything that is not done on the spot. */
+export function isWalk(tool: string): boolean {
+  return !STAYS.has(tool);
+}
 /** How long the driver waits to hear how a step went before it takes it to have come to nothing. */
 const LOST_ACT_MS = 12000;
 /** How long the body waits for the LLM to say which job comes first before the code's own order is taken. */
@@ -578,6 +582,14 @@ export function nextStep(brain: NpcBrain): Step | null {
     }
     ready.push({ task, plan, key });
   }
+  // An emergency step that may break in on another comes before it too: an officer struck with
+  // nothing to stop them with gets out of reach before it serves the older warrant (ARR-08).
+  const breaking = ready.findIndex(
+    ({ task, plan }) => plan.breaksIn && task.urgency === 'emergency',
+  );
+  if (breaking > 0) {
+    ready.unshift(...ready.splice(breaking, 1));
+  }
   // A door being held open for it will not stay open. Whatever it was let in for comes first:
   // work in the room the door is the door of, or the walk through it to a room beyond. It is not
   // put to the LLM as a choice, either: the door would shut while it made up its mind.
@@ -704,12 +716,33 @@ function askAside(brain: NpcBrain): Step | null {
  * thing it drops what it is doing for. Null if there is none, or it is already about it.
  */
 function orderToDrop(brain: NpcBrain): Task | null {
-  const order = workInOrder(brain).find(
+  const ready = workInOrder(brain).filter(
     ({ task, plan }) =>
       task.urgency === 'emergency' && plan.ready && !!plan.act,
   );
+  let order = ready[0];
   if (!order) {
     return null;
+  }
+  // In the middle of an emergency, it is not dropped for another, older or not, unless the other
+  // is one that has to break in: getting out of an attacker's reach breaks off an arrest (ARR-08).
+  // Its own next step may still break off a walk, below.
+  const last = brain.lastAct;
+  const doing = last
+    ? brain.tasks.find((task) => task.id === last.task)
+    : undefined;
+  if (doing && doing.urgency === 'emergency' && doing.state !== 'done') {
+    const breaker = ready.find(
+      (it) => it.plan.breaksIn && it.task.id !== doing.id,
+    );
+    const own = ready.find((it) => it.task.id === doing.id);
+    if (breaker) {
+      order = breaker;
+    } else if (own) {
+      order = own;
+    } else {
+      return null;
+    }
   }
   // Already about that job, as a rule, it carries on. The one case it does not: a walk somewhere
   // that is part of the job, when the job's next step is one worth breaking the walk off for. An
@@ -879,10 +912,18 @@ export function drive(
   if (leaves && now - brain.lastSayAt < AFTER_SAYING_MS) {
     return null;
   }
+  // A remark of its own it may or may not make is no talk to stand still for (ASYNC-07): queued
+  // for one only (remarkOnly in brain.ts, written out here as brain.ts imports this file), or
+  // waiting on the model for one.
+  const remarkOnly =
+    brain.remarkDue &&
+    brain.pendingSpeakers.size === 0 &&
+    brain.mustSay === null;
   const talking =
     now - brain.lastSpokenToAt < TALK_PAUSE_MS ||
-    brain.wake ||
-    brain.status !== 'idle';
+    ((brain.wake || brain.status !== 'idle') &&
+      !remarkOnly &&
+      !brain.remarking);
   // A door someone is holding open for it will not stay open while the room finishes talking.
   const doorWaiting = brain.doorHeld || brain.doorHeldOut;
   if (leaves && talking && !doorWaiting) {

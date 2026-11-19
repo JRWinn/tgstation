@@ -26,6 +26,7 @@ import {
   describeBeat,
   planBeat,
   syncBeat,
+  warrantTalk,
 } from './arrests';
 import {
   describeDesk,
@@ -33,6 +34,7 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
+  deskOf,
   deskUnread,
   deskTakes,
   inTheCells,
@@ -274,6 +276,14 @@ export const HEAD_OF_SECURITY: Job = {
     deskAfterSaying(brain, called);
     beatAfterSaying(brain, called);
   },
+  // Nor does it talk of who is on its list with people it meets (KNA-32).
+  vetsSay: (brain, text, to) =>
+    warrantTalk(
+      brain,
+      text,
+      to,
+      deskOf(brain).warrants.map((warrant) => warrant.name),
+    ),
   afterActing: (brain, act, task, ok, looped, details) => {
     meetingActed(brain, act, ok, looped);
     deskAfterActing(brain, act, task, ok);

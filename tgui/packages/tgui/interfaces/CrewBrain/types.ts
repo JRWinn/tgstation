@@ -970,6 +970,8 @@ export type Plan = {
    * moment they are in sight: see orderToDrop in driver.ts.
    */
   dropsWalk?: boolean;
+  /** TRUE if this emergency step may break off another emergency under way (ARR-08): see orderToDrop. */
+  breaksIn?: boolean;
 };
 
 /** How an NPC feels about one person it has met. */
