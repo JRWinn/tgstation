@@ -829,6 +829,11 @@ export function ingest(npcs: Npc[], now: number): void {
  * end of the hallway. It turns to whoever spoke to it, or failing that whoever is there.
  */
 function stopToTalk(brain: NpcBrain): void {
+  // A step aside it was asked for is taken first, and talked over: holding it would stop the walk
+  // with the asker still waiting to get by.
+  if (brain.lastAct?.act.tool === 'step_aside') {
+    return;
+  }
   const person =
     brain.peopleInView.find((seen) => brain.pendingSpeakers.has(seen.handle)) ??
     brain.peopleInView[0];

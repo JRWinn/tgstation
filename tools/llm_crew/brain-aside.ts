@@ -2,7 +2,7 @@
 // all decided in code (CrewBrain/driver.ts), so it can be checked in a second.
 //
 //   bun run brain-aside.ts
-const { ROOT, makeBrain, at, know } = await import('./fixtures');
+const { ROOT, makeBrain, at, know, janitor } = await import('./fixtures');
 const { drive } = await import(ROOT + 'driver');
 
 const cases: [string, string, string][] = [];
@@ -60,6 +60,30 @@ const issue = () => 'none';
   b.mustSay = 'something else';
   drive(b, issue, speak);
   add('with a line already waiting to be said: not asked over it', said.length, 0);
+}
+
+// ---- DRV-03: asked to step aside, it steps at once, though being asked is being spoken to
+{
+  const asked = (setUp: (b: any) => void = () => {}) => {
+    const b: any = janitor();
+    at(b, 3000, 'Cargo Bay', [monte]);
+    b.asideAsked = { by: 'Monte Mcmullen', handle: 'p5', at: Date.now(), done: false };
+    b.lastSpokenToAt = Date.now();
+    setUp(b);
+    return drive(b, issue, speak);
+  };
+  add('just asked: the step aside is taken at once', asked()?.act?.tool, 'step_aside');
+  add('just asked, the model working on a reply: still taken at once', asked((b) => { b.wake = true; b.status = 'thinking'; })?.act?.tool, 'step_aside');
+  add('just asked, and it has just said sorry: still taken at once', asked((b) => { b.lastSayAt = Date.now(); })?.act?.tool, 'step_aside');
+  // Anything that takes it off across the room still waits for the talk.
+  const walk = (spokenTo: number) => {
+    const b: any = janitor();
+    at(b, 3000, 'Cargo Bay', []);
+    b.lastSpokenToAt = spokenTo;
+    return drive(b, issue, speak)?.act?.tool ?? null;
+  };
+  add('nobody talking, nothing asked of it: it sets off exploring', walk(0), 'explore');
+  add('just spoken to, nothing asked of it: it does not walk off', walk(Date.now()), null);
 }
 
 let failed = 0;
