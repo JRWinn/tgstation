@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: CARGO-01
 found_by: Fable 5.2
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:423, code/modules/llm_crew/crew_npc_cargo.dm:454, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:720, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:945

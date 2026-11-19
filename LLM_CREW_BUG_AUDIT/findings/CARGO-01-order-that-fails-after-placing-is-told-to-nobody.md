@@ -9,11 +9,13 @@ status: confirmed
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915, code/modules/llm_crew/crew_npc_cargo.dm:423, code/modules/llm_crew/crew_npc_cargo.dm:454, code/modules/llm_crew/crew_npc_cargo.dm:500, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915, code/modules/llm_crew/crew_npc_cargo.dm:423, code/modules/llm_crew/crew_npc_cargo.dm:454, code/modules/llm_crew/crew_npc_cargo.dm:500, code/modules/llm_crew/crew_npc_cargo.dm:442, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:735, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674
 fix: Have the server owe a notice of kind failed when a placed order is given up, and have the technician pass it on like any other word (to the Quartermaster face to face, or to whoever ordered by PDA)
 ---
 
 ## What is wrong
+
+Also written up as: SUP-02 (the same fault from the server side: the order left in the cart, the crate that comes later as a stranger, and a timeout reached with the crates on the dock).
 
 A technician places an order at the console. That goes well, and the window marks the order as placed. The shuttle run is then watched by a server timer (`supply_run_step`). That timer can give the order up in three ways, minutes later:
 
@@ -38,7 +40,11 @@ One concrete case, one technician and a Quartermaster:
 3. In the window `orderPending` is now false. `syncTasks` closes the `order` task. Sam goes back to its post.
 4. The Quartermaster's book still reads "Order 3. Given to Sam." It never gives Sam another order. The Head of Personnel waits for a crate that was never fetched.
 
-Note that the server leaves the order itself in `SSshuttle.shopping_list`. If the shuttle later makes a run for someone else, the crates come anyway, and nobody holds them for anyone: no timer is running for the given-up run, so `order_arrived` is never called for its numbers, and the next `place_order` by the same body starts with `ordered_numbers = list()`, which forgets them altogether. SUP-02 sets this side out in full.
+Note that the server leaves the order itself in `SSshuttle.shopping_list`. If the shuttle later makes a run for someone else, the crates come anyway, and nobody holds them for anyone: no timer is running for the given-up run, so `order_arrived` is never called for its numbers, and the next `place_order` by the same body starts with `ordered_numbers = list()`, which forgets them altogether. The base game leaves an order it did not buy in the list: `buy()` in `code/modules/shuttle/mobile_port/variants/supply.dm` only removes an order after it has made its crate. So the body is told "The order is off until it is clear", but it is not off: the next round trip for anyone buys it and charges cargo's budget. The crate then comes in as a stranger: its number is in nobody's `ordered_numbers`, so `order_arrived` makes no held entry for it and owes no notice, and it is hauled into the bay as a loose full crate and stays there, not held, not released, and not empty, so never sent back. (From SUP-02.) In SUP-02's case: the Captain stands on the shuttle while Sam's order 3 is in the cart as #7; thirty seconds later it is given up; ten minutes later Sam's order 5 sends the shuttle out and back, the game buys #7 with #9, `order_arrived` holds #9 only, and crate #7 sits in the bay, paid for, with nobody told.
+
+The six-minute timeout is reached without anything being wrong: an order placed while the shuttle is docked with four full crates aboard waits for them to be unloaded (the `crate_to_unload()` branch), then needs two one-minute flights. A staff meeting in the middle is enough.
+
+A second way into the timeout that is not a hold-up at all: the crates have come and the body is not in the bay to see them (`aboard` with the body not in the post's area just waits). A technician in the brig, dead, or kept away for the rest of the six minutes is told "What you ordered has still not come. Something is holding the supply shuttle up" while the crates stand on the dock. Again no held entry and no notice. `supply_run_step` checks `QDELETED(pawn)` only, so a dead technician's timer runs to the timeout too.
 
 ## Where
 
@@ -63,6 +69,23 @@ and at line 500 in `order_arrived`:
     if(!length(found))
         action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
         return
+
+`crew_npc_cargo.dm:442`, same proc, the body not in the bay:
+
+    				if(aboard && (isnull(post_turf) || get_area(pawn) == get_area(post_turf)))
+    					order_arrived()
+    					return
+    				if(aboard)
+    					addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
+    					return
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:735`, in `syncTasks`, where the window takes the given-up order as done:
+
+      } else if (order) {
+        // The PDA message was the telling, so nobody is left waiting to hear.
+        order.reported = true;
+        finishTask(brain, order);
+      }
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915`, the only place the window notes how an order went, which runs only for the answer to the placing:
 
@@ -105,7 +128,13 @@ Keep it on the same rails as the other word a technician owes.
 3. Window, `cargo.ts`: treat a `failed` notice like `arrived` in `orderInHand`, `syncTasks` and `plan`. In `plan`, for a notice with `via` the Quartermaster and a number `ref`, call `tellQuartermaster` with the line `` `${first}, order ${ref} ${NOT_PLACED}. ${why}.` `` and `{ tool: 'word_passed', person: to, kind: 'failed' }`. With no Quartermaster, or when `tellQuartermaster` returns null, send whoever ordered a PDA message: "Your order did not come: <what>. <Why>. Ask again when it is clear."
 4. Window, `quartermaster.ts` `overhears`: the `NOT_PLACED_WORDS` branch must call `heardIt()` like the other three, or the technician will never get "I have that" back and will fall through to the PDA after two tries. It already puts the order back to `new` with `retryAt`, which is the right outcome. Also read `NOT_PLACED_WORDS` in `readsMessage` from a technician, for when the word comes by PDA (see CARGO-02 and CARGO-03).
 5. Window: when the `failed` notice is first seen, clear `brain.givenOrder` if its number is the notice's `ref`.
-6. Decide what happens to the order left in `SSshuttle.shopping_list`. Do not go by the controller's `ordered_numbers` for this: `place_order` clears it on the body's next order. Use SUP-02's plan instead (a global list of given-up manifest numbers with who they are for, matched in `freight_state` when such a crate is seen, and an `arrived` notice then). Build this finding and SUP-02 as one change: they are the same fault seen from the window and from the server, and the notice kind should be one kind, not `failed` here and `held_up` there. Owner's questions: cancel the order at the console or leave it in the cart (SUP-02), and should a late crate be held for the first asker when the Quartermaster has since given the order out again? If the Quartermaster gives it out again, the book must not count the cost twice in `moneyFree`.
+6. Decide what happens to the order left in `SSshuttle.shopping_list`. Do not go by the controller's `ordered_numbers` for this: `place_order` clears it on the body's next order. Use this plan instead (from SUP-02, which wrote it with the notice kind `held_up`; use one kind for both, not `failed` here and `held_up` there):
+   - Add a global list in `crew_npc_held.dm`, `GLOB.crew_npc_orders_adrift`: manifest number (as text) to a list of `for`, `via`, `ref`, `what` (the kind from `ordered_kinds`) and `post`.
+   - In both give-up branches of `supply_run_step`, before clearing: for each number in `ordered_numbers` whose order is still in `SSshuttle.shopping_list` or whose crate has no held entry yet, write an entry to that list. Change the body's words from "The order is off until it is clear" to "It is still on order, and will come when the shuttle next makes the trip."
+   - In `freight_state` (or a small proc it calls), for each crate aboard or in `freight_rooms()` with a manifest number that is in `GLOB.crew_npc_orders_adrift` and has no held entry: make the held entry exactly as `order_arrived` does, owe the `arrived` notice to the stored `for`/`via`/`ref`, and remove the number from the list. Any technician at the post may do this, the same as writing off a lost crate.
+   The owner has to decide first: **when a run is given up, should the technician cancel the order at the console (a player can, with the cart's remove button), or leave it in the cart and go on watching for it?** SUP-02's finder would leave it: it needs no extra walk, the money is only spent when the crate really ships, and it fits section 4.7 of `LLM_CREW_PLAN_NO_CHEATS.md` ("If the technician is held up, the shuttle waits at the far end"). The plan above is for that answer. If it is to be cancelled: the technician walks to the console and removes each of its numbers (`console.remove_item(id)` after `can_interact`), the notice says the order is cancelled and must be given again, and the adrift list is not needed. A second question: should a late crate be held for the first asker when the Quartermaster has since given the order out again? If the Quartermaster gives it out again, the book must not count the cost twice in `moneyFree`.
+7. The timeout where the crates have come and the body was not in the bay (from SUP-02): do not time out while `aboard` is true and the shuttle is docked. The order has come. Let the wait run until the body is back in the bay or is dead (`body.stat == DEAD`: then hand the numbers to the adrift list at once, so a workmate holds the crates).
+8. Window, `jobs/cargo.ts`: keep `orderInHand` true while the `failed` notice is owed, so the ORDER task is not closed as reported in `syncTasks` (`cargo.ts:735`) before the word is passed.
 
 What must keep working: the immediate failure at the console (CARGO-03 covers its own weakness), and an order with no Quartermaster aboard.
 
@@ -114,6 +143,8 @@ What must keep working: the immediate failure at the console (CARGO-03 covers it
 - Simulator: add a scenario to `tools/llm_crew/sim.ts` beside `qm` in which the sim answers the order as placed, then two minutes later clears `order_pending` and sends a `failed` notice. Check that the Quartermaster's book gets "Could not be placed." and that the order is given out again, and with no Quartermaster that the head gets the PDA message.
 - `tools/llm_crew/book.ts`: a case for the new line against `NOT_PLACED_WORDS`.
 - Type check and server compile.
+- Server compile to a side copy.
+- In a round (from SUP-02): order, then stand on the supply shuttle for forty seconds. Then step off, let another order run, and check that the first crate is held under its number and its "arrived" message goes out. Separately, keep a technician out of the bay while its crates dock: no "has still not come" line while the crates stand on the dock.
 - In a round: stand on the shuttle deck while an order is placed. In `game.log` look for "The order is off until it is clear", then in `pda.log` or `game.log` for the technician telling the Quartermaster "order N did not go through".
 
 ## Check

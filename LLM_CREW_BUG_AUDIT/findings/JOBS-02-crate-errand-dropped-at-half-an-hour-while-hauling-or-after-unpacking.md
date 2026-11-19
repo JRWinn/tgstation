@@ -14,6 +14,8 @@ fix: Give a Task a keepUntil that the give-up rule in syncTasks honours, and hav
 
 ## What is wrong
 
+See also: MEM-11 (the same 30-minute rule in `syncTasks`, for a task dropped the moment it is unblocked after a long block; its `openSince` fix and this one's `keepUntil` touch the same filter and are best built together, but neither alone mends the other's case).
+
 See also: CARGO-13. That finding covers the errand being dropped by the 30-minute rule while the body is still waiting at the counter. This one is the same rule striking later, once the crate is in the body's hands, which leaves more broken behind it.
 
 `syncTasks` throws away every task that is not blocked once it is 30 minutes old (`GIVE_UP_DS = 18000` deciseconds), counted from `createdAt`. A crate errand's `createdAt` is the moment the head's PDA message was read in `readPickup`. Nothing in `pickups.ts` ever moves it on, and after the crate is out the task is always `open`: `syncPickups` unblocks it on every update (`blockTask(task, null)`) until it is unpacked, and after that it skips the task (`continue`), leaving it open.

@@ -14,6 +14,8 @@ fix: Count a task's age for giving up from when it last became open, not from wh
 
 ## What is wrong
 
+See also: JOBS-02, CARGO-13 (the same 30-minute rule in `syncTasks`, striking a crate errand that is open and still going; JOBS-02's `keepUntil` and this finding's `openSince` are two different changes, and neither alone mends the other's case, but they touch the same filter and are best built together).
+
 `syncTasks` gives up on any task older than 30 minutes (`GIVE_UP_DS`, from `task.createdAt`), unless it is blocked:
 
     return brain.now - task.createdAt < GIVE_UP_DS || task.state === 'blocked';

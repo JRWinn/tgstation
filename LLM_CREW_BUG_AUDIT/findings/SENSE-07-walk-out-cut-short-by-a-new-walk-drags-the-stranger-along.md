@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: SUP-06
 found_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_tools.dm:411, code/modules/llm_crew/crew_npc_guarding.dm:183, code/modules/llm_crew/crew_npc_guarding.dm:213, code/modules/llm_crew/crew_npc_tools.dm:20, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:726

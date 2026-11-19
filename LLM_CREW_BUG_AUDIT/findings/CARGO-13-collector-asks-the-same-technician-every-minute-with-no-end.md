@@ -14,6 +14,8 @@ fix: Ask a technician who is on their feet, turn to another after an ask that br
 
 ## What is wrong
 
+See also: JOBS-02, MEM-11 (the 30-minute give-up rule in `syncTasks` that is this errand's only end today, and what it breaks; this finding's own fault is in `planPickups`, which technician it asks and that it never stops asking).
+
 A crew member sent to collect a crate stands in the Cargo Lobby and asks a technician for it by name. The technician it asks is `brain.peopleInView.find(isTechnician)`: the first one the server lists. Three things are missing:
 
 1. **It does not look at whether that technician can answer.** The list holds everyone in sight, with `down` and `cuffed` marked (see CARGO-12). A technician lying knocked out or dead in view of the counter, or standing in cuffs, is asked.

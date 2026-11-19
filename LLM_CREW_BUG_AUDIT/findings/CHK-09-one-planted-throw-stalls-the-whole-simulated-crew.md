@@ -5,7 +5,8 @@ kind: gap
 severity: high
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: DRV-06
 found_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1555, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1620, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1572, tools/llm_crew/sim.ts:51
