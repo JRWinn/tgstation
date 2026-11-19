@@ -14,7 +14,7 @@ fix: Return FALSE from ui_act for ack, as brain_log already does, since the wind
 
 ## What is wrong
 
-See also: HOLE-09, which counts the updates and proposes the larger rework. This one is a two-line saving that can go in on its own.
+See also: HOLE-09, which counts the updates and proposes the larger rework, and PERF-02, whose fix step 3 is this one. This one is a two-line saving that can go in on its own.
 
 The window sends `ack` each time it has taken in new events for a body (`brain.ts:741`). In `ui_act` the `ack` branch ends `return TRUE`. The base `on_act_message` calls `SStgui.update_uis(src_object)` whenever `ui_act` returns TRUE, which rebuilds `ui_data` for every body (forty-odd procs each, see HOLE-09 and CORE-04) and sends it all again. The only thing that changed is `acked_seq` on one body, and the window is the one that sent it.
 

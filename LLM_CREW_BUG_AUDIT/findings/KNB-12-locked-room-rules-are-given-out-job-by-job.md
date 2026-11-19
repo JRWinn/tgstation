@@ -14,7 +14,7 @@ fix: Work out a body's own rooms from its ID and its job's department for every 
 
 ## What is wrong
 
-See also: LOGB-01
+See also: LOGB-01, GAP-14 (the guarding half of this alone: janitors putting nobody out of the closet)
 
 The project's rule: "An example is not the scope. A behaviour described for one job is built as a general rule (anyone with a post behind a locked door) ... Nothing should assume only janitors and cargo."
 

@@ -14,7 +14,7 @@ fix: Have crew heads declare warrants only in the fixed warrantLine words, and h
 
 ## What is wrong
 
-See also: SECT-01 (negations and questions), SECT-21 ("is wanted on the bridge"). Those are about the human Captain's wording. This is about the other crew heads, whose spoken lines are written by the model.
+See also: TRUST-11 (the speaker's model is free to say an order at all; its fix in `think` stops these lines being said, this one's fix stops the desk reading a remark as a warrant), SECT-01 (negations and questions), SECT-21 ("is wanted on the bridge"). Those are about the human Captain's wording. This is about the other crew heads, whose spoken lines are written by the model.
 
 `deskHears` takes anything said to the Head of Security (or to an officer keeping the list) by a head of department and puts it through `deskTakes`, and so `readWarrant`, which finds a warrant verb anywhere in the line. The Head of Personnel, Quartermaster and Chief Engineer are crew NPCs whose greetings and passing remarks are the model's words: they meet the Head of Security, they pass remarks in company (`passRemark`), they answer it. A friendly line to a security chief is likely enough to have "arrest" or "jail" in it.
 

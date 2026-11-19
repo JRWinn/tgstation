@@ -14,6 +14,8 @@ fix: Make out a look order by code only when the look word is said to the NPC as
 
 ## What is wrong
 
+See also: PARSE-09
+
 When the Captain or the NPC's head speaks to it, `buildTalk` makes out an order by code **before** the model is asked (`workInWords(brain, report, toldBy, true)`). For anyone whose job does not take the work in its own words first, the last net is `ORDER_SOUNDS`: if the superior's words match
 
     /\b(look|check|inspect|see what|see if|see how|find out|report back|go and see|go see)\b/

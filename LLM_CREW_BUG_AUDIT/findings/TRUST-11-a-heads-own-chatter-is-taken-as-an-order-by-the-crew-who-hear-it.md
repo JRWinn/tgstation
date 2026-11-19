@@ -15,6 +15,8 @@ fix: Before a line the model wrote is said, test it against the words other crew
 
 ## What is wrong
 
+See also: PARSE-13
+
 The rule is "code does the work; the model is only the voice". Each NPC keeps it for its own body: the model's words never become a tool call of its own. But other NPCs hear those words, and their code acts on what is said aloud by someone of rank: a head's "arrest Bob Hale" is a warrant to the Head of Security (`deskHears`, `readWarrant`), the Head of Security's "warrant: ... Bring them in" is a warrant to its officer (`readGiven`), the Quartermaster's "Sam, order 3: I need to order ..." is an order a technician places (`GIVEN_WORDS`), a technician's "crate #12 for X is lost" has the Quartermaster buy it again (`LOST_TOLD_WORDS`).
 
 Nothing stops the model putting those words into a line. The reply's `say` goes out as written (`brain.ts:1372`: only `withoutHandles` is applied). No head's prompt says anything about warrants at all. And `readWarrant` is built to catch loose wording: any "arrest", "lock up", "jail", "detain" or "is wanted" with a name after it.

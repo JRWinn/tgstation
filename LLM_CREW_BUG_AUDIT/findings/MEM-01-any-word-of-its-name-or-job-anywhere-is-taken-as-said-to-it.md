@@ -14,6 +14,8 @@ fix: In saidTo rule 1 use callsOn for the NPC's own name and job, not usesName, 
 
 ## What is wrong
 
+See also: PARSE-14
+
 Rule 1 of `saidTo` says a line is for this NPC if it "uses this NPC's name (or its job, if it serves at a post)". It is tested with `usesName`, which is true if **any part of the name longer than two letters appears anywhere in the line as a word**. The file's own comment on `callsOn` says why that is wrong ("there is a fire in the bar" does not call on Zim Fire), and rule 2 uses the strict `callsOn` for everyone else. Rule 1 does not, so the NPC itself is the one person in the room who is called on by its name merely being in the sentence.
 
 The same goes for the job of a crew member with a post (cargo technicians, station engineers, security officers: `post_place` is set in `crew_npc_cargo.dm`, `crew_npc_engineering.dm`, `crew_npc_security.dm`). Every line with "cargo", "technician", "station", "engineer", "security" or "officer" in it is taken as said to that NPC.

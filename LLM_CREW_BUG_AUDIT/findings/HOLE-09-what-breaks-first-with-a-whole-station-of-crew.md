@@ -14,6 +14,8 @@ fix: Send each body's slow-changing state on a timer and only its new events at 
 
 ## What is wrong
 
+See also: PERF-02 (point 1 here, measured, with one update a tick and only new events as its fix), CORE-05 (the ack that makes a second full rebuild, a two-line fix on its own)
+
 The owner wants a whole station of crew. Today there are eleven. These are the things that are sized for eleven, in the order I expect them to give way. None is a fault at eleven.
 
 **1. Every sense event from any body rebuilds and resends everything about every body.**

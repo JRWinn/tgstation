@@ -14,7 +14,7 @@ fix: Before the closing line, wait a short while for anyone invited who has give
 
 ## What is wrong
 
-See also: KNB-09 (read from the code: the Quartermaster does not read "On my way" or "I am in the Cargo Bay already", and an aloud meeting never sends "the meeting is over" by PDA). This adds a round where it happened, and a second cause KNB-09 does not have: the meeting is not only started without someone, it is **closed** without someone who was at it a moment before.
+See also: KNB-09 (read from the code: the Quartermaster does not read "On my way" or "I am in the Cargo Bay already", and an aloud meeting never sends "the meeting is over" by PDA), LOGA-06 (a meeting closed by `syncMeeting` when nobody at all is in view, a different close path from the one here). This adds a round where it happened, and a second cause KNB-09 does not have: the meeting is not only started without someone, it is **closed** without someone who was at it a moment before.
 
 Once the meeting has begun, `meetStep` calls on whoever `nextTurn` finds in view and not yet called on. When nobody is left in view, it goes straight to who security is looking for and the closing line. It does not look at who was invited and has given no report, or at whether they said they were coming. A technician who steps out of the Quartermaster's line of sight for a few seconds (to stand clear of a doorway, or walking to the middle of a big bay to find its head) is passed over, and the meeting is closed over its head.
 

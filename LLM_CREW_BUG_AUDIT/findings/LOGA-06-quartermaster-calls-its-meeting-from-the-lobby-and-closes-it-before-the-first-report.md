@@ -14,7 +14,7 @@ fix: Record the turn of whoever is named in the call-on line among all staff, no
 
 ## What is wrong
 
-See also: LOGA-02 (the same meeting code closing over a technician who stepped out of view after his turn was due) and KNB-09. This is a different way into the same loss, seen in the first supply meeting of a round.
+See also: LOGA-02 (the same meeting code closing over a technician who stepped out of view after his turn was due), KNB-09, and CHK-07 (the cause in `ingest` of the 10 seconds of `stillIn` in point 1 here). This is a different way into the same loss, seen in the first supply meeting of a round.
 
 Three things in `jobs/head.ts` meet here:
 

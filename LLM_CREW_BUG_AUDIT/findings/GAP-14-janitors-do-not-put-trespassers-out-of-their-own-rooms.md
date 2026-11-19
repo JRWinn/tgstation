@@ -42,6 +42,14 @@ One case: Pun Pun walks into the Custodial Closet behind a janitor. A janitor st
 
     keepsPost: false,
 
+`code/modules/llm_crew/crew_npc_senses.dm:191`, where people in view are described: both flags need a post (from KNA-16).
+
+    "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person),
+
+`crew_npc_guarding.dm:24`, `belongs_in_post`, goes by `post_doors()`, the doors of the post only. `tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:343`, `syncGuarding`, and `:504`, `planGuarding`, are written against `brain.post`.
+
+The server already knows a wider set for every body: `closed_rooms` ("those of its rooms, its post among them, that every door into is locked to the crew at large", `crew_npc_controller.dm:202`), built from `work_area` and `look_in_rooms`.
+
 ## How it was found
 
 Read from the code and the three places it is listed. Not seen in a round log by me: the monkey in the closet is from the owner's report on 2026-11-18.
@@ -51,7 +59,7 @@ Read from the code and the three places it is listed. Not seen in a round log by
 Make keeping a room a matter of the rooms, not of the post. This also closes the secure areas plan's "a room other than the post".
 
 1. **Server: the rooms a body keeps.** A new list on the controller, `kept_rooms`: the rooms locked to the crew at large that its own ID opens and that belong to its department. The server already works these out for the brain window (`closed_rooms`, `look_in_rooms`, and `crew_brain_rooms.dm`'s locked-rooms list): reuse that, do not hard-code the Custodial Closet. For a body with a post, `kept_rooms` includes the post.
-2. **Server: guarding by room.** In `crew_npc_guarding.dm`, give `belongs_in_post`, `why_not_put_out`, `spot_outside_post`, `tool_throw_out`, `take_hold_of` and `put_out` a room argument (default: the post). `tool_throw_out(handle)` uses the kept room the person is standing in. The `in_post` and `belongs` flags in `people_in_view` (`types.ts:52` to `:54`) become "in a room you keep" and "a door of that room opens for them".
+2. **Server: guarding by room.** In `crew_npc_guarding.dm`, give `belongs_in_post`, `why_not_put_out`, `spot_outside_post`, `tool_throw_out`, `take_hold_of` and `put_out` a room argument (default: the post). `tool_throw_out(handle)` uses the kept room the person is standing in. The `in_post` and `belongs` flags in `people_in_view` (`types.ts:52` to `:54`, set at `crew_npc_senses.dm:191`) become "in a room you keep" and "a door of that room opens for them". For `belongs`, ask whether any door of that room opens to the person (`crew_npc_doors_of(room)` and `door.allowed(person)`, as `locked_out_of` does for the body itself); `tool_throw_out` walks them out by the nearest door of that room to a room that is not locked (from KNA-16).
 3. **Window.** `jobs/guarding.ts` is already shared code. Find where it requires `brain.post` (for example `expectedCall(brain.post, ...)` at line 152 and the `syncGuarding` entry) and let it run for a kept room the body is standing in. Add its calls to `jobs/janitor.ts` the way `jobs/cargo.ts` and `jobs/engineer.ts` make them (`syncTasks`, `plan`, `overhears`).
 4. **A janitor is not always there.** Unlike a technician it questions only while it is in the room, and does not go back to stand guard.
 5. **The rules that must hold:** never the Captain or a head (`why_not_put_out` already refuses anyone with command access); someone a workmate sent for is let be (janitors send for nobody today, so the list is empty); a fellow janitor's ID opens the door, so `belongs` is true for them.
@@ -59,8 +67,10 @@ Make keeping a room a matter of the rooms, not of the post. This also closes the
 
 Question for the owner: should a janitor put someone out of the closet when a workmate janitor is not there to ask "did you send for them?" Today's cargo rule takes a stranger's word for a voucher who is absent.
 
+Second question for the owner (from KNA-16): a janitor is in the closet only now and then, so this guards it only while someone is there. Is that enough, or should a janitor who sees someone go in, or finds the closet wrecked, send word as well?
+
 ## How to test the fix
 
 - Simulator: copy the scenario that has a technician put a stranger out of the bay (`intruder` or the like, listed at the top of `tools/llm_crew/sim.ts`) with a janitor in the Custodial Closet and a monkey that will not leave. Check the questions, the hand on the arm, the word to the Head of Personnel, and the warrant.
 - A second run with the Captain as the "stranger": nothing is done.
-- Server compile, type check. In a round, `grep -n "took hold of" game.log` for a janitor.
+- Server compile, type check. In a round, `grep -n "took hold of" game.log` for a janitor, and "walk failed (evict" or "put ... out of Custodial Closet" lines with a janitor's name.

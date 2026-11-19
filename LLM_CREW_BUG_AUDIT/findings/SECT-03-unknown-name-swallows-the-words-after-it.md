@@ -15,6 +15,8 @@ fix: For a name it does not know, stop the name at the first word that cannot be
 
 ## What is wrong
 
+See also: PARSE-03
+
 When the name after "arrest" or "warrant for" is nobody the Head of Security knows, `readWarrant` takes the words up to the first comma, full stop, " for ", " and ", " then ", " but " or a time, and keeps the first four. Anything else that follows the name becomes part of it.
 
 Who it does not know: anyone it has not seen and who has no PDA. Pun Pun, the monkey every test round uses, is one. So is anyone who has lost their PDA, or who came aboard late.
