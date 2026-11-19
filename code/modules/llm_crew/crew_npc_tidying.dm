@@ -36,6 +36,10 @@
 /proc/crew_npc_free_surface(turf/spot)
 	if(!(locate(/obj/structure/table) in spot) && !(locate(/obj/structure/rack) in spot))
 		return FALSE
+	// Nothing can be set on a table on its side.
+	var/obj/structure/table/table = locate() in spot
+	if(table?.is_flipped && !(locate(/obj/structure/rack) in spot))
+		return FALSE
 	// The counter crew are served across is not a shelf.
 	if(locate(/obj/machinery/door/window) in spot)
 		return FALSE
@@ -209,7 +213,8 @@
 	if(istype(target, /obj/structure/closet))
 		var/obj/structure/closet/container = target
 		var/container_name = format_text(container.name)
-		if(container.opened && !container.close(body))
+		// Shut by an empty-handed click, as a player shuts one: a click with something in hand would put it inside.
+		if(container.opened && (!empty_clicking_hand() || !click_as_body(container) || container.opened))
 			tidy_skipped[REF(container)] = world.time
 			tidy_changed()
 			return list(FALSE, "The [container_name] will not shut.")
@@ -224,13 +229,16 @@
 		tidy_changed()
 		if(istype(target, /obj/machinery/disposal))
 			var/obj/machinery/disposal/bin = target
-			if(!bin.place_item_in_disposal(carried, body))
-				body.dropItemToGround(carried)
+			if(!hand_to(carried) || !click_as_body(bin) || carried.loc != bin)
+				if(carried.loc == body)
+					body.dropItemToGround(carried)
 				tidy_skipped[REF(carried)] = world.time
 				return list(FALSE, "You cannot get the [carried_name] into the bin.")
 			work_put_away++
 			return list(TRUE, "You put the [carried_name] in the disposal bin in [place].")
-		if(!body.transferItemToLoc(carried, get_turf(target)))
+		// Set down by a click on the table or rack with it in the hand that clicks.
+		var/turf/surface_spot = get_turf(target)
+		if(!hand_to(carried) || !click_as_body(target) || carried.loc != surface_spot)
 			tidy_skipped[REF(carried)] = world.time
 			return list(FALSE, "You cannot let go of the [carried_name].")
 		work_put_away++
@@ -241,7 +249,8 @@
 	var/atom/where = tidy_place?.resolve()
 	if(!istype(thing) || !isturf(thing.loc) || QDELETED(where))
 		return list(FALSE, "It is not where you saw it.")
-	if(!body.put_in_hands(thing))
+	// Picked up by a click with an empty hand.
+	if(!empty_clicking_hand() || !click_as_body(thing) || !body.is_holding(thing))
 		tidy_skipped[REF(thing)] = world.time
 		tidy_changed()
 		return list(FALSE, "You cannot pick up the [format_text(thing.name)].")
