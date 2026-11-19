@@ -305,6 +305,10 @@
 	var/mob/living/carbon/human/body = pawn
 	for(var/turf/tile as anything in route)
 		for(var/obj/machinery/door/airlock/door in tile)
+			// One that stays open for good, unpowered (forced), bolted open or broken by an emag, is
+			// open to anyone, the one it was forced for above all.
+			if(!door.density && (!door.hasPower() || door.locked || (door.obj_flags & EMAGGED)))
+				continue
 			if(!door.allowed(body))
 				return TRUE
 	return FALSE
@@ -392,8 +396,10 @@
 		if(QDELETED(src) || QDELETED(body))
 			return
 		// A way into a locked room that is only there because one of its doors happens to stand open
-		// this minute is no way in: it has no more right to walk through that door than it had.
-		if(outer_locked && length(route) && route_by_open_door(route))
+		// this minute is no way in: it has no more right to walk through that door than it had. So
+		// for any way to a door, a locked hallway's among them, which locked_out_of() takes for open
+		// (KNA-31): the Service Hallway, walked into through a door a janitor had open.
+		if(length(route) && route_by_open_door(route))
 			route = null
 		if(length(route))
 			best = nearest
