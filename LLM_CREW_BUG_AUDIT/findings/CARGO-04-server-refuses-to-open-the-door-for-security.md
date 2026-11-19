@@ -2,11 +2,12 @@
 id: CARGO-04
 title: A technician goes to let security in and the server refuses, because open_door lets in nobody but a janitor with a mess to clean
 kind: bug
-severity: high
-effort: small
+severity: medium
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:536, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1284, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1490, tools/llm_crew/sim.ts:768
 fix: Let tool_open_door (and the simulator's copy of it) open for someone in security who is at the door, and give doorCue words for security that do not talk of a mess
@@ -76,7 +77,7 @@ Read from the code, not seen in a round. `LLM_CREW_CHANGELOG.md` lists the windo
 
 ## How to fix it
 
-1. Server, `tool_open_door`: also allow someone outside whose job is in security. Use the same test the rest of the server uses for security staff (see `works_in_security` in `crew_npc_security.dm`, which reads the controller's own body: write a small `/proc/crew_npc_job_is_security(title)` from its regex and use it on `person.get_assignment(...)`). The line becomes: refuse if not inside, and not (janitor with a mess beyond), and not security.
+1. Server, `tool_open_door`: also allow someone outside whose job is in security. `works_in_security` (`crew_npc_security.dm:107`) does take a body, but do not call it on someone else: it goes through `job_title`, which reads the card out of their hands or belt (`get_idcard(TRUE)`), more than the technician could see. Go by what the line already uses, the job shown on them: `var/shown_job = person.get_assignment(if_no_id = "", if_no_job = "")`, then security is `findtext(shown_job, "Security Officer") || findtext(shown_job, "Head of Security")`, the same two titles as `isSecurity` in `jobs/security.ts`. The line becomes: refuse if not inside, and not (janitor with a mess beyond), and not security. Leave `janitor_at_door` as it is: the officer is found by name through `person_at_room`.
 2. Whether the officer really holds a warrant is the window's to know, as it is for whether a janitor was sent for. But see the owner's question below.
 3. Window, `doorCue`: carry why on the `DoorWant` (for example `why: 'security'` set in the security branch of `mayPass`) and say "${name} is security, at the door of the ${room} with a warrant to serve, and the door is locked to them."
 4. Window, `afterActing` for a `door` task: when the answer is a failure, keep `brain.doorAsked` unless the text says there is nobody there. As it stands a door that could not be reached for a crate in the way is also forgotten. The driver's own back-off (20 seconds, then longer) already stops it being tried over and over, and the ask lapses by itself after `DOOR_ASK_DS`.
@@ -90,3 +91,13 @@ Owner's question: `mayPass` lets in anyone whose job is security who asks, with 
 - Simulator: add a scenario in which the officer has a warrant on a technician who is in the Cargo Bay and there is a second technician. Check that `open_door` is answered ok and the officer ends inside. None of the nine security scenarios has security shut out of a room (the change log says so at the 16:50 entry).
 - Server compile.
 - In a round: `game.log` "opened ... to let ... into Cargo Bay" with the officer's name, and no "You have no call to let".
+
+## Check
+
+Confirmed, Opus 5.5, 2026-11-19. Read from the code, nothing run.
+
+- `tool_open_door` (`crew_npc_doors.dm:536`) is as quoted. A security officer at the Cargo Bay door is found by name (`person_at_room`), is not inside, passes the at-the-door test, and then fails the one test that lets anyone in: its shown job has no "janitor" in it. Nothing before that line lets security through, and `hold_door_for` is never reached. The simulator has the same rule at `sim.ts:768`.
+- The window side is as quoted: `mayPass` returns `{ name, room: wanted, out: false }` for anyone `isSecurity` (`cargo.ts:1284`), `readsMessage` sets `doorAsked` on `DOOR_WORDS`, and `afterActing` clears `doorAsked` on a failed `open_door` as well (`cargo.ts:1965`). `doorCue` has only the mess wordings.
+- No later change log entry touched the server check. The 16:50 entry (H9) changed `mayPass` only, and the 18:15 note "the technicians, who let security in" was never true on the server. `grep "no call to let"` finds only the two copies of the refusal.
+
+Changed: severity to medium. The arrest is not lost for good: the officer asks up to three keepers in turn, 45 seconds each (staff of the room, then heads, then the Captain, change log 16:50), and after that the Head of Security can have an engineer force the door (18:50 entry). With two technicians and a Quartermaster aboard, all three asks may go to cargo staff, and the Quartermaster's `open_door` is refused the same way, so the arrest then waits on the engineer. It is still a fault the owner named ("no one is opening the door for security") and that the change log says is fixed. Effort to medium, since the fix is the server line, the simulator's copy and, for the wording, `doorCue`. Step 1 of the fix: the security test should read the job shown on the person, as the janitor test does, not `works_in_security`, which reads the card itself.
