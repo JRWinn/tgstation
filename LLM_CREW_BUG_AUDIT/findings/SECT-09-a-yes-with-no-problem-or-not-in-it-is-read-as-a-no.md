@@ -21,7 +21,7 @@ The workmate's answer is put in words by the model: `vouchStep` gives a plain li
 
 Concrete case. Donna Sholl asks her workmate Quin "Quin, did you ask Tolly to come in here?" Quin did, and the model says "Yes, Donna, I asked Tolly in to mop up. No need to worry." In Donna's `guardOverhears`, `yesOrNo` finds "no" and returns false. `settle(brain, 'Tolly Field', stranger, 'go')`. Donna is told that Quin did not send for Tolly, says "You have no business in here, Tolly. Out you go." and walks Tolly out. Every other workmate who heard it through `verifyHeard` reads the same line the same way (there a no is simply dropped, so they do not set 'stay').
 
-How often the ask is put at all. A guard does not ask about someone its department let in or called by `act.person`: those go on the shared list (`cargo.ts:2000`, `2026`, `2048`) and `sentFor` is true for every workmate. The ask comes when only the voucher's own `brain.sentFor` has them: a janitor other than the one called turns up while a call stands (`cargo.ts:771`), or the shared entry has run out. It also comes when the workmate asked is a player, whose own "yeah, no worries" is read the same way.
+How often the ask is put at all. A guard does not ask about someone its department let in or called by `act.person`: those go on the shared list (`cargo.ts:2000`, `2026`, `2048`) and `sentFor` is true for every workmate. The ask comes when only the voucher's own `brain.sentFor` has them: for one, a janitor other than the one called turns up while a call stands (`cargo.ts:771`). It also comes when the workmate asked is a player, whose own "yeah, no worries" is read the same way.
 
 ## Where
 
