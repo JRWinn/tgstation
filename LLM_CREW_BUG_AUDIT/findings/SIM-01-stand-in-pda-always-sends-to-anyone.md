@@ -2,14 +2,15 @@
 id: SIM-01
 title: The simulator's PDA always sends, to any name at all, so no scenario can reach a message that fails
 kind: bug
-severity: medium
-effort: small
+severity: low
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: tools
 files: tools/llm_crew/sim.ts:723, code/modules/llm_crew/crew_npc_cargo.dm:692, tools/llm_crew/sim.ts:1116
-fix: Make the stand-in message case look the name up in the sender's pda_people, fail with the server's words when it is not there, and add a PDA-down switch that answers with the would-not-send words
+fix: List every player in the stand-in's pda_people, make the stand-in message case look the name up in that same list and fail with the server's words when it is not there, and add a PDA-down switch that answers with the would-not-send words and keeps the message to resend
 ---
 
 ## What is wrong
@@ -32,6 +33,8 @@ The simulator's stand-in answers every `message` call with `ok: 1`, whoever it i
 It also hides any slip in the name a message is sent to. The stand-in does not look the name up at all: a message to "Captain", to a first name, or to someone who has no PDA comes back as sent. In the game it comes back "You cannot find that person on your PDA", and the server has already struck the notice owed to that name (`notices_owed` is cleared before the lookup), so the window believes the word went.
 
 Concrete case: run `sim.ts quiet qmlost` (or any scenario built by `spawnOrderDesk`). The Quartermaster sends Hal Pott, a player Head of Personnel, "Noted, order 1: ...". Hal Pott is not in the Quartermaster's `pda_people` in the stand-in (only players who are the Captain, a Quartermaster or a Chief Engineer are listed, line 1116), yet the message is answered "You send Hal Pott a PDA message." with `ok: 1`. The stand-in contradicts its own PDA list, and the check that the message was sent passes.
+
+(Checker's note: in the game a player Head of Personnel has a PDA, and `messenger_named` searches every PDA aboard, so this message would go there too. The Hal Pott case is a fault in the stand-in's list, not one the window code is hiding. It matters for the fix: step 1 without step 2 would make `qmlost` and the other order-desk scenarios fail for no window fault.)
 
 ## Where
 
@@ -75,11 +78,15 @@ Read from the code: the stand-in case, the real `tool_message`, `messenger_named
 ## How to fix it
 
 1. In the stand-in `message` case, look `args.person` up (case-insensitive) in the list the stand-in itself sends as `pda_people` for that body. Make that list one function (`pdaPeople(body)`) so `uiData` and `message` use the same one. If the name is not there, strike the owed notice first (as the server does) and answer `ok: 0`, "You cannot find that person on your PDA."
-2. List every player in `pda_people` (the game lists everyone aboard with a PDA). Pun Pun has none, which is right.
+2. List every player in `pda_people` (the game's `people_on_pda`, `crew_npc_cargo.dm:666`, lists every PDA on the station level). Pun Pun has none, which is right. Do this in the same change as step 1, or the order-desk scenarios fail on the stand-in's own short list.
 3. Add a station state `pdaDown: { from, until }`, set by a new scenario (and by a `PDA_DOWN=<second>` environment switch any scenario can take). While it holds, answer `ok: 0` with the would-not-send words, keep the message, and deliver it when the PDA comes back, as `resend_unsent` does (every 20 seconds, given up after 8 minutes, or 90 seconds for a line with " now" in it).
 4. Put the job in the delivered text: `from ${name}, ${job}: "..."`.
 5. Add the scenario `pdadown`: the `crew` scenario with the PDA down from 100 seconds to 400 seconds. Checks: no message is sent more than twice to one person with the same words; the meeting still happens or the janitors report by other means; nobody is owed a notice at the end. Expect this to fail today: that is the point of it, and the failures are `HEAD-05`, `ARR-05` and `HOLE-06`.
 
 ## How to test the fix
 
-Run `sim.ts quiet qm` and `sim.ts quiet crew` once each with the change: they should still pass if the window code only sends to names on the PDA. Any new FAIL there is a real slip in a name. Then run the new `pdadown` scenario; its failures are the window faults named above, to be fixed under their own findings.
+Run `sim.ts quiet qm` and `sim.ts quiet crew` once each with the change: they should still pass if the window code only sends to names on the PDA. Any new FAIL there is a real slip in a name. Then run the new `pdadown` scenario; its failures are the window faults named above, to be fixed under their own findings. Also run `quiet qmlost` and `quiet waiting`: they send to Hal Pott, a player, and must still pass once step 2 lists players. A quick check of step 1 by itself: make a scratch window copy (with `BRAIN=`) send one message to "Captain" and see it answered `ok: 0`, "You cannot find that person on your PDA.", and the owed notice struck.
+
+## Check
+
+Read `sim.ts:723` (the stand-in `message` case: no branch returns `ok: 0`; grep finds no "would not send", "cannot find that person" or "no PDA" anywhere in `tools/llm_crew/`), `sim.ts:1116` (`pda_people` lists NPCs and only Captain, Quartermaster and Chief Engineer players), and the real `tool_message`, `messenger_named` and `people_on_pda` in `crew_npc_cargo.dm:666-748`: the quotes match the code today, the three failures and their words are as stated, and `notices_owed` is struck before the lookup. Checked the window side named: `meetingsAfterActing` (`jobs/meetings.ts:690-699`) notes a PDA report as given only when `ok`; `HEAD-05`, `ARR-05` and `HOLE-06` exist as findings. The change log's power note (line 1038, "PDA messages stop when station power goes") says the would-not-send case is common in real rounds, and the 16:50 entry (line 351) says the kept PDA messages are compile-checked only, so the gap is known in outline but no entry fixes it or chooses it. `SIM-04` points here for the `message` failures rather than covering them itself. Confirmed. Severity lowered to low: by FORMAT.md a test or tool that misleads is low; the faults it hides carry their own severities. Effort raised to medium: a kept-message queue, a PDA-down switch and a new scenario in `sim.ts` come to more than 20 lines.

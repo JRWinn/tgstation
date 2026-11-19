@@ -3,10 +3,11 @@ id: LOGA-07
 title: A call the janitor's code has just turned down (needs soap or a rag, and it has neither) is taken on all the same when the model answers work, and the janitor sets off for a locked room it cannot get into
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: logs
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1449, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:823, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:185
 fix: Note the room of a call the janitor turned down, and have takeToldWork refuse a CLEAN task for that room from the model until the janitor holds something that scrubs
@@ -72,12 +73,19 @@ Seen in a round log: `data/logs/2026/11/19/round-19.33.50`, `pda.log` 01:44:31 a
 ## How to fix it
 
 1. In the janitor's `readsMessage`, when it declines a scrub-only call, note it: `brain.declinedRooms[named] = at` (a new map on the brain, cleared when the janitor next holds soap or a rag).
-2. Give `Job` an optional hook, `refusesWork(brain, kind, place): boolean`, and call it at the top of `takeToldWork`. The janitor's version answers TRUE for a CLEAN task in a declined room while `!canScrub(brain) && !scrubberToHand(brain)`.
+2. Give `Job` (`jobs/job.ts`) an optional hook, `refusesWork(brain, kind, place): boolean`, and call it in `takeToldWork` after `kind` is found and before `addTask`. The janitor's version answers TRUE for a CLEAN task in a declined room while `!canScrub(brain) && !scrubberToHand(brain)`. There is no such hook today (`agrees` covers only actions other than `work`). Call it from `workInWords` as well, which takes work from the words of a line when the model did not, so the same call cannot come in by that door either.
+   The new map needs a field in `types.ts` and a default in `brain.ts` where the brain is made; let a declined room lapse after a few minutes too, so a later call to the same room for a new mess is not lost for the rest of the round.
 3. Better still, and general: when a job's `readsMessage` has handled a message (taken it or turned it down), leave that message out of what the model is offered "work" for. That needs `readsMessage` to return whether it handled the message; today it returns nothing.
 4. Keep: a call the janitor takes, from cargo, still gets `via = CARGO_LOBBY`; a model `work` for a mess the code did not already handle still goes on the list.
 
 ## How to test the fix
 
 - Type check and lint.
-- A table case (`tools/llm_crew/`): a janitor with only a space cleaner gets the scrub-only call; then the model reply `{"work": {"what": "a mess that needs cleaning", "where": "Bitrunning Den"}}` is fed through. Pass if no CLEAN task for the Bitrunning Den is on its list.
+- A table case (also with the second half fed through `workInWords` with the call's words) (`tools/llm_crew/`): a janitor with only a space cleaner gets the scrub-only call; then the model reply `{"work": {"what": "a mess that needs cleaning", "where": "Bitrunning Den"}}` is fed through. Pass if no CLEAN task for the Bitrunning Den is on its list.
 - Next round, `game.log`: no "walk failed (go_to, to <room>)" from a janitor within a minute of its "I have no soap or rag, so I cannot shift the mess in the <room>".
+
+## Check
+
+Read `readsMessage` in `jobs/janitor.ts` (the decline at the "I have no soap or rag" line returns with no task and no note), the `work` branch in `brain.ts` (it passes the model's `what` and `where` straight to `takeToldWork`), `takeToldWork` and `workInWords` in `tasks.ts` (no job is asked about the work beyond `takes` and `knowsPlace`), the `Job` interface in `jobs/job.ts` (no hook that could refuse it), and the CLEAN plan's `via` and walk. Read Penelope Alekseev's records in `round-19.33.50/crew_brain.log` from 01:44:02 to 01:46:53 and `game.log` lines 700 to 910: the decline at 01:44:47, the model's `work` for the Bitrunning Den at 01:45:11 (the prompt's own instruction tells it to name any mess it is told of "whether or not you can see to it now"), the `go_to("Bitrunning Den")` at 01:45:27, and the failed walks at 01:45:41 and 01:51:07 with the door "locked to it". No change log or plan entry covers it.
+
+Confirmed. The task the model made has neither `via` nor `wantsScrub`, so even let in it would try the cobweb with a space cleaner. Effort raised to medium: the fix touches `types.ts`, `brain.ts`, `jobs/job.ts`, `tasks.ts` and `jobs/janitor.ts`, though each by a few lines. Step 3 of the fix (leaving a handled message out of what the model may answer "work" for) is the general cure and keeps the rule that the code decides, but changes `readsMessage`'s return type for every job, so it is the larger piece. Severity medium kept: it needs a scrub-only call while the janitor has nothing to scrub with; the cost is a wasted walk and a task that sits blocked. Not run: nothing.

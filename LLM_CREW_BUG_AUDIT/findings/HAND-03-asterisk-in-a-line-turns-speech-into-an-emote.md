@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: tools
 files: code/modules/llm_crew/crew_npc_tools.dm:148, code/modules/mob/mob_say.dm:177, code/modules/mob/living/living_say.dm:120, code/modules/llm_crew/crew_npc_senses.dm:391
 fix: Take every asterisk out of the text in tool_say before it is said, not only the ones at the start
@@ -67,9 +68,9 @@ Read from the code, both sides: `tool_say`, the base `say`, and a search of the 
 ## How to fix it
 
 1. In `tool_say`, after the line breaks are replaced, take out every asterisk: add `var/static/regex/asterisks = regex(@"\*+", "g")` and `text = asterisks.Replace(text, "")`. Do it before the prefix strip and the trim, so a line that was only "*nods*" becomes "nods" (the window's `isFiller` already drops those, so this is the belt to its braces).
-2. Better still, drop a whole `*...*` span, since it is an action and not words: `regex(@"\*[^*]*\*", "g")` first, then the lone asterisks. "On my way, Captain. *salutes*" is then said as "On my way, Captain."
+2. Better still, drop a whole `*...*` span when it stands at the start or the end of the line, since there it is an action and not words: `regex(@"^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$", "g")` first, then the lone asterisks. "On my way, Captain. *salutes*" is then said as "On my way, Captain." Do not drop a span in the middle of a line: the model uses them for emphasis, and in the logs "you call *this* cool?" and "Tell me if *you* need cleaning supplies" would lose the word that carries the sense. Those keep the word and lose only the asterisks. Run this before `say_prefixes`, which today strips the first asterisk of "*I* shake slightly" and leaves "I* shake slightly" (seen in a round, below).
 3. If the text is empty after that, answer as the proc already does for an empty line ("You open your mouth but have nothing to say.").
-4. Do the same in the window (`inOwnVoice` in `prompt.ts`), so the brain's own record of what it said matches what was said.
+4. Do the same in the window, so the brain's own record of what it said matches what was said. The model's `say` goes through `inOwnVoice` in `parseReply` (`prompt.ts:348`) and then `withoutHandles` (`brain.ts:1373`); either will do. Lines the code writes word for word (`exact`) have no asterisks and need nothing.
 5. Leave `|`, `+` and `_` alone: they only make text slanted or bold in chat and change no words.
 
 ## How to test the fix
