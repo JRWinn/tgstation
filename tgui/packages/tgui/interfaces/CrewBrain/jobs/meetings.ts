@@ -61,8 +61,10 @@ const WALK_UP_AGAIN_DS = 150;
 const TELL_AGAIN_DS = 4800;
 /** How the server words what a body is doing while it has hold of a crate. That is finished before it goes to a meeting. */
 const HAULING = /^hauling\b/i;
-/** The words that mark a PDA message as a call to a meeting. */
-const CALL_WORDS = /\bmeeting in the\b/i;
+/** The words that mark a PDA message as a call to a meeting: how a head's call begins, and nothing said in passing. */
+const CALL_WORDS = /^staff meeting in the\b/i;
+/** How a head tells someone by PDA that a meeting it was called to is over: see endMeeting in jobs/head.ts. */
+const OVER_BY_PDA_WORDS = /\bthe staff meeting is over\. Send me your report\b/i;
 /**
  * How a head calls a meeting aloud, to its staff's faces, where nothing between them goes by PDA.
  * Said word for word, and known by how it begins: nothing a head might say in passing begins so.
@@ -291,7 +293,12 @@ export function readSummons(
     return false;
   }
   // The meeting is over and it was not there, or was not heard: its report goes by PDA instead.
-  if (OVER_WORDS.test(text)) {
+  // Only as an answer to a call from them, or in a head's own words for it: anything else with
+  // "meeting is over" in it is not about a meeting it was called to.
+  if (
+    OVER_WORDS.test(text) &&
+    (brain.summons?.by === from || OVER_BY_PDA_WORDS.test(text))
+  ) {
     const summons =
       brain.summons?.by === from
         ? brain.summons
@@ -305,7 +312,7 @@ export function readSummons(
     return true;
   }
   // A head told by the Captain to hold a meeting is being given an order, not called to one.
-  if (!CALL_WORDS.test(text) || isMeetingOrder(brain, text)) {
+  if (!CALL_WORDS.test(text.trim()) || isMeetingOrder(brain, text)) {
     return false;
   }
   const room = placeNamedIn(brain, text.toLowerCase());
