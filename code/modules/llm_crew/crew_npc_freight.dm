@@ -105,11 +105,35 @@
 		// Not the body's own spot at the counter, nor beside it.
 		if(!crew_npc_safe_turf(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
 			continue
+		// Nor one where a crate would wall another in, so nobody could stand beside it (SUP-15).
+		if(crew_npc_square_shuts_in(square))
+			continue
 		var/distance = get_dist(square, here)
 		if(distance < nearest_distance)
 			nearest_distance = distance
 			nearest = square
 	return nearest
+
+/**
+ * TRUE if a crate stood on this square would leave a crate, the new one or one within a tile of it,
+ * with no free open tile among its eight neighbours: nobody could stand beside it to take it. Where
+ * squares are painted in a solid block (CatwalkStation's three rows), the middle row's crates would
+ * otherwise be walled in by the rows round them (SUP-15).
+ */
+/proc/crew_npc_square_shuts_in(turf/square)
+	for(var/turf/spot in range(1, square))
+		if(spot != square && !(locate(/obj/structure/closet/crate) in spot))
+			continue
+		var/has_room = FALSE
+		for(var/turf/beside in range(1, spot))
+			if(beside == spot || beside == square)
+				continue
+			if(isopenturf(beside) && !beside.is_blocked_turf(exclude_mobs = TRUE))
+				has_room = TRUE
+				break
+		if(!has_room)
+			return TRUE
+	return FALSE
 
 /// Returns the name of whoever a piece of mail is for, or null if it is a dead letter.
 /proc/crew_npc_mail_for(obj/item/mail/letter)
