@@ -69,9 +69,11 @@ const SENT_FOR_DS = 12000;
 const QUESTION_STANDS_DS = 600;
 /** How long (deciseconds) someone whose welcome is over is given to go before they are seen out. */
 const WELCOME_GRACE_DS = 600;
-/** The words by which someone the NPC answers to tells it to leave the room it is in. */
-const LEAVE_WORDS =
-  /\b(leave|get out|go away|clear off|clear out|out of here|out you go|off you go|not authori[sz]ed|unauthori[sz]ed)\b/;
+/** Words taken off a clause before it is read as an order to leave: they do not change what is meant. */
+const LEAVE_FILLER =
+  /\b(please|right now|at once|now|immediately|just|ok|okay)\b/g;
+/** A clause that has a no in it is not an order to go: "don't leave the bar until it is clean". */
+const LEAVE_NOT = /\b(not|don'?t|do not|dont|never|no need to)\b/;
 /** The words by which someone the NPC answers to tells it to put someone out of its post. */
 const PUT_OUT_WORDS =
   /\b(toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b.*\bout\b|\bremove\b|\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
@@ -112,6 +114,61 @@ export function has(...parts: (string | RegExp)[]): RegExp {
       : `(?=.*(?:${part.source}))`,
   );
   return new RegExp(`^${checks.join('')}`, 'is');
+}
+
+/**
+ * TRUE if these words, in lower case, tell the NPC to leave the room it is in. A clause of the
+ * line, with its name and "please" taken off, must be the order and nothing else: "Tolly, leave.",
+ * "Leave the bar, Tolly.", "Get out of here.", "Off you go.", "Tolly, you are not authorized in
+ * here." A word like "leave" or "out of here" anywhere else is not one: "don't leave the bar until
+ * it is clean", "leave the mop bucket by the door", "get that vomit out of here", "I have to leave
+ * now", "I cannot get out of here by myself".
+ */
+export function toldToLeaveHere(brain: NpcBrain, heard: string): boolean {
+  const names = brain.name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const room = (brain.location ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '.')
+    .trim();
+  const place = `(here|this room|this place|(this|the|my|our) (room|office)${room ? `|(the )?${room}` : ''})`;
+  const orders = [
+    // "Leave.", "Leave the bar.", "Leave us."
+    new RegExp(`^leave( ${place}| us| me)?$`),
+    // "Get out.", "Get out of here.", "Out.", "Off you go.", "Clear out of the bar."
+    new RegExp(
+      `^(get out|go away|clear off|clear out|off you go|out you go|out|go on out)( of ${place})?$`,
+    ),
+    // "You need to leave.", "You have to go now."
+    new RegExp(
+      `^you (need|have|ought|got|must|will have) (to )?(leave|go)( ${place})?$`,
+    ),
+  ];
+  // "You are not allowed in here." The one order with a "not" in it.
+  const notAllowed = new RegExp(
+    `^(you are not|you aren'?t|you'?re not) (allowed|authori[sz]ed|permitted|supposed to be)( to be)? (in )?${place}$`,
+  );
+  return heard
+    .replace(/[‘’]/g, "'")
+    .split(/[.,!?;:]+/)
+    .some((part) => {
+      let clause = ` ${part} `;
+      for (const name of names) {
+        clause = clause.replace(new RegExp(`\\b${name}\\b`, 'g'), ' ');
+      }
+      clause = clause.replace(LEAVE_FILLER, ' ').replace(/\s+/g, ' ').trim();
+      if (!clause) {
+        return false;
+      }
+      if (notAllowed.test(clause)) {
+        return true;
+      }
+      return (
+        !LEAVE_NOT.test(clause) && orders.some((order) => order.test(clause))
+      );
+    });
 }
 
 /**
@@ -686,7 +743,7 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   )?.superior;
   if (
     superior &&
-    LEAVE_WORDS.test(heard) &&
+    toldToLeaveHere(brain, heard) &&
     (event.details.said_to === 'me' || namesPerson(heard, brain.name)) &&
     brain.location !== brain.post
   ) {
