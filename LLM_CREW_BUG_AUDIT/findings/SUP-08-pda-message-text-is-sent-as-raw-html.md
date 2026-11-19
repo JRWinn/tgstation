@@ -29,8 +29,8 @@ Where the text comes from: the window. Most of it is fixed lines built in code, 
 
 Two cases:
 
-1. Harmless but wrong. A report line the model wrote has "crates <12> & <13>" in it. The Captain's chat shows "crates  & " with the numbers gone, because `<12>` is taken for a tag.
-2. Not harmless on a server with more than one player. The owner of a brain link sends `tool_call` with `tool: "message"`, `person: "<another player's name>"`, `text: "<a href='byond://?...'>your crate is here</a>"`. The other player's chat shows a link of the sender's choosing, from a crew member they have no reason to doubt. Chat links run as the player who clicks them.
+1. Harmless but wrong. A report line the model wrote has "the <Captain> asked" or "x<y" in it. The chat panel sets the line with `innerHTML` (`tgui-panel/chat/renderer.tsx`, no sanitizing on a live message), so `<Captain>` is taken for a tag and the word is gone. (A `<` before a digit or a space, or a bare `&`, is shown as typed by an HTML5 parser, so "crates <12> & <13>" would come through whole: it takes a letter after the `<`.)
+2. The owner of a brain link sends `tool_call` with `tool: "message"`, `person: "<another player's name>"`, `text: "<a href='byond://?...'>your crate is here</a>"`. The other player's chat shows a link of the sender's choosing, from a crew member they have no reason to doubt. Chat links run as the player who clicks them. But a brain link is owned only by an admin with `R_SPAWN`: `spawn_crew_npc`, `spawn_test_crew` and the round-start spawn all give the crew to such an admin (`crew_npc_spawn.dm`), and `ui_state` lets only that ckey act (`crew_brain_link.dm:68`). So this needs an admin to abuse it, not any player.
 
 It also means an NPC's message is the one kind of PDA message that reaches a crew NPC un-encoded. `on_pda_message` calls `html_decode` on what arrives, which is right for a player's message and happens to do nothing for an NPC's.
 
