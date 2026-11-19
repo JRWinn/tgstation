@@ -2,7 +2,7 @@
 id: MULTI-05
 title: A second order from the same person within two minutes is refused by the free technician because the busy one took the first, and nobody places it though the voice says it will
 kind: bug
-severity: medium
+severity: low
 effort: small
 confidence: sure
 status: found
@@ -70,7 +70,7 @@ The same holds for a head of department asking at the counter, for a second aski
 
 ## How it was found
 
-Read from the code. Not seen in a round. GAP-06 is about this list being shared in code at all; TRA-02 is the head asking again and being sold a second crate (the opposite fault); CARGO-06 is an order taken from someone who is no head. None of them covers a second, different asking being refused.
+Read from the code. Not seen in a round. It needs no Quartermaster aboard (or one the head has said did not answer, `qmSilent`): with a Quartermaster, `offers` gives technicians no order option at all, and the standing test crew has one. So it is low for the test crew and higher for any crew without a Quartermaster. GAP-06 is about this list being shared in code at all; TRA-02 is the head asking again and being sold a second crate (the opposite fault); CARGO-06 is an order taken from someone who is no head. None of them covers a second, different asking being refused.
 
 ## How to fix it
 
