@@ -20,7 +20,7 @@ The Captain is the human player, and the base game gives him, and any player sec
 
 1. `custody_phase` is null. `in_custody()` is false.
 2. `handle_tool_call` refuses nothing: only `in_hand_until` stops tools, and that is set by `hold_in_custody` alone.
-3. Its job goes on. A janitor's next mess is elsewhere; it walks at the cell door, the walk fails, it counts as shut in, and the shut-in steps begin: knocking, and PDA messages to door keepers asking to be let out of the cell. A head goes on calling and holding staff meetings by PDA from the cell. A technician asks for its crate errands. None of that is refused, since `message` is only barred under custody.
+3. Its job goes on. A janitor's next mess is elsewhere; it sets off, the walk fails at the cell's glass door, and after failing more than once it counts as shut in, and the shut-in steps begin: knocking, and PDA messages to door keepers asking to be let out. (A cell door is a window door, not an airlock, and on MetaStation the cells are part of the Brig room, so who the door keepers come out as, by `trail_door`'s nearest airlock of the room, I did not work through: most likely security staff, asked to let it out of the Brig.) A head goes on calling and holding staff meetings by PDA from the cell. A technician asks for its crate errands. None of that is refused, since `message` is only barred under custody.
 4. Its prompt says nothing of a cell or of being held, so to the Captain who has just jailed it the model answers as if it had wandered in: "I need to get back to the Bar, could you open the door?"
 5. When the timer runs out the cell opens and it walks out, which is right, but by luck of the walk working again.
 

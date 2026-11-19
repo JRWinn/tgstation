@@ -2,14 +2,15 @@
 id: ENG-06
 title: The Chief Engineer takes "the engine is lit" or "the emitters are off" from anything its engineer says, and the relight that follows can switch the emitters on before the cooling is running
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:537, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:672, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineer.ts:463, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineer.ts:359
-fix: Read the engineer's set words only from a line that is addressed to the Chief Engineer by its first name and begins with them, and let the engineer take a relight order only once its own lighting list is done
+fix: Take each of the engineer's set words only when the line begins with that whole fixed line (litLine(chief name) and so on; a remark may follow it), and let the engineer take a relight order only once the engine is lit, with RELIGHT not ready while lighting(engine)
 ---
 
 ## What is wrong
