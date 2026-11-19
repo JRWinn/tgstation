@@ -1,6 +1,6 @@
 ---
 id: DRV-01
-title: The two tries at stepping clear of a doorway are used up while the driver is waiting, so the body never steps clear
+title: The two tries at stepping clear of a doorway are used up while the driver is waiting, so a body that arrives in a doorway mostly stays in it
 kind: bug
 severity: medium
 effort: small
@@ -17,7 +17,7 @@ A body that is waiting (at a staff meeting, say) and finds itself in a doorway i
 
 One concrete case: a janitor is called to a staff meeting in the Bar. Its `go_to` arrives; `noteResult` sets `driveAfter` to between 1 and 4 seconds from now. It is in the doorway (`in_doorway`). Update 1 (0.3s later, a workmate's sense event): `nextStep` reaches the waiting meeting task, `mayStepInside` puts the count to 1 and the step is returned; `drive` returns null at `now < brain.driveAfter`. Update 2: count 2, null again. Update 3, with the breath over: `mayStepInside` returns false, `nextStep` returns null. No `step_aside` is ever sent.
 
-It only works when the breath happens to be shorter than two updates.
+It works in two cases only: when the breath happens to be over before the second update, and when the body is pushed into a doorway after it has been waiting a while, so that no wait stands between asking and stepping.
 
 ## Where
 
@@ -77,7 +77,7 @@ Read from the code, then shown with a throwaway script (kept outside the repo) t
     nextStep now: null
     control, no wait -> drive returned step-inside | issued [{"tool":"step_aside"}]
 
-Not seen in a round. The change log (the entry with "(6) Nobody waits in a doorway", `LLM_CREW_CHANGELOG.md:473`) says the cap was added and does not say it was played.
+The round logs fit this, though they cannot show a try being used up (nothing is logged when one is). In `data/logs/2026/11/19/round-19.33.50`, `round-20.00.21` and `round-20.43.32` there are 13 steps logged as "stepping clear to wait". Ten of them come 5 to 46 seconds after the same body's last step, which is a body already waiting that was pushed into a doorway. Three come about 3 seconds after an `approach`, the short-breath case. No body in those rounds stepped clear twice in one stay. The change log (the entry with "(6) Nobody waits in a doorway", `LLM_CREW_CHANGELOG.md:473`) says the cap was added and does not say it was played.
 
 ## How to fix it
 

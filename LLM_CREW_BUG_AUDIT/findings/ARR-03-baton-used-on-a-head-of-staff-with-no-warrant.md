@@ -19,6 +19,8 @@ One concrete case: the Quartermaster, a crew NPC, finds the officer in the Quart
 
 The Head of Security is a head as well: an officer shoved by its own head would baton it.
 
+SEC-02 names the same gap in passing ("a head of staff is not spared"). This file is the window's side of it and what to report in place of the baton.
+
 ## Where
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:495`, in `syncBeat`:
