@@ -227,6 +227,13 @@
 		started_at = world.time
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/perform(seconds_per_tick, datum/ai_controller/controller)
+	// An errand's run from before a stun is still at work: the walk does not pull the body against its
+	// steps, and the wait is not counted against the walk's time.
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	if(target_key == BB_CREW_NPC_ERRAND_TARGET && crew_controller.errand_in_flight)
+		controller.ai_movement.stop_moving_towards(controller)
+		started_at = world.time
+		return AI_BEHAVIOR_DELAY
 	if(world.time - started_at > time_limit)
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	return ..()

@@ -398,6 +398,13 @@
 	else
 		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it))
 
+/**
+ * TRUE while a run of errand work is out. A stun resets the tree and the leaf forgets its run, but
+ * the run sleeps on; up again, the tree would start a second copy of it beside the first. So no new
+ * run starts, and the errand's walk waits, until this one has ended.
+ */
+/datum/ai_controller/crew_npc/var/errand_in_flight = FALSE
+
 /// Does what the body came to its errand target to do.
 /datum/bt_node/ai_behavior/crew_npc_do_errand
 	/// Blackboard key holding the thing the errand is about.
@@ -409,12 +416,24 @@
 		return async_flags
 	if(QDELETED(controller.blackboard[target_key]))
 		return AI_BEHAVIOR_DELAY | AI_BEHAVIOR_FAILED
+	// The run from before a stun is still at work: it ends the errand, or leaves the next one to start.
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	if(crew_controller.errand_in_flight)
+		return AI_BEHAVIOR_DELAY
 	return start_async()
 
 /datum/bt_node/ai_behavior/crew_npc_do_errand/perform_async(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	var/serial = crew_controller.errand_serial
-	var/list/outcome = crew_controller.do_errand(controller.blackboard[target_key])
+	var/list/outcome
+	crew_controller.errand_in_flight = TRUE
+	// Cleared however the run ends, a thrown error too, or every later errand would wait on it for good.
+	try
+		outcome = crew_controller.do_errand(controller.blackboard[target_key])
+	catch(var/exception/error)
+		crew_controller.errand_in_flight = FALSE
+		throw error
+	crew_controller.errand_in_flight = FALSE
 	if(async_still_valid())
 		finish_async(AI_BEHAVIOR_SUCCEEDED)
 	// The thing an errand is about can vanish as the errand is done: a cleaned mess is deleted, which
