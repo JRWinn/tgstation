@@ -9,7 +9,7 @@ status: found
 found_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_guarding.dm:84, code/game/machinery/doors/airlock.dm:326, code/modules/llm_crew/crew_npc_doors.dm:585
-fix: In spot_outside_post skip a door that has no power or is shut and electrified, the same test the door tool uses at crew_npc_doors.dm:585
+fix: In spot_outside_post skip a door that has no power or is shut and electrified, the same test the door tool uses in hold_door_for
 ---
 
 ## What is wrong
