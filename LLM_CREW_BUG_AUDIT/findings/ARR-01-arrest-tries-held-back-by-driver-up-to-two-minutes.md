@@ -2,11 +2,12 @@
 id: ARR-01
 title: Each failed try at an arrest is held back longer by the driver, up to two minutes, while the officer stands beside them
 kind: bug
-severity: high
-effort: small
+severity: medium
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:811, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:798, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:931, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:805
 fix: Number each try at an arrest as the tries at a cell are numbered, and say the arrest line again only when toldAt is null
@@ -16,7 +17,7 @@ fix: Number each try at an arrest as the tries at a cell are numbered, and say t
 
 The plan in `jobs/arrests.ts` is "three tries, then a rest of 30 seconds, then again". What the officer really does is set by the driver. A step that fails is left alone for 20 seconds times the number of times that same step has failed, up to 120 seconds (`fail` and `inBackoff` in `driver.ts`), and the count is only wiped when the step succeeds. The arrest step is the same step every time: same task, same person, same `how`. So against someone who will not stand still the gaps between tries are 20, 40, 60, 80, 100 and then 120 seconds for ever. While the step is held back nothing else is ready, the officer keeps its post (`keepsPost`), and `nextStep` gives nothing: it stands beside the suspect and does nothing.
 
-The line "X, you are under arrest. Stand still." has the same trouble. The driver counts every saying of a line as a failure of that line ("Asked once; if nothing comes of it, it is left a while"), and a spoken line is never cleared. `serveStep` wants the line said again every 45 seconds (`TOLD_STANDS_DS`) and returns the say step, not the arrest, while it is due. From the third saying the line is held back 60 seconds or more, and the arrest waits behind it.
+The line "X, you are under arrest. Stand still." has the same trouble. The driver counts every saying of a line as a failure of that line ("Asked once; if nothing comes of it, it is left a while"), and a spoken line is never cleared. `serveStep` wants the line said again every 45 seconds (`TOLD_STANDS_DS`) and returns the say step, not the arrest, while it is due. From the third saying the line is held back 60 seconds or more, and the arrest waits behind it. (This part is only for someone who has not hit the officer: `serveStep` skips the line for a warrant with `resisted` set and `toldAt` not null, and `securityFeels` sets `resisted` when a wanted person strikes it. A monkey that bites gets the arrest hold-back only; one that only walks off gets both.)
 
 The cells and the walk to a door were mended for exactly this by numbering each try (`attempt`), "so that the driver does not hold it back". The arrest was not.
 
@@ -107,4 +108,15 @@ What must keep working: someone who stands still is cuffed on the first quiet tr
 
 - Type check and lint.
 - `tools/llm_crew/sim.ts quiet fight` and `quiet warrant`, a few runs each. They pass today because the simulator's monkey does not walk off, so add a case: a suspect whose first four `arrest` results are `ok: false, reason: 'moved'` with the person still in view. Check that the fourth try is sent within about 45 seconds of the first (three tries, a 30 second rest, a fourth), not after two minutes or more.
-- In the next round, in `crew_brain.log`, the times between one `arrest("pN", "force")` and the next for the same officer: a few seconds, with one gap of about 30 after every third.
+- A case in `tools/llm_crew/security.ts` can check the keys directly: two `serveStep` results for the same warrant, with one failed `beatAfterActing` between, must have different `act`s (the `attempt` differs), so `keyOf` differs.
+- In the next round, in `crew_brain.log`, the times between one arrest and the next for the same officer: a few seconds, with one gap of about 30 after every third. With the number added the log prints the act as `arrest("pN", "force", 2)`, as it prints `jail(5, 1)` today, so grep for `arrest("pN", "force"` without the closing bracket.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- Code, as quoted: `keyOf` (`driver.ts:166`) is the task id and the whole act as JSON; `fail` (`:931`) holds a key back `min(20000 * count, 120000)` ms; `noteResult` deletes the record only on `ok` (`:988`) and calls `fail` otherwise (`:1012`); `drive` calls `fail` on every line it says (`:807`). In `nextStep` (about `:535`) a ready step in back-off sets `heldBack` and is skipped, and with nothing ready the officer (`keepsPost: true`, `officer.ts:407`; the Head of Security at `headofsecurity.ts:192`) gets null. The `arrest` act in `serveStep` (`arrests.ts:811`) is `{ tool, person, how }` with nothing that changes from try to try. `brain.failures` is cleared only on leaving a shut-in or a held door (`brain.ts:463`, `:679`). `go_to_door`, `jail` and the forced-door `go_to` already carry `attempt` (`arrests.ts:600`, `:708`, `:845`).
+- Round log: `data/logs/2026/11/19/round-19.33.50/crew_brain.log` has the line said at 01:36:34, 01:37:21, 01:39:24.7 and 01:40:24.9 and the force tries at 01:36:45, 01:37:15, 01:39:28, 01:40:32; `game.log` has the third failing at 01:39:30.843. The 60 second gaps after the third failure and the third saying match `fail`'s count of 3. That round was on the older build with a two-minute rest (change log entry 19:38 to 20:00); the driver code is unchanged since, so the growing hold-back still stands with the 30 second rest.
+- Nothing in the change log or plans names this. Server side: `handle_tool_call` passes only `person` and `how` to `tool_arrest` (`crew_npc_tools.dm:68`), so an extra `attempt` is harmless.
+- Severity lowered to medium: the arrest is slowed, not stopped, and is made in the end (five minutes in that round). Effort raised to medium: the fix touches `types.ts`, `jobs/arrests.ts` and `brain.ts` or `driver.ts`, though it stays well under 50 lines.
+- The fix is sound. On step 5's second part: wipe the say key only after `afterSaying` has set `warrant.toldAt`, so that the line cannot be due again the same pass; with `toldAt === null` as the only test that already holds.
