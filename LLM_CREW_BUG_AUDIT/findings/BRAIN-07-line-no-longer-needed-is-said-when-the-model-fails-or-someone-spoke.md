@@ -61,7 +61,7 @@ One concrete case (path 1):
 
 ## How it was found
 
-Read from the code. Not seen in a round: in the recent rounds on disk the model almost never failed (the error field is empty in every call from 2026-11-18 on), so path 1 has had no chance to show. Path 2 needs a speaker and a dropped line in the same call; not looked for in the logs.
+Read from the code. Not seen in a round: in the recent rounds on disk the model almost never failed (from 2026-11-18 on, the error field of `crew_brain.log` is empty for every talk call; the one error is a READING), so path 1 has had no chance to show. Path 2 needs a speaker and a dropped line in the same call; not looked for in the logs.
 
 ## How to fix it
 
