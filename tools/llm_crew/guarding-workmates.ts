@@ -53,6 +53,35 @@ const answer = (location: string, post: string | null) => {
 add('asked in its own post: "I work here."', answer('Cargo Bay', 'Cargo Bay'), 'I work here.');
 add('asked in a room not its post: owns up', answer('Bar', 'Cargo Bay'), 'Nobody sent for me. I should not be in here, I know.');
 
+// ---- PARSE-07: a stranger's answer, read for who sent them
+const ivy = { handle: 'p8', name: 'Ivy Lane', job: 'Assistant', in_post: true, belongs: false };
+const answers = (line: string, samJob = 'Cargo Technician', annJob: string | null = 'Quartermaster') => {
+  const b = tech();
+  b.post = 'Cargo Bay';
+  b.pdaPeople = [{ name: 'Sam Tech', job: samJob }, ...(annJob ? [{ name: 'Ann Moss', job: annJob }] : [])];
+  at(b, 3000, 'Cargo Bay', [ivy]);
+  b.workmates = new Set(['Donna Sholl', 'Sam Tech', 'Ann Moss']);
+  b.strangers[ivy.name] = { seenAt: 2900, lastSeenAt: 3000, asks: 1, verifyAsks: 0, askedAt: 2950 };
+  hears(b, ivy.name, line);
+  const s = b.strangers[ivy.name];
+  return { verdict: s?.verdict ?? null, voucher: s?.voucher ?? null };
+};
+const none = { verdict: null, voucher: null };
+const go = { verdict: 'go', voucher: null };
+const by = (voucher: string) => ({ verdict: null, voucher });
+add('"Donna, the quartermaster asked me to come in": Ann', answers('Donna, the quartermaster asked me to come in'), by('Ann Moss'));
+add('"Donna, the quartermaster asked me to come in", no QM known: asked again', answers('Donna, the quartermaster asked me to come in', 'Cargo Technician', null), none);
+add('"sorry donna, im here for my crate": asked again', answers('sorry donna, im here for my crate'), none);
+add('"hi donna! just here to pick up my order": asked again', answers('hi donna! just here to pick up my order'), none);
+add('"Donna let me in": go', answers('Donna let me in'), go);
+add('"Donna, you let me in": go', answers('Donna, you let me in'), go);
+add('"the QM sent me": Ann', answers('the QM sent me'), by('Ann Moss'));
+add('"cargo tech let me in, donna": Sam, the one other technician', answers('cargo tech let me in, donna'), by('Sam Tech'));
+add('"cargo tech let me in, donna", Sam no technician: no surname match', answers('cargo tech let me in, donna', 'Shaft Miner'), none);
+add('"Sam let me in": Sam', answers('Sam let me in'), by('Sam Tech'));
+add('"Ann sent me, Donna": Ann', answers('Ann sent me, Donna'), by('Ann Moss'));
+add('"nobody, just looking": go', answers('nobody, just looking'), go);
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -473,13 +473,83 @@ function workmateNamedIn(
   heard: string,
   except: string[],
 ): string | null {
+  // The NPC's own name used to speak to it ("Donna, the QM sent me") names nobody (PARSE-07).
+  const line = unaddressed(heard, brain.name);
   const others = [...brain.workmates].filter(
     (name) => !except.includes(name) && name !== brain.name,
   );
+  // A job named ("the QM sent me") is the one workmate who holds it.
+  const byJob = (name: string) => {
+    const job = jobOf(brain, name);
+    return (
+      !!job &&
+      jobWords(job).test(line) &&
+      others.filter((other) => jobOf(brain, other) === job).length === 1
+    );
+  };
   return (
-    others.find((name) => namesPerson(heard, name)) ??
-    (namesPerson(heard, brain.name) ? brain.name : null)
+    others.find((name) => byName(line, name)) ??
+    others.find(byJob) ??
+    (byName(line, brain.name) ? brain.name : null)
   );
+}
+
+/** Openers before a name that is only speaking to someone: "hi Donna", "sorry Donna". */
+const ADDRESS_OPENERS = 'hi|hey|hello|sorry|ok|okay|oh|yes|yeah|well|look';
+
+/** These words, in lower case, with this person's first name taken out where it only speaks to them. */
+function unaddressed(heard: string, name: string): string {
+  const first = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .find((part) => part.length > 2);
+  if (!first) {
+    return heard;
+  }
+  return heard
+    .replace(new RegExp(`^\\W*(?:${ADDRESS_OPENERS})\\W+${first}\\b`), '')
+    .replace(new RegExp(`^\\W*${first}\\s*[,!:.]`), '')
+    .replace(new RegExp(`,\\s*${first}\\b(?=\\s*[,.!?]|\\s*$)`, 'g'), '');
+}
+
+/** TRUE if these words name this person: by first name, full name, or "Mr/Mrs/Ms" and surname. */
+function byName(heard: string, name: string): boolean {
+  const parts = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const [first, last] = [parts[0], parts[parts.length - 1]];
+  return (
+    (!!first && new RegExp(`\\b${first}\\b`).test(heard)) ||
+    (!!last && new RegExp(`\\b(?:mr|mrs|ms|miss)\\.? ${last}\\b`).test(heard))
+  );
+}
+
+/** The job this NPC knows someone by, from seeing them or its PDA list, or ''. */
+function jobOf(brain: NpcBrain, name: string): string {
+  return (
+    brain.peopleInView.find((person) => person.name === name)?.job ??
+    brain.pdaPeople.find((person) => person.name === name)?.job ??
+    ''
+  );
+}
+
+/** Short names the crew use for jobs. */
+const JOB_SHORT: Record<string, string> = {
+  quartermaster: 'qm',
+  'head of personnel': 'hop',
+  'chief engineer': 'ce',
+  'head of security': 'hos',
+  'chief medical officer': 'cmo',
+  'research director': 'rd',
+  'cargo technician': 'cargo tech',
+};
+
+/** A job's title, or its short name, as a word. */
+function jobWords(job: string): RegExp {
+  const title = job.toLowerCase();
+  const short = JOB_SHORT[title];
+  return new RegExp(`\\b(?:${title}${short ? `|${short}` : ''})\\b`);
 }
 
 /** What a yes-or-no answer, in lower case, comes to, or null if it is neither. */
@@ -957,7 +1027,12 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
     asked.askedAt !== undefined &&
     event.at >= asked.askedAt
   ) {
-    const voucher = workmateNamedIn(brain, heard, [speaker]);
+    // "You let me in", said to the NPC, names the NPC.
+    const voucher =
+      workmateNamedIn(brain, heard, [speaker]) ??
+      (/\byou (?:let me in|asked me|sent for me|sent me)\b/.test(heard)
+        ? brain.name
+        : null);
     if (voucher && voucher !== brain.name) {
       asked.voucher = voucher;
     } else if (voucher || NO_REASON_WORDS.test(heard)) {
