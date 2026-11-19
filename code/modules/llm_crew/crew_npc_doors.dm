@@ -595,10 +595,10 @@
 	if(door.density && !click_door(door, TRUE))
 		return list(FALSE, "The door will not open for you.")
 	// It stays by the door while it is wanted open, opens it again if it shuts too soon, and shuts
-	// it behind them once they are through. If it is being held for someone else as well, whoever
-	// has longest to go is the one it shuts behind.
+	// it behind them once they are through. If it is being held for someone else as well, it is
+	// shut only when nobody it is held for is still to come through (DOOR-01).
 	var/held_until = world.time + CREW_NPC_DOOR_HELD
-	GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+	GLOB.crew_npc_door_holds[REF(door)] += 1
 	watch_door(WEAKREF(door), WEAKREF(person), inside, held_until, room)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) opened [door] to let [key_name(person)] [inside ? "out of" : "into"] [room_name].")
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
@@ -620,10 +620,9 @@
 			if(!istype(other_controller) || !other_controller.is_shut_in())
 				continue
 			other_controller.door_opened_for(body, room_name, way_out, door)
-			// Each is watched a tick longer than the last, so that the door shuts behind whoever
-			// is last through it and not on them: see watch_door.
-			held_until += 1
-			GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+			// Each is counted, so that the door shuts behind whoever is last through it and not
+			// on them: see watch_door.
+			GLOB.crew_npc_door_holds[REF(door)] += 1
 			watch_door(WEAKREF(door), WEAKREF(other), TRUE, held_until, room)
 	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].")
 
@@ -632,6 +631,7 @@
 	var/obj/machinery/door/airlock/door = door_ref?.resolve()
 	if(QDELETED(door) || QDELETED(src) || isnull(room))
 		door_hold_over(person_ref, room)
+		door_watch_ended(door_ref)
 		let_door_close(door_ref)
 		return
 	var/mob/living/carbon/human/person = person_ref?.resolve()
@@ -646,7 +646,6 @@
 	if(!through && world.time >= until && extended < CREW_NPC_DOOR_HELD_ON_TIMES && person.stat == STABLE && !IS_UNCONSCIOUS(person) && person.z == door.z && get_dist(person, door) <= CREW_NPC_VISION_RANGE)
 		until = world.time + CREW_NPC_DOOR_HELD_ON
 		extended++
-		GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], until)
 		// They are told nothing new: only that the door they were making for is open that much longer.
 		var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 		if(istype(their_controller))
@@ -655,12 +654,12 @@
 				their_controller.let_out_until = max(their_controller.let_out_until, until)
 	if(through || world.time >= until)
 		door_hold_over(person_ref, room)
-		// Held for someone else too, who came to it later and is not through yet: one janitor going
-		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
-		if(GLOB.crew_npc_door_holds[REF(door)] > until)
+		// Held for someone else too, who is not through yet, whichever was asked for first: one
+		// janitor going through must not shut the door on the one behind. The last watch to end
+		// shuts it.
+		if(!door_watch_ended(door_ref))
 			addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 			return
-		GLOB.crew_npc_door_holds -= REF(door)
 		let_door_close(door_ref)
 		return
 	// The door has shut itself before they are through: it is opened again, from beside it. A body
@@ -682,8 +681,20 @@
 	var/person_name = QDELETED(person) ? "" : person.name
 	emit_sense(CREW_SENSE_KNOWLEDGE, "You are done holding the door[room_name ? " of [room_name]" : ""][person_name ? " for [person_name]" : ""].", list("door_hold_over" = room_name, "door_held_for" = person_name))
 
-/// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
+/// Doors being held open for someone, by REF: how many people the door is still being watched for.
 GLOBAL_LIST_EMPTY(crew_npc_door_holds)
+
+/// One watch of a held door has ended. Returns TRUE if it was the last, so nobody is left to come through.
+/datum/ai_controller/crew_npc/proc/door_watch_ended(datum/weakref/door_ref)
+	var/key = door_ref?.reference
+	if(isnull(key) || !(key in GLOB.crew_npc_door_holds))
+		return TRUE
+	var/left = GLOB.crew_npc_door_holds[key] - 1
+	if(left > 0)
+		GLOB.crew_npc_door_holds[key] = left
+		return FALSE
+	GLOB.crew_npc_door_holds -= key
+	return TRUE
 
 /**
  * Tool: knock at the door the body is standing at. A voice does not carry through a shut door, so
