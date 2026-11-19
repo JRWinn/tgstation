@@ -193,6 +193,36 @@ export function inOwnVoice(text: string): string {
   return said.replace(/(^|[.!?] )you\b/g, '$1You');
 }
 
+/** The most a body says in one line: the server cuts anything longer (CREW_NPC_SAY_MAX_LENGTH). */
+export const SAY_MAX_CHARS = 200;
+/** A line cut back to its last whole sentence keeps at least this much, or it is cut at a word. */
+const SENTENCE_KEEP_MIN = 60;
+
+/**
+ * Cuts a line the LLM worded to what the server will say, at the last whole sentence that fits,
+ * or failing one long enough, at the last whole word with a full stop. Without this the server
+ * cuts it mid-word, after the window has checked it holds the words a hearer needs.
+ */
+export function fitSay(text: string, max = SAY_MAX_CHARS): string {
+  if (text.length <= max) {
+    return text;
+  }
+  // A sentence ends where a stop is followed by a space; the space may be just past the limit.
+  const head = text.slice(0, max + 1);
+  const stop = Math.max(
+    head.lastIndexOf('. '),
+    head.lastIndexOf('! '),
+    head.lastIndexOf('? '),
+  );
+  if (stop + 1 >= SENTENCE_KEEP_MIN) {
+    return text.slice(0, stop + 1);
+  }
+  // No sentence ends in time: the last whole word, and a stop. The stop needs room of its own.
+  const words = head.slice(0, max - 1);
+  const space = words.lastIndexOf(' ');
+  return `${(space > 0 ? words.slice(0, space) : words).replace(/[\s,;:-]+$/, '')}.`;
+}
+
 /**
  * Takes handles out of something the LLM wants said. They are in the report so that it can say in
  * its reply who it means, and now and then one comes out in its speech: "Hello, p1". A handle in

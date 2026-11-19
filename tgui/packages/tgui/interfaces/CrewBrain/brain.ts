@@ -42,6 +42,7 @@ import { pickPersonCard } from './person';
 import {
   buildReplySchema,
   buildSystemPrompt,
+  fitSay,
   isFiller,
   parseReply,
   serverToolName,
@@ -1630,9 +1631,9 @@ async function think(brain: NpcBrain): Promise<void> {
     const replied = parseReply(reply);
     for (const action of replied) {
       if (action.tool === 'say') {
-        action.text = withoutHandles(
-          String(action.text ?? ''),
-          brain.peopleInView,
+        // Cut to what the server will say before anything checks what the line holds.
+        action.text = fitSay(
+          withoutHandles(String(action.text ?? ''), brain.peopleInView),
         );
       }
     }
