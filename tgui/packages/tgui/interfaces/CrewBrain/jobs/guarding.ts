@@ -522,7 +522,13 @@ export function syncGuarding(brain: NpcBrain): void {
     for (const person of brain.peopleInView) {
       if (person.belongs) {
         brain.workmates.add(person.name);
-      } else if (person.in_post) {
+      } else if (
+        person.in_post &&
+        // Someone seen to belong earlier in the round is a workmate whose card no longer opens
+        // the door, not a stranger (MULTI-03). Unless a superior has ordered them out.
+        (!brain.workmates.has(person.name) ||
+          !!brain.strangers[person.name]?.orderedBy)
+      ) {
         recordOf(brain, person.name).lastSeenAt = brain.now;
       }
     }
@@ -530,8 +536,10 @@ export function syncGuarding(brain: NpcBrain): void {
   for (const [name, stranger] of Object.entries(brain.strangers)) {
     const seen = brain.peopleInView.find((person) => person.name === name);
     // Seen outside the room, or not seen for a good while: they are gone, and so is the matter.
+    // A workmate is no stranger, unless ordered out.
     if (
       (seen && (!seen.in_post || seen.belongs)) ||
+      (brain.workmates.has(name) && !stranger.orderedBy) ||
       brain.now - stranger.lastSeenAt > GONE_DS
     ) {
       delete brain.strangers[name];
@@ -644,6 +652,15 @@ function explainStep(brain: NpcBrain): Plan {
     return { ready: false, step: 'Whoever asked has gone.' };
   }
   const why = reasonToBeHere(brain);
+  // Its own post is the one room it always has a reason to be in, card or no card (MULTI-03).
+  if (!why && brain.post && brain.location === brain.post) {
+    return {
+      ready: true,
+      step: `${by} has asked why you are in ${brain.location}. It is where you work. In "say", tell ${by} so, beginning with "I work here".`,
+      say: 'I work here.',
+      needs: has('work'),
+    };
+  }
   if (!why) {
     return {
       ready: true,
