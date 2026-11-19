@@ -313,6 +313,29 @@ add('with no officer aboard the warrant goes into its own hands', beatOf(b).warr
   add('served by the hurt officer: the Head of Security gives its own copy up', [beatOf(d).warrants.length, beatOf(d).toFree.length, said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'))], [0, 0, []]);
 }
 
+// ---- SECT-11: a warrant declared while the officer is out is given to it when it is back
+{
+  const giving = (d: any) => d.tasks.filter((task: any) => task.kind === 'give_warrant' && task.state !== 'done').map((task: any) => task.item);
+  const d = head();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(d);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(d);
+  add('declared while the officer is out: the Head of Security holds it', [deskOf(d).warrants.map((w: any) => w.given), beatOf(d).warrants.map((w: any) => w.name)], [['taken'], ['Dana Reyes']]);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(d);
+  add('told to try again: it is given to the officer, and handed back', [giving(d), beatOf(d).warrants.length], [['Dana Reyes'], 0]);
+  syncDesk(d);
+  add('and still is a sync later', giving(d), ['Dana Reyes']);
+  const late = head();
+  late.pdaPeople = PDA.filter((person) => person.job !== 'Security Officer');
+  deskTakes(late, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  syncDesk(late);
+  late.pdaPeople = PDA;
+  syncDesk(late);
+  add('no officer aboard, then one: the warrant is given to it', [giving(late), beatOf(late).warrants.length], [['Pun Pun'], 0]);
+}
+
 // ---- TRUST-06: a warrant is settled on one person at once, and a name two share is asked about
 {
   const twoJanes = () => {

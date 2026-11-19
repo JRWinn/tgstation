@@ -993,6 +993,19 @@ export function syncDesk(brain: NpcBrain): void {
     }
   }
   const officer = serving(brain);
+  // An officer to send who was not sending before (told to try again, or come aboard): every
+  // warrant is given to it, but the one on whoever it has by the arm itself.
+  if (officer && officer !== (desk.servedBy ?? null)) {
+    const holding = brain.security?.holding;
+    for (const warrant of desk.warrants) {
+      if (!holding || !sameName(warrant.name, holding)) {
+        warrant.given = 'no';
+        warrant.gives = 0;
+        warrant.walkedUp = false;
+      }
+    }
+  }
+  desk.servedBy = officer;
   // With an officer to send, whoever keeps the list does not go after anyone itself.
   if (officer) {
     handBack(brain);
