@@ -475,12 +475,25 @@ export function deskTakes(
   // A warrant declared.
   const declared = readWarrant(text, knownNames(brain));
   if (declared) {
-    const theirJob =
-      jobOf(brain, declared.name) ||
-      jobOf(
+    // Settled on one person it knows of, by full name, here and now: the rules below are
+    // tested against that one, and the warrant is kept under that name. A name that fits two
+    // it knows of ("Dana", with Dana Reyes and Dana Smith aboard) is asked about, not guessed.
+    const fits = knownNames(brain).filter((it) => sameName(declared.name, it));
+    const owners = fits.includes(declared.name) ? [declared.name] : fits;
+    if (declarer && owners.length > 1) {
+      reply(
         brain,
-        knownNames(brain).find((it) => sameName(declared.name, it)) ?? '',
+        from,
+        REFUSALS.whichOne(to, owners),
+        aloud,
+        `${from} has declared a warrant on ${declared.name}, and more than one person aboard goes by that name. You are asking which one.`,
       );
+      return true;
+    }
+    if (owners.length === 1) {
+      declared.name = owners[0];
+    }
+    const theirJob = jobOf(brain, declared.name);
     const why = (rest: string) =>
       `${from} has declared a warrant on ${declared.name}. ${rest}`;
     if (!declarer) {

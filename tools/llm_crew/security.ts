@@ -263,6 +263,42 @@ add('with no officer aboard the warrant goes into its own hands', beatOf(b).warr
   add('served by the hurt officer: the Head of Security gives its own copy up', [beatOf(d).warrants.length, beatOf(d).toFree.length, said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'))], [0, 0, []]);
 }
 
+// ---- TRUST-06: a warrant is settled on one person at once, and a name two share is asked about
+{
+  const twoJanes = () => {
+    const d = head();
+    d.pdaPeople = [...PDA, { name: 'Jane Doe', job: 'Assistant' }, { name: 'Jane Marsh', job: 'Research Director' }, { name: 'Dana Smith', job: 'Cook' }];
+    return d;
+  };
+  let d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane, for theft.', false);
+  add('a first name two share is no warrant, and is asked about', [deskOf(d).warrants.length, said(d)], [0, ['PDA to Walker Wolfe: Walker, there are two by that name: Jane Doe and Jane Marsh. Which one?']]);
+  d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane Doe, for theft.', false);
+  add('the full name is taken', deskOf(d).warrants.map((w: any) => w.name), ['Jane Doe']);
+  d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane Marsh, for theft.', false);
+  add('and the rule on heads holds for the one named', deskOf(d).warrants.length, 0);
+  d = twoJanes();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Arrest Dana for theft.', false);
+  add('"Arrest Dana" with two Danas aboard is asked about', [deskOf(d).warrants.length, said(d)], [0, ['PDA to Zim Fire: Captain, there are two by that name: Dana Reyes and Dana Smith. Which one?']]);
+  d = twoJanes();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Arrest Dana Smith for theft.', false);
+  add('"Arrest Dana Smith" is a warrant on Dana Smith', deskOf(d).warrants.map((w: any) => w.name), ['Dana Smith']);
+  d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Reyes, for theft.', false);
+  add('a surname one person has is kept under their full name', deskOf(d).warrants.map((w: any) => w.name), ['Dana Reyes']);
+  const { onLead } = await import(ROOT + 'jobs/arrests');
+  const off = makeBrain('Hale Stone', 'Security Officer');
+  off.pdaPeople = [{ name: 'Joan Marsh', job: 'Head of Security' }, { name: 'Pun Pun', job: 'Assistant' }, { name: 'Pun Pun II', job: 'Assistant' }];
+  know(off, ['Security Office', 'Bar']);
+  (await import(ROOT + 'jobs/arrests')).giveWarrant(off, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  at(off, 5000, 'Bar', [{ handle: 'p2', name: 'Pun Pun II', job: 'Assistant', place: 'Bar', distance: 2 }]);
+  add('an officer with a warrant on Pun Pun, a name it knows, does not go for Pun Pun II', onLead(off), false);
+  at(off, 5010, 'Bar', [{ handle: 'p1', name: 'Pun Pun', job: 'Assistant', place: 'Bar', distance: 2 }]);
+  add('and does go for Pun Pun', onLead(off), true);
+}
+
 // ---- the desk says so when it cannot use what it is sent
 const { jobFor } = await import(ROOT + 'jobs/index');
 const HOS = jobFor('Head of Security');

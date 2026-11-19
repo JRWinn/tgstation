@@ -294,9 +294,17 @@ function target(
   warrant: BeatWarrant,
 ): PersonInView | undefined {
   const shut = inCells(brain);
+  // A warrant on someone it knows of by that full name is on that one person: "Pun Pun" is not
+  // "Pun Pun II" when both are aboard. Only a name nobody knew is matched loosely.
+  const known =
+    brain.pdaPeople.some((person) => person.name === warrant.name) ||
+    brain.people.has(warrant.name);
   return brain.peopleInView.find(
     (person) =>
-      sameName(warrant.name, person.name) &&
+      (known
+        ? person.name === warrant.name ||
+          person.name.startsWith(`${warrant.name} (as `)
+        : sameName(warrant.name, person.name)) &&
       person.name !== brain.name &&
       !shut.includes(person.name),
   );

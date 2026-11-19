@@ -511,6 +511,8 @@ export const REFUSALS = {
     `${to}, only the Captain can declare a warrant on a head of department.`,
   already: (to: string, name: string) =>
     `${to}, there is already a warrant on ${name}.`,
+  whichOne: (to: string, names: string[]) =>
+    `${to}, there are ${names.length === 2 ? 'two' : 'several'} by that name: ${listed(names.slice(0, 4))}. Which one?`,
   toDesk: (to: string, desk: string) =>
     `${to}, warrants go to ${desk}, the Head of Security.`,
   notPardoner: (to: string) => `${to}, a pardon is the Captain's to give.`,
