@@ -43,6 +43,25 @@ const UNPACKED = 'is unpacked in';
  */
 export const COLLECT_WORDS =
   /\b(collect|collecting|pick(ing)? ([\w']+ ){0,2}up|pickup|here for|come for|came for|fetch|(get|grab|take|have)( [\w']+){0,2} (my crate|crate (number |no\.? |num |#)?#?\d+|#\d+))\b/i;
+/**
+ * The words of an ask for something to be ordered. A line with these and no crate's number is an
+ * order, whatever it says of who will come for it: "order a crate of soap, I'll send someone to
+ * pick it up" (CARGO-15).
+ */
+export const ORDER_ASK_WORDS =
+  /\b(order|requisition|buy|purchase|(get|fetch|bring) (me|us) (some|a|an)|can (i|we) (get|have) (some|a|an|two|three|four|\d+))\b/i;
+
+/**
+ * TRUE if a line said at the counter is someone come for a crate that is here: words of
+ * collecting, and a crate's number, or "crate" and no ask for one to be ordered (CARGO-15).
+ */
+export function comeForCrate(heard: string, number: number | null): boolean {
+  return (
+    COLLECT_WORDS.test(heard) &&
+    (number !== null ||
+      (/\bcrates?\b/i.test(heard) && !ORDER_ASK_WORDS.test(heard)))
+  );
+}
 /** Numbers as they are said for a crate's number, one to twenty. */
 const NUMBER_WORDS: Record<string, number> = {
   one: 1,

@@ -94,6 +94,20 @@ add('dead model, the head asks someone else: nothing ordered', CARGO.hears(tech(
   b.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
   add('dead model, the head asks for the second kind on the list: that kind', CARGO.hears(b, toMe(HOP, 'Could you order a crate of light bulbs?')), { tool: 'order', crate: 'Replacement Lights' });
 }
+// CARGO-15: an order that says who will come for it is still agreed to.
+add('"order a crate of cleaning supplies, I\'ll send someone to pick it up": agreed', agrees(tech([HOP]), toMe(HOP, "Sam, order a crate of cleaning supplies, I'll send someone to pick it up.")), true);
+add('the same with the model down: ordered', CARGO.hears(tech([HOP]), toMe(HOP, "Sam, order a crate of cleaning supplies, I'll send someone to pick it up.")), { tool: 'order', crate: 'Janitorial Supplies Crate' });
+add('"I am here to collect crate 12" is still no order', agrees(tech([HOP]), toMe(HOP, 'Sam, I am here to collect crate 12.')), false);
+{
+  // With a Quartermaster aboard, the head is told where orders go, not "not holding".
+  const b = tech([HOP, { ...QM, place: 'Quartermaster\'s Office' }]);
+  b.pdaPeople = [{ name: QM.name, job: QM.job }];
+  b.toTell = [];
+  b.heldCrates = [];
+  b.sentToQm = {};
+  CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: HOP.name, message: "Sam, order a crate of soap, I'll send someone to pick it up.", said_to: 'you' } });
+  add('Quartermaster aboard, an order with "pick it up": told to send it to the Quartermaster', b.toTell.map((it: any) => /Quartermaster/.test(it.line)), [true]);
+}
 // CARGO-14: who an order is for is no kind of crate.
 {
   const { itemsAskedFor } = await import(ROOT + 'jobs/cargo');

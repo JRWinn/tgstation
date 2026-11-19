@@ -47,7 +47,7 @@ import {
 import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
-import { COLLECT_WORDS, crateNumberIn } from './pickups';
+import { comeForCrate, crateNumberIn } from './pickups';
 import { isSecurity } from './security';
 import {
   describeRounds,
@@ -2392,7 +2392,7 @@ export const CARGO: Job = {
       SUPPLY_WORDS.test(words) &&
       asksToOrder(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
-      !COLLECT_WORDS.test(words) &&
+      !comeForCrate(words, crateNumberIn(words)) &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
     );
   },
@@ -2528,7 +2528,7 @@ export const CARGO: Job = {
       (!!speakerSeen.command || isHead(speakerJob)) &&
       event.details.said_to !== 'other' &&
       ORDERING_WORDS.test(heard) &&
-      !COLLECT_WORDS.test(heard)
+      !comeForCrate(heard, crateNumberIn(heard))
     ) {
       if (QM_SILENT_WORDS.test(heard)) {
         brain.qmSilent = { by: speaker, at: brain.now };
@@ -2571,8 +2571,8 @@ export const CARGO: Job = {
       speaker &&
       !isCargo(theirJob) &&
       (event.details.said_to !== 'other' || toUnableWorkmate) &&
-      COLLECT_WORDS.test(heard) &&
-      (number !== null || /\bcrates?\b/i.test(heard)) &&
+      // An order that says who will come for it is an order, not someone come for one (CARGO-15).
+      comeForCrate(heard, number) &&
       takeOrder(
         brain.post ?? '',
         `${speaker}, for a crate`,
@@ -2729,7 +2729,7 @@ export const CARGO: Job = {
     return asker &&
       items.length > 0 &&
       asksToOrder(said) &&
-      !COLLECT_WORDS.test(said) &&
+      !comeForCrate(said, crateNumberIn(said)) &&
       !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       offers(brain, [asker]).length > 0 &&
       takeOrder(brain.post ?? '', asker.name, brain.name, brain.now)

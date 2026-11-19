@@ -91,6 +91,28 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('asked of Maria, who is standing there: left to her', said(false), null);
   add('asked of Maria, who is lying there: taken by this one', said(true), 12);
 }
+// CARGO-15: an order that says who will come for it is an order.
+{
+  const { comeForCrate } = await import(ROOT + 'jobs/pickups');
+  const come = (said: string) => comeForCrate(said, crateNumberIn(said));
+  for (const said of [
+    "I'm here for a crate of janitorial supplies, can you order one?",
+    'Can you fetch me a crate of light bulbs from the console?',
+    "Could you order a crate of soap? I'll come for it later.",
+    "Order a crate of cleaning supplies, I'll send someone to pick it up.",
+    'Order me a crate of lights, the janitor will collect it.',
+  ]) {
+    add(`"${said}": an order, not come for a crate`, come(said), false);
+  }
+  add('"I\'m here for crate 12": come for it', come("I'm here for crate 12"), true);
+  add('"I\'m here to collect crate #12": come for it', come("I'm here to collect crate #12"), true);
+  add('"I\'m here to collect my crate": come for it', come("I'm here to collect my crate"), true);
+  const b = tech([{ number: 12, for: 'Jan Mopp' }]);
+  b.pdaPeople.push({ name: 'Jan Mopp', job: 'Janitor' });
+  hear(b, 'Order me a crate of lights, the janitor will collect it.');
+  add('an order naming the janitor, with a crate held for a janitor: no crate brought out', b.pickupAsked?.number ?? null, null);
+  add('and nobody is told "not holding"', b.toTell.map((it: any) => it.line), []);
+}
 // CARGO-13: the collector asks a technician who can answer, turns to another after an ask that
 // brought nothing, and after three asks tells its head and puts the errand off.
 {
