@@ -15,6 +15,8 @@ fix: Let anyone whose own ID opens the room open its door to let out someone ins
 
 ## What is wrong
 
+See also: KNB-12
+
 Only a cargo technician ever opens a door for someone. The brain plans `open_door` in one place, `jobs/cargo.ts`, and the server tool refuses anyone else ("Cargo staff only"). So a body shut in any room that is not cargo's can only be let out by the Captain, a player, or by chance.
 
 The shut-in body does all it is built to do: it asks whoever is in the room aloud, then writes by PDA to whoever's own ID opens the door, then to its head. When the room is a head's office, the head is both: its ID opens the door, so it is written to as a keeper, and the head form of the line is never sent. A head acts on only the head form (`SHUT_IN_WORDS`, "... and nobody has come to the door"), and passes that one to the Captain. The keeper form ("... and am at the X door. Could you let me out ...") matches nothing in `head.ts`. So the head does not open the door, cannot, and does not pass the word up either. Its LLM, asked aloud, promises to: "Arleen, I'll see you to the Command Hallway."

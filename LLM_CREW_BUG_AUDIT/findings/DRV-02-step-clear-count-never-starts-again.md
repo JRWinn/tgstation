@@ -14,6 +14,8 @@ fix: Start the count again when the body leaves the room, and clear the map in s
 
 ## What is wrong
 
+See also: DRV-01
+
 The cap of two step-clears is meant for one stay in one room ("some rooms have a door by every tile it can stand on"). The count is kept in a map outside the brain, by NPC id, as `{ place, count }`, and it is only started again when the body next tries to step clear in a different room. Leaving the room does not reset it. Nor does time.
 
 One concrete case: at the first staff meeting in the Bar a janitor steps clear twice (or, with DRV-01, has both tries used up without moving). Twenty minutes later the second meeting is called in the Bar. It has not tried to step clear anywhere else in between, so the map still says `{ place: 'Bar', count: 2 }`. It stops in the doorway and `mayStepInside` says no at once. It waits the whole meeting in the doorway, pushed in and out of the room by everyone who comes through, which is what the step clear was built to stop. Staff meetings are held in the same room every time, so this is every meeting after the first.

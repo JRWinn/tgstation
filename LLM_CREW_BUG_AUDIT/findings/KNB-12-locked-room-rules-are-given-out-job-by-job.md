@@ -14,6 +14,8 @@ fix: Work out a body's own rooms from its ID and its job's department for every 
 
 ## What is wrong
 
+See also: LOGB-01
+
 The project's rule: "An example is not the scope. A behaviour described for one job is built as a general rule (anyone with a post behind a locked door) ... Nothing should assume only janitors and cargo."
 
 Guarding a locked room and opening its door for someone were built for cargo, and extended by hand to engineering and to security. Every other job has neither. Two items in the 2026-11-18 morning entry ("fixes from the first round with a Quartermaster") say so for janitors, and both are still open:

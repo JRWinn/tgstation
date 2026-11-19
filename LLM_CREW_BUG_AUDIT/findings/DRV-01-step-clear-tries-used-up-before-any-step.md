@@ -14,6 +14,8 @@ fix: Count a step clear when the step is issued (in drive, beside noteDone), not
 
 ## What is wrong
 
+See also: DRV-02
+
 A body that is waiting (at a staff meeting, say) and finds itself in a doorway is meant to step clear, at most twice in one room. The count of tries is put up inside `nextStep`, which only works out what the next step would be. `drive` calls `nextStep` on every update from the server, and then very often returns without doing the step: the breath after the last action is not over (`driveAfter`), or someone is talking and the step is one that "leaves" (`step_aside` is). Updates come at least every 0.9 seconds, and one more for every sense event of any NPC the owner has. So both tries are spent in the first second or two after the body arrives, before the driver is allowed to act, and when it is allowed the answer is "no more tries". The body stands in the doorway for the whole wait.
 
 One concrete case: a janitor is called to a staff meeting in the Bar. Its `go_to` arrives; `noteResult` sets `driveAfter` to between 1 and 4 seconds from now. It is in the doorway (`in_doorway`). Update 1 (0.3s later, a workmate's sense event): `nextStep` reaches the waiting meeting task, `mayStepInside` puts the count to 1 and the step is returned; `drive` returns null at `now < brain.driveAfter`. Update 2: count 2, null again. Update 3, with the breath over: `mayStepInside` returns false, `nextStep` returns null. No `step_aside` is ever sent.

@@ -14,6 +14,8 @@ fix: Turn on the route planner's multi-floor routes for crew, look for rooms on 
 
 ## What is wrong
 
+See also: MAP-05
+
 Every piece of the crew's knowledge of the station is cut down to the floor the body is standing on, and the route planner is told not to plan across floors. MetaStation has one floor, so none of this shows there. Three of the maps in `_maps/map_files/` have more than one: `tramstation`, `IceBoxStation` and `NebulaStation` (to be checked for each map's json; `CatwalkStation` too if it is multi-floor). The project's rules say nothing should assume MetaStation.
 
 What the code does on such a map:
