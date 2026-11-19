@@ -54,7 +54,7 @@ The same fixed delay is used at `brain.ts:1131`, `:1266` and `:1803`.
 
 ## How it was found
 
-Seen in a round log: `data/logs/2026/11/16/round-16.16.36/runtime.log`, "Attempted to create oversized tgui payload with duplicate ID." from `create oversized payload("1794867513668", "act/brain_log", 3)`. That build predates the 300 ms delay. No later round has the runtime. The sizes above were measured by a throwaway Python script over every `crew_brain.log`, URL-encoding each record the way `act.ts` does. That the collision can still happen is read from the code; it has not been seen since the fix.
+Seen in a round log: `data/logs/2026/11/16/round-16.16.36/runtime.log`, "Attempted to create oversized tgui payload with duplicate ID." from `create oversized payload("1794867513668", "act/brain_log", 3)`. That build predates the 300 ms delay. No later round has the runtime. The sizes above were measured by a throwaway Python script over every `crew_brain.log`, URL-encoding each record the way `act.ts` does. The same script over every `href.log` of 18 and 19 November found 26,721 `tool_call` acts, the largest about 740 characters encoded, none chunked: so only the log is at risk. That the collision can still happen is read from the code; it has not been seen since the fix.
 
 ## How to fix it
 
