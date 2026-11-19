@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:785, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:789, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1113
 fix: Gate the let-in branch on shutOut alone, for the room they are in, dropping both the not-resisted and the more-than-two-tiles conditions
@@ -95,3 +96,14 @@ Read from the code, stepping through `serveStep` and `beatAfterActing` by hand f
 - `tools/llm_crew/security.ts`: a warrant with `resisted: true`, `force: true`, `toldAt` set and `shutOut` set; the person in view at distance 3 in another room. `planBeat` on the serve task should give the `go_to_door` or the let-in message, not `approach`, `say` or `arrest`.
 - A simulator scenario where the wanted person bites the officer and steps behind a locked counter: the officer should go to the door and ask.
 - In the next round, grep `pda.log` for "Could you let me in, please?" after an officer is bitten, and `game.log` for the same arrest line said more than twice.
+
+## Check
+
+Checked by Opus 5.5, from the code; nothing run.
+
+- The quotes are what `jobs/arrests.ts` says today: the branch `if (far && warrant.shutOut && !warrant.resisted)` at 785, the telling block at 789, `NEAR = 2` at 76, the `no_way` answer at 1113 (`toldAt = null`, `noteShutOut`, `return` before `warrant.tries += 1`), `walkedUp = false` for every arrest at 1096 and `walkedUp = true` for every approach at 1041, `toldAt` set only when the line is said (`beatAfterSaying`, 1017).
+- The server does send `no_way` for this case: `security_details` (`crew_npc_security.dm:754`) turns a failed arrest walk into `no_way`, with the room and `room_keepers`, whenever the person is still in view.
+- Stepping the resisted case through: arrest (force) → `no_way`, `toldAt` null → approach (since `walkedUp` was cleared) → line → arrest again. No step counts a try, so `restUntil` and the "cannot" outcome are never reached. Stepping the near case: `far` false, so neither `letInStep` nor the approach; line, quiet arrest, `no_way`, line again. Both hold.
+- This goes against what was built and planned: the changelog's H9 entry ("It no longer calls the arrest out through a counter") and `LLM_CREW_PLAN_ROUND_1428_SECURITY.md` H9 ("It says the arrest line only once it is beside the suspect"). Beside is one tile, not two. Nothing in the change log chose to skip the asking for someone who fought back.
+- Not a duplicate of ARR-07: there `noteShutOut` returns false because the person is in the officer's own room; here `shutOut` is set and ignored.
+- The fix is right and small. `seen.place === warrant.shutOut.place` is already ensured by the lines just above it whenever their place is known (shutOut is cleared when they are seen in another room), so the branch can be just `if (warrant.shutOut)`. With nobody left to ask, `letInStep` sets `gaveUp` and returns `ready: false`, so the round stops instead of looping. One case it does not end: a room with no keepers at all, where `noteShutOut` sets nothing; that is ARR-07's fix (count such a `no_way` as a try).

@@ -3,10 +3,11 @@ id: TRB-06
 title: Someone who gets out of their cell before their time, let out by a player or breaking out, is not seen by the officer until the term would have ended, even on a new warrant
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:271, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:439, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:944, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:251
 fix: In inCells count a name from beat.jailed only while that person is not in view outside a running cell, and drop the jailed and held entries when they are seen out
@@ -70,12 +71,21 @@ Read from the code. Not seen in a round: no round so far has had a prisoner out 
 
 ## How to fix it
 
-1. In `inCells`, take a `beat.jailed` name only if that person is not in `brain.peopleInView` standing outside a running cell. Simplest rule: if they are in view and not among the `occupants` of any cell in `security.cells` that is `running`, they are not shut in.
+1. In `inCells`, take a `beat.jailed` name only if that person is not in `brain.peopleInView` standing outside a running cell. Simplest rule: if they are in view and not among the `occupants` of any cell in `security.cells` that is `running`, they are not shut in. `running` and `occupants` are null for a cell the body cannot see (`security_state`, `crew_npc_security.dm:1619`), but someone in view standing inside a cell puts that cell's floor in sight, so the cell is seen; the rule needs no more than that. Compare names with `sameName`, as `target` does with the warrant's name, since `beat.jailed` is keyed by the name the server gave back.
 2. In `syncBeat`, when that is seen, delete the `beat.jailed` entry and push an outcome so the desk hears it, for example `{ what: 'freed', name }` with a new field `early: true`, or a new kind `out` read by `readOutcome` from a fixed line such as "Joan, Dana Reyes is out of Cell 1 before their time." The desk deletes `desk.held` and tells the Captain in fixed words. Whether someone out early is to be arrested again without a new warrant is the owner's to say; until then, telling the Captain is enough, since the Captain can declare again.
 3. The Head of Security should do the same for `desk.held` when it sees the person out of the cells (it shares `peopleInView` and `security.cells`).
 
 ## How to test the fix
 
-- `tools/llm_crew/security.ts`: a case for `inCells`/`target` where `beat.jailed` holds a name, the person is in `peopleInView` in a hallway, and `security.cells` shows the cell `running: 0` or not listing them. `target` must find them.
+- `tools/llm_crew/security.ts`: a case for `inCells`/`target` where `beat.jailed` holds a name, the person is in `peopleInView` in a hallway, and `security.cells` shows the cell `running: 0` or not listing them. `target` must find them. `target` is not exported; test it through `syncBeat`: the officer's `serve` task for that name must turn `emergency` and the warrant get `ownSeenAt`, and `planBeat` must give the "you are under arrest" step, not "is not in the ...". The check below did exactly this and can be lifted into the file. Add the case the other way too: the person in view inside a cell seen `running: 1` with them in `occupants` stays passed over.
+- A case for the desk: after an `out` (or `freed`, early) outcome, `inTheCells` no longer names them.
 - Simulator: after the `warrant` scenario's jailing, stop the cell in the simulated server and walk the prisoner past the officer with a new warrant. The officer should arrest.
 - Type check.
+
+## Check
+
+Confirmed. Read `inCells` and `target` (arrests.ts:271-293), the clock-only expiry of `beat.jailed` (arrests.ts:439) and of `desk.held` (desk.ts:944), `inTheCells` (desk.ts:251, used by the Head of Security's report at headofsecurity.ts:101 and desk.ts:1170), and the desk's warrant intake (desk.ts:461-540): a new warrant is refused only if the name is on `desk.warrants`, so a second one on someone in `desk.held` is taken and passed on. `giveWarrant` (arrests.ts:131) takes it too. The only other way a `jailed` entry goes is the `free` branch of `beatAfterActing` (arrests.ts:1223), after a pardon. Nothing in the change log or plans covers a prisoner out early.
+
+Ran a throwaway bun script on the window code with `tools/llm_crew/fixtures.ts`: an officer in the Central Primary Hallway with Dana Reyes in view, a warrant on her, and `security.cells` showing Cell 1 not running and empty. With `beat.jailed["Dana Reyes"]` set, after `syncBeat` the serve task stayed `asked`, `ownSeenAt` was not set, and `planBeat` said "Dana Reyes is not in the Central Primary Hallway." With the entry taken out, the same brain gave `emergency` and "Dana Reyes, you are under arrest, for breaking out. Stand still." So the fault is as written.
+
+Effort raised to medium: step 1 alone is a few lines, but steps 2 and 3 add an outcome the desk must read and act on, across arrests.ts, desk.ts and readOutcome. Not related to SEC-05, which is the server's own `jailed` list, a separate record.

@@ -3,13 +3,14 @@ id: ARR-05
 title: Word for the Head of Security that has gone to the PDA once is never said to its face, so with PDAs down it is never told
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:206, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:156, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:504
-fix: In tellHead say the word face to face whenever the Head of Security is in sight, and after a PDA send fails go to the post to find them
+fix: In tellHead say the word face to face whenever the Head of Security is in sight, after a PDA send fails go to the post to find them, and have the desk take the same outcome only once
 ---
 
 ## What is wrong

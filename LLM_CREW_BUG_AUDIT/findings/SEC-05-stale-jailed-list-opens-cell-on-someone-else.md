@@ -2,11 +2,12 @@
 id: SEC-05
 title: Letting someone go by name can open a cell that now holds somebody else
 kind: bug
-severity: medium
+severity: high
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1289, code/modules/llm_crew/crew_npc_security.dm:1320, code/modules/llm_crew/crew_npc_security.dm:1214
 fix: At the timer, stop it only if someone of that name is standing in the cell, forget a jailed entry that is no longer true, and look for the person in sight before going by memory
@@ -91,3 +92,11 @@ What must keep working: letting out someone who is out of sight in a cell the bo
 - Server compile on a side copy.
 - `tools/llm_crew/sim.ts`: make the simulator's `free` handler answer `nothing` when the named person is not in the cell it remembers, and add a scenario: jail A, time runs out, jail B in the same cell, free A. B must still be in the cell.
 - In a round: the same four steps. Grep `game.log` for "stopped the timer of": it must not appear for the freed name while another prisoner is in that cell.
+
+## Check
+
+Checked by Opus 5.5. Read `put_in_cell`, `tool_free`, `set_free` and `is_named` in `crew_npc_security.dm` (1145-1365), `crew_npc_brig_cells` (190, the cell datums are made once and kept, so `jailed[name] == cell` does compare the same datum each time), and `dropWarrant`, the cell expiry in `syncBeat` and the `free` branch of `beatAfterActing` in `jobs/arrests.ts`. The quotes are what the code says today.
+
+The server's `jailed` is written only at line 1214 and cleared only at `tool_free`'s end (1311) and in `set_free` (1337). Nothing clears it when a timer runs out or is stopped by someone else, and `free_cell` hands the same cell to the next prisoner. `tool_free` tests the memory entry before the "in cuffs, in sight" check, and `set_free` stops the timer whether or not `prisoner` was found. So the case runs as written: the timer of Cell 1 is stopped and Marisol Burris walks out. No guard on either side prevents it. The window's `dropWarrant` needs `had && cuffed` (a fresh warrant then withdrawn) or its own unexpired `beat.jailed` entry; both can happen, so this is uncommon but real. Nothing in `LLM_CREW_CHANGELOG.md` or the plans names it.
+
+Severity raised to high: the result is the wrong person let out of a cell, and FORMAT puts "the wrong person is acted on" at high whatever the frequency. The fix is right and stays in one file. One thing to keep when building step 2: a prisoner whose visible name changed inside the cell (a mask put on) is then not found and not let out; answer `nothing` for that too rather than stopping the timer, since the officer cannot tell.

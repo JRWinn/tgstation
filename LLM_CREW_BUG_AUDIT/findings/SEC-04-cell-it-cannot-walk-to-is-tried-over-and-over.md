@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:748, code/modules/llm_crew/crew_npc_security.dm:1075, code/modules/llm_crew/crew_npc_security.dm:1157, code/modules/llm_crew/crew_npc_security.dm:1202, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1195
 fix: Call cell_refuses for the cell in jail_cell whenever a jail errand ends in no_way or timer, including the walk that never reached the timer
@@ -91,8 +92,14 @@ Read from the code. Not seen in a round. The round-14.28 fault "You cannot get i
 
 The stunned-officer case in SEC-01 must not mark a cell either: check the body's own state first, as that finding says.
 
+5. The "will not start" return comes after `body.stop_pulling()` and, for one of the crew, `take_cuffs_off`. The prisoner is then inside, uncuffed and not held, so the next `jail` will most likely answer `no_hold`, not try Cell 2. Marking the cell is still right; whether to stop the timer-start failure from letting go first is a separate question, not needed for this fix.
+
 ## How to test the fix
 
 - Server compile on a side copy.
-- `tools/llm_crew/sim.ts` plays the server, so its jail handling should be made to do the same: a `jail` that fails `no_way` on Cell 1 is answered at Cell 2 on the next try. Look for the security scenarios listed at the top of `sim.ts` and add one where the first cell cannot be reached.
+- `tools/llm_crew/sim.ts` already plays a refused cell: run with the argument `badcell` (sim.ts:997), Cell 1 answers `no_way` and the sim adds it to `refusedCells`, so the window side is already tested. The fix is on the server only; the sim needs nothing new unless a timer failure case is wanted, which would be a `badtimer` twin of `badcell` answering `reason: 'timer'`.
 - In a round: block the tile in front of one cell's timer with a locker and have someone arrested. `game.log` should show one "could not put X in Cell 1: it could not get to the cell's timer" and then "put X in Cell 2".
+
+## Check
+
+Checked by Opus 5.5, read from the code, nothing run. The quotes match the code today. `free_cell` (crew_npc_security.dm:1075) is the only reader of `cell_refused`, and `cell_refuses` is called only at :1179, :1187 and :1197, all inside `put_in_cell`. A walk that never arrives ends in `crew_npc_fail_errand` (crew_npc_hands.dm:425, `list(FALSE, "You could not get to it.")`), and `do_errand`'s reach check (crew_npc_hands.dm:195) returns the same two-item list; both go through `finish_errand` to `security_details` (hands.dm:349), which gives `"reason" = "no_way"` and marks only a kit locker. The three `"timer"` returns in `put_in_cell` mark nothing. On the window, `arrests.ts:1195` counts `no_way` and `timer` as a refused cell and the next `jail` goes at once (`serveStep`, arrests.ts:704), so `free_cell` hands back the same cell until `cellTries` reaches the cell count (arrests.ts:684) and the 90-second wait starts. The C2 entry in LLM_CREW_CHANGELOG.md (16:50, line 316) mended only the walk into and out of the cell; nothing later covers these exits. The `no power` wording is mostly moot, since `free_cell` already skips a timer with `NOPOWER|BROKEN`, but `work_timer` can still fail on reach or `can_interact`. Severity medium (a blocked timer tile is not a usual case, but when it comes the job stops for 90 seconds at a time with cells free) and effort small stand. Added step 5 and corrected the sim test: the sim already has a `badcell` run.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:259, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:182, code/modules/llm_crew/crew_npc_security.dm:1288, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:419
 fix: When the desk strikes someone it knows to be in a cell, have whoever keeps the list free them itself if the officer does not say they are free in a minute or two, going to the brig and stopping the cell it was told of
@@ -76,7 +77,7 @@ Read from the code, both halves. Not seen in a round.
 1. In `strike`, when `held` is set and the officer is the one to act, keep a `desk.toRelease: { name, cell, pardoned, at }` instead of forgetting the cell.
 2. Clear it when the officer's `freed` outcome comes (`deskOutcome`, `case 'freed'`).
 3. In `syncDesk`, if a `toRelease` entry is older than a minute or two with no `freed`, or there is no officer fit to send (`serving(brain)` is null, which KNA-09's fix will widen), push it onto its own `beat.toFree` with the cell name, so the Head of Security goes and does it itself.
-4. Give the `free` step a place to go: when the body's `tool_free` answers `nothing` and the window knows the cell, walk to the brig first (`brigPlace`) and send `free` again from there, where the cell is in sight. `tool_free` already finds a cell by sight. Or pass the cell's name as a second argument and have `tool_free` walk to that timer, checking by sight when it gets there.
+4. Give the `free` step a place to go. Do it before `free` is sent, not after a `nothing` answer: `afterActing` in `arrests.ts` (the `act.tool === 'free'` branch) takes a `nothing` answer as `ok` and drops the `toFree` entry at once. So carry the cell on the `toFree` entry (`{ name, pardoned, tries, cell }`), and in `freeStep` (`arrests.ts`), when the entry has a cell, the name is not in `beat.jailed`, nobody of that name is in view, and `brain.location !== brigPlace(brain)`, return a `go_to` the brig first. From there `tool_free` finds the cell by sight (`cell.occupants()` and `in_sight`). That keeps the fix in the window. The other way, passing the cell's name to `tool_free` and walking to that timer, touches the server too and makes the effort large.
 5. Answer the Captain "Captain, Dana Reyes is pardoned. Hale is letting them out." and, if step 3 fires, "Captain, Hale has not let Dana Reyes out. I am going to do it." Both in fixed words.
 
 ## How to test the fix
@@ -84,3 +85,13 @@ Read from the code, both halves. Not seen in a round.
 - Simulator: after the `warrant` scenario's jailing, put the officer down (as `hurt` does) and send "Pardon <name>." from the Captain. The Head of Security must walk to the brig and send `free`, and the prisoner must leave the cell.
 - `tools/llm_crew/security.ts`: `strike` on a name in `desk.held` must leave a release pending until a `freed` outcome comes.
 - Type check.
+
+## Check
+
+Checked by Opus 5.5. Every quote is what the code says today: `strike` (`desk.ts:259`), the pardon branch (`desk.ts:420`), `dropWarrant` (`arrests.ts:182`), the `freed` outcome (`desk.ts:835`), and `tool_free` (`crew_npc_security.dm:1274`).
+
+Traced: `strike` deletes `desk.held[held]` before anything is done, sends `letGoLine` to `officerAboard` (the first officer in view or on the PDA list, with no check that it is fit), and calls its own `dropWarrant`, which pushes onto `beat.toFree` only if the Head of Security has them by the arm, has them in its own `beat.jailed`, or holds the warrant and sees them in cuffs. For a prisoner the officer jailed, none of these hold, so nothing is queued. `freeStep` (`arrests.ts:923`) sends `free` at once from wherever the body is, and `tool_free` only finds a cell through the body's own `jailed` or by sight, so even a queued entry would get `nothing` from the office. Nothing in `syncDesk` or the `freed` outcome follows a pardon up.
+
+One softening: an officer that is only knocked out keeps its `toFree` entry and frees the prisoner when it is up again, if the PDA line reached its brain while it was down (not checked). So for "knocked out" the pardon is late; for an officer that is dead, cuffed, jailed, without its PDA, off the station, or a player who ignores it, it is never done. The brig timer still opens the cell when the time runs out, so the harm is bounded by the sentence. Medium stands. Effort medium holds for the window-only way in step 4.
+
+Searched `LLM_CREW_CHANGELOG.md` for "pardon": the security entry (lines near 596) describes the officer doing it and lists no fallback; nothing later changes `strike`. Not run: read from the code only.

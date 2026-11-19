@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:244, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:951, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1093, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:740
 fix: In handBack keep a warrant whose arrest is under way as well as one whose person is held, and in beatAfterActing take back a warrant the desk still lists when an arrest comes back with the cuffs on
@@ -23,7 +24,7 @@ What then happens:
 1. The serve task is finished (`syncBeat` closes a serve task whose warrant is gone). Nothing calls the errand off on the server, and it runs on (SEC-03). The cuffs go on, `hold_arrested` takes them by the arm, and the answer is `ok` with `cuffed: true`.
 2. `beatAfterActing` finds no warrant for the task and returns at `if (!warrant) return;`. No "cuffed" outcome, no `cuffedByMe`.
 3. The Head of Security now has someone cuffed by the arm, on no warrant in its own hands. `syncBeat` returns FALSE (no warrants, nothing to free, no kit wanted since `kitToo` is FALSE for it, not getting away while it holds someone), so its `OFFICE` task opens and it walks back to its office with the prisoner in tow, and stays there.
-4. The desk has given the warrant to the officer (`given === 'no'`, then the give task). The officer finds them in cuffs it did not put on, and `serveStep` says "in cuffs already. Someone else from security has made the arrest, and you are leaving them to it."
+4. The desk does not give the warrant to the officer: while it served the warrant itself, `syncDesk` marked it `given: 'taken'`, and nothing sets it back to `'no'` (SECT-11). An officer that was out hurt still holds its own copy from before (TRB-03); one that has just come aboard holds none. If the officer does hold one and finds them, it finds them in cuffs it did not put on, and `serveStep` says "in cuffs already. Someone else from security has made the arrest, and you are leaving them to it."
 5. Nobody puts them in a cell. The list goes on reading them as wanted.
 
 When `serving()` turns from null to the officer:

@@ -4,9 +4,10 @@ title: Told to let go of someone by a short name, security frees whoever it has 
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1264, code/modules/llm_crew/crew_npc_security.dm:1285, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:924
 fix: Match names in tool_free and set_free word by word, as sameName does in the window, not with findtext
@@ -62,3 +63,15 @@ Read from the code on both sides. Not seen in a round. Marked `likely` because i
 - A DM unit check, or a line in the next round: `is_named` of "Jordan Smith" with "dan" is FALSE, with "jordan" TRUE.
 - `tools/llm_crew/security.ts`: nothing changes in the window for step 1.
 - In the next round, grep `game.log` for `let ... go at` and check the name is the one in the pardon in `pda.log`.
+
+## Check
+
+Checked by Opus 5.5, from the code; nothing run.
+
+- The quotes are what the code says today: `is_named` at `crew_npc_security.dm:1264` is `!!findtext(LOWER_TEXT(person.name), wanted)`; `tool_free` checks `held` first at 1285; the `jailed` matches at 1296 and 1312 and the cell match in `set_free` at 1329 use `findtext` / `is_named` too.
+- How a short name gets there. The desk's `strike` (`jobs/desk.ts:258`) sends on `who = warrant?.name ?? held ?? name`, so a pardon of "Dan" against a warrant on "Dan Reyes" goes out as the full name, and is fine. The short name reaches the officer only when the warrant itself stands under it; TRUST-06 (`readWarrant` keeps a first name two people share, and a surname, as said) shows that it can. `LET_GO_WORDS` in `officer.ts:357` passes it to `dropWarrant`, which pushes `toFree` with that name (`arrests.ts:199`), and `freeStep` sends it as it is.
+- The free task goes out while it holds someone: `keep(brain, FREE, true, 'emergency', ...)` (`arrests.ts:466`), and `freeStep` has no check for a prisoner in hand. The serve task for the one in hand is `ready: false` while `noCellAt` is fresh or every cell has refused (`arrests.ts:671`, `684`), so the free step is the emergency that runs. On the server, `findtext("jordan smith", "dan")` is true and `held` is let go and uncuffed.
+- What follows, to add to the write-up: the window then drops every `beat.jailed` name `sameName` to "Dan" (`arrests.ts:1223`), so it forgets Dan Reyes is in Cell 1, and reports Dan freed. Jordan's warrant still stands, so the officer goes after Jordan again; the lasting harm is that Dan sits out the whole term after a pardon and the Head of Security is told he is out.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions `is_named` or this match.
+- Severity kept at medium: the wrong person is acted on, but it needs a short-name warrant and a full brig at once. Confidence raised to sure: the chain is certain once those hold.
+- On the fix: step 1 alone closes it. In DM, split with `splittext(LOWER_TEXT(name), regex("\[^a-z0-9\]+"))` and test that every word of `wanted` is in the person's list. Keep the window's one-word form too ("punpun" for "Pun Pun", `sameName` in `jobs/security.ts:72`), or a free sent as written in the warrant could stop matching. Use the one helper in every place it matches a name (1264, 1285, 1296, 1300, 1308, 1312, 1329). Step 2 needs a window change as well (a `who` answer with names, and the free task not counting it as a try); it can wait.

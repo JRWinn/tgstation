@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:878, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:900, code/modules/llm_crew/crew_npc_tools.dm:231, code/modules/llm_crew/crew_npc_places.dm:32
-fix: After the first look from the arrival spot, walk to the middle of the room and then to its far end before the room is counted as looked in
+fix: After the first look from the arrival spot, walk to the middle of the room (go_to with middle, which exists) and look again before the room is counted as looked in, with a far-end leg later if the middle is not enough
 ---
 
 ## What is wrong
@@ -77,11 +78,21 @@ Read from the code. Not seen as such in a round: in `data/logs/2026/11/19/round-
 
 1. Give the look two or three legs. Keep on the warrant a `lookLeg` (0, 1, 2) set to 0 when a new sighting comes in. Leg 0 is what happens now: stand `LOOK_DS` where it arrived. Leg 1: `go_to(place, middle: true)`, which already exists (`tool_go_to` with `middle`, using `middle_of`), then look for a few seconds. Leg 2: a walk to the far side of the room from where it came in. Only after the last leg is `lookedAt` set.
 2. The far side needs the server. Add an argument to `tool_go_to`, say `far`, that picks a safe, clear square of the room (as `middle_of` does) at the greatest distance from the body's square. It must be one the body can walk to: test it with `get_path_to` as `tool_go_to_door` does, and fall back to the middle.
-3. In a hallway, use the same legs, so a loop hallway is walked rather than glanced into. A shorter wait at each stop (5 seconds) keeps the whole round no longer than it is now.
-4. `dropsWalk: true` is already set on the step taken when the person comes into sight, so a leg is broken off the moment they are seen. Check that the `go_to` legs carry `dropsWalk: true` as well, so `orderToDrop` in `driver.ts` breaks them off (the arrest step is what replaces them).
+3. In a hallway, use the same legs, so a loop hallway is walked rather than glanced into. A shorter wait at each stop (5 seconds) keeps the whole round no longer than it is now. `middle_of` (crew_npc_cargo.dm:245) takes the average of the room's squares and the nearest clear square to it: for a ring hallway round the bridge that is just some point on the ring, so for hallways the far leg (step 2) or spots spread along it are what help, not the middle.
+4. `dropsWalk: true` is already set on the step taken when the person comes into sight, so a leg is broken off the moment they are seen. It belongs on that step, not on the `go_to` legs: `orderToDrop` in `driver.ts` (about line 644) breaks off a `go_to` when the *new* step has `dropsWalk`. Nothing to add to the legs.
+4a. Time each leg from its own arrival, kept on the warrant (`lookLegAt`). `brain.inPlaceSince` is set only when `location` changes (brain.ts:415), so a walk from the door to the middle of the same room does not reset it, and the second look would be over before it began.
 5. From ARR-16: the server tool could instead be one `go_to` with a `spot` argument (`near`, `middle`, `far`), or a `search_room` walk that visits three or four spots spread through the room. Either way the body walks, and nothing is seen that it does not walk within sight of. Keep the leg count on the warrant and number each walk (`attempt`) so the driver does not hold a repeated `go_to` back. Rooms smaller than the body can see from one spot need none of this: the server can say how big a room is, and the window can skip the extra legs. Build it once for security and the janitor (DESK-08) with the same tool.
 6. For the owner, if wanted: whether the officer should also look into the rooms that open off the room of the sighting (KNA-07's fix 1) belongs with this.
 
 ## How to test the fix
 
 Simulator: the stand-in station is small, so add a scenario (a long hallway as well as a wide room) where the sighting room is wider than 7 tiles and the suspect is at its far end; the officer must arrest within one sighting. Tables: a case in `tools/llm_crew/security.ts` that walks `serveStep` through the legs with nobody in sight and checks the acts are `go_to`, `go_to` middle, `go_to` far, and only then the hallways. Next round, `game.log`: the officer's walks after "was seen in" should show two or three walks inside the one room.
+
+## Check
+
+Checked by Opus 5.5, read from the code.
+
+- The quotes hold: `serveStep`'s sighting branch and the 20-second stand (arrests.ts:860 to 886, `LOOK_DS = 200` at :87), the hallway stand (arrests.ts:900, `HALLWAY_DS = 100`), `tool_go_to` going to `place_spot` (crew_npc_tools.dm:231), and `place_spot` (crew_npc_places.dm:32): the spot noted on first entry (`visited_places`, set once at crew_npc_cargo.dm:300) or `safe_spot_in`, which samples up to 40 squares of the room and keeps the one nearest the body (crew_npc_tools.dm:370). Vision is 7 tiles (`CREW_NPC_VISION_RANGE`, _defines.dm:2).
+- Nothing else moves the body in the room while it looks: the step is a `wait`, and `lookedAt` is set after it, so the same sighting is not looked at again (`warrant.lookedAt < sighting.at`, arrests.ts:863). The change log lists it as known and not fixed (14:15 entry, "In a wide room the officer may look for twenty seconds and not see them"); no later entry changes it. ARR-16 is already marked a duplicate of this file.
+- Not checked: the width of MetaStation's Bar Lounge on the map. The fault does not hang on that number: any room more than about 7 tiles deep from the door hides its far end.
+- Fix corrected: step 4 had `dropsWalk` on the wrong step (the replacing step carries it, and already does); added that `inPlaceSince` does not reset inside a room, so each leg needs its own clock; and that the middle of a ring hallway is no help. Effort: the middle leg alone is window only and medium. Adding a `far` spot needs server code as well, which by FORMAT.md is large; do the middle first.

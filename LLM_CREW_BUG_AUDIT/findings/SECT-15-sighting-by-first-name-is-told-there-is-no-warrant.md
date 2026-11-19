@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:599, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:610, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:227
 fix: Find the wanted name in a sighting the way a pardon finds it, with closeIn and a first name that only one wanted person has, before saying there is no warrant

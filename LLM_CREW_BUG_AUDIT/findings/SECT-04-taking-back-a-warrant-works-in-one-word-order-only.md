@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:779, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:832, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:611, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:359
-fix: Read cancel words on either side of warrant and with their endings, give the LLM reader a withdraw kind, and put the take-back wording in the not-followed line
+fix: Also read a warrant said to be withdrawn or cancelled after the word warrant, give the LLM reader a withdraw kind, and put the take-back wording in the not-followed line
 ---
 
 ## What is wrong
@@ -22,7 +23,7 @@ fix: Read cancel words on either side of warrant and with their endings, give th
 
 The LLM reader can only answer `warrant`, `pardon` or `neither` (`buildReading`). There is no "take back". So the best a model can do with a head's "call off the arrest of Pun Pun" is "pardon", and the head is told "Walker, a pardon is the Captain's to give." That is wrong: a head may take back its own warrant. If the model answers "neither", the head is told "I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name." A head cannot pardon, and the line never says how to take a warrant back, so the head is given no wording that would work.
 
-A head that declared a warrant by mistake has no way to find the words that undo it. The person stays wanted, and is arrested.
+A head that declared a warrant by mistake is never told the words that undo it. Unless it happens to write "Cancel (or withdraw, or drop) the warrant on ...", the person stays wanted, and is arrested.
 
 ## Where
 
@@ -51,12 +52,17 @@ A bun script in the system temp folder (fixtures from `tools/llm_crew/fixtures`)
 
 ## How to fix it
 
-1. Widen `CANCEL_WORDS` to take the verb on either side of "warrant" or "arrest", with its endings: `\b(?:cancel(?:led|ed)?|withdraw(?:n)?|drop(?:ped)?|call(?:ed)? off|take(?:n)? back|forget|scrap|never mind|lift(?:ed)?|void)\b` and `\b(?:warrant|arrest)\b` in either order.
-2. Add `withdrawn` and `cancelled` to the words `mendWords` leaves alone (or test `CANCEL_WORDS` on the text before mending), so the ending is not cut off.
-3. Give `buildReading` a fourth kind, `"withdraw"`: "Does it take back a warrant, or call off an arrest, that was asked for before?" Have `readingAsOrder` write it as "Cancel the warrant on <name>." so `deskTakes` takes it through the path that already works.
-4. Change `notFollowedLine` to add, for a head: "To take one back: Cancel the warrant on a name." Keep the line under 200 characters; it is about 170 with the extra sentence, so check it.
-5. Check this before the warrant reading in `deskTakes`, as now, so "warrant on X is withdrawn" never reaches `readWarrant`.
+1. Keep `CANCEL_WORDS` as it is for the verb before "warrant", and add to it, by `|`, a tight form for the verb after the noun: `\b(?:warrant|arrest)\b.*\b(?:is|be|was|been|are)\s+(?:cancel(?:l?ed)?|withdrawn?|dropped|lifted|called\s+off|void(?:ed)?|off)\b`. Before the noun, take the endings as well: `cancel(?:l?ed)?`, `call(?:ed)?\s+off`, and "arrest" beside "warrant" as the noun. Take "forget" only at the start of the message (`^\W*forget\s+(?:about\s+)?the\s+(?:warrant|arrest)\b`). Do not add bare "forget", "drop(ped)" or "never mind" anywhere in the line: "Don't forget the warrant on Pun Pun" or "he dropped a wrench, warrant for Pun Pun" would then take a warrant back. The test stays where it is in `deskTakes`, on the mended `text`, before `readWarrant`.
+2. No change to `mendWords` is needed: it already turns "withdrawn" into "withdraw", which the new form takes, and it leaves "cancelled" alone (three letters longer than "cancel").
+3. Give the LLM reader a fourth kind, `withdraw`: in `Reading`, in the schema's `enum` in `buildReading`, in the question ("Does it take back a warrant, or call off an arrest, asked for before (\"withdraw\")?"), and in `readReading`, which today returns null for anything but `warrant` and `pardon` (`security.ts:871`). Have `readingAsOrder` write it as `Cancel the warrant on <name>.` so that `deskTakes` takes it through the path that already works, with its checks of who may take back what.
+4. Change `notFollowedLine` to add "To take one back: Cancel the warrant on a name." It is 117 characters now and about 165 with this.
 
 ## How to test the fix
 
 In `tools/llm_crew/security.ts`, after a head declares a warrant on Pun Pun, each of "The warrant on Pun Pun is withdrawn.", "Pun Pun's warrant is cancelled", "Forget the warrant on Pun Pun" and "Call off the arrest of Pun Pun" leaves no warrant and answers "the warrant on Pun Pun is withdrawn". `deskRead` with `{ kind: 'withdraw', name: 'Pun Pun' }` does the same. `notFollowedLine('Walker').length <= 200`.
+
+Also check that "Don't forget the warrant on Pun Pun" and "Warrant for Pun Pun, he dropped the crate" still declare nothing new and take nothing back.
+
+## Check
+
+Read `CANCEL_WORDS` (`security.ts:779`), `mendWords` (178), `readWarrant` (302), `buildReading`, `readReading` and `readingAsOrder` (832 to 896), `notFollowedLine` (611), and `deskTakes`, `deskNotFollowed`, `deskUnread` and `deskRead` in `desk.ts` (313 to 705). The quotes match the code. A bun script in the scratchpad ran the mended text of each line through `CANCEL_WORDS` and `readWarrant` with Pun Pun known: "The warrant on Pun Pun is withdrawn." mends to "... is withdraw." and gives no cancel and a warrant on Pun Pun (reason "is withdraw"); "Forget the warrant on Pun Pun" gives no cancel and a warrant; "Pun Pun's warrant is cancelled" and "Call off the arrest of Pun Pun" give neither, so they go to the LLM reader. With nobody known, the first gives a warrant on "Pun Pun is withdraw", and `sameName` with "Pun Pun" is false, so a second warrant is put on that name. A head's "Pardon Pun Pun." from the reader gets `REFUSALS.notPardoner` ("a pardon is the Captain's to give"). Nothing in the change log or `LLM_CREW_PLAN_SECURITY.md` (line 328 gives only "Cancel the warrant on Pun Pun.") says the other wordings were left out on purpose. Confirmed. The proposed regex was too loose ("forget", "drop" and "never mind" anywhere, either side of the noun) and step 2 was not needed, so both were mended; `readReading` and the schema were added to step 3, without which a `withdraw` answer is thrown away.

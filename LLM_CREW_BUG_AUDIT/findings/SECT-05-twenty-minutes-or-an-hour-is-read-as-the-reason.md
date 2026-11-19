@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:274, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:291, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:407
 fix: Read the tens as words and half an hour or an hour as 30 and 60, then cap at the most a cell allows as digits are capped now
@@ -18,7 +19,7 @@ The minutes on a warrant are read by `MINUTES_SAID`, which knows digits and the 
 
 Concrete case. The Captain sends "Warrant for Pun Pun, twenty minutes". `readWarrant` gives name "Pun Pun", reason "twenty minutes", minutes null. The desk gives it `MINUTES_USUAL`, 5. The Captain is told "Captain, I have that: a warrant for Pun Pun, for twenty minutes. 5 minutes." Every head is sent "Wanted: Pun Pun, for twenty minutes", and the officer is told "warrant: Pun Pun, for twenty minutes. Bring them in, 5 minutes." "Warrant for Pun Pun for half an hour" and "... for an hour" go the same way, with reasons "half an hour" and "an hour".
 
-`readTerm`, the time said after the warrant ("Keep him in for twenty minutes"), uses the same pattern and so reads nothing at all: the message falls through to the LLM reader, which has no way to change a time either (`readingAsOrder` writes a fresh "Warrant for ..." and the desk answers "there is already a warrant").
+`readTerm`, the time said after the warrant ("Keep him in for twenty minutes"), uses the same pattern and so reads nothing at all: the message falls through to the LLM reader. Whether that saves it is up to the model. If it answers kind warrant with the wanted person's name and 20 minutes, `readReading` cuts the 20 to 15, `readingAsOrder` writes "Warrant for Pun Pun, 15 minutes.", and `deskTakes` sets the time on the standing warrant ("Declared again with a time on it", `desk.ts:515`), saying "15 minutes" with no word that 20 was asked. If it answers name "him", `readWarrant` finds no name and `readTerm` reads "Warrant for him, 15 minutes." the same way. If it gives no name, `readReading` returns null and the head is told "I did not follow that". Code alone never reads it.
 
 Digits past fifteen are cut to fifteen, and KNA-14 covers the first answer not saying so. This is the case where the time is lost altogether and turns up as the reason.
 
@@ -60,7 +61,7 @@ Not seen in a round.
 ## How to fix it
 
 1. In `security.ts`, add a small `minutesIn(text)` that returns the number of minutes said, or null. It reads digits as now; the words one to nineteen; twenty, thirty, forty, fifty, sixty, with an optional "-one" to "-nine" or " one" to " nine"; "a quarter of an hour" and "quarter hour" as 15; "half an hour" and "half hour" as 30; "an hour", "one hour", "1 hour" as 60; "N hours" as N times 60. It also returns the matched span.
-2. Use it in `readWarrant` and `readTerm` in place of `MINUTES_SAID`, and cut the matched span out of the reason the same way the digits are cut now (`security.ts:384`).
+2. Use it in `readWarrant` and `readTerm` in place of `MINUTES_SAID`, and cut the matched span out of the reason the same way the digits are cut now (`security.ts:384`). The name is cut by its own copy of the pattern (`security.ts:349`, "\s+(?:\d{1,2}|one|...|fifteen)\s*min"): build that from the same words too, or "Warrant for Dana Reyes twenty minutes", with no comma and a name the desk does not know, is a warrant on "Dana Reyes twenty minutes". Best is one list of time words that all three places use.
 3. Keep the cap at `MINUTES_MOST`, and keep the asked number beside it so that the answer can say the cell timer allows less (the fix for KNA-14 needs that anyway).
 4. Keep `\d{1,2}` from matching inside a longer number: "120 minutes" should read as 120 (then capped), not as nothing.
 

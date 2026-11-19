@@ -4,12 +4,13 @@ title: A crew prisoner is set free the moment its cuffs come off inside the cell
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1458, code/modules/llm_crew/crew_npc_security.dm:1393, code/modules/llm_crew/crew_npc_security.dm:1189, code/modules/llm_crew/crew_npc_security.dm:1199
-fix: In custody_tick leave a crew prisoner held while the body that arrested it is next to it or the cell is being shut, or have put_in_cell call put_in_custody before it takes the cuffs off
+fix: In custody_tick count the no-cuffs no-hand grace from held_at alone, not from arrested_at, and set held_at in being_arrested's early return, so the prisoner stays held for the seconds between uncuffing and the timer
 ---
 
 ## What is wrong

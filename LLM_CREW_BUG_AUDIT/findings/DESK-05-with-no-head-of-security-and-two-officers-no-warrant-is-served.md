@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:152, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:949, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:441, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:466, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:334
-fix: With no Head of Security, have each officer keep and serve its own list (officerAboard returns null for an officer keeping the desk), or have officers read a fellow officer's give, seen and let-go lines with takeWord
+fix: With no Head of Security, have each officer keep and serve its own list (serving returns null for an officer keeping the desk, and strike and try-again use serving too), or have officers read a fellow officer's give, seen and let-go lines with takeWord
 ---
 
 ## What is wrong
@@ -85,7 +86,7 @@ Not run in the simulator and not seen in a round.
 
 Two ways. The owner should pick, since it is how two officers share work, which the plan left for later.
 
-1. Simplest, and what I would take now: with no Head of Security aboard, an officer that keeps the list serves its own warrants. In `serving`, return null when the brain itself is a Security Officer (`isOfficer(brain.job)`), so `syncDesk` takes every warrant into its own hands as it does today with one officer. Two officers then each serve what was declared to them, and neither hands anything to the other.
+1. Simplest, and what I would take now: with no Head of Security aboard, an officer that keeps the list serves its own warrants. In `serving`, return null when the brain itself is a Security Officer (`isOfficer(brain.job)`), so `syncDesk` takes every warrant into its own hands as it does today with one officer. Two officers then each serve what was declared to them, and neither hands anything to the other. Two more places call `officerAboard` directly and would still talk to the other officer: `strike` (desk.ts:276, the let-go line, sent when `warrant.given !== 'no'`, which is every warrant once it serves them itself) and the "try again" branch (desk.ts:444). Make both use `serving(brain)` too, or the other officer is sent let-go and try-again lines it drops. The Head of Security is not an officer by `isOfficer` (security.ts:35), so its path is not touched.
 2. Fuller: let an officer read a fellow officer's `giveLine`, `seenLine` and `letGoLine` by calling `takeWord` when the sender is an officer and no Head of Security is aboard, and send the outcome back to the officer that gave it. This needs one officer chosen to keep the list (for example the first by name), or both lists drift apart.
 
 Either way, keep the Head of Security's path as it is.
@@ -95,3 +96,13 @@ Either way, keep the Head of Security's path as it is.
 - Add a case to `tools/llm_crew/security.ts`: two officers, no Head of Security on the PDA list, the Captain declares a warrant to one. After one `syncDesk`, that officer (fix 1) or the other (fix 2) has the warrant in its own beat.
 - Type check from `tgui/`.
 - In a round with two officers and no Head of Security, grep `game.log` for the officer's arrest steps on the declared name.
+
+## Check
+
+Checked by Opus 5.5, read from the code; the finder's bun script was not run again.
+
+- The quotes are what the code says today: `officerAboard` and `serving` (desk.ts:152 to 165), `syncDesk` handing back and opening a GIVE task when `serving` names someone (desk.ts:949 to 1000), `readsMessage` and `overhears` (officer.ts:436 to 470), and `deskTakes` for security senders (desk.ts:333 to 351).
+- Traced Dana's side: the sender's job is "Security Officer", so `isHeadOfSecurity` fails and `takeWord` is not called; `headAboard` is null, so `deskTakes`. In `deskTakes`, `isSecurity` is true, the give line has no "I have the warrant" words and `readOutcome` finds nothing, so it returns FALSE. `deskUnread` returns at once for a sender who is not a head or is security (desk.ts:668). Dana's own `syncDesk` names Hale as its officer and hands back too. Nothing else puts the warrant on either beat.
+- No guard against it: neither the change log nor the plans speak of two officers with no Head of Security, other than LLM_CREW_PLAN_SECURITY.md:392 saying a second officer is a later stage.
+- How often: the standing test crew has one officer and a Head of Security (change log, "The test crew has a Head of Security and one security officer"), so it takes a second officer spawned by hand with the Head of Security gone or its PDA off the station level (`people_on_pda`, crew_npc_cargo.dm:677). Less often than most rounds, so medium is right. With a human officer instead of a second NPC, the NPC's give goes to a human who can read it, which is not this fault.
+- The fix: fix 1 works and is small, but it missed that `strike` and the "try again" branch call `officerAboard` directly; added to the fix.

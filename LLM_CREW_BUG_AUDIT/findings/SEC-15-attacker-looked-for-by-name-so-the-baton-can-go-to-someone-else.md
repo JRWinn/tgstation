@@ -2,11 +2,12 @@
 id: SEC-15
 title: Whoever attacked the officer is looked for by name and not by the handle the server gave, so with two masked Unknowns, or two of one name, the baton goes to whichever is first in view
 kind: bug
-severity: medium
+severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:975, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1268, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:503, code/modules/llm_crew/crew_npc_security.dm:1571, code/modules/llm_crew/crew_npc_senses.dm:108
 fix: Find the attacker in peopleInView by beat.attacker.handle first and by name only when no handle came, and send the stop to that handle

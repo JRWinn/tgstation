@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:359, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:141, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:149
 fix: In readWarrant, before closeName, try each leading run of the cut words against known first names and full names exactly, so the first word alone can find its one owner
@@ -80,6 +81,7 @@ Not seen in a round log. The desk reads the warrant as given (it is not null), s
 1. In `readWarrant`, in the branch for a name it does not know in full, before the `owners` test, walk the cut words from the front: for `count` from 1 up to `words.length`, take `words.slice(0, count).join(' ')` and look for exactly one known person whose first name, or whole name, equals it (case-insensitive). The longest run that finds exactly one owner wins; the rest of the words go into `after`, as the `closeName` loop already does.
 2. Keep the `closeName` loop after it for misspellings. In `closeName`, allow the first-name comparison for three-letter words with slack 0 (exact), so "bob" alone also finds Bob Hale there: change `want.length >= 4` to `want.length >= 3`. Two people with that first name still give undefined (the tie test), which is right.
 3. Add "pls", "plz", "pl0x" and "thx" to `FILLER`.
+Step 2 alone mends every case above: the `closeName` loop already counts down to the first word alone, and only the length test stops "bob" there. Step 1 then adds little; take step 2 and 3 first. Either way, a first name alone is taken for the one known person who has it, as it already is for four-letter names: "arrest joe smith" with an unknown Joe Smith and a known Joe Bloggs becomes a warrant on Joe Bloggs. That is how "dana smith" behaves today, so it is not new, but the test cases should hold one such line so the owner sees it.
 4. Leave SECT-03's fix (stop an unknown name at a word that cannot be part of one) to that finding; the two should be done together.
 
 ## How to test the fix
@@ -87,3 +89,7 @@ Not seen in a round log. The desk reads the warrant as given (it is not null), s
 - Add the lines above to the `readWarrant` cases in `tools/llm_crew/security.ts`, each wanting the known full name, with "in the bar", "he stole my id" or "theft" as the reason.
 - Keep "warrant for Bob the clown" behaving as the owner decides in SECT-03.
 - Next round, grep `pda.log` for `I have that: a warrant for` and check each name is a whole crew name.
+
+## Check
+
+Checked by Opus 5.5. The quotes match `readWarrant` and `closeName` in jobs/security.ts today. Ran a throwaway script in the scratchpad with bun, importing security.ts by absolute path, known Bob Hale, Dana Reyes, Ann Moss, Tom Reed, Eli Moor: "arrest bob pls" gave `{"name":"bob pls"}` matching nobody, "arrest bob in the bar" gave "bob in the bar", "warrant for ann - theft" gave "ann - theft", "arrest tom he stole my id" gave "tom he stole my"; "arrest bob", "arrest Bob now" (FILLER takes "now"), "warrant for Tom, theft" and "arrest dana pls" were read right. The one caller that matters, `deskTakes` (desk.ts:463), takes the name as read: `jobOf` on "bob pls" and the `sameName` lookup both find nobody, so the refusals for the Captain, a head or security are skipped, and the LLM reader is never asked because the result is not null. Nothing in LLM_CREW_CHANGELOG.md or the plans mends it (the M5 entry added FILLER and `closeName` but not for three-letter words). `strings/names/first_male.txt` and `first_female.txt` hold 40 first names of three letters, Max, Sam and Tim among them, so this will come up. Severity medium and effort small stand. Added a note that step 2 alone is enough and that a first name alone can still pick a known person when someone unknown was meant.

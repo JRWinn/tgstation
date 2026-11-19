@@ -3,10 +3,11 @@ id: CARGO-05
 title: How many crates is read only when the number stands right before the word crate, so two janitorial crates is one crate, and five is one
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1806, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1843, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:384
 fix: Read the count from any number in the same clause as the kind (digits, one to ten, a couple, x2), and cap it at the server's four instead of falling back to one
@@ -73,7 +74,7 @@ with `items.ts` (kept outside the repo) calling `itemsAskedFor(said, ['Janitoria
 
 1. In `cargo.ts`, write one helper, `countIn(part)`, and use it in both places:
    - a number word table that runs to ten at least, plus "a couple" (2), "a pair" (2), "both" (2), "a few" (3);
-   - digits anywhere in the clause that are not a crate's manifest number (not after `#`, "crate" or "number", and no more than two digits);
+   - digits anywhere in the clause that are not a crate's manifest number or an order number (not after `#`, "crate", "number" or "order", and no more than two digits). The order number matters: the Quartermaster's own fixed lines begin "order 12: I need to order a crate of ...", and that first clause is not split off (`itemsAskedFor` splits on `,;.` and "and", not on `:`), so a careless digit reader would take 12 as the count;
    - "x2", "x 2", "2x";
    - prefer a number that comes before the kind's own words or before "crate", "crates", "lots", "boxes", "sets", "of".
 2. Cap the result at 4 in the window (the server's `CREW_NPC_ORDER_MAX`) so that what is read back to whoever ordered ("Noted, order 3: 4 Janitorial Supplies Crate") is what will be placed. Today a count over four is cut by the server after the book has it written down as asked.
@@ -87,3 +88,11 @@ Owner's question: when someone asks for more than four of a kind, should the bod
 - There is no table of cases for ordering words. Add one, `tools/llm_crew/orders.ts`, in the style of `addressing.ts`, with the rows above and the ones that already work.
 - `tools/llm_crew/book.ts` must still pass: the Quartermaster's fixed line "order 3: I need to order 2 crates of janitorial supplies and a crate of replacement lights, for Hop Kins." must read as before.
 - Type check.
+
+## Check
+
+Checked by Opus 5.5. The quotes are what the code says today: `NUMBER_WORDS` and `cratesAskedFor` (`cargo.ts:1796`), and the same pattern in `itemsAskedFor` (`cargo.ts:1843`). Callers: the head at the counter (`cargo.ts:2072`), the technician reading the Quartermaster's spoken order (`cargo.ts:2145`), and `takeOrder` for a PDA order (`quartermaster.ts:384`, the Captain's or a head's own words).
+
+Ran a throwaway bun script in the scratchpad that imports `driver.ts` first (importing `jobs/cargo.ts` alone fails on a circular import, "Cannot access 'CARGO' before initialization") and then calls `itemsAskedFor` with `['Janitorial Supplies Crate', 'Replacement Lights', 'Bureaucracy Crate']`. Every row of the table printed as written, and "i need to order 2 janitorial supplies crates" printed one crate. The Quartermaster's fixed form ("order 3: i need to order 2 crates of janitorial supplies and a crate of replacement lights, for hop kins.") reads 2 and 1, so that leg is right, as the write-up says. The server caps at four (`CREW_NPC_ORDER_MAX`, `crew_npc_cargo.dm:307`). Nothing in the change log or plans names `cratesAskedFor` or this fault.
+
+Severity medium stands: the wrong number of crates comes, silently, but the order goes through. Effort raised to medium: a helper with a number table, "x2", digits with exclusions and the "each" carry, plus a new table of cases, is more than twenty lines. Added to step 1 that "order N" must be skipped as well as manifest numbers.

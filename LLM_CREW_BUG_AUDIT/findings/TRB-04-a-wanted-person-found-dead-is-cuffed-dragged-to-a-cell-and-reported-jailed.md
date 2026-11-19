@@ -3,10 +3,11 @@ id: TRB-04
 title: A wanted person found dead is told they are under arrest, cuffed, dragged to a cell and reported to the Captain as jailed, and the cell then counts as empty
 kind: bug
 severity: medium
-effort: medium
-confidence: likely
-status: found
+effort: large
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:730, code/modules/llm_crew/crew_npc_senses.dm:191, code/modules/llm_crew/crew_npc_security.dm:165, code/modules/llm_crew/crew_npc_security.dm:865
 fix: Send a dead flag with each person in view, and have serveStep report a wanted person found dead as an outcome to the desk instead of arresting them, the desk then telling the Captain and striking the warrant
@@ -52,7 +53,7 @@ A player officer would see the body is dead (examining it says so), tell their h
                 if(person.stat != DEAD)
                     inside += person
 
-`crew_npc_security.dm:887`, in `make_arrest`, the only use of "down": it chooses the cuffs alone, it does not stop.
+`crew_npc_security.dm:889`, in `make_arrest`, the only use of "down": it chooses the cuffs alone, it does not stop.
 
     if(how == CREW_ARREST_FORCE && crew_npc_person_down(person))
         if(put_cuffs_on(person, cuffs))

@@ -3,10 +3,11 @@ id: SEC-09
 title: Every way the cuffs fail is told as they would not stay still, so someone who cannot be cuffed is batoned again every half minute for good
 kind: bug
 severity: medium
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1001, code/modules/llm_crew/crew_npc_security.dm:919, code/modules/llm_crew/crew_npc_security.dm:926, code/game/objects/items/handcuffs.dm:87, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1124
 fix: Have put_cuffs_on say why it failed (cannot_cuff, no_hand, moved) and send that reason back, and have the window give up on cannot_cuff and not set force for anything but moved
@@ -16,7 +17,7 @@ fix: Have put_cuffs_on say why it failed (cannot_cuff, no_hand, moved) and send 
 
 See also: SEC-01 (the officer itself knocked down) and HAND-01 (a click lost to the click cooldown). Both are one more cause that lands in the same wrong answer described here. This finding is about the answer, and about the causes those two do not cover.
 
-`put_cuffs_on` returns only TRUE or FALSE. `make_arrest` turns every FALSE, whatever its cause, into the same answer: "You could not get the cuffs on X: they would not stay still", with reason `moved` if the person is in sight. The window takes `moved` at its word (`beatAfterActing`): `warrant.force = true`, so the next go is with the baton, and a try is counted. After three tries it rests 30 seconds, tells whoever keeps the list "they will not stand still for the baton or the cuffs", resets the count, and goes again. Nothing in that loop ever ends it.
+`put_cuffs_on` returns only TRUE or FALSE. `make_arrest` turns every FALSE, whatever its cause, into the same answer: "You could not get the cuffs on X: they would not stay still", with reason `moved` if the person is in sight. The window takes `moved` at its word (`beatAfterActing`): `warrant.force = true`, so the next go is with the baton, and a try is counted. After three tries it rests 30 seconds, tells whoever keeps the list "they will not stand still for the baton or the cuffs" (the first time only: `beat.cannotTold` keeps it to once per name), resets the count, and goes again. Nothing in that loop ever ends it.
 
 `put_cuffs_on` fails for many reasons that are not the person moving:
 
@@ -30,7 +31,7 @@ One concrete case, the one that never ends:
 2. Quiet arrest. `put_cuffs_on`: `click_as_body(person, ...)` with the cuffs. `attempt_to_cuff` returns at once at `canBeHandcuffed()`. The person is on their feet, so `put_cuffs_on` returns FALSE on the first go.
 3. `make_arrest` line 926: "they would not stay still", reason `moved`. Window: `warrant.force = true`, `tries = 1`.
 4. Next go is `force`: two baton hits on someone standing still for it, then `put_cuffs_on` on someone down: refused twice. Line 919: reason `moved` again. `tries = 2`, then `3`.
-5. Rest 30 seconds, "will not stand still" to the Head of Security, `tries = 0`, and back to step 4. Each round of this costs two baton hits; the baton is flat after about ten (GAP-16), and the officer then goes to the lockers again and again for a baton that will be used up the same way.
+5. Rest 30 seconds, "will not stand still" to the Head of Security (once), `tries = 0`, and back to step 4. While they are still down from the last hits, the `force` go skips the baton and fails at the cuffs alone; once they are up, it hits them again. Each round of this costs two baton hits; the baton is flat after about ten (GAP-16), and the officer then goes to the lockers again and again for a baton that will be used up the same way.
 
 The person was batoned perhaps ten times, never moved, and the Captain was told they would not stand still.
 
@@ -104,3 +105,11 @@ Read from the code, server and window, and the base handcuffs and `canBeHandcuff
 - `tools/llm_crew/security.ts`: cases for `beatAfterActing` with each new reason: `cannot_cuff` sets no `force`, pushes one `cannot` outcome and is not tried again; `no_hand` counts no try; `moved` still sets `force`.
 - `tools/llm_crew/sim.ts`: the simulator's `arrest` handler can answer `cannot_cuff` for a named person; the scenario must end with one outcome to the Head of Security and no second baton go.
 - In a round: arrest someone with one arm removed (an admin can do it). `game.log` must show one "could not get the cuffs on" with the reason, not a run of "(force)" baton lines.
+
+## Check
+
+Checked by Opus 5.5. Read `make_arrest`, `baton_hits`, `put_cuffs_on` and `hold_arrested` (`crew_npc_security.dm` 865-1060), `draw_item` (302), `attempt_to_cuff` (`handcuffs.dm` 80-115), `canBeHandcuffed` (`human_helpers.dm:1`), and the arrest branch of `beatAfterActing` (`jobs/arrests.ts` 1092-1160). The quotes match today's code.
+
+Traced the one-armed case: `attempt_to_cuff` returns at the `canBeHandcuffed()` test before any `do_after`; `put_cuffs_on` sees no cuffs and a person on their feet and returns FALSE; `make_arrest` sends `reason = moved` at 926; the window sets `warrant.force` and counts a try. On `force` gos the baton lands, `put_cuffs_on` fails twice on someone down, and 919 sends `moved` again. At three tries the window rests `REST_DS` (30 s), resets `tries` and goes on; nothing on either side ever stops it. `draw_item` failing (`no_hand`) lands in the same answer and is never logged. One correction made: the "will not stand still" outcome is pushed once per name (`beat.cannotTold`), not every cycle. Nothing in the changelog or plans covers it.
+
+Severity kept at medium (an uncommon case, but endless baton hits on someone standing still and a false report up the line). Effort raised to large by FORMAT's rule, since the fix needs the server and the window both, though each part is small. The fix is sound and keeps the rules: testing `canBeHandcuffed()` before the click is what a player can see (how many arms someone has). Do not try to test the `COMSIG_CARBON_CUFF_ATTEMPTED` refusal by sending the signal: it has effects; the "click came back at once" test (compare `world.time` around the click against the cuffs' 4 seconds) is the right way to catch it.

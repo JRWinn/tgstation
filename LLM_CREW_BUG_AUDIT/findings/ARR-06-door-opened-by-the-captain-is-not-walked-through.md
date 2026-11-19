@@ -4,9 +4,10 @@ title: The officer asks the Captain to let it in, and when the Captain opens the
 kind: bug
 severity: medium
 effort: medium
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:583, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:603, code/modules/llm_crew/crew_npc_doors.dm:805, code/modules/llm_crew/crew_npc_doors.dm:279
 fix: Tell the brain when the door it is standing at is open, and have letInStep walk through it at once whoever opened it
