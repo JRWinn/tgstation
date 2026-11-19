@@ -289,6 +289,22 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add('ARR-13: with the arrest done and nobody held, it is handed back', A.beatOf(f.o).warrants, []);
 }
 
+// ---- KNA-32: a warrant talked about to people it meets is screened out
+{
+  const f = wanted('Bar');
+  f.o.name = 'Nova Aultman';
+  f.o.peopleInView.push({ handle: 'p3', name: 'Brick Lane', job: 'Assistant', place: 'Bar', distance: 2 });
+  add('KNA-32: a greeting naming the warrant keeps only who it is', A.warrantTalk(f.o, "Hi Brick! I'm Nova Aultman, security! Pun Pun is being a right mess, but I'll sort him out soon!", 'Brick Lane'), 'I am Nova Aultman, security.');
+  add('KNA-32: a remark naming them by first name is put plainly', A.warrantTalk(f.o, 'Busy with Pun today, sorry.', null), 'I am on security business.');
+  add('KNA-32: any other remark naming them is put plainly', A.warrantTalk(f.o, 'Pun Pun will not stand still today.', null), 'I am on security business.');
+  add('KNA-32: said to the Captain, it is said whole', A.warrantTalk(f.o, 'Pun Pun will not stand still today.', 'Zim Fire'), null);
+  add('KNA-32: said to the Head of Security, it is said whole', A.warrantTalk(f.o, 'Pun Pun will not stand still today.', 'Joan Hale'), null);
+  add('KNA-32: a line with no warrant in it is said whole', A.warrantTalk(f.o, 'Nice day for it.', 'Brick Lane'), null);
+  A.giveWarrant(f.o, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  add('KNA-32: a first name of its own is caught', A.warrantTalk(f.o, 'Have you seen Dana about?', 'Brick Lane'), 'I am on security business.');
+  add('KNA-32: a name on the list it keeps is caught too', A.warrantTalk(f.o, 'Rex Hand is trouble.', null, ['Rex Hand']), 'I am on security business.');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

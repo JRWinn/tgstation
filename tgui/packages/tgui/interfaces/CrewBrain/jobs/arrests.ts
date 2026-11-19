@@ -1552,6 +1552,54 @@ export function securityFeels(brain: NpcBrain, event: SenseEvent): void {
 }
 
 /** What the LLM should know of the warrants in its hands, so that what it says about them is true. */
+/**
+ * A line the model wrote for a security body, screened for a warrant talked about. If it names
+ * someone it has a warrant on and does not yet hold (or one of `others`, for whoever keeps the
+ * list), and it is not said to security, the Captain or a head of staff, the plain line to say in
+ * its place: said before it has a hand on them, it is a warning to run. NULL to say it as it is.
+ * Not for its own fixed lines, the arrest line among them: those are code's words.
+ */
+export function warrantTalk(
+  brain: NpcBrain,
+  text: string,
+  to: string | null,
+  others: string[] = [],
+): string | null {
+  if (to) {
+    const seen = brain.peopleInView.find((person) => person.name === to);
+    if (seen?.command || /security|warden|captain/i.test(jobOf(brain, to))) {
+      return null;
+    }
+  }
+  const names = [
+    ...beatOf(brain)
+      .warrants.filter((warrant) => !holds(brain, warrant))
+      .map((warrant) => warrant.name),
+    ...others,
+  ];
+  const lower = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  const named = names.some((name) => {
+    if (sameName(name, text)) {
+      return true;
+    }
+    // Their first name alone, when it is a name of its own and not a short word.
+    const first = name.toLowerCase().split(/[^a-z0-9]+/)[0] ?? '';
+    return (
+      name.includes(' ') &&
+      first.length >= 3 &&
+      first !== brain.name.toLowerCase().split(/[^a-z0-9]+/)[0] &&
+      lower.includes(` ${first} `)
+    );
+  });
+  if (!named) {
+    return null;
+  }
+  // A greeting keeps only who it is.
+  return sameName(brain.name, text)
+    ? `I am ${brain.name}, security.`
+    : 'I am on security business.';
+}
+
 export function beatCues(brain: NpcBrain): string[] {
   const beat = beatOf(brain);
   const security = brain.security;
