@@ -14,6 +14,8 @@ fix: Run the text through the messenger's own sanitize_pda_message before it is 
 
 ## What is wrong
 
+See also: CHEAT-14
+
 When a player sends a PDA message the game goes through `send_message`, which first calls `sanitize_pda_message`: the text is trimmed and HTML-encoded (`sanitize`). Only then is `send_message_signal` called.
 
 `tool_message` and `resend_unsent` call `send_message_signal` directly. The text they pass has had its line breaks taken out, been cut to 200 characters and been checked against the word filter. It has not been encoded. `send_message_signal` and the receiving side both take the message to be safe HTML already and paste it into chat:

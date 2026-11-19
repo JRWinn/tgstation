@@ -14,6 +14,8 @@ fix: Offer no idle explore while work is only held back, and hold back any walk 
 
 ## What is wrong
 
+See also: KNA-02
+
 When a step of its work fails, the driver leaves that step alone for a while (`fail`, 20 seconds and more each time). A clean that fails in the room of its task also holds back the whole job (`jobKey`), "so that it did not go back and forth between two rooms". But two things undo that:
 
 1. **While anything is held back, the body is sent exploring.** With nothing in `ready`, `nextStep` falls to passing the time, and the idle step is `explore` (or `search` if there is storage in view), with the words "What you last tried for your work came to nothing, so you are leaving it a little while before you try again. Meanwhile you are walking the station". `explore` walks to the nearest room the body has not been in, which may be anywhere.

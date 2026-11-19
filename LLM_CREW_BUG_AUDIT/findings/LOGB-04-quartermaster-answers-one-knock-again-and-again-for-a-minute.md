@@ -14,6 +14,8 @@ fix: Clear brain.knockAt in syncTasks as soon as the Quartermaster is out of its
 
 ## What is wrong
 
+See also: LOGA-04
+
 This is the change log's "The Quartermaster answered one knock five times (23:14:00 to 23:14:38), walking out and back each time", left alone in the 16:50 entry with no cause. It is in five of the afternoon's rounds.
 
 A technician with word for the Quartermaster knocks at its office door. The knock is kept as `brain.knockAt` for a minute (`KNOCK_STANDS_DS`). While it is fresh and the Quartermaster is in its office, `syncTasks` adds a `qm_knock` task, whose step is `go_to` the Cargo Bay. The knock is meant to be cleared in `afterActing`, when that walk's result comes back:

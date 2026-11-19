@@ -15,6 +15,8 @@ fix: Before sending, require what the PDA's screen requires - switched on by tur
 
 ## What is wrong
 
+See also: SUP-08
+
 `tool_message` finds the messenger program on a PDA the body carries (`pda_messenger()`, which only looks for the program in `stored_files`) and calls `own_messenger.send_message_signal(body, text, list(target))`. That proc is the network half of sending. The half a player goes through first is the PDA's screen, and none of it is asked:
 
 - The PDA has to be on. `interact` turns it on with `turn_on(user)`, which refuses a PDA that is broken (`atom_integrity <= integrity_failure * max_integrity`, "fails to boot up") and one with no power (`use_energy`), and once on it draws power from its cell for as long as it runs.

@@ -14,6 +14,8 @@ fix: Set suppliesSentAt in the janitor's readsMessage only when the message has 
 
 ## What is wrong
 
+See also: PARSE-01
+
 The janitor's `readsMessage` reads a PDA message as a mess call, as word about a door, or as word that a mess is beyond another janitor. Anything else falls to the last three lines, which take it to mean "what you asked for has come", whoever sent it and whatever it says:
 
 - `suppliesSentAt` is set, so for ten minutes (`SUPPLIES_WAIT_DS = 6000`) `suppliesWaiting` is TRUE.

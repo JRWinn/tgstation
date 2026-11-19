@@ -14,6 +14,8 @@ fix: Have every body notice when its card, PDA or bag leaves it for someone else
 
 ## What is wrong
 
+See also: CORE-09
+
 A player can open any crew member's strip menu and take its ID card, its PDA or its bag. It takes a few seconds, during which the victim is shown "X is trying to remove your ID". A player would step away, shout, or hit back. A crew body does none of that, because nothing on the server tells it: the one listener for things leaving the body, `on_kit_gone`, is registered only for security staff, and only reports a baton or cuffs.
 
 What follows:

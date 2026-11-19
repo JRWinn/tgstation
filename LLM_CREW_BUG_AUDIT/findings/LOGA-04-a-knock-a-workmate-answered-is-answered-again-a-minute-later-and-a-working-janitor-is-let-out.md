@@ -14,6 +14,8 @@ fix: In doorSought take a knock from inside only if it came after the knocker wa
 
 ## What is wrong
 
+See also: LOGB-04
+
 Every technician who hears a knock on a door of the department keeps it in its own `brain.knockAt`, for `DOOR_ASK_DS` (60 seconds). It is cleared only when **that** technician's own door task for the room ends (`cargo.ts:1970`). When the other technician answers the knock, this one's copy stays live.
 
 A knock from inside names no one. `doorSought` takes it to be whoever the department has down as being inside that room (`stillInside`, the list both technicians share). So if the knocker is let out by one technician and let back in by the same or the other within that minute, the other technician reads the old knock as the janitor knocking again, walks to a door and holds it open "to let them out". The janitor, by its own rule, goes out through a door held open for it to leave (`The door is being held open to let you out of ...`), whatever it was doing. If it was scrubbing, the scrub is cut short and the mess is written off as beyond it (JAN-01, LIFE-02).

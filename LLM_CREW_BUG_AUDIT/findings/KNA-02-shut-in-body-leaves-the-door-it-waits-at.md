@@ -14,6 +14,8 @@ fix: While shut in with no open door in view, offer only steps that keep the bod
 
 ## What is wrong
 
+See also: DRV-12
+
 A body that is shut in a locked room goes to the door, knocks, and sends word to whoever let it in. Then it has a minute to wait before it writes to the next person (`NOBODY_CAME_MS`). During that minute nothing in `nextStep` holds it at the door. It falls through to its ordinary work and then to passing the time:
 
 - with storage in the room it is told to `search`, and walks away from the door to the lockers;

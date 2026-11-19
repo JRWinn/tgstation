@@ -14,6 +14,8 @@ fix: Read the body's own job from the card it wears first (get_idcard with hand_
 
 ## What is wrong
 
+See also: TRUST-10
+
 See also: HOLE-01, which is about how the crew read other people's cards. This is about how a body reads its own.
 
 A body's own job is read in two places, and both put a card held in the hand before the card worn on the body:

@@ -15,6 +15,8 @@ fix: Add the verbs of asking for cleaning (clean, mop, wipe, scrub, tidy, sweep)
 
 ## What is wrong
 
+See also: DESK-01
+
 `MESS_WORDS` is the only thing the janitor's code goes by to tell that a line or a PDA message is a call to a mess. It holds nouns and a few fixed forms, matched as whole words:
 
     /\b(mess|messy|blood|bloody|vomit|threw up|thrown up|puke|spill|spilled|spilt|oil|dirt|dirty|filth|filthy|stain|grime|ash|ashes)\b/
