@@ -53,6 +53,22 @@ add('in the bay: "let me into the Mining Office" wants in, further in', aloud(in
 add('in the bay: "I\'m already at the door; step aside" is no ask', aloud(inBay, "I'm already at the door; step aside"), []);
 add('the crew\'s own line, "I am done in the Cargo Bay ... let me out", by PDA', byPda('I am done in the Cargo Bay. Could you let me out, please?'), [true]);
 
+// LOGA-04: a knock from inside is pinned only on someone let in before it.
+{
+  const { noteLetIn, clearExpected } = await import(ROOT + 'expected');
+  const knocked = (letInAt: number) => {
+    clearExpected();
+    const b = tech(inBay);
+    b.knockAt = { room: 'Cargo Bay', at: b.now - 100, inside: true };
+    noteLetIn('Cargo Bay', JAN.name, 'Cargo Bay', 'Maria Williams', b.now + letInAt);
+    CARGO.syncTasks(b);
+    return b.tasks.filter((t: any) => t.kind === 'door' && t.state !== 'done').map((t: any) => t.item);
+  };
+  add('Jan let in before the knock, knocking from inside: the door is opened for Jan', knocked(-200), [JAN.name]);
+  add('Jan let out and let back in since the knock: the old knock is not Jan\'s', knocked(-50), []);
+  clearExpected();
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

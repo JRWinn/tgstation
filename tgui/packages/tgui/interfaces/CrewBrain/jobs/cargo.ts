@@ -1700,9 +1700,17 @@ function doorSought(brain: NpcBrain): DoorWant | null {
     if (knock.inside) {
       // From inside: someone it let in there. Failing that, in its post, which it can see into,
       // whoever is in there who does not work there.
-      const letIn = stillInside(post, knock.room, brain.now)[0];
+      // Only someone let in before the knock can have knocked: one let out and let back in since
+      // is not knocking again, and a stale knock let a janitor out mid-scrub (LOGA-04).
+      const inThere = stillInside(post, knock.room, brain.now);
+      const letIn = inThere.find((entry) => entry.at < knock.at);
+      const lateIn = inThere
+        .filter((entry) => entry.at >= knock.at)
+        .map((entry) => entry.name);
       const seen = brain.peopleInView.find(
-        (person) => seenInside(brain, person) === knock.room,
+        (person) =>
+          seenInside(brain, person) === knock.room &&
+          !lateIn.includes(person.name),
       );
       const inside = letIn ?? seen;
       if (inside && mine(letIn?.by)) {
@@ -1712,7 +1720,13 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       // is locked. Whoever it is cannot get out, and that is reason enough to go and open it:
       // the body finds who is standing at the door. A janitor that had walked back into a room
       // it had been let out of knocked, and was left there, because the record said it was out.
-      if (!inside && brain.closedRooms.includes(knock.room) && mine(undefined)) {
+      // Not a knock older than someone let in since: that knock was answered (LOGA-04).
+      if (
+        !inside &&
+        lateIn.length === 0 &&
+        brain.closedRooms.includes(knock.room) &&
+        mine(undefined)
+      ) {
         return { name: SOMEONE_INSIDE, room: knock.room, out: true };
       }
     } else {
