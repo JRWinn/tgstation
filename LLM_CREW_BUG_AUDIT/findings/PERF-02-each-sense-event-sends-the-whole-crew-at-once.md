@@ -2,11 +2,12 @@
 id: PERF-02
 title: Each sense event sends the whole crew's state at once, one update per event even when many come in one tick, about 150 KB each at 11 crew and 600 KB at 40, 90 percent of it old events
 kind: bug
-severity: high
+severity: medium
 effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_brain_link.dm:55, code/modules/llm_crew/crew_brain_link.dm:201, code/modules/llm_crew/crew_npc_senses.dm:98, code/controllers/subsystem/tgui.dm:226, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:565
 fix: Let on_sense_event ask for one update at the end of the tick instead of one at once, and send each body's events newer than its acked_seq only
@@ -76,7 +77,7 @@ Read from the code; the counts from `href.log` of `round-20.43.32` (`grep -c "Ac
 ## How to fix it
 
 1. **One update a tick.** In `/datum/crew_brain_link`, add `var/update_due = FALSE`. In `on_sense_event`, do nothing if `update_due`; otherwise set it and `addtimer(CALLBACK(src, PROC_REF(send_due_update)), 1)`. `send_due_update` clears the flag and calls `SStgui.update_uis(src)`. Seven hearers of one line, or ten bodies seeing the Captain walk in, then cost one rebuild. The delay is a tenth of a second, which nothing in the window is timed that finely against.
-2. **Only the new events.** In `ui_data`, send `npc.sense_events` from the first one whose `seq` is greater than `npc.acked_seq`. The window must not lose events it has not acked: it acks only after taking them in, so anything not acked is still sent. One thing reads other bodies' old events: `nearestToSpeaker` in `brain.ts` looks for the same line among the other bodies' `events`. Give it its own short list instead: in `ingest`, keep a module-level list of `{speaker, message, at, npc, distance}` for lines heard in the last `SAME_LINE_DS`, filled as events are read, and search that. Check ASYNC-01, which is about the same function, before changing it. The other reader is the details panel: `Details.tsx:50` lists `npc.events` newest first as the body's recent senses. Keep the last 30 events on the brain in `ingest` (`brain.recentEvents`, pushed as each new one is read, trimmed to 30) and have `NpcDetails` show that instead, or the panel would show only the one or two newest.
+2. **Only the new events.** In `ui_data`, send `npc.sense_events` from the first one whose `seq` is greater than `npc.acked_seq`. The window must not lose events it has not acked: it acks only after taking them in, so anything not acked is still sent. One thing reads other bodies' old events: `nearestToSpeaker` in `brain.ts` looks for the same line among the other bodies' `events`. Give it its own short list instead: keep a module-level list of `{speaker, message, at, npc, distance}` for lines heard in the last `SAME_LINE_DS`, and search that. Fill it in a pass over every body's new events in the payload **before** any body's events are read, not as each body is read: `ingest` takes the bodies one after another, and the first would otherwise look before the others' lines are in the list. With step 1 all the hearers of one line come in one payload, which is also what ASYNC-01 needs. Check ASYNC-01, which is about the same function, before changing it. The other reader is the details panel: `Details.tsx:50` lists `npc.events` newest first as the body's recent senses. Keep the last 30 events on the brain in `ingest` (`brain.recentEvents`, pushed as each new one is read, trimmed to 30) and have `NpcDetails` show that instead, or the panel would show only the one or two newest.
 3. **Do not answer an ack or a tool call with an update** (CORE-05): return FALSE for both. Every tool that does anything ends in `action_result`, which is an event and so an update by step 1.
 4. Keep the subsystem's own update every 0.9 seconds: the window learns that a body has walked into a new room, or that someone is in view, only from it, since neither is an event.
 

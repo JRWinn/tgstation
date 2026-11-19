@@ -3,10 +3,11 @@ id: LOGB-01
 title: A janitor shut in the Head of Personnel's Office stays there for the rest of the round, with the head in the room and asked twice
 kind: bug
 severity: high
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:493, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:981, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:187, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:148
 fix: Let anyone whose own ID opens the room open its door to let out someone inside who asks, not only cargo, and send a head the head form of the shut-in line even when its ID opens the door
@@ -75,7 +76,8 @@ Seen in a round log (`round-17.48.05`, `game.log` and `crew_brain.log` lines quo
 
 ## How to fix it
 
-1. Server, `tool_open_door`: drop the `works_in_cargo()` gate for letting someone out. Let any body open a door of the room it is standing in, or of a room its own ID opens (`door.allowed(body)`, which `hold_door_for` checks already), when the person is inside that room. Keep letting someone in to cargo staff and the janitor-with-a-mess rule as it is. `own_room_named` and `post_turf` are cargo's ideas; for the let-out case use the body's current area, or the area named, and the door from `room_door_for`.
+0. The quickest part, and worth doing first on its own: step 3 below. It is window only, a few lines in `nextToWrite`, and gets the word to the Captain, who can open any door.
+1. Server, `tool_open_door`: drop the `works_in_cargo()` gate for letting someone out. Mind the no-cheats rule: the door is opened by `hold_door_for`, which calls `door.open()` and turns off the auto-close by code, and is on the list of cheats to take out (`LLM_CREW_PLAN_NO_CHEATS.md`, the "Door" row). Do not hand that to every job as it is: build this on the player's way of opening (the body at the door, clicking it, or bumping it from inside) that the no-cheats plan puts in its place, or do this step after that one. Let any body open a door of the room it is standing in, or of a room its own ID opens (`door.allowed(body)`, which `hold_door_for` checks already), when the person is inside that room. Keep letting someone in to cargo staff and the janitor-with-a-mess rule as it is. `own_room_named` and `post_turf` are cargo's ideas; for the let-out case use the body's current area, or the area named, and the door from `room_door_for`.
 2. Brain: move the "let out someone inside who asks" part of cargo's door work (`mayPass`, the `DOOR` task, `doorWanted`) into a shared place every job runs, as `jobs/guarding.ts` already is for keeping a locked room. It fires on the driver's own fixed ask, said to it by name ("could you let me out", "could you open the door for me") or sent by PDA ("Could you let me out"), when the asker is in a room this body's ID opens. It needs no model. Never for someone it holds or has a warrant on.
 3. `nextToWrite`: when a keeper is also the body's own head, send that person the head form, so a head that cannot or will not open still passes the word up. Or make `SHUT_IN_WORDS` also read "I am shut in the (.+?) and am at the". The first keeps the two lines meaning what they say.
 4. The head's LLM line at step 3 is a promise code does not keep. Once step 2 exists, the promise is true; until then, add a cue for a head asked for its door: "Your body does not open doors for anyone: say so."

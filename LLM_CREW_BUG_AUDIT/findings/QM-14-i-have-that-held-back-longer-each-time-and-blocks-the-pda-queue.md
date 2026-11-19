@@ -1,15 +1,16 @@
 ---
 id: QM-14
-title: The Quartermaster's I have that to a technician is held back longer each time it is said, till the technician gives up on it, and while held back it stops every PDA message behind it
+title: The Quartermaster's I have that to a technician is held back longer each time it is said, till the technician gives up on it, and while held back it holds up every line queued behind it
 kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:444, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:719, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:931, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1517
-fix: Do not count a line said word for word as a failure, and in the toTell step take the first line that is not held back rather than giving up when the first one is
+fix: Do not count saying a toTell line as a failure (it leaves the queue when said), and in the toTell step take the first line that is not held back rather than stopping at the first one
 ---
 
 ## What is wrong

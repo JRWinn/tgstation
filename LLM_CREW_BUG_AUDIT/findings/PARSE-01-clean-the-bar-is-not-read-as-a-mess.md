@@ -5,8 +5,9 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:220, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:801, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:261
 fix: Add the verbs of asking for cleaning (clean, mop, wipe, scrub, tidy, sweep) and the past and -ing forms of the mess words to MESS_WORDS, and let a word that begins with a mess word count
@@ -92,10 +93,11 @@ So the janitor sets off for the Bar thinking its order from cargo is there (when
 
 1. In `jobs/janitor.ts`, widen `MESS_WORDS`. Keep it one regular expression, tested on lower-case text:
    - the verbs of asking: `clean|cleaning|cleaned|mop|mopping|wipe|scrub|tidy|sweep`;
-   - the forms of the nouns: let the stem match the start of a word, `\b(vomit|puk|spill|stain|blood|mess|trash|garbage|litter|glass|puddle|sticky|gross|filth|dirt|grime|ash|oil|threw up|thrown up)\w*` (this takes in vomited, vomiting, puked, spills, stains and bloodstains). Check it does not take in words that only begin the same: "ashore", "oily" is fine, "messages" is not (so keep `mess` as `mess(y|es)?\b`), "glasses", "dirtside".
+   - the forms of the nouns: let the stem match the start of a word, `\b(vomit|puk|spill|blood|trash|garbage|litter|puddle|sticky|gross|filth|dirt|grime|oil)\w*` (this takes in vomited, vomiting, puked, spills and bloodstains). Keep whole-word forms for the stems that begin other words: `mess(y|es)?\b` (not "messages"), `stain(s|ed)?\b` (not "stainless"), `ash(es)?\b` (not "ashley", "ashore"), `glass\b` (not "glasses"), `threw up|thrown up|throwing up`.
+   - The checker tried one such expression on the lines above and on "thanks", "how is it going", "what you asked for has come. it is in the cargo lobby", "you have messages", "ashley wants you", "stainless steel", "my glasses are gone", "toilet", "bring the cleaner grenade": with `stain\w*` it took "stainless steel"; with the whole-word forms above it took every call and none of the rest. Note "cleaner" must not match: keep `clean` as `clean(s|ing|ed)?\b`.
    - Leave out `water` and `wet` on their own: "wet floor" is said of what the janitor itself left.
 2. Make sure the wider list does not turn the janitor's own fixed lines into calls. The janitor's PDA reader only reads PDA messages, so check the fixed lines other crew send it by PDA: cargo's call ("mess in the X: ..." already matches), the head's "what you asked for has come" (must still not match: it has no mess word, keep it so), and `beyondRoom` (handled first). Grep `jobs/` for `message` tool texts sent to a janitor.
-3. In `workInWords`, "clean" now also matches when a head says "I cleaned the bar earlier". That costs one walk (the comment there accepts this). If the owner wants it tighter, take the verbs only at the start of the line or after "please", "can you", "go", "pls".
+3. In `workInWords`, "clean" now also matches when a head says "I cleaned the bar earlier". That costs one walk (the comment there accepts this). If the owner wants it tighter, take the verbs only at the start of the line or after "please", "can you", "go", "pls". The wider list also makes PARSE-09 ("no need to clean the bar" taken as an order) come up more often: fix the two together, or at least test that line.
 4. The fall-through to "supplies have come" is DESK-01's to fix; with both fixed, a call with no room named should be answered "Which room?" rather than dropped.
 
 ## How to test the fix
@@ -103,3 +105,15 @@ So the janitor sets off for the Bar thinking its order from cargo is there (when
 - Add a table to `tools/llm_crew/` (beside `addressing.ts`) that runs `workInWords` and the janitor's `readsMessage` over the lines above and wants `clean <room>` for each, and wants nothing for "thanks", "how is it going", "what you asked for has come and is in the Cargo Lobby".
 - Simulator (new scenario, or an addition to `dead`): a scenario where the Captain sends the janitor "clean the bar pls" by PDA with the model dead; the janitor should go to the Bar with a mess task, not a supplies trip.
 - Next round, grep `crew_brain.log` for `your PDA says what you asked for has come` and check each against `pda.log`: it should only follow the head's fixed message.
+- Note for the table: `fixtures.ts` `janitor()` builds a brain with no `stowed` list, and `readsMessage` throws on it (`scrubberToHand`, `janitor.ts:132`) once a mess word matches. Set `b.stowed = []` in the table, or in the fixture.
+
+## Check
+
+Checked by Opus 5.5. Read and run; not seen in a round.
+
+- The quotes match the code today: `MESS_WORDS` at `jobs/janitor.ts:220`, the test in `readsMessage` at line 801, the supplies fall-through at lines 881-884, `soundsLike: { [CLEAN]: MESS_WORDS }` at line 791, and the loop in `workInWords` at `tasks.ts:261`.
+- Nothing else reads these lines first. In `ingest` (`brain.ts:578-598`) a PDA message goes to `readSummons`, `readPickup` and `readWanted`, then to the job's `readsMessage`; none of the three takes a mess call. For a spoken order, `workInWords` tries `soundsLike` and then `ORDER_SOUNDS` (`jobs/orders.ts:27`, look/check/inspect words only), so "clean the bar" falls through both.
+- Ran a throwaway bun script (scratchpad `chk_parse01/t.ts`) with `tools/llm_crew/fixtures.ts`: `workInWords` with the Captain as superior gave nothing for "clean the bar", "go clean the kitchen", "mop the bar", "someone puked in the bar", "vomited in the bar", and `clean Bar` for "blood in the bar" and "the bar is a mess". The janitor's `readsMessage` (no cleaning tool) gave no clean task and `suppliesAt` Bar for "clean the bar pls" and "someone puked in the bar", and a clean task for "mess in the bar". This matches the write-up's tables.
+- Checked that the head's fixed "what you asked for has come. It is in the X." (`head.ts:1298`) has none of the proposed words, so the wider list does not turn it into a call. A second script (`chk_parse01/re.ts`) tried a widened expression; see the note under step 1.
+- Not in the change log as fixed. The owner's wish for loose wording is in `LLM_CREW_PLAN_ROUND_1428_SECURITY.md` M5 (about arrests); nothing there covers the janitor's words.
+- Severity kept high: a typed call to a janitor in the plainest words fails every time it is sent by PDA, which is how the player calls one. Effort small: one expression in one file, plus a table.

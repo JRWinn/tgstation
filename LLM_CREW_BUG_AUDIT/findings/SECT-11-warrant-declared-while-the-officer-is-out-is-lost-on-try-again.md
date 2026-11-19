@@ -2,14 +2,15 @@
 id: SECT-11
 title: A warrant declared while the officer is out hurt is marked given, so after try again the Head of Security hands it back and the officer is never told of it
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:954, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:442, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:244
-fix: When try again clears officerOut, set every warrant the officer was never given back to given no, so the give task hands it over
+fix: In syncDesk, remember who was serving last time, and when it changes from nobody to an officer set every warrant the Head of Security does not have by the arm back to given no, so the give task hands it over
 ---
 
 ## What is wrong
@@ -66,11 +67,24 @@ Not seen in a round.
 
 ## How to fix it
 
-1. Keep a mark on each desk warrant of whether the officer itself was given it: set `warrant.toOfficer = true` where it is given (`deskAfterSaying` and `deskAfterActing` on a sent `GIVE_WORDS` line), and leave it unset when `syncDesk` takes it into its own hands.
-2. In `syncDesk`, when `officer` is not null and a warrant has `given !== 'no'` but no `toOfficer`, set `given = 'no'`, `gives = 0`, `walkedUp = false`. The give task then opens and the officer is told in the usual words.
-3. Do the same when there was no officer aboard and one comes aboard later: today the same path leaves those warrants with the Head of Security, which drops them (`handBack`) the moment the new officer is seen on the PDA list.
-4. A warrant whose person the Head of Security has by the arm stays with it, as `handBack` already allows.
+The simplest fix that covers every way in is to act on the moment the server of the warrants changes, not on "try again" alone:
+
+1. Add `servedBy: string | null` to the desk (`deskOf`'s default object, next to `officerOut`).
+2. In `syncDesk`, right after `const officer = serving(brain);`: if `officer && officer !== desk.servedBy`, then for every warrant that is not for the person `brain.security?.holding` names, set `given = 'no'`, `gives = 0`, `walkedUp = false`. Then set `desk.servedBy = officer` (also when it is null). `handBack` runs just after, as now, and the give task opens for each in the same call.
+3. That covers the three cases: "try again" after a hurt officer (`officerOut` cleared, `serving` goes from null to the officer); no officer aboard and one seen later; and an officer missing from `pdaPeople` and `peopleInView` for one look and back the next, which today also turns every `'no'` and `'said'` warrant into `'taken'` and then hands them back.
+4. A warrant the officer already holds is given again. That is harmless: the officer's `giveWarrant` (`arrests.ts:132`) only puts right the time on one it has, and it says "I have that". It also keeps this fix right if TRB-03 is fixed by having the hurt officer hand its warrants back.
+5. A warrant whose person the Head of Security has by the arm stays with it, as `handBack` already allows.
+
+The first write-up's way (a `toOfficer` mark set in `deskAfterSaying`/`deskAfterActing`) also works, but needs the mark cleared on hurt and on TRB-03's hand-back, and is easier to get wrong.
 
 ## How to test the fix
 
-Add the four steps above to `tools/llm_crew/security.ts`: after "Try again." and one `syncDesk`, there is a `give_warrant` task for Dana Reyes. Add a second case: no officer on the PDA list, a warrant declared, then an officer added to `pdaPeople`; one `syncDesk` later there is a `give_warrant` task.
+Add the four steps above to `tools/llm_crew/security.ts`: after "Try again." and one `syncDesk`, there is a `give_warrant` task for Dana Reyes. Add a second case: no officer on the PDA list, a warrant declared, then an officer added to `pdaPeople`; one `syncDesk` later there is a `give_warrant` task. Keep the existing cases in `tools/llm_crew/security.ts` passing, above all the ones on the officer being hurt and on a new time for a warrant (`setTerm`). In a round: have the officer break off hurt, declare a warrant, say "Try again" to the Head of Security, and grep `pda.log` for the warrant line to the officer that follows.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. The quotes are what the code says today: `syncDesk` at `desk.ts:938-1012` (the `!officer` branch sets `given = 'taken'`, the give task needs `'no'`), the "try again" branch at `desk.ts:442` (clears `officerOut`, calls `arrestAgain`, tells the officer, nothing else), and `handBack` at `arrests.ts:244`. The hurt branch at `desk.ts:810` sets every warrant to `'no'` then, but the next `syncDesk`, with `serving()` null (`desk.ts:163`), sets them all to `'taken'`, and a warrant declared afterwards (created `given: 'no'` at `desk.ts:552`) goes the same way. The only other places that set `given` back to `'no'` are `setTerm` (a new time) and the resend after no answer, which needs `'said'`. `giveWarrant` on the Head of Security's side is called only from `desk.ts:298` and `:957`; the officer gets a warrant only from a give line (`officer.ts:333`).
+
+Ran a throwaway bun script outside the repo (Head of Security from `tools/llm_crew/fixtures.ts`, Captain and officer on `pdaPeople`, `officerOut = 'hurt'`, "Warrant for Dana Reyes, for theft." from the Captain, then "Try again.", then two `syncDesk`). It printed `after declare [["Dana Reyes","taken"]] ["Dana Reyes"]` and `after try again [["Dana Reyes","taken"]] [] ["hold_meeting:undefined"]`: no `give_warrant`, the Head of Security's beat empty. The fault is real. Nothing in `LLM_CREW_CHANGELOG.md` (the "try again" entry at line 585) or the plans covers a warrant declared during the break. Not a duplicate: ARR-09 is about breaking off again, TRB-03 about two holders, KNA-09 about a down officer.
+
+Severity lowered from high to medium: the warrant is lost for good, but only when the officer has broken off hurt and a warrant is declared before the Captain says "try again" (or an officer turns up after a warrant was declared), which is not most rounds. Effort stays small. Rewrote "How to fix it" to act on the change of who serves, which also covers the late officer and a one-look gap in the PDA list.
