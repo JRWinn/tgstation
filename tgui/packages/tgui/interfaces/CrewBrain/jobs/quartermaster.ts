@@ -144,13 +144,25 @@ const NEGATED_YES =
   /\b(not|never|don'?t|do not)\s+(approved?|ok(ay)?|fine|granted|authori[sz]ed|agreed|buy it|get it|do it|place it|go ahead|go for it|put it through)\b/gi;
 /** An order named by its number: "order 3", "order #3", "#3". A bare number is a count of crates. */
 const ORDER_NUMBER = /(?:\border\s*#?|#)\s*\d+\b/i;
+/** The words of a head calling an order off. */
+const CANCEL_WORDS =
+  /\b(cancel|call (it |that |the order )?off|scrap|no longer need|never ?mind|don'?t (order|need|want|bother)|do not (order|need|want|bother))\b/i;
+/**
+ * A clause that asks after an order: one that opens with a question word, and is about an order
+ * or a crate. Not one that opens with can, could, would, will or may: that is an order put kindly.
+ */
+const QUESTION_WORDS =
+  /(^|[.!?]\s*)(has|have|did|is|are|was|were|where|when|why|what|how)\b[^.?!]*\b(orders?|crates?|lights|supplies|come in|arrived?)\b/i;
+/** Asking after an order by its number: "order 3, status?", "order 3 come in yet". */
+const ASKED_AFTER_WORDS = /\b(come in|arrived?|status|where)\b/i;
 /** A line of this many words or more is no answer about an order, unless it names the order. */
 const ANSWER_WORDS = 12;
 /**
  * The words that mark what the Captain says as being about an order, when it is neither a plain
  * yes or no nor an order that names a crate. With one waiting on their say, it is asked about.
  */
-const ABOUT_ORDER_WORDS = /\b(orders?|crates?|purchase|buy|supplies|budget|credits)\b/i;
+const ABOUT_ORDER_WORDS =
+  /\b(orders?|crates?|purchase|buy|supplies|budget|credits)\b/i;
 /** How many times the Captain is asked what they meant about one order. */
 const UNCLEAR_ASKS = 2;
 /** The kind of crate that has paper in it, by the words in its name. */
@@ -253,6 +265,8 @@ const BOOK = {
   asked: (order: LedgerOrder) => `Order ${order.n}. Asked the Captain.`,
   yes: (order: LedgerOrder) => `Order ${order.n}. The Captain said yes.`,
   no: (order: LedgerOrder) => `Order ${order.n}. The Captain said no.`,
+  cancelled: (order: LedgerOrder, by: string) =>
+    `Order ${order.n}. Cancelled by ${by}.`,
   self: (order: LedgerOrder) =>
     `Order ${order.n}. No Captain aboard: approved by me.`,
   small: (order: LedgerOrder) =>
@@ -335,6 +349,7 @@ export function readBook(
     }
     const given = rest.match(/^Given to (.+)\.$/);
     const docked = rest.match(/^Docked: (.+)\.$/);
+    const cancelled = rest.match(/^Cancelled by (.+)\.$/);
     if (/^Asked the Captain\.$/.test(rest)) {
       order.state = 'asking';
       order.askedAt = now;
@@ -344,6 +359,9 @@ export function readBook(
       order.state = 'new';
     } else if (/^The Captain said no\.$/.test(rest)) {
       order.state = 'refused';
+    } else if (cancelled) {
+      order.state = 'refused';
+      order.cancelledBy = cancelled[1];
     } else if (/^No Captain aboard|^No longer a big purchase/.test(rest)) {
       order.approved = 'self';
       order.state = 'new';
@@ -528,7 +546,8 @@ function readAnswer(
 ): boolean {
   const ledger = ledgerOf(brain);
   const order = orderAnswered(ledger, text);
-  if (!order) {
+  // "Is order 2 approved?" asks; it does not answer.
+  if (!order || sortLine(text) === 'question') {
     return false;
   }
   const namesIt = new RegExp(`(?:\\border\\s*#?|#)\\s*${order.n}\\b`, 'i').test(
@@ -613,15 +632,239 @@ function askWhatWasMeant(
       at: Date.now(),
     });
   } else {
-    sendWord(brain, captain, `Captain, is that a yes or a no to ${about}?`, why);
+    sendWord(
+      brain,
+      captain,
+      `Captain, is that a yes or a no to ${about}?`,
+      why,
+    );
   }
   return true;
 }
 
 /**
+ * What a head's line to it is, sorted in code before anything is done about it: a call to cancel
+ * an order, a question about one, an order, or talk. Only an order is taken down. A question is
+ * one that opens with a question word: "Can we get a crate of lights?" and "Could you order
+ * janitorial supplies?" are orders. "Don't order any more lights" calls nothing off and orders
+ * nothing: it is talk.
+ */
+export function sortLine(
+  text: string,
+): 'cancel' | 'question' | 'order' | 'talk' {
+  if (CANCEL_WORDS.test(text)) {
+    return /\b(don'?t|do not)\b/i.test(text) &&
+      /\b(any ?more|again)\b/i.test(text)
+      ? 'talk'
+      : 'cancel';
+  }
+  if (
+    QUESTION_WORDS.test(text) ||
+    (ORDER_NUMBER.test(text) && ASKED_AFTER_WORDS.test(text))
+  ) {
+    return 'question';
+  }
+  return ORDER_WORDS.test(text) ? 'order' : 'talk';
+}
+
+/** The order numbers a line names, after "order" or "#". */
+function numbersNamed(text: string): number[] {
+  return [...text.matchAll(/(?:\border\s*#?|#)\s*(\d+)\b/gi)].map((found) =>
+    Number(found[1]),
+  );
+}
+
+/**
+ * The orders in its book a head's line is about, the latest first: those it names by number, else
+ * those for the kinds of crate it names, else those the speaker sent. A head is told only of its
+ * own; the Captain of any, and of every order in hand when the line is not about their own.
+ */
+function ordersMeant(
+  brain: NpcBrain,
+  from: string,
+  job: string,
+  text: string,
+): LedgerOrder[] {
+  const ledger = ledgerOf(brain);
+  const captain = /captain/i.test(job);
+  const theirs = (order: LedgerOrder) => captain || order.from === from;
+  const named = numbersNamed(text);
+  const kinds = itemsAskedFor(text.toLowerCase(), brain.orderable).map(
+    (item) => item.crate,
+  );
+  let found: LedgerOrder[];
+  if (named.length > 0) {
+    found = ledger.orders.filter((order) => named.includes(order.n));
+  } else if (kinds.length > 0) {
+    const forKinds = ledger.orders.filter((order) =>
+      order.items.some((item) => kinds.includes(item.crate)),
+    );
+    const own = forKinds.filter((order) => order.from === from);
+    found = own.length > 0 ? own : forKinds;
+  } else if (captain && !/\b(my|mine)\b/i.test(text)) {
+    found = ledger.orders.filter(isOpen);
+  } else {
+    found = ledger.orders.filter((order) => order.from === from);
+  }
+  return found.filter(theirs).sort((one, other) => other.n - one.n);
+}
+
+/** Where an order stands, in a few plain words, as whoever asks after it is told. */
+function toldStanding(order: LedgerOrder): string {
+  switch (order.state) {
+    case 'asking':
+      return order.waitingTold
+        ? 'held, as the Captain has not answered'
+        : "waiting on the Captain's say";
+    case 'cleared':
+      return 'cleared, and being given to a technician to place';
+    case 'given':
+      return `given to ${order.givenTo} to place; not come in yet`;
+    case 'docked':
+      return order.crates?.length
+        ? `come in, as ${cratesWritten(order.crates.map((crate) => crate.number))}`
+        : 'come in';
+    case 'refused':
+      return order.cancelledBy
+        ? `cancelled by ${order.cancelledBy}`
+        : 'refused by the Captain';
+    default:
+      return order.shortTold
+        ? 'held until the budget can pay for it'
+        : 'taken down, and being seen to';
+  }
+}
+
+/** Answers someone in the way they spoke: aloud to their face, by PDA otherwise. */
+function answer(
+  brain: NpcBrain,
+  to: string,
+  line: string,
+  why: string,
+  aloud: boolean,
+): void {
+  if (!aloud) {
+    sendWord(brain, to, line, why);
+    return;
+  }
+  const said = `${firstName(to)}, ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
+  brain.toTell = brain.toTell.filter((tell) => tell.line !== said);
+  brain.toTell.push({ to, line: said, why, whileBusy: true, at: Date.now() });
+}
+
+/**
+ * Answers a head's question about an order from its book, in code: "Order 1, 1 Replacement
+ * Lights for Hop Kins: given to Sam Tech to place; not come in yet." A question that is about no
+ * order, number or crate is left to the voice.
+ */
+function answerAbout(
+  brain: NpcBrain,
+  from: string,
+  job: string,
+  text: string,
+  aloud: boolean,
+): void {
+  if (
+    !/\border/i.test(text) &&
+    numbersNamed(text).length === 0 &&
+    itemsAskedFor(text.toLowerCase(), brain.orderable).length === 0
+  ) {
+    return;
+  }
+  const orders = ordersMeant(brain, from, job, text);
+  const why = `${from} has asked after an order. You are telling them where it stands, from your order book.`;
+  if (orders.length === 0) {
+    answer(
+      brain,
+      from,
+      /\b(my|mine)\b/i.test(text) || !/captain/i.test(job)
+        ? 'I have no order from you in my book like that.'
+        : 'I have no order like that in my book.',
+      why,
+      aloud,
+    );
+    return;
+  }
+  let line = '';
+  for (const order of orders.slice(0, 3)) {
+    const part = `Order ${order.n}, ${orderWritten(order.items)} for ${order.own ? 'me' : order.from}: ${toldStanding(order)}.`;
+    if (line && line.length + part.length + 1 > SAID_MAX - 12) {
+      break;
+    }
+    line = line ? `${line} ${part}` : part;
+  }
+  answer(brain, from, line, why, aloud);
+}
+
+/**
+ * Calls off the order a head or the Captain says to cancel: their own, or for the Captain anyone's.
+ * One not yet given to a technician is cancelled, written so in the book, and whoever ordered is
+ * told. One already given, or come in, is said to be past calling off.
+ */
+function cancelOrder(
+  brain: NpcBrain,
+  from: string,
+  job: string,
+  text: string,
+  aloud: boolean,
+): void {
+  const ledger = ledgerOf(brain);
+  const meant = ordersMeant(brain, from, job, text);
+  const order =
+    meant.find(
+      (it) =>
+        it.state === 'new' || it.state === 'asking' || it.state === 'cleared',
+    ) ??
+    meant.find(isOpen) ??
+    meant[0];
+  const why = `${from} has told you to cancel an order. You are saying what has been done about it.`;
+  if (!order) {
+    answer(
+      brain,
+      from,
+      'I have no order like that in my book to cancel.',
+      why,
+      aloud,
+    );
+    return;
+  }
+  const about = `order ${order.n}: ${orderWritten(order.items)}`;
+  switch (order.state) {
+    case 'given':
+      answer(
+        brain,
+        from,
+        `${capital(about)} is already with ${order.givenTo} to place. It cannot be called off now.`,
+        why,
+        aloud,
+      );
+      return;
+    case 'docked':
+      answer(brain, from, `${capital(about)} has come in already.`, why, aloud);
+      return;
+    case 'refused':
+      answer(brain, from, `${capital(about)} is off already.`, why, aloud);
+      return;
+  }
+  order.state = 'refused';
+  order.cancelledBy = from;
+  ledger.toWrite.push(BOOK.cancelled(order, from));
+  answer(brain, from, `${capital(about)} is cancelled.`, why, aloud);
+  if (!order.own && order.from !== from) {
+    sendWord(
+      brain,
+      order.from,
+      `${from} has cancelled order ${order.n}: ${orderWritten(order.items)}. It will not be ordered.`,
+      `${from} has called off order ${order.n}, which ${order.from} sent you. You are sending ${order.from} word of it.`,
+    );
+  }
+}
+
+/**
  * What a head or the Captain says or sends it that is not the Captain's plain answer about an
- * order: an order of their own, or, from the Captain with an order waiting on their say, words
- * about it that it cannot read. Returns TRUE if the line was theirs to it.
+ * order: a call to cancel one, a question about one, an order of their own, or, from the Captain
+ * with an order waiting on their say, words about it that it cannot read. Returns TRUE if the
+ * line was theirs to it.
  */
 function headsLine(
   brain: NpcBrain,
@@ -634,12 +877,21 @@ function headsLine(
     return false;
   }
   const captain = /captain/i.test(job);
+  const kind = sortLine(text);
+  if (kind === 'cancel') {
+    cancelOrder(brain, from, job, text, aloud);
+    return true;
+  }
+  if (kind === 'question') {
+    answerAbout(brain, from, job, text, aloud);
+    return true;
+  }
   // Something the Captain has said about an order, with one waiting on their say, that is no
   // plain answer and names no crate: asked about, not taken for a new order.
   if (captain && askWhatWasMeant(brain, from, text, aloud)) {
     return true;
   }
-  if (!ORDER_WORDS.test(text)) {
+  if (kind !== 'order') {
     return false;
   }
   takeOrder(brain, from, job, text);
@@ -1332,7 +1584,9 @@ function standing(order: LedgerOrder): string {
     case 'docked':
       return 'come in';
     case 'refused':
-      return 'refused by the Captain';
+      return order.cancelledBy
+        ? `cancelled by ${order.cancelledBy}`
+        : 'refused by the Captain';
     default:
       return order.shortTold ? 'held for money' : 'just taken';
   }

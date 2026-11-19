@@ -1588,6 +1588,8 @@ export type LedgerOrder = {
   crates?: { number: number; kind?: string }[];
   /** TRUE once a crate of it has been lost and ordered again. That is done once. */
   reordered?: boolean;
+  /** Who called it off, if it was cancelled rather than refused by the Captain. */
+  cancelledBy?: string;
   /** TRUE if it is the Quartermaster's own order, for something it needs itself. It unpacks that one itself. */
   own?: boolean;
   /** For its own order: TRUE once it has opened the crate. */

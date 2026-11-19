@@ -71,8 +71,12 @@ export const ORDERING = 'I need to order';
 export const NOTED = 'Noted, order';
 export const NOTED_WORDS = /^noted, order (\d+)\b/i;
 
-/** How the Quartermaster tells a head that the Captain has refused their order, or that it is not something cargo can get. */
-export const REFUSED_WORDS = /\bcaptain has said no to order (\d+)\b/i;
+/**
+ * How the Quartermaster tells a head that the Captain has refused their order, or called it off
+ * ("Cap Tain has cancelled order 3: ..."), or that it is not something cargo can get.
+ */
+export const REFUSED_WORDS =
+  /\b(?:captain has said no to|has cancelled) order (\d+)\b/i;
 export const CANNOT_ORDER = 'I cannot order that';
 export const CANNOT_ORDER_WORDS = /^i cannot order that\b/i;
 
