@@ -47,7 +47,7 @@ Every head reads "Security is looking for Unknown" at its meetings, and staff se
 
 ## How it was found
 
-Read from the code, following the name from the server's `people_in_view` (`person.name`) through `wantedAfterActing`, `declareTrespass` and `deskTakes`. Not run and not seen in a round. Marked "likely" because I did not check that `throw_out` fails with "could not get" for a masked trespasser in particular; any trespasser who will not go gives that answer.
+Read from the code, following the name from the server's `people_in_view` (`person.name`) through `wantedAfterActing`, `declareTrespass` and `deskTakes`. `LLM_CREW_PLAN_SECURITY.md` (section 8) lists "A name that cannot be seen is not wanted. A mask, or no ID and a hidden face, and nobody spots them." as known. That is the other half: a known name hidden by a mask. A warrant whose name is "Unknown" is not mentioned there. Not run and not seen in a round. Marked "likely" because I did not check that `throw_out` fails with "could not get" for a masked trespasser in particular; any trespasser who will not go gives that answer.
 
 ## How to fix it
 

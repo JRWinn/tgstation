@@ -14,6 +14,8 @@ fix: Address a technician by first name only when no other technician aboard sha
 
 ## What is wrong
 
+See also: HEAD-03 (the call-on at any head's meeting) and SECT-16 (warrants). Those are the same shape in the meeting turns and in security; this one is the Quartermaster's orders and duty split, where the cost is every order bought twice.
+
 Everything the Quartermaster says to one technician begins with that technician's first name and nothing else: the order ("Sam, order 3: I need to order ..."), the standing work ("Sam, the counter is yours this shift."), being sent to see to something ("Sam, crate #12 ... See to it, please."). Every technician's window decides whether a line is meant for it by comparing that one word with its own first name. With two technicians called Sam (Sam Bell and Sam Cole) both take every such line as their own.
 
 What follows:

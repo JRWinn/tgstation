@@ -56,7 +56,7 @@ Read from the code, not seen in a round.
 ## How to fix it
 
 1. In `staff`, after the PDA list, add everyone in `brain.peopleInView` whose `job` matches the department by the same test and who is not already listed by name. A small `seenStaff` memory (name and job, last seen time, kept for the round) lets a head remember a no-PDA janitor it has met once, so it is still called by voice when in sight and asked about at the next meeting.
-2. Keep `sendFor` and the PDA call to those on the PDA list only (they need a PDA to be sent word); `meetStep`'s existing branches already handle "not in sight and no PDA" by counting them called.
+2. Keep `sendFor` and the PDA call to those on the PDA list only (they need a PDA to be sent word). In `meetStep`, a head whose way is not aloud but who has no PDA (or a staff member with none) must still get everyone into `invited`, or `everyoneCalled` stays false and the meeting never begins: treat that case as aloud (the `uncalled` branch already walks up to those in sight, calls them, and counts the unreachable as called).
 3. The Quartermaster and Head of Security branches of `staff` need the same join.
 
 ## How to test the fix
