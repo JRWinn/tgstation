@@ -77,3 +77,13 @@ Read from the code on both sides and the base game's `imprint_id`. Not seen in a
 
 - A throwaway bun script that imports `staff` from `jobs/head.ts` with a brain whose `pdaPeople` holds `{ name: 'X', job: null }`: before the fix it throws, after it returns.
 - Compile the server. In a round, imprint a spare PDA with a name-only ID and watch that the heads still hold meetings and `crew_brain.log` keeps getting ROUTINE records for every NPC.
+
+## Check
+
+Checked by Opus 5.5. Refuted: the server cannot send a PDA person with job null.
+
+- `people_on_pda` (`code/modules/llm_crew/crew_npc_cargo.dm:666`) reads only `GLOB.pda_messengers`. The only place anything is put in that list is `add_messenger` (`code/modules/modular_computers/file_system/programs/messenger/messenger_data.dm:9`), and its first test, line 12, is `if(!messenger_device.saved_identification || !messenger_device.saved_job) return`. A PDA with a name and no job is never added. Every other use of `GLOB.pda_messengers[...]` under `code/` reads it; none writes it.
+- Once a messenger is on the list its `saved_job` cannot go back to null while its name stays: `imprint_id` (`computer.dm:812`) is `job_name || stored_id?.assignment || saved_job`, which falls back to the old job when the card's assignment is empty or null; `reset_imprint` (`computer.dm:817`) nulls both and raises `COMSIG_MODULAR_PDA_IMPRINT_RESET`, whose handler `on_imprint_reset` (`messenger_program.dm`) calls `remove_messenger`; the only other write is `saved_job = "Citizen"` in `role_tablet_presets.dm:539`. So the name-only PDA in the write-up's case (a card with a name and no assignment put in a spare PDA) imprints, `add_messenger` refuses it, and it is not on the list `people_on_pda` walks.
+- The write-up's own quote of `messenger_data.dm:12` is that guard; it was taken for the contact list's filter, but it is the registration into the shared list.
+- On the window side the write-up is right that a null job would throw, though not for every head: a throwaway bun script calling `staff` from `jobs/head.ts` with `pdaPeople = [{ name: 'X', job: null }]` threw a TypeError for the Head of Personnel and the Chief Engineer, and returned `[]` for the Quartermaster and the Head of Security (those branches use `isTechnician` and a regex `.test`, which take null without throwing). That only matters if a null can arrive, and from this list it cannot.
+- Not ruled out, and not worth a fix on its own: an admin editing `saved_job` by hand to null. Making `brain.ts:537` coerce `name` and `job` to strings is cheap hardening that DRV-06's try/catch would cover better; it is no fix for a fault that can happen in a round. Severity set to low for the record.

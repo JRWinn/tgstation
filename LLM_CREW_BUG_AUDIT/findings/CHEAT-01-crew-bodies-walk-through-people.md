@@ -5,11 +5,12 @@ kind: bug
 severity: high
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
-files: code/modules/llm_crew/crew_npc_controller.dm:293, code/game/atom/_atom.dm:249, code/modules/mob/mob_defines.dm:20, code/modules/mob/living/living.dm:176
-fix: Drop PASSMOB from crew bodies and let the game's own mob swap pass them, breaking a diagonal step past someone into two straight steps
+files: code/modules/llm_crew/crew_npc_controller.dm:293, code/modules/llm_crew/crew_npc_motor.dm:56, code/game/atom/_atom.dm:249, code/modules/mob/mob_defines.dm:20, code/modules/mob/living/living.dm:176
+fix: Drop PASSMOB from crew bodies and set diagonal_flags to DIAGONAL_REMOVE_ALL on the crew movement datum, so every step is straight and the game's own mob swap passes them
 ---
 
 ## What is wrong
