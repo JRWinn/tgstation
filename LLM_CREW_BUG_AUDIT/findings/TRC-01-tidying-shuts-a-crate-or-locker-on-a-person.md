@@ -94,3 +94,7 @@ Checked by Opus 5.5. Confirmed.
 - A player clicking the crate shut would do the same, so this is not a cheat; it is the body acting without looking at who is there.
 - Searched `LLM_CREW_CHANGELOG.md` and the plans for `wants_shutting`, `tidy_step` and people shut in containers: nothing. The "shut in" entries are about rooms and doors.
 - Mended: `take_from_container` is in `crew_npc_hands.dm`, not `crew_npc_storage.dm`; added the two `close()` calls in `crew_npc_freight.dm`, the body shutting itself in a locker, and that the "You shut" words never reach `game.log`. Effort raised to medium, since the full fix touches four files. Confidence raised to sure: nothing between the brain's `tidy` and `close()` looks for a mob. Not seen in a round.
+
+## Fix notes, second round
+
+`take_from_container` (`crew_npc_hands.dm`, branch `r2-server`), left over from the first round: the container it opened is not shut again when `crew_npc_someone_on` finds anyone on its tile, the body itself included. It is left open, the result says "You leave it open: someone is in the way of shutting it.", and `game.log` has "left the X open in Y: someone is on it." as `tidy_step` writes. Tidying shuts it later, once nobody is on it. Compile-checked only.
