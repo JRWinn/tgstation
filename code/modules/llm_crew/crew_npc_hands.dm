@@ -168,6 +168,15 @@
 	errand_serial++
 	set_blackboard_key(BB_CREW_NPC_ERRAND_TARGET, target)
 
+/**
+ * TRUE if the errand a run of work belongs to has been called off, or the body or this controller
+ * is gone. An errand's work is one proc that sleeps, and calling the errand off cannot stop it: it
+ * has to ask, after every sleep, and stop itself. `serial` is the errand_serial it began with. A
+ * null serial is work that is not an errand, and is never called off.
+ */
+/datum/ai_controller/crew_npc/proc/errand_over(serial)
+	return QDELETED(src) || QDELETED(pawn) || (!isnull(serial) && errand_serial != serial)
+
 /// Abandons the errand in progress without reporting on it. Used when the body is sent somewhere else.
 /datum/ai_controller/crew_npc/proc/cancel_errand()
 	clean_queue = list()
