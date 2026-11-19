@@ -72,7 +72,14 @@ Read from the code, then shown with a throwaway script (outside the repo) that i
     +5s nothing
     +6s took stepping-aside
 
-The simulator failure is quoted from the change log. Not seen in a round, and the simulator was not run.
+The simulator failure is quoted from the change log, which also puts the same failure down to chance at `LLM_CREW_CHANGELOG.md:351` and `:895`. The simulator was not run.
+
+Seen in round logs, by setting the time a line with "step aside" was said (`game.log`, "was told by its brain to say") against the time the body it was said to took the step (`crew_brain.log`, the `ROUTINE (no LLM)` record "has asked you to step aside"):
+
+- `data/logs/2026/11/18/round-14.28.06`: said at 20:32:56.5 to Payton Shafer, step taken at 20:33:04.4, 7.8 seconds later. Said at 20:35:13.0 to Sunshine Pritchard, step taken at 20:35:19.7, 6.8 seconds later.
+- `data/logs/2026/11/18/round-15.09.26`: said at 21:31:37.3 to Sawyer Smith, step taken at 21:31:47.7, 10.4 seconds later.
+
+In an older round, `round-10.46.15`, two steps were taken 0.3 seconds after the asking (16:54:02.0 and 16:54:41.4), which is what the plan asks for. Whether that was older code or the stale hold of DRV-04 was not run down.
 
 ## How to fix it
 
