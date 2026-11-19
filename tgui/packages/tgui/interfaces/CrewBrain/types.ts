@@ -870,6 +870,8 @@ export type Task = {
   notBroughtOut?: boolean;
   /** Server time (deciseconds) until which the task is kept, in place of the half hour from createdAt (JOBS-02). */
   keepUntil?: number;
+  /** For a crate to collect: server time someone else last asked at the counter for a crate, after this one asked (TRA-03). */
+  otherAskedAt?: number;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */

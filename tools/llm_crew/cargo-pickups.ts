@@ -70,13 +70,13 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
 {
   const b = tech([{ number: 37, for: 'Hop Kins' }]);
   hear(b, 'I am here to collect crate 12.');
-  add('a number that is no crate: told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number.']);
+  add('a number that is no crate: told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number: crate 12.']);
 }
 {
   const b = tech([{ number: 37, for: CAPTAIN.name }]);
   hear(b, 'I am here to collect crate 9999.');
   add('a wrong number from one with a crate held: not handed his own instead', b.pickupAsked?.number ?? null, null);
-  add('and told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number.']);
+  add('and told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number: crate 9999.']);
 }
 
 {
@@ -169,6 +169,52 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   b.now = 19_000;
   pickupsAfterActing(b, { tool: 'collect_crate', number: 12, place: 'Bar' }, task, true);
   add('unpacked: kept a half hour from then', task.keepUntil, 19_000 + 18_000);
+}
+// TRA-03: "no such crate" ends only the errand it is about.
+{
+  const { pickupsOverhear } = await import(ROOT + 'jobs/pickups');
+  const CORA = { handle: 'p7', name: 'Cora Tech', job: 'Cargo Technician', place: 'Cargo Lobby', distance: 1 };
+  const MO = { handle: 'p8', name: 'Mo Pper', job: 'Janitor', place: 'Cargo Lobby', distance: 1 };
+  const collector = (items: string[]) => {
+    const b: any = makeBrain('Jan Mopp', 'Janitor');
+    b.now = 5000;
+    b.hasPda = true;
+    b.toTell = [];
+    b.heldCrates = [];
+    b.peopleInView = [CORA, MO];
+    b.tasks = items.map((item, i) => ({ id: i + 1, kind: 'collect', item, place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0, askedAt: 4900 }));
+    return b;
+  };
+  const hearFrom = (b: any, who: any, message: string, said_to = 'nobody') =>
+    pickupsOverhear(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: who.name, message, said_to } });
+  const open = (b: any) => b.tasks.filter((t: any) => t.state !== 'done').map((t: any) => t.item);
+  {
+    const b = collector(['12', '13']);
+    hearFrom(b, CORA, 'Crate 12 for Hop Kins is lost: it has been emptied. I will send word.');
+    add('"Crate 12 ... is lost": only the errand for 12 ends', open(b), ['13']);
+  }
+  {
+    const b = collector(['13']);
+    hearFrom(b, CORA, 'Sorry, Mo, I am not holding a crate by that number: crate 99.');
+    add('Mo told there is no crate 99: Jan\'s errand for 13 stands', open(b), ['13']);
+  }
+  {
+    const b = collector(['13']);
+    b.now = 5050;
+    hearFrom(b, MO, 'Cora, I am here to collect crate 99 for Hop Kins, please.');
+    hearFrom(b, CORA, 'Sorry, I am not holding a crate by that number.', 'me');
+    add('a numberless no after Mo asked too: Jan\'s errand stands', open(b), ['13']);
+  }
+  {
+    const b = collector(['13']);
+    hearFrom(b, CORA, 'Sorry, I am not holding a crate by that number.', 'me');
+    add('a numberless no said to it, nobody else asking: its errand ends', open(b), []);
+  }
+  {
+    const b = collector(['13']);
+    hearFrom(b, CORA, 'Sorry, I am not holding a crate by that number.', 'nobody');
+    add('a numberless no said to nobody: its errand stands', open(b), ['13']);
+  }
 }
 
 let failed = 0;

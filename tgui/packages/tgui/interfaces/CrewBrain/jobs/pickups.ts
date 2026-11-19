@@ -326,6 +326,20 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
   const heard = String(event.details.message ?? '');
   const theirJob =
     brain.peopleInView.find((person) => person.name === speaker)?.job ?? '';
+  // Someone else asking at the counter after it: an answer that names no crate may be theirs (TRA-03).
+  if (
+    !isCargo(theirJob) &&
+    speaker !== brain.name &&
+    heard.includes(ASKING) &&
+    crateNumberIn(heard) !== null
+  ) {
+    for (const task of brain.tasks) {
+      if (task.kind === COLLECT && task.askedAt !== undefined) {
+        task.otherAskedAt = brain.now;
+      }
+    }
+    return;
+  }
   if (
     !isCargo(theirJob) ||
     event.details.said_to === 'other' ||
@@ -333,6 +347,10 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
   ) {
     return;
   }
+  // A line that names the crate is about that crate alone: "Crate 12 for Hop Kins is lost" ends
+  // no errand for crate 13. One that names none is taken only if it was said to this body, and
+  // nobody else has asked at the counter since it did (TRA-03).
+  const named = crateNumberIn(heard);
   for (const task of brain.tasks) {
     // Only one it has asked for, and not long since: the answer is to that asking.
     if (
@@ -340,7 +358,11 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
       task.state === 'done' ||
       task.unpacked ||
       task.askedAt === undefined ||
-      brain.now - task.askedAt > BROUGHT_OUT_WAIT_DS
+      brain.now - task.askedAt > BROUGHT_OUT_WAIT_DS ||
+      (named !== null && Number(task.item) !== named) ||
+      (named === null &&
+        (event.details.said_to !== 'me' ||
+          (task.otherAskedAt ?? -Infinity) > task.askedAt))
     ) {
       continue;
     }

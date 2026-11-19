@@ -2660,10 +2660,14 @@ export const CARGO: Job = {
       } else if (!crate) {
         brain.toTell.push({
           to: speaker,
-          line: `Sorry, ${first}, I am not holding a crate by that number.`,
-          why: `${speaker} has come to collect a crate. You are holding none by the number they gave, nor one for anyone they named, and are telling them so.`,
-          // A plain no, whatever else is said: they are standing there waiting for a crate.
-          needs: /\b(not|no|none|cannot|can't|don't|isn't)\b/i,
+          // The number is in it, so that another collector at the counter knows it is not theirs (TRA-03).
+          line: `Sorry, ${first}, I am not holding a crate by that number: crate ${number}.`,
+          why: `${speaker} has come to collect crate ${number}. You are holding none by that number, nor one for anyone they named, and are telling them so.`,
+          // A plain no, and the number, whatever else is said: they are standing there waiting for a crate.
+          needs: new RegExp(
+            `^(?=.*\\b(not|no|none|cannot|can't|don't|isn't)\\b)(?=.*\\b${number}\\b)`,
+            'i',
+          ),
           at: Date.now(),
         });
       } else if (crate.out || crate.takenBy) {
