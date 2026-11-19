@@ -23,7 +23,7 @@ What follows from `said_to: 'me'`: `shouldWake` in `brain.ts` wakes the model to
 - The NPC answers lines meant for someone else, and acts on them. The file's header gives exactly this as the thing to avoid ("asked 'Zim, open the door', it was a bot that went and opened it").
 - Rule 2 never runs for it: a line that plainly calls on someone else ("Ann, ...") is still 'me' if the NPC's name or job word is further on.
 
-Common English words are crew names. In `strings/names/`: first names May, Rose, Hope, Mark, Chase, Hunter; last names Cook, Wood, Stone, Hill, Young, King, Black, White, Brown, Green, Day, Baker, Hall, Bell, Price, Power, Best, Rose, Hunter. Round `round-09.12.44` had a "Victor Brown" and a "Lance Cooper".
+Common English words are crew names. In `strings/names/`: first names May, Rose, Hope, Mark, Chase, Hunter; last names Cook, Wood, Stone, Hill, Young, King, Black, White, Brown, Green, Day, Baker, Hall, Bell, Price, Power, Best, Rose, Hunter. Round `round-09.12.44` had a cargo technician called "Victor Brown": any line with "brown" in it ("the brown crate") was his.
 
 Concrete cases, run (see below), the Captain speaking to the Quartermaster Ann Moss four tiles from the NPC, turned away:
 
