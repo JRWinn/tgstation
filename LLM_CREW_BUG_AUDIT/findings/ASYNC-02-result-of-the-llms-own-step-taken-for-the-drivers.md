@@ -21,7 +21,7 @@ But the driver is not the only one sending steps. `think()` sends the LLM's own 
 Concrete case, cargo:
 
 1. The Quartermaster gives technician Ann order 7. Ann's plan (`cargo.ts` near line 1007) sends `{ tool: 'order', ..., ref: 7 }`. `brain.lastAct = { tool: 'order', task: <the GIVEN task> }`. The server's `tool_order` calls `start_errand`: Ann sets off for the console. `supply_run_active` is still FALSE, because it is only set in `place_order`, at the console.
-2. On the way, the Captain says "Ann, could you order me a medical crate?". The `order` option is on offer, because `whenAsked` only holds it back when `brain.orderPending` (that is `supply_run_active`) is TRUE. The LLM takes it. `think()` calls `runTool(brain, { tool: 'order', crate: 'Medical Supplies Crate', for: 'p2' })`.
+2. On the way, the Captain says "Ann, could you order me a medical crate?". The `order` option is on offer, because `offers` in `cargo.ts` (line 1859) only holds it back when `brain.orderPending` (that is `supply_run_active`) is TRUE. The LLM takes it. `think()` calls `runTool(brain, { tool: 'order', crate: 'Medical Supplies Crate', for: 'p2' })`.
 3. On the server, `tool_order` overwrites `order_for`, `order_items`, `order_via`, `order_ref`, and `start_errand` replaces the Quartermaster's errand. Ann places the Captain's order. `action_result(CREW_TOOL_ORDER, TRUE, "You order ... for Zim Fire ...")`.
 4. In the window, `noteResult` sees `tool === 'order'`, the same as `lastAct.tool`, and calls `CARGO.afterActing` with the GIVEN task and `ok = true`. That sets `given.placed = true`.
 5. Order 7 was never placed, and nothing in the window will place it now: the plan only sends it while `!given.placed`. The Quartermaster's book has it as given.
@@ -74,7 +74,7 @@ When the two tools differ the answer is not mixed up, but the driver's step is s
 
 ## How it was found
 
-Read from the code: `noteResult`, every caller of `runTool`, `CARGO.afterActing` and `whenAsked`, `meetingsAfterActing`, and on the server `handle_tool_call`, `tool_order`, `start_errand`, `cancel_errand`, `place_order` and `action_result`. Not seen in a round.
+Read from the code: `noteResult`, every caller of `runTool`, `CARGO.afterActing` and `offers`, `meetingsAfterActing`, and on the server `handle_tool_call`, `tool_order`, `start_errand`, `cancel_errand`, `place_order` and `action_result`. Not seen in a round.
 
 ## How to fix it
 
@@ -82,7 +82,7 @@ I would do both 1 and 2. Step 2 alone is a window-only stopgap.
 
 1. **Number the calls (the real fix).** In `runTool`, give each call a number (`brain.nextCall++`) and send it as `args.call`. On the server, in `handle_tool_call`, keep it as `current_call` before the `switch`; in `start_errand` and `start_walk` copy it to `errand_call` / `walk_call`; in `action_result` add `details["call"]` = the number of the call this answers (the errand's or walk's for results from `finish_errand` and the walk leaves, `current_call` for answers given at once). Results not tied to a call (the late "the shuttle has docked" from `order_arrived`, the rate limit's) send none. In `noteResult`, when `event.details.call` is a number, match on `last.call === event.details.call` and nothing else; fall back to the tool name only when it is missing.
 2. **Stop the clash in the window.** In `think()`, before `runTool(brain, action)` at `brain.ts:1512` and in the `catch` at `brain.ts:1597`: if `brain.lastAct` is set and the server would carry the new call out as an errand or walk (any tool not in the driver's `STAYS` set), set `brain.lastAct = null` without calling `fail` (the driver's step was not tried and failed, it was replaced). The driver will plan it again when the body is free. For the cargo case this means the GIVEN order is placed after the Captain's, as the plan already says ("You have an order on the go already, and place this one when that has come in").
-3. **Hold the order option back while a given order is in hand.** In `cargo.ts` `whenAsked`, also return `[]` while `brain.givenOrder && !brain.givenOrder.placed && brain.lastAct?.act.tool === 'order'`: the technician is on its way to place one. Whether the Captain's order should go before the Quartermaster's is the owner's call; today it silently replaces it.
+3. **Hold the order option back while a given order is in hand.** In `cargo.ts` `offers`, also return `[]` while `brain.givenOrder && !brain.givenOrder.placed && brain.lastAct?.act.tool === 'order'`: the technician is on its way to place one. Whether the Captain's order should go before the Quartermaster's is the owner's call; today it silently replaces it.
 
 ## How to test the fix
 

@@ -34,6 +34,8 @@ The chain, read from the code:
 
 The same happens when the body dies or is knocked out cold (`on_stat_changed` → `reset_ai_status` → OFF), and when a player or admin takes the body over (`on_sentience_gained`).
 
+The null reason does harm on other walks too. A walk to put someone out of a room (`CREW_TOOL_EVICT`) cut short this way ends in `put_out(FALSE, null)`, which says "You could not get [name] out of [post]: they got away from you." The window's `WOULD_NOT_GO` pattern in `jobs/wanted.ts` reads "could not get" as the stranger refusing to go (see API-01), and a trespass warrant follows for someone who only stood by while Pun Pun tackled the one walking them out. And a haul cut short this way is reported as "you lost your grip on it" (`crate_released`, `crate_collected`, `crate_taken_back`, `freight_hauled`), with the body still lying beside the crate.
+
 A Captain who tells the HoP "go and see what is going on in the Bar", while Pun Pun is loose in the Bar's doorway, gets back "I could not get in: there is no way in for me", from a HoP that was tackled on the way.
 
 ## Where
@@ -88,7 +90,7 @@ Read from the code, following the base controller's stun path into the crew walk
 
 1. In `crew_npc_walk/finish_action` (`crew_npc_motor.dm`), when `fail_reason` is null and the walk did not succeed, say why from what the body can feel: if the controller is not `able_to_run` or its `ai_status` is `AI_STATUS_OFF`, set the reason to a new define, say `CREW_NPC_KNOCKED_DOWN` ("you were knocked off your feet"). Leave null for the other cases (a newer walk or errand, which `walk_finished` already returns early on).
 2. In `walk_finished` (`crew_npc_tools.dm`), mark `blocked_places[goal]` only when `reason == CREW_NPC_NO_WAY` or the walk timed out ("it was taking too long"). A walk cut short by the body going down is not a finding about the room.
-3. Do the same in the other places the null reason flows on to: `note_way_out_failed` is already only for "there is no way through", which is right; `finish_haul` and the crate reports pass `reason` through, so with step 1 they will say "you were knocked off your feet" where they said "you were interrupted" or "you lost your grip on it".
+3. Do the same in the other places the null reason flows on to: `note_way_out_failed` is already only for "there is no way through", which is right; `finish_haul` and the crate reports pass `reason` through, so with step 1 they will say "you were knocked off your feet" where they said "you were interrupted" or "you lost your grip on it". `put_out` must use it too, and in words that do not match `WOULD_NOT_GO` ("You were knocked off your feet before you had [name] out of [post]."), so that no trespass warrant comes of it.
 4. Leave the window alone: it already treats an `ok: false` result as a failure to back off from. If the owner wants the body to try again as soon as it is up, that is a window change (a "knocked down" reason that is not counted by `fail`), and a question for the owner.
 
 ## How to test the fix
