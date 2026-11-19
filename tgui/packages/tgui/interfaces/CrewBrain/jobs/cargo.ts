@@ -1340,6 +1340,41 @@ function doorWanted(brain: NpcBrain): DoorWant | null {
   return want;
 }
 
+/** The warrant named by security asking at the door ("with a warrant for X"): by the technician's id, then by who asked. */
+const warrantAsks = new Map<string, Map<string, string>>();
+/** Whom a warrant is for, in the words of an ask for a door: "a warrant for Pun Pun, who is in the ...". */
+const WARRANT_FOR = /\bwarrant (?:for|on) (.+?)(?=,|\.|\?|!| who | in the |$)/i;
+
+/** Notes the warrant someone named in asking for a door, or forgets it if they named none. */
+function noteWarrantAsk(brain: NpcBrain, name: string, words: string): void {
+  const mine = warrantAsks.get(brain.id) ?? new Map<string, string>();
+  warrantAsks.set(brain.id, mine);
+  const on = words.match(WARRANT_FOR)?.[1]?.trim();
+  if (on) {
+    mine.set(name, on);
+  } else {
+    mine.delete(name);
+  }
+}
+
+/**
+ * Why someone the technician has just let in was let in, if it was on a warrant: security are let
+ * in because a warrant is the permission (mayPass). Whom it is on, if they said at the door.
+ */
+function letInOnWarrant(
+  brain: NpcBrain,
+  name: string,
+): { warrant?: string | true } | undefined {
+  const job =
+    brain.peopleInView.find((seen) => seen.name === name)?.job ??
+    brain.pdaPeople.find((known) => known.name === name)?.job ??
+    '';
+  if (!isSecurity(job)) {
+    return undefined;
+  }
+  return { warrant: warrantAsks.get(brain.id)?.get(name) ?? true };
+}
+
 /** The door each technician last opened, for whom, which way, and when (server time), by the technician's id. */
 const lastOpened = new Map<
   string,
@@ -2017,7 +2052,6 @@ export const CARGO: Job = {
       // Whoever it opened the door for went through it by its leave. The department keeps track
       // of who is in which of its rooms, so that they are let out again.
       if (ok && task.item && task.place && brain.post) {
-        noteSentFor(brain, task.item);
         const person = brain.peopleInView.find(
           (seen) => seen.name === task.item,
         );
@@ -2029,6 +2063,13 @@ export const CARGO: Job = {
             stillInside(brain.post, task.place, brain.now).some(
               (entry) => entry.name === task.item,
             ));
+        // Security let in come on a warrant, and are left to serve it, not seen out after a
+        // minute as a janitor with no mess left is (ARR-02).
+        noteSentFor(
+          brain,
+          task.item,
+          wasInside ? undefined : letInOnWarrant(brain, task.item),
+        );
         // The door is being held for them now. It is not opened again, the same way, until that is over.
         lastOpened.set(brain.id, {
           name: task.item,
@@ -2327,6 +2368,7 @@ export const CARGO: Job = {
       !idleWord &&
       !workmateTalk
     ) {
+      noteWarrantAsk(brain, speaker, heard);
       putAsk(brain, {
         name: speaker,
         at: brain.now,
@@ -2369,6 +2411,7 @@ export const CARGO: Job = {
     if (isCargo(job ?? '') && !LET_OUT_WORDS.test(text)) {
       return;
     }
+    noteWarrantAsk(brain, from, text);
     putAsk(brain, {
       name: from,
       at,
