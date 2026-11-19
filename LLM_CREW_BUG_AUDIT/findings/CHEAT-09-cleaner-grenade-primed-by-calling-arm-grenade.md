@@ -1,6 +1,6 @@
 ---
 id: CHEAT-09
-title: A janitor primes a cleaner grenade by calling arm_grenade, skipping the use-in-hand checks, and can prime a spent or already live one
+title: A janitor primes a cleaner grenade by calling arm_grenade, skipping the use-in-hand checks, and counts a spent casing as a live grenade
 kind: bug
 severity: high
 effort: small
@@ -21,12 +21,13 @@ fix: Prime it the way a player does, by using it in the active hand (activate_ha
 
 `arm_grenade` itself checks none of that: it sets `active`, plays the sound, logs a bomb priming (`log_grenade`, which messages admins for a live grenade), and starts the detonation timer. Called on a grenade that is already active it starts a second timer.
 
-Concrete cases:
+Concrete cases where the two differ:
 
-1. A janitor finds a cleaner grenade casing lying in the Custodial Closet after one has gone off (chem grenades stay as casings: `detonate` sets `active = FALSE` and leaves the object). The janitor picks it up, since `trade_tool_types` counts `/obj/item/grenade/chem_grenade/cleaner` as its own, and `held_grenade()` finds it. Later `tool_grenade` primes it with `arm_grenade`: an admin "primed a grenade" message and a priming sound for a dud. A player using it in hand would get nothing.
-2. A grenade some player has already primed and pushed into the janitor's hand. `arm_grenade` runs on it again: two detonation timers.
+1. A grenade some player has already primed and pushed into the janitor's hand (the bar's monkey hands people things; `on_item_in_hand` keeps a trade tool "whoever put it there"). `arm_grenade` runs on it again: a second detonation timer and a second priming log. `attack_self` would have left it alone (`if (active) return`).
+2. A clumsy janitor (a clown's mutation, a brain trauma): `botch_check` would fumble it in hand half the time. The body never fumbles.
+3. A grenade stuck to the hand with tape: the player has to spend seven seconds prying it off before it will prime; the body primes it at once.
 
-`best_grenade_spot` and `grenade_messes` also treat any held `cleaner` grenade as live, so the brain is told there is a grenade's worth of mess to throw at, for a spent casing.
+A related fault the honest path does not fix by itself: after a cleaner grenade goes off its casing stays (`detonate` sets `GRENADE_USED` and `active = FALSE`; the object remains). `trade_tool_types` counts `/obj/item/grenade/chem_grenade/cleaner` as a janitor's own and `held_grenade()` finds a spent casing as readily as a live one, so `best_grenade_spot` and `grenade_messes` tell the brain there is a grenade to throw, and it is thrown as a dud. Step 1 of the fix covers that.
 
 ## Where
 
@@ -57,8 +58,8 @@ Read from the code and the base grenade code.
 
 ## How to fix it
 
-1. In `held_grenade()`, only count a grenade that is ready: `istype(grenade) && grenade.stage == GRENADE_READY && !grenade.active` (and, if `dud_flags` is set, not ready). That keeps a spent casing out of `best_grenade_spot` and `grenade_messes`.
-2. In `throw_grenade`, make the grenade's hand the active one (already done), then prime it the player's way: `body.activate_hand()` if that is the proc the "use item in hand" key reaches on this codebase, or `grenade.attack_self(body)` after the same `can_perform_action` test `click_as_body` makes. Wait a click gap first (`CREW_NPC_CLICK_GAP` in `crew_npc_machines.dm`).
+1. In `held_grenade()`, only count a grenade that can still go off: not `active` and `!(grenade.dud_flags & GRENADE_USED)`. The body can tell a spent casing by looking (its sprite and examine text change). That keeps a spent casing out of `best_grenade_spot` and `grenade_messes`.
+2. In `throw_grenade`, make the grenade's hand the active one (already done), then prime it the player's way: `body.mode()` (`code/modules/mob/mob.dm:779`, what the use-in-hand key reaches), which calls the held item's `attack_self`. Wait a click gap first (`CREW_NPC_CLICK_GAP` in `crew_npc_machines.dm`).
 3. Check `grenade.active` after. If it is not active and the grenade is still in hand, return "The grenade will not prime." and do not throw. If it was fumbled (active, and the body is clumsy), the throw still goes ahead, which is the best a player could do.
 4. Throw as now: `throw_item` is what the throw key and a click reach.
 
