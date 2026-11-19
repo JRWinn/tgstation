@@ -115,7 +115,7 @@
 	// and whatever is newly there is what was inside.
 	var/atom/spill = container.drop_location()
 	var/list/already_there = list()
-	for(var/obj/item/thing in spill)
+	for(var/atom/movable/thing in spill)
 		already_there[thing] = TRUE
 	if(!container.open(body))
 		return list("state" = "locked")
@@ -123,11 +123,30 @@
 	for(var/obj/item/thing in spill)
 		if(!already_there[thing])
 			inside[format_text(thing.name)]++
+	var/list/people = came_out_of(container, already_there)
 	sleep(CREW_NPC_LOOK_TIME)
 	// Shut again, unless someone has come to be on its tile meanwhile, the body included: they would be shut inside.
 	if(!QDELETED(container) && container.opened && !crew_npc_someone_on(get_turf(container)))
 		container.close(body)
-	return list("state" = "looked", "contents" = inside)
+	return list("state" = "looked", "contents" = inside, "people" = people)
+
+/**
+ * Who tumbled out of a container on opening it: anyone alive on its tile who was not there before
+ * (already_there holds what was). Each as the body sees them, "Joe Bloggs, out cold". Logged.
+ */
+/datum/ai_controller/crew_npc/proc/came_out_of(obj/structure/closet/container, list/already_there)
+	var/list/people = list()
+	for(var/mob/living/someone in container.drop_location())
+		if(someone == pawn || already_there[someone])
+			continue
+		var/state = ""
+		if(someone.stat >= HARD_CRIT)
+			state = ", out cold"
+		else if(someone.body_position == LYING_DOWN)
+			state = ", lying down"
+		people += "[someone.name][state]"
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found [key_name(someone)] inside the [format_text(container.name)] at [AREACOORD(container)].")
+	return people
 
 /// Called by the storage leaves when the body has finished with a container, whether or not it saw inside.
 /datum/ai_controller/crew_npc/proc/storage_done(obj/structure/closet/container, list/result)
@@ -136,13 +155,13 @@
 		storage_checked_at[REF(container)] = world.time
 		var/state = result?["state"] || "unreached"
 		if(state != "unreached")
-			report_storage(container, state, result["contents"])
+			report_storage(container, state, result["contents"], result["people"])
 		if(state == "looked")
 			search_count++
 	next_storage()
 
 /// Tells the brain what the body found on looking at a container.
-/datum/ai_controller/crew_npc/proc/report_storage(obj/structure/closet/container, state, list/inside)
+/datum/ai_controller/crew_npc/proc/report_storage(obj/structure/closet/container, state, list/inside, list/people)
 	var/container_name = format_text(container.name)
 	var/place = get_area_name(container, TRUE)
 	var/list/contents = list()
@@ -167,11 +186,15 @@
 			text = "The [container_name] in [place] is standing open with nothing left inside."
 		if("locked")
 			text = "The [container_name] in [place] is locked."
+	// Someone who tumbled out of it on opening is said first.
+	if(length(people))
+		text = "Inside the [container_name] in [place] you find [english_list(people)]! [text]"
 	emit_sense(CREW_SENSE_STORAGE_SEEN, text, list(
 		"place" = place,
 		"container" = container_name,
 		"state" = state,
 		"contents" = contents,
+		"people" = people || list(),
 	))
 
 /// Returns a spot in the room whose storage was looked through longest ago and is due a second look, or null.

@@ -280,7 +280,7 @@
 	var/container_name = format_text(container.name)
 	var/atom/spill = container.drop_location()
 	var/list/already_there = list()
-	for(var/obj/item/thing in spill)
+	for(var/atom/movable/thing in spill)
 		already_there[thing] = TRUE
 	var/was_open = container.opened
 	if(!was_open && istype(container, /obj/structure/closet/crate/large))
@@ -301,6 +301,7 @@
 			found = thing
 			continue
 		inside[format_text(thing.name)]++
+	var/list/people = was_open ? list() : came_out_of(container, already_there)
 	sleep(CREW_NPC_LOOK_TIME)
 	if(QDELETED(body) || QDELETED(container))
 		return list(FALSE, "You could not get to it.")
@@ -320,7 +321,7 @@
 	var/open_note = left_open ? " You leave it open: someone is in the way of shutting it." : ""
 	// What the body just saw replaces what it remembered of this container.
 	storage_checked_at[REF(container)] = world.time
-	report_storage(container, was_open ? "open" : "looked", inside)
+	report_storage(container, was_open ? "open" : "looked", inside, people)
 	if(taken)
 		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].[open_note]")
 	return list(FALSE, "There is no [errand_item] in the [container_name] any more.[open_note]")
