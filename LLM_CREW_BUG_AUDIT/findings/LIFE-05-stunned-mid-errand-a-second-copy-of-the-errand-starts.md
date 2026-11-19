@@ -93,14 +93,17 @@ Read from the code: the base behaviour's async procs, the controller's status ch
 
 ## How to fix it
 
-1. On the controller, add `var/errand_in_flight = FALSE` and `var/errand_run = 0`.
-2. In `crew_npc_do_errand/perform`, after `handle_async()`: if `crew_controller.errand_in_flight`, return `AI_BEHAVIOR_DELAY` and wait. Do not start another run while one is out.
-3. In `perform_async`, set `errand_in_flight = TRUE` and `var/run = ++crew_controller.errand_run` before `do_errand`, and set `errand_in_flight = FALSE` after it, before `finish_errand`. (A runtime inside `do_errand` would leave the flag set for good; wrap the call so the flag is cleared whatever happens, or clear it in `cancel_errand` and `start_errand` as well, which every new errand goes through.)
-4. Replace `if(async_still_valid()) finish_async(...)` with a check that this run is still the leaf's run: since step 2 means only one run is ever out, `async_still_valid()` is then right again.
-5. Use `errand_run` with SEC-03's `errand_over(serial)`: a long errand checks after each sleep that `errand_serial` is unchanged (it was not called off) and that the body is able to act (SEC-01). With step 2 there is no second copy to tell apart, so `errand_run` is only needed if the owner prefers the old run to bail on a stun and a fresh one to start when the body is up. The question for the owner: when a body is knocked down mid-errand, does it carry on with the same go once it is up (step 2), or start the errand over? Step 2 is the smaller change and keeps what the old run had done.
+1. On `/datum/ai_controller/crew_npc` (`crew_npc_controller.dm`, beside `errand_serial` at line 234), add `var/errand_in_flight = FALSE`.
+2. In `crew_npc_do_errand/perform`, after `handle_async()`: if `crew_controller.errand_in_flight`, return `AI_BEHAVIOR_DELAY` and wait. Do not start another run while one is out. When that run ends it either calls `finish_errand` (which clears the key, and the `bb_key_set` decorator aborts the branch) or, if the errand was changed meanwhile, leaves the new errand's key set, and the next `perform` sees the flag clear and starts the new errand's run.
+3. In `perform_async`, set `errand_in_flight = TRUE` before `do_errand` and `FALSE` straight after it, before `async_still_valid()` and `finish_errand`. Clear it however the run ends: wrap the call as `try` / `catch(var/exception/e)` that clears the flag and then `throw e`, so a runtime in `do_errand` does not leave every later errand waiting for good. Do not clear it in `start_errand` or `cancel_errand`: an old run that is still out when a new errand is given is exactly the case to wait for.
+4. In `move_to_target/crew_npc_reach/perform` (`crew_npc_storage.dm:200`), when `target_key` is `BB_CREW_NPC_ERRAND_TARGET` and `errand_in_flight` is set, call `controller.ai_movement.stop_moving_towards(controller)` and return `AI_BEHAVIOR_DELAY`, so the tree's walking does not pull the body against the old run's own steps. Do not count that wait against `time_limit` (set `started_at` again when it ends) or the reach fails the errand.
+5. `async_still_valid()` in `perform_async` is then right again, because only one run is ever out; leave it as it is.
+
+What this costs: a new errand given while an old run is still out (SEC-03) now starts only when the old run ends, which can be some seconds for an arrest. SEC-03's own fix (the long procs stop once `errand_serial` changes) and SEC-01's (they stop while the body cannot act) shorten that wait, and with both built this flag is the safety net, not the main fix. A question for the owner, only if SEC-01 is built to stop the run on a stun: should the body then start the errand over when it is up? With this flag alone it carries on with the same run.
 
 ## How to test the fix
 
 - Compile.
 - The simulator cannot show it (no server code runs there).
-- In a round with Pun Pun: set an officer on Pun Pun with force, let the monkey tackle it, and grep `game.log` for the officer's baton lines. Before the fix, after each tackle the lines come in pairs; after, one at a time, and the fight ends within `CREW_NPC_BATON_CHASE` of its start.
+- In a round: while a janitor is two seconds into a scrub, or an officer is in `baton_hits` with the target a few tiles off, use the admin proc call on the body to run `Paralyze(2 SECONDS)`. Watch the Crew Brain window and `game.log`. Before the fix, the janitor clicks the mess a second time and the officer logs two "hit ... with its baton" lines for one errand; after, one run each. A temporary `log_game` line at the top of `perform_async` (taken out before commit) makes the count plain.
+- Give a body a new errand while an old arrest run is still out, and check the new one starts when the old one ends, not never.
