@@ -77,3 +77,14 @@ If section 4.8 of `LLM_CREW_PLAN_NO_CHEATS.md` (the honest door: click to open, 
 
 - Server compile (see README).
 - None of this is run by the simulator. In a round: get two janitors shut in one cargo room (the Bitrunning Den and the Mining Office have done it before), have one ask out, and watch that the door stays open until both are out. In `game.log` grep for `opened .* to let` and check there is no second `opened` line for the same room within the next minute.
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed.
+
+- Read `hold_door_for` and `watch_door` in `code/modules/llm_crew/crew_npc_doors.dm` (`:579` to `:667`). The quotes match. Traced the case: the person asked for is watched to `T`, each `other` to `T + 1`, `T + 2`...; the global holds `T + n`. The watcher for the last `other` sees `holds > until` false on its own `until`, removes the key and calls `let_door_close` whoever else is still inside. The guard only works when the watcher with the latest `until` is the last one through.
+- Which comes through first is not fixed by the code: the person asked for is usually the one at the door, but an `other` is anyone in the room with `is_shut_in()`, and one standing at the door too (two janitors waiting together) is as likely to be first. The second case, two holders each opening the same door for a different person, follows the same lines (`max()` at `:600`).
+- `let_door_close` (`:796`) sets `autoclose` back and calls `close()`; nothing reopens it for the one left inside. A's watcher runs on and does nothing useful.
+- The side faults hold: the early return at `:634` does not remove the key (harmless, since a stale time is in the past and `max()` overrides it), and the watch is a timer on the holder's controller, so a deleted holder leaves the door open with `autoclose` off.
+- `LLM_CREW_PLAN_NO_CHEATS.md` 4.8 (the honest door) is still "Proposed"; `door.autoclose = FALSE` is still in `hold_door_for`. No change log entry after line 1023 touches this.
+- Changed: the fix uses a count rather than a list of entries, and says every ending return must take its one off. Severity medium and effort small stand for the main fault; the deleted-holder part (moving the watch off the controller) is more and can be left to 4.8.

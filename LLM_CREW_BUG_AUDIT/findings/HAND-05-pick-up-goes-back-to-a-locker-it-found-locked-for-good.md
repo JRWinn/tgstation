@@ -86,3 +86,11 @@ Keeps the rules: it only changes what the body remembers and where it walks.
 - Server compile to a side copy, type check for the window change.
 - Simulator: a janitor with no mop whose only remembered mop is in a locker the stand-in server answers `locked` for. After one failed `pick_up` the next step must be telling its head it needs supplies, not `pick_up mop` again. `tools/llm_crew/sim.ts` would need a locked container answer (SIM-04 lists failure paths the stand-in cannot give).
 - In a round: weld a locker a janitor remembers its mop in and take its mop. `crew_brain.log` must show one "is locked" and then a PDA to its head.
+
+## Check
+
+Checked by Opus 5.5. Read `tool_pick_up` and `take_from_container` (`crew_npc_hands.dm`), `report_storage`, `storage_done` and `storage_to_search` (`crew_npc_storage.dm`), the base game's `/obj/structure/closet/proc/can_open`, `open` and `togglelock` (`code/game/objects/structures/crates_lockers/closets.dm`: `if(welded || locked) return FALSE`; locking checks no access, only unlocking does), and in the window `recordStorage` and `allKnownItems` (`memory.ts`), `knownSupply`, the `SUPPLIES` step and `needs` (`jobs/janitor.ts`), and the driver's backoff (`fail`, `inBackoff` in `driver.ts`: it spaces the tries out, up to `RETRY_MAX_MS`, and never stops them). The quotes are what the code says. `storage_checked_at` set on the failure is read only by the search (`storage_to_search`), not by `tool_pick_up`'s loop. Searched the change log and plans for `storage_memory`, `recordStorage`, `knownSupply` and locked lockers: nothing fixes it.
+
+Ran a throwaway script (scratchpad, bun, `fixtures.ts` `janitor()`): `recordStorage` with `looked` (mop, soap) and then `locked` leaves `allKnownItems` as `["mop", "soap"]` with `locked` true, so `knownSupply` stays set and `needs` stays null. The server side was not run (the simulator stands in for it).
+
+Confirmed. Medium stands: it needs the janitor to lose its tool and its remembered locker to be shut, not every round, but then it never asks for supplies again. Effort raised to medium: a few lines in two server files and one window file (FORMAT would call any change on both sides large; this is not a design change, so medium).
