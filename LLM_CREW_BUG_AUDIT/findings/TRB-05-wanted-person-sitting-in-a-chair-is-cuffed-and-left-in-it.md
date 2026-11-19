@@ -30,7 +30,7 @@ The case:
 7. The officer looks about the Brig for twenty seconds and then walks the primary hallways. Dana sits in the Bar in cuffs. Nobody reports her: `syncWanted` skips anyone in cuffs ("not someone security already has in cuffs"). `desk.cuffed` was cleared by the `lost` outcome, so the list now says she is wanted and was last seen in the Brig.
 8. If the officer passes the Bar again it sees her cuffed by its own cuffs (`cuffedByMe`), takes hold again, and the same walk leaves her behind again, with another "I lost" message.
 
-The same holds for someone strapped into a medbay bed or a surgery table, and for a crew NPC sitting down, if any ever do.
+The same holds for someone lying buckled in a plain bed (`/obj/structure/bed`, anchored) or on an operating table, and for a crew NPC sitting down, if any ever do. A rolling medical bed (`/obj/structure/bed/medical`) is not anchored, so its rider is moved with it (`living.dm:1050`, `buckled.Move`) and is not left behind by this path.
 
 ## Where
 
@@ -79,7 +79,7 @@ Read from the code and from the base `Move` and `check_pulling` (`code/game/atom
 
 ## How to fix it
 
-1. In `hold_arrested`, before `start_pulling`: if `person.buckled`, unbuckle them the way a player does, by a click on them with an empty hand on help intent or on the thing they are buckled to (`click_as_body(person.buckled)` with the empty hand; `user_unbuckle_mob` is what that click runs). Wait the click out and look again.
+1. In `hold_arrested`, before `start_pulling`: if `person.buckled`, unbuckle them the way a player does, by a click with an empty hand on the thing they are buckled to: `empty_clicking_hand()` (`crew_npc_machines.dm`), then `click_as_body(person.buckled)`. That click runs `/atom/movable/attack_hand` (`code/game/objects/buckling.dm:20`), which calls `user_unbuckle_mob` at once for someone else. A click on the person themselves does not unbuckle them: on a human it is a help-intent touch (`human_defense.dm:119`). Then look again at `person.buckled`.
 2. If they are still buckled after that (a strap that takes time, an alien nest), answer `no_hold` with a reason the window can say: "They are strapped to the X and I cannot get them loose".
 3. In `put_in_cell`, when `body.pulling != prisoner` and the prisoner is still in view where it left them, give `place` as their room, not the officer's, so a lost prisoner is looked for where they are (`got_away_details` already does this when they are in view; the trouble is they are out of view by the time it reaches the timer, so also record where the hold was lost: set a `lost_at` turf in `check_pulling`'s place, or check `body.pulling` every step of the walk).
 4. Do not change `syncWanted`: someone sitting in security's cuffs is security's business. The mend is that security does not leave them there.
