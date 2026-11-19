@@ -240,6 +240,35 @@ deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for tres
 b.toTell = [];
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Cancel the warrant on Pun Pun.', false);
 add('a head takes back its own', [deskOf(b).warrants.length, said(b)], [0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+// SECT-04: other ways of taking a warrant back. SECT-22: and a cancel word not bound to the warrant is none.
+function headsPunPun() {
+  const d = head();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
+  d.toTell = [];
+  return d;
+}
+for (const line of ['The warrant on Pun Pun is withdrawn.', "Pun Pun's warrant is cancelled", 'Forget the warrant on Pun Pun', 'Call off the arrest of Pun Pun', 'Joan, drop the warrant on Pun Pun, my mistake', "Withdraw Pun Pun's warrant", 'The warrant for Pun Pun is lifted now.']) {
+  const d = headsPunPun();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', line, false);
+  add(`"${line}" takes it back`, [deskOf(d).warrants.length, said(d)], [0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+}
+for (const line of ["Don't forget the warrant on Pun Pun", 'Warrant for Pun Pun, he dropped the crate', 'Drop everything, the warrant on Pun Pun comes first', "Don't cancel the warrant on Pun Pun, he did it", 'Do not withdraw the warrant on Pun Pun', 'Has the warrant on Pun Pun been withdrawn?', 'Drop it and arrest Pun Pun']) {
+  const d = headsPunPun();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', line, false);
+  add(`"${line}" takes nothing back`, [deskOf(d).warrants.map((it: any) => it.name), said(d).filter((it: string) => /withdrawn/.test(it))], [['Pun Pun'], []]);
+}
+for (const line of ['Hale, drop what you are doing, warrant for Dana Reyes, for theft', 'Call off your patrol, I have a warrant for Dana Reyes']) {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" is a warrant on Dana Reyes`, [deskOf(d).warrants.map((it: any) => it.name), said(d).filter((it: string) => /I have that: a warrant for Dana Reyes/.test(it)).length], [['Dana Reyes'], 1]);
+}
+{
+  const d = headsPunPun();
+  deskOf(d).unread = [{ from: 'Walker Wolfe', fromJob: 'Head of Personnel', text: 'never mind about pun pun', at: Date.now() }];
+  add('the LLM reading "withdraw" takes it back through the same code', [deskRead(d, deskOf(d).unread[0], { kind: 'withdraw', name: 'pun pun', minutes: 0 }), deskOf(d).warrants.length, said(d)], ['Read as: "Cancel the warrant on pun pun." The body answers Walker Wolfe in the fixed words.', 0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+  add('and the reading is let through', S.readReading('{"kind":"withdraw","name":"Pun Pun","minutes":0}', 'never mind about Pun Pun')?.kind, 'withdraw');
+}
+add('the not-followed line fits a PDA message', S.notFollowedLine('Walker').length <= 200, true);
 // The officer says someone is in a cell: off the list, into the cells, and the Captain and whoever declared it are told.
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
@@ -353,7 +382,7 @@ add('a sighting of someone with no warrant on them is answered, with the words t
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
 add('a message from the Captain that code can make nothing of waits for the LLM to read it', [said(b), deskOf(b).unread.map((it: any) => it.text)], [[], ['How are things over there today']]);
-add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.']]);
+add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.']]);
 HOS.readsMessage(b, 'Zim Fire', 'Hello?', 0, 'Captain');
 add('a second one straight after is not put to the LLM, and is not answered twice in a minute', [b.toTell.length, deskOf(b).unread.length], [1, 0]);
 for (const line of ['Joan, do not arrest Dana Reyes, she is with me.', 'Is there a warrant for Dana Reyes?', 'Did your officer arrest Pun Pun yet?']) {

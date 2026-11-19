@@ -657,7 +657,7 @@ export function noWarrantLine(to: string, name: string): string {
 
 /** Security's answer to the Captain or a head whose message it could make nothing of. Nobody is left guessing at the words. */
 export function notFollowedLine(to: string): string {
-  return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.`;
+  return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.`;
 }
 
 /** How a report begins that is sent by PDA by someone whose own work keeps them from a staff meeting. */
@@ -844,8 +844,25 @@ export const ARREST_WORDS = /\byou are under arrest\b/i;
 
 /** The words by which the Captain pardons someone, and a head takes back a warrant of its own. */
 export const PARDON_WORDS = /\b(?:pardon|release|let go|set free|free)\b/i;
+/**
+ * The words by which a warrant is taken back. The verb has to be bound to the warrant: two words
+ * at most between them ("Cancel the warrant on Pun Pun", "Drop Pun Pun's warrant", "Call off the
+ * arrest of Pun Pun"), or the warrant said to be withdrawn at the end of its clause ("The warrant
+ * on Pun Pun is withdrawn", "Pun Pun's warrant is cancelled"), or "Forget the warrant" first
+ * thing. "Drop everything, the warrant on Pun Pun comes first" and "Call off your patrol, I have
+ * a warrant for Dana Reyes" are no taking back. See cancelAsked for a negation or a question.
+ */
 export const CANCEL_WORDS =
-  /\b(?:cancel|withdraw|drop|call off|take back)\b.*\bwarrant\b/i;
+  /\b(?:cancel(?:l?ed)?|withdraw|drop|call(?:ed)?\s+off|take\s+back|lift)\s+(?:(?:[\w'-]+\s+){0,2}warrant|(?:the|that|this|my|your)\s+arrest)\b|\b(?:warrant|arrest)\b[^.!?;,]*?\b(?:is|be|was|been|are)\s+(?:cancel(?:l?ed)?|withdrawn?|dropped|lifted|called\s+off|void(?:ed)?)(?:\s+now)?\s*(?:[.!?,;]|$)|^\W*(?:[A-Za-z'-]+,\s*)?forget\s+(?:about\s+)?the\s+(?:warrant|arrest)\b/i;
+
+/**
+ * TRUE if these words take a warrant back: CANCEL_WORDS, and not said not to or asked about
+ * ("Don't cancel the warrant on Pun Pun", "Did you withdraw the warrant?").
+ */
+export function cancelAsked(text: string): boolean {
+  const found = text.match(CANCEL_WORDS);
+  return !!found && !heldBack(text, found.index ?? 0);
+}
 /** The words by which the Captain has security make arrests again after its staff were hurt. */
 export const TRY_AGAIN_WORDS = /\btry again\b/i;
 
@@ -948,7 +965,7 @@ export const LET_IN_WORDS = /\ba warrant for\b.*\bCould you let me in\b/i;
 
 /** What the LLM made of an order: what it is, who it names as the order wrote them, and for how long. */
 export type Reading = {
-  kind: 'warrant' | 'pardon' | 'neither';
+  kind: 'warrant' | 'pardon' | 'withdraw' | 'neither';
   name: string;
   minutes: number;
 };
@@ -971,15 +988,18 @@ export function buildReading(text: string): {
       'You read one message sent to the security office of a space station and say what it asks for. Reply with one JSON object and nothing else.',
     user: [
       `Message: "${text.replace(/"/g, "'").slice(0, READING_MAX)}"`,
-      'Does it ask for someone to be arrested, locked up or put on the wanted list ("warrant")? Does it ask for someone to be let go, freed or forgiven ("pardon")? Or is it something else ("neither")?',
-      '"kind": warrant, pardon or neither.',
+      'Does it ask for someone to be arrested, locked up or put on the wanted list ("warrant")? Does it ask for someone to be let go, freed or forgiven ("pardon")? Does it take back a warrant, or call off an arrest, asked for before ("withdraw")? Or is it something else ("neither")?',
+      '"kind": warrant, pardon, withdraw or neither.',
       '"name": the name of that person, spelt as the message spells it. "" if it names nobody.',
       '"minutes": how many minutes in a cell the message says. 0 if it does not say.',
     ].join('\n'),
     schema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['warrant', 'pardon', 'neither'] },
+        kind: {
+          type: 'string',
+          enum: ['warrant', 'pardon', 'withdraw', 'neither'],
+        },
         name: { type: 'string', maxLength: NAME_MAX },
         minutes: { type: 'integer' },
       },
@@ -1000,7 +1020,11 @@ export function readReading(reply: string, text: string): Reading | null {
   } catch {
     return null;
   }
-  if (body.kind !== 'warrant' && body.kind !== 'pardon') {
+  if (
+    body.kind !== 'warrant' &&
+    body.kind !== 'pardon' &&
+    body.kind !== 'withdraw'
+  ) {
     return null;
   }
   const name = tidyName(typeof body.name === 'string' ? body.name : '');
@@ -1022,6 +1046,9 @@ export function readReading(reply: string, text: string): Reading | null {
 
 /** A reading put into the words code reads, so that it is taken exactly as an order in those words would be. */
 export function readingAsOrder(reading: Reading): string {
+  if (reading.kind === 'withdraw') {
+    return `Cancel the warrant on ${reading.name}.`;
+  }
   return reading.kind === 'pardon'
     ? `Pardon ${reading.name}.`
     : `Warrant for ${reading.name}${reading.minutes ? `, ${reading.minutes} minutes` : ''}.`;

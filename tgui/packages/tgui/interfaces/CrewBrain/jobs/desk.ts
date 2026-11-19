@@ -51,7 +51,7 @@ import { captainName } from './head';
 import {
   addressOf,
   againLine,
-  CANCEL_WORDS,
+  cancelAsked,
   closeIn,
   mendWords,
   type Reading,
@@ -359,7 +359,7 @@ export function deskTakes(
   const anyone = [...standing, ...Object.keys(desk.held)];
 
   // A warrant taken back by whoever declared it, or by the Captain.
-  if (CANCEL_WORDS.test(text)) {
+  if (cancelAsked(text)) {
     const name = nameIn(text, standing) ?? closeIn(text, standing);
     const warrant = desk.warrants.find((it) => it.name === name);
     if (!declarer) {
