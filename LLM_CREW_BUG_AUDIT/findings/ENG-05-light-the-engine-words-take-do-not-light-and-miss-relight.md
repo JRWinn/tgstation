@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/engineering.ts:126, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:668, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:698
-fix: Read the order to light the engine again with a pattern that wants it at the start of a clause and refuses a negation or a question, and accept relight, restart and start up as well
+fix: Read the order to light the engine again with a pattern that takes relight, restart and start up as well, after stripping a leading name, and refuses a line with a negation just before the verb or ending in a question mark
 ---
 
 ## What is wrong

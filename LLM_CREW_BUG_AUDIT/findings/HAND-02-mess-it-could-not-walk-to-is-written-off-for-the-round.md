@@ -3,10 +3,11 @@ id: HAND-02
 title: A mess the body could not walk to once is put with those that will not come off, for the rest of the round, and it says its mop will not shift it
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_hands.dm:409, code/modules/llm_crew/crew_npc_hands.dm:375, code/modules/llm_crew/crew_npc_cleaning.dm:268, code/modules/llm_crew/crew_npc_cleaning.dm:393, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:459
 fix: Keep messes it could not get to in a list of their own with the time, try them again after a few minutes, and tell the brain could not get to it apart from would not come off

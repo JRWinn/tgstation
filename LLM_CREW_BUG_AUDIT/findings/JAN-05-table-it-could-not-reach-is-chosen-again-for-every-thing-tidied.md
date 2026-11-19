@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_tidying.dm:77, code/modules/llm_crew/crew_npc_tidying.dm:89, code/modules/llm_crew/crew_npc_hands.dm:417, code/modules/llm_crew/crew_npc_hands.dm:340, code/modules/llm_crew/crew_npc_tidying.dm:254
 fix: Make nearest_surface and nearest_bin skip a place with a fresh tidy_skipped entry, as wants_tidying already does for things

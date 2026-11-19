@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:172, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:287, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:324, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:293, code/modules/llm_crew/crew_npc_hands.dm:37
 fix: Remember the room it put its mop and bucket down in, and in supplyStep go back there for them before searching or asking its head

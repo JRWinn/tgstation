@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:328, code/modules/llm_crew/crew_npc_cleaning.dm:366, code/modules/llm_crew/crew_npc_cleaning.dm:240, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:432, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:493
 fix: Make workable_mess_places judge a remembered mess by what was seen of it (its kind, kept in the memory entry), not by whether it still exists, so it agrees with mess_places until the body has looked

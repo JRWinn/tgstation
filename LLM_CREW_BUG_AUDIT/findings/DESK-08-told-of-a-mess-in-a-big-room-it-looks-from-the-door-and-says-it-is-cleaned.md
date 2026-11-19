@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:423, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:592, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:933, code/modules/llm_crew/_defines.dm:2
 fix: Before a told mess task is finished with no mess seen, have the body walk the room once (a look-round step), and say it found no mess rather than that the mess is cleaned up

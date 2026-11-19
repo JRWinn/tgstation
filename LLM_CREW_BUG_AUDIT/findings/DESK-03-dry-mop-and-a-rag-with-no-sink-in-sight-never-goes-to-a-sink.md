@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:565, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:269, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:500, code/modules/llm_crew/crew_brain_link.dm:113, code/modules/llm_crew/crew_npc_cleaning.dm:31
-fix: In plan, take the mopNeedsWater step only when brain.sinkInView, and with no water in sight send a dry mop to a known sink room as supplyStep does, before going to a mess elsewhere
+fix: In plan, take the mopNeedsWater step only when brain.sinkInView, and when brain.dryMop is set and the mess is elsewhere return supplyStep's sink walk, moved into a shared helper
 ---
 
 ## What is wrong
@@ -85,14 +86,25 @@ No SUPPLIES task is open. The server's answer to that `clean` was not run. The m
 
 ## How to fix it
 
-1. Move the sink walk out of `supplyStep` into a helper, say `waterStep(brain): Plan | null`, that returns the go-to-sink or explore step when the mop is dry and no water is in sight (`brain.mopNeedsWater && !brain.sinkInView`).
-2. In `plan`, keep the `mopNeedsWater` wetting step but only when `brain.sinkInView` is TRUE.
+1. Move the sink walk out of `supplyStep` into a helper, say `waterStep(brain): Plan | null`, that returns the go-to-sink or explore step when the mop is dry and no water is in sight. That condition already reaches the window as `brain.dryMop` (`crew_brain_link.dm:190`: `dry_mop() && isnull(proper_tool()) && !sink_in_view`), so use it rather than a new test.
+2. In `plan`, keep the `mopNeedsWater` wetting step but only when `brain.sinkInView` is TRUE (`sink_in_view` is TRUE for any water to hand: a sink, a mop bucket or cart with water, or a held bucket with water, `crew_npc_senses.dm:165`).
 3. After it, when `waterStep` gives a step and the mess is not in the room it stands in, return that step: wet the mop first, as a person would before walking to the mess. When the mess is in the room it stands in, let it fall through to the clean with the rag (the server will use the rag).
 4. Keep `supplyStep` calling the same helper for a janitor with a dry mop and nothing else.
 5. Owner question: with a rag and a dry mop, should the janitor go to a mess elsewhere with the rag and wet the mop later, or wet the mop first? Step 3 proposes the second, since a rag shifts little.
+6. While moving the walk, mend one thing in it: it skips the room the body stands in (`name !== brain.location`), so a janitor standing in the sink room with the sink out of view explores instead. In that room, send `go_to` with `middle: true` (an existing server option, used by `jobs/meetings.ts`) before exploring.
 
 ## How to test the fix
 
 - Simulator: a janitor holding a dry mop and a rag, no sink in view, a mess known in another room and a sink known in a third. It must walk to the sink room first, then to the mess. Before the fix it sends `clean` where it stands.
 - Type check from `tgui/`.
 - Next round: grep `crew_brain_link` steps in `crew_brain.log` for "there is a sink right here" and check `game.log` shows a sink by the body at that time.
+
+## Check
+
+Read `plan`, `supplyStep` and `syncTasks` in `jobs/janitor.ts`, `brain.ts:455-459` and `:505` (how `mop_needs_water`, `sink_in_view` and `dry_mop` reach the window), `crew_brain_link.dm:113` and `:190`, `cleaning_tool`, `proper_tool`, `has_poor_tool`, `working_tool` and `tool_clean` in `crew_npc_cleaning.dm`, and the backoff in `driver.ts` (`keyOf`, `fail`, the `else` branch of `noteResult` near line 1011). Every quote matches the code today.
+
+With a dry mop and a rag and no water in sight: `working_tool` gives the rag, so `cleaning_tool` is "damp rag" and `has_poor_tool` is FALSE; `lacksTool` is FALSE and `syncTasks` closes SUPPLIES before `supplyStep` is ever called. `mop_needs_water` is TRUE, so `plan` returns the wetting `clean` for every CLEAN task. `tool_clean` finds no water, goes on with the rag (`crew_npc_cleaning.dm:438`), and fails with "There is no mess here that your damp rag will shift" when nothing is in sight or remembered in that room. The driver backs off that step's key only (the job key is backed off only for a clean in the task's own room), the same step comes back, and the body idles (`explore`) meanwhile. It does get out by luck: exploring into a room with a sink or with the mess in it. So medium, not high.
+
+Ran a throwaway bun script (scratchpad, not in the repo) that ingests a janitor holding a mop and a damp rag with `mop_needs_water` 1, `sink_in_view` 0, `dry_mop` 1, a sink remembered in the Custodial Closet and a CLEAN task for the Bar. `syncTasks` opened no SUPPLIES task, and `plan` gave: `{"ready":true,"step":"Your mop is dry and there is a sink right here. You are wetting it before you set off for the mess in Bar.","act":{"tool":"clean"}}`. The server side was not run.
+
+Nothing in `LLM_CREW_CHANGELOG.md` fixes it. The "(16) A dry mop is not only a rag" entry made `has_poor_tool` FALSE on purpose, which is right; the window just has no step for that state. The fix is window-only and keeps the rules.

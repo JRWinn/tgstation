@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:187, code/game/objects/items/mop.dm:40, code/datums/components/cleaner.dm:19, code/game/turfs/turf.dm:749, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:112
 fix: In can_clean_mess judge a mop by its cleaner component strength (CLEAN_SCRUB) and is_mopped, not by CLEAN_WASH, and take garbage and gooey grey mass out of SCRUB_KINDS for a body with a mop
@@ -84,3 +85,18 @@ Read from the code, and the base game's mop, cleaner component, turf wash and de
 - Server compile to a side copy. Type check the window.
 - `tools/llm_crew/sim.ts`: any janitor scenario with a mess named "decomposing garbage" in a room, a janitor holding a wet mop: it should clean it, not change tools. Add one if none has it.
 - In a round: put a `decomposing garbage` decal in a hallway with a janitor holding a wet mop near. Grep `game.log` for its clean report: "You clean up 1 mess in ...".
+
+## Check
+
+Confirmed. Every quote is what the code says today. Traced end to end:
+
+- `clean_mess` (`crew_npc_cleaning.dm:512`) clicks the turf under the mess when the tool is a mop. The mop's `cleaner` component (`mop.dm:40`, no strength given, so `CLEAN_SCRUB` from `cleaner.dm:19`) runs `clean`, whose `do_after` ends in `target.wash(cleaning_strength)` (`cleaner.dm:129-135`). `/turf/wash` (`turf.dm:749`) washes each thing on it with `TRAIT_MOPABLE`, which a cleanable gets from `is_mopped` (`cleanable.dm:32`).
+- `garbage` (`mess.dm:365`) and `molten_object` (`mess.dm:172`) set `clean_type = CLEAN_TYPE_HARD_DECAL` and leave `is_mopped` TRUE. `CLEAN_SCRUB` includes `CLEAN_TYPE_HARD_DECAL` (`__DEFINES/cleaning.dm`), so `/obj/effect/decal/cleanable/wash` qdels them. `CLEAN_WASH` does not, so `can_clean_mess` says no for a mop.
+- Cobweb (`mess.dm:167`) and rubble (`mess.dm:391`) do set `is_mopped = FALSE`: the finding is right that those two stay.
+- Water has `REAGENT_CLEANS` (`other_reagents.dm:119`), so a mop wetted from a bucket of water does wash.
+
+Not chosen on purpose. The change log entry "(5) A mop does not scrub" (`LLM_CREW_CHANGELOG.md:479`) and row 5 of `LLM_CREW_PLAN_ROUND_1332.md` state that garbage and gooey grey mass stay when the floor is mopped, "in the game's code". That was a misreading of the code: the owner's complaint in that row was about rubble and a cobweb, both `is_mopped = FALSE`. The fix keeps what the owner asked for.
+
+On the fix: step 1 is right; reading `cleaning_strength` off the tool's component is better than a constant. Step 3: if the two words are simply taken out of `SCRUB_KINDS`, a janitor holding only a spray who is called to garbage will take the call and then report it as beyond the spray. That is still a true report, so it is acceptable, but the better way is the one the finding names: let the server's `beyondKinds` decide. Effort stays small: one line in `can_clean_mess` and one regex in `janitor.ts` (two files, but no design change). Severity medium: garbage is common in maintenance and some rooms, and the wrong tool swap costs a walk to the closet and back.
+
+Read only. Nothing was run.

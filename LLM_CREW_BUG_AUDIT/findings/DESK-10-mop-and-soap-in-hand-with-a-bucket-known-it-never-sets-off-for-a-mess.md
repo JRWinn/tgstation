@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:582, code/modules/llm_crew/crew_brain_link.dm:119, code/modules/llm_crew/crew_npc_hands.dm:15, code/modules/llm_crew/crew_npc_hands.dm:87, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:539
 fix: Take the go-for-a-bucket step only when a hand is free or the other hand holds a rag, and after a failed try at the bucket stop offering it for that task

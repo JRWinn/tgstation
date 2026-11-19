@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: engineering
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:217, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:256, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:873
-fix: Give each entry of forcing.sent a time limit, and when it passes with no word back tell whoever asked that engineering has not been able to open the room, and drop the entry
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:217, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:256, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:874
+fix: Give each entry of forcing.sent a time limit, and when it passes with no word back tell whoever asked that engineering has not opened the room, keeping the entry marked so a late word from the engineer is still passed on
 ---
 
 ## What is wrong
@@ -56,7 +57,7 @@ One case: twenty minutes in the station power fails and PDA messages stop (the o
 
 `grep -n "forcing.sent\|\.sent\b" jobs/forcing.ts` finds no other reader. `syncForcing` looks only at `forcing.jobs`.
 
-`tgui/packages/tgui/interfaces/CrewBrain/driver.ts:873`, in the driver: a line is struck from `toTell` when it is sent, not when it is known to have gone.
+`tgui/packages/tgui/interfaces/CrewBrain/driver.ts:874`, in the driver: a line is struck from `toTell` when it is sent, not when it is known to have gone.
 
     if (step.tells) {
       brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
@@ -69,12 +70,19 @@ Read from the code. Not seen in a round: the one round with a forcing job (`roun
 ## How to fix it
 
 1. In `jobs/forcing.ts`, add a constant `SENT_WAIT_DS`, say 3000 (five minutes: a walk across the station, two goes at the door, and the word back).
-2. In `syncForcing`, for the Chief Engineer, go through `forcing.sent`. For each entry older than `SENT_WAIT_DS`, drop it and `send` the one who asked `forceFailedLine(firstName(askedBy), room, 'nobody from engineering has said they opened it')`. The Head of Security already reads `FAILED_WORDS`: it then tells the Captain and clears `forcing.asked[room]` so it may ask again. Keep the reason free of "I", as `whyNot` asks.
-3. When a new ask comes in for a room that already has an entry in `forcing.sent`, do not push a second entry or send "I am sending X" again: say the job is in hand.
-4. The server's eight-minute resend covers a short outage. The time limit above is still needed for a longer one, and for the dead or silent engineer, and it is the only thing that tells security.
+2. In `syncForcing` (it is called from the Chief Engineer's `syncTasks`, `chiefengineer.ts:274`), when `isChiefEngineer(brain.job)`, go through `forcing.sent`. For each entry older than `SENT_WAIT_DS` and not yet given up on, `send` the one who asked `forceFailedLine(firstName(askedBy), room, 'nobody from engineering has said it is open')` and set `gaveUpAt = brain.now` on the entry (add the field to `ForcingWork['sent']` in `types.ts:479`). The Head of Security already reads `FAILED_WORDS` from a Chief Engineer (`forcing.ts:272` to `:299`): it tells the Captain and clears `forcing.asked[room]` so it may ask again. Keep the reason free of "I", as `whyNot` asks. The new line still ends in a full stop, which `FAILED_WORDS` needs.
+3. Do not drop the entry at that point. The engineer may only be slow (a long walk, a second go at the door). If its "the door of the X is open" comes later, the lookup at `forcing.ts:258` must still find the entry so that security is told the door is open after all. Drop given-up entries after a second, longer limit (say 9000, fifteen minutes).
+4. When a new ask comes in for a room that already has a live entry in `forcing.sent`, do not push a second entry or send "I am sending X" again. If the entry was given up on, replace it (new `at`, no `gaveUpAt`) and send the order and the "I am sending" line again as now.
+5. The server's eight-minute resend covers a short outage. The time limit above is still needed for a longer one, and for the dead or silent engineer, and it is the only thing that tells security. Picking a different engineer on the second go is ENG-03's fix, not this one.
 
 ## How to test the fix
 
 - `tools/llm_crew/security.ts` has the forcing chain end to end. Add a case where the engineer never answers: after `SENT_WAIT_DS` the Head of Security must get a `FAILED_WORDS` line and the Captain a copy.
 - Add a case with two asks for one room in a row: one entry in `forcing.sent`, one "I am sending" line.
+- Add a case where the engineer's "the door of the Bar is open." comes after the time limit: the Head of Security must still get the "is open" line and pass it to the officer.
+- Type check.
 - In a round, grep `pda.log` for "I am sending" and check each has a later "is open" or "could not open" for the same room.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Every quote matches the code today (the driver line is now `driver.ts:874`, in the function that notes a step done). Read `forcing.ts` end to end: `forcing.sent` is written at line 217 and read only at lines 258 to 259, on a `DONE_WORDS` or `FAILED_WORDS` line from an engineer. A grep of the whole brain finds no other reader, and its `at` is never read. `syncForcing` looks only at `forcing.jobs`. Read the server side: `tool_message` keeps a message that would not send (`crew_npc_cargo.dm:721` to `:731`), and `resend_unsent` gives it up after `CREW_NPC_UNSENT_KEPT` (8 minutes; the order line has no " now" in it, so the 90-second limit does not apply) with only a `game.log` line. The brain struck the line from `toTell` when the step was chosen. Read the Head of Security's side (`forcing.ts:272` to `:299`): it does nothing more once told "I am sending", and `askEngineering` will not ask again for ten minutes. So with the order lost, or an engineer that never answers, security is never told. Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers a time limit here. Not a duplicate: ENG-03 points here for the wait, and HOLE-08 is the general rule about silent people, while this cause and fix stand alone. The fix was changed: as first written it dropped the entry at the time limit, which would have lost a late "is open" from a slow engineer (`forcing.ts:260` passes nothing on with no entry). Severity medium and effort small stand. Not run.

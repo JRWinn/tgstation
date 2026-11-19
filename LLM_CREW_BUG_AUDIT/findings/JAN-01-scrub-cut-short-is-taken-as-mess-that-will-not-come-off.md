@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:519, code/modules/llm_crew/crew_npc_cleaning.dm:526, code/modules/llm_crew/crew_npc_hands.dm:392, code/datums/components/cleaner.dm:129, code/datums/timed_actions.dm:76, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:733
 fix: In clean_mess, mark a mess stubborn only if the body stayed on its errand, in reach and fit, and the scrub ran its course, else return a plain could not finish
@@ -22,7 +23,7 @@ See also: RT-01 (a click thrown away by the click cooldown) and HAND-02 (a mess 
 
 But the game's scrub is a `do_after` (`/datum/component/cleaner/proc/clean`), and a `do_after` stops as soon as the body moves, is knocked down, stunned or cuffed (`timed_actions.dm`: it watches the body's loc and `TRAIT_INCAPACITATED`). Nothing in `clean_mess` looks at any of that. The mess is left because the scrub was stopped, not because it would not shift, and the body writes it off all the same.
 
-The commonest way in is the brain itself. While `clean_mess` sleeps, a new tool call (a technician's PDA call answered with `go_to`, a head calling a meeting, being told to step aside) runs `cancel_errand` or `start_errand`, the tree walks the body off, and the scrub stops. `perform_async` checks `errand_serial` before `finish_errand`, so the report is not sent; but the write-off has already been made inside `clean_mess`, which never looks at the serial.
+The commonest way in is the brain itself. While `clean_mess` sleeps, a new tool call (a head calling a meeting, which is an `emergency` task, `meetings.ts:351`; an order from someone it answers to; being told to leave; being asked to step aside: the four things `drive` in `driver.ts` lets break into work in hand. An ordinary call, such as a technician's PDA call, waits until the scrub is done) runs `cancel_errand` or `start_errand`, the tree walks the body off, and the scrub stops. `perform_async` checks `errand_serial` before `finish_errand`, so the report is not sent; but the write-off has already been made inside `clean_mess`, which never looks at the serial.
 
 One concrete case:
 
@@ -98,3 +99,18 @@ Read from the code, with the base game's `cleaner.dm` and `timed_actions.dm` rea
 - Server compile to a side copy (see the README). The simulator runs none of this code.
 - In a round: spawn a janitor with a wet mop by some vomit, and while it scrubs, give it a `go_to` from the brain window, or pull it one tile. Then send it back with `clean`: it should clean the vomit, not say it will not come off. Also (from LIFE-02): have it scrub a cobweb with a rag and say "excuse me" to it mid-scrub, then tell it to clean the room again: it should go back to the cobweb.
 - Grep `game.log` for the new write-off line. Each one should be a mess that really did not shift (a cobweb under a mop), never a common floor mess.
+
+## Check
+
+Confirmed. The quotes match the code today (`crew_npc_cleaning.dm:513-543`, `crew_npc_hands.dm:391-401`, `cleaner.dm:129`, `driver.ts:732-733`).
+
+- `do_after` in `timed_actions.dm` registers `on_user_moved` unless `IGNORE_USER_LOC_CHANGE`, `on_user_incapacitated` on `TRAIT_INCAPACITATED`, and hand swap, equip and drop signals. The cleaner's call passes no flags, so any of those ends the scrub with `clean_succeeded` FALSE and no `wash`.
+- `start_errand` and `cancel_errand` (`crew_npc_hands.dm:161-176`) only bump `errand_serial` and clear the blackboard key. The behaviour tree's errand branch aborts on the cleared key (`crew_npc.bt.json`, `observer_abort`), and the walk branch moves the body. The sleeping `clean_mess` is not stopped. It does not read the serial, so it reaches the write-off at line 526. `perform_async` drops the report, not the write-off.
+- `stubborn_messes` is emptied only in `mind_what_it_holds` (`crew_npc_cleaning.dm:268`), on a change of tool type. The second miss on one kind in one room writes off the whole kind there (`stubborn_kinds`, lines 533-542).
+- Which brain calls break into a scrub: `drive` returns early while `busy` unless `orderToDrop` (an `emergency` task: meetings, arrests, guarding), `toldToLeave` or `asideAsked`. I mended the body: an ordinary PDA call does not break a scrub. The meeting case and the step-aside case both stand.
+
+Nothing in the change log or plans chooses this. The log entries at lines 686 and 732 built `stubborn_kinds` and assume a miss means the mess will not shift.
+
+On the fix: the steps work. `INCAPACITATED_IGNORING` exists (`__DEFINES/status_effects.dm:50`) and `can_reach_target_now` exists (`crew_npc_hands.dm:429`). Step 2, the serial check inside the wait loop, catches the commonest case by itself. Steps 3 and 4 cover a shove, a pull or a fall. Build it together with RT-01. Effort small, all in `clean_mess`. Severity medium.
+
+Read only. Nothing was run.
