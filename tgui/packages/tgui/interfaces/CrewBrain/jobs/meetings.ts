@@ -120,6 +120,23 @@ export function headName(brain: NpcBrain): string | null {
   return listed[0]?.name ?? null;
 }
 
+/** TRUE if someone with that job is this NPC's own head: one it answers to that is not the Captain. */
+function isOwnHead(brain: NpcBrain, job: string): boolean {
+  return answersTo(brain.job, job) && !/captain/i.test(job);
+}
+
+/**
+ * Who to ask for what it needs: its own head, in view and then on its PDA, and only with no head
+ * of its own aboard whoever else it answers to (the Captain), as headName finds them.
+ */
+function ownHeadName(brain: NpcBrain): string | null {
+  return (
+    brain.peopleInView.find((person) => isOwnHead(brain, person.job))?.name ??
+    brain.pdaPeople.find((person) => isOwnHead(brain, person.job))?.name ??
+    headName(brain)
+  );
+}
+
 /**
  * TRUE if these words, said or sent to a head by someone it answers to, tell it to call its staff
  * together. Only a head with staff can be told to.
@@ -194,7 +211,7 @@ export function meetingCues(brain: NpcBrain): string[] {
  * once, and then it waits to hear, and tells them again only after a good while.
  */
 export function needStep(brain: NpcBrain, need: string): Plan {
-  const head = headName(brain);
+  const head = ownHeadName(brain);
   if (!head) {
     return {
       ready: false,
@@ -211,7 +228,7 @@ export function needStep(brain: NpcBrain, need: string): Plan {
     };
   }
   const first = firstName(head);
-  if (headInView(brain)?.name === head) {
+  if (brain.peopleInView.some((person) => person.name === head)) {
     return {
       ready: true,
       step: `You need ${need}. ${head}, who you answer to, is here: in "say", tell ${head} what you need and ask them to get it ordered. Cargo only takes orders from heads of department.`,
