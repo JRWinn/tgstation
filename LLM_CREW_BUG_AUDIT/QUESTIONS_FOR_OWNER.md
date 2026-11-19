@@ -8,3 +8,10 @@ The fix narrowed what counts as a stranger refusing to be walked out, so that a 
 
 - A. Keep it as refusing (as built now).
 - B. Drop it: only a broken hold ("they got away from you") earns a warrant.
+
+## ENG-01: once its engineer cannot get the emitters off, should the Chief Engineer go itself?
+
+Built: the engineer tries a stuck emitter twice, switches off the rest, and tells the Chief Engineer why; the Chief Engineer tells the Captain once ("The emitters will not go off: ... The engine is still firing.") and gives the order again every five minutes in place of every ninety seconds. Decision 2 of the engine plan says the Chief Engineer never works the engine room while an engineer is aboard.
+
+- A. Leave it so: the Captain is told and decides.
+- B. The Chief Engineer goes to the engine room itself and tries, once the engineer has said it cannot.

@@ -112,6 +112,8 @@ export type Job = {
     ok: boolean,
     looped?: boolean,
     details?: SenseEvent['details'],
+    /** What the body was told of how it went, word for word. */
+    text?: string,
   ) => void;
   /** Reads a PDA message the NPC has been sent, to note what it means for its work. No LLM is asked. */
   readsMessage?: (

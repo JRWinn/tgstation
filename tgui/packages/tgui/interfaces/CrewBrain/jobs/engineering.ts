@@ -113,6 +113,37 @@ export function onAgainLine(to: string): string {
 export const ON_AGAIN_WORDS = /\bthe emitters are on again\b/i;
 
 /**
+ * The engineer telling the Chief Engineer that an emitter would not switch off, with the reason the
+ * body was given: "Ada, I cannot switch the emitters off: its controls are locked." The others were tried.
+ */
+export function notOffLine(to: string, why: string): string {
+  return `${firstName(to)}, I cannot switch the emitters off: ${why}.`;
+}
+export const NOT_OFF_WORDS = /\bI cannot switch the emitters off: ([^.]+)\./i;
+
+/** The same for switching them on again. */
+export function notOnLine(to: string, why: string): string {
+  return `${firstName(to)}, I cannot switch the emitters on again: ${why}.`;
+}
+export const NOT_ON_WORDS =
+  /\bI cannot switch the emitters on again: ([^.]+)\./i;
+
+/**
+ * What the body was told when a switch would not take, as the engineer says it to someone: "You
+ * cannot reach the emitter to switch it off." becomes "I cannot reach the emitter to switch it off".
+ */
+export function switchFailReason(text: string | undefined): string {
+  const said = (text ?? '')
+    .trim()
+    .replace(/\.$/, '')
+    .replace(/^The emitter will not switch (off|on): /i, '')
+    .replace(/^You\b/, 'I')
+    .replace(/\byour\b/gi, 'my')
+    .replace(/\./g, ',');
+  return said || 'it would not take';
+}
+
+/**
  * The Chief Engineer's word back to an engineer who has told it something about the engine: that
  * it heard. Until this comes back the engineer has not passed its word on. The same words the
  * Quartermaster answers its technicians in: see jobs/supply.ts.

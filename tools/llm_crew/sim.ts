@@ -33,6 +33,7 @@
 //   bun run sim.ts quiet engine    a Chief Engineer and one engineer: the engine is given at the first meeting and lit, emitters last; the batteries are set
 //   bun run sim.ts quiet enginestuck  a canister will not connect: the job stops, the emitters are never touched, and the Chief Engineer is told which step
 //   bun run sim.ts quiet enginehot    the lit engine starts to come apart: the emitters are ordered off, and the Captain is told
+//   bun run sim.ts quiet enginelocked  as enginehot, but one emitter's controls are locked: the other two go off, and the Captain is told why the engine is still firing
 //   bun run sim.ts quiet engalone     a Chief Engineer who never speaks: the engineer starts by itself two minutes in
 //   bun run sim.ts quiet enginedim    the emitters stop on a sound engine: the engineer is sent to switch them on again
 //   bun run sim.ts quiet warrant     the Captain declares a warrant on the bar's monkey: the heads are sent the notice, a head reads it out at its meeting, a sighting is sent, and the officer arrests it and puts it in a cell
@@ -330,7 +331,7 @@ function openCell(cell: (typeof cells)[number], why: string) {
 }
 
 // ---- the engine: its room's machines as the server names them to engineering staff, how each is set, and the crystal.
-const ENGINE = ['engine', 'enginestuck', 'enginehot', 'engalone', 'enginedim'].includes(process.argv[3]);
+const ENGINE = ['engine', 'enginestuck', 'enginehot', 'enginelocked', 'engalone', 'enginedim'].includes(process.argv[3]);
 const CE_OFFICE = "Chief Engineer's Office";
 const ENGINE_ROOM = 'Supermatter Engine Room';
 type Machine = { id: string; name: string; kind: string; nth: number; place: string; on: boolean; full: boolean };
@@ -363,7 +364,7 @@ function engineTick() {
   const firing = emitters().filter((machine) => machine.on).length;
   crystal.energy = firing ? Math.min(900, crystal.energy + firing * 40) : Math.max(0, crystal.energy - 150);
   if (firing === 3 && !crystal.litAt) crystal.litAt = clock;
-  if (process.argv[3] === 'enginehot' && crystal.litAt && !crystal.faultAt && clock - crystal.litAt >= 60_000) crystal.faultAt = clock;
+  if (['enginehot', 'enginelocked'].includes(process.argv[3]) && crystal.litAt && !crystal.faultAt && clock - crystal.litAt >= 60_000) crystal.faultAt = clock;
   if (firing && (!loopRunning() || crystal.faultAt)) crystal.integrity = Math.max(0, crystal.integrity - 0.5);
   if (crystal.integrity < 95 && !crystal.lowAt) crystal.lowAt = clock;
   if (crystal.lowAt && !firing && !crystal.offAt) crystal.offAt = clock;
@@ -1040,13 +1041,15 @@ function toolCall(body: Body, tool: string, args: any) {
       return busy(body, body.room === machine.place ? 3 : 7, 'going to work a machine', true, () => {
         moveTo(body, machine.place); body.visited.add(machine.place); body.known.add(machine.place); body.nextTo = null; body.doorwayOf = null;
         // In one scenario the nitrogen canisters will not go onto their connectors, however often they are tried.
-        const takes = !(VARIANT === 'enginestuck' && how === 'connect');
+        // In another, the first emitter's controls are locked, so it will not switch off.
+        const locked = VARIANT === 'enginelocked' && how === 'switch_off' && machine === emitters()[0];
+        const takes = !(VARIANT === 'enginestuck' && how === 'connect') && !locked;
         const before = String(machine.on) + String(machine.full);
         if (takes) { if (how === 'full') machine.full = true; else machine.on = !['off', 'switch_off'].includes(how); }
         const changed = before !== String(machine.on) + String(machine.full);
         machineWork.push({ at: clock, who: body.name, name: machine.name, kind: machine.kind, how, ok: takes, changed, loop: loopRunning() });
         if (changed) machinesSet.set(body.name, (machinesSet.get(body.name) ?? 0) + 1);
-        result(body, 'work_machine', takes, takes ? (changed ? 'You work the ' + machine.name + ': ' + how + '.' : 'The ' + machine.name + ' is so already.') : 'The ' + machine.name + ' will not connect.');
+        result(body, 'work_machine', takes, takes ? (changed ? 'You work the ' + machine.name + ': ' + how + '.' : 'The ' + machine.name + ' is so already.') : locked ? 'The emitter will not switch off: its controls are locked.' : 'The ' + machine.name + ' will not connect.');
       });
     }
     default:
@@ -1848,6 +1851,15 @@ if (ENGINE) {
     check('the engineer says the emitters are off', told(sam, 'Sam Rees', 'Ada Volt', /the emitters are off/) >= 1);
     check('the Captain is told it is losing integrity, and then that the emitters are off', sentTo(ada, 'Cap Tain', /"text":"The engine is losing integrity:/).length === 1 && sentTo(ada, 'Cap Tain', /"text":"The emitters are off\./).length === 1);
     check('the crystal is still mostly whole', crystal.integrity > 80, crystal.integrity + ' percent');
+  }
+  if (VARIANT === 'enginelocked') {
+    const offs = byEngineer.filter((work) => work.how === 'switch_off');
+    const lockedTries = offs.filter((work) => !work.ok).length;
+    check('the Chief Engineer orders the emitters off', told(ada, 'Ada Volt', 'Sam Rees', /Emitters off, now/) >= 1);
+    check('the other two are switched off: one locked emitter does not keep them firing', firing === 1, firing + ' on');
+    check('the locked one is not tried over and over', lockedTries >= 2 && lockedTries <= 6, lockedTries + ' tries');
+    check('the engineer tells the Chief Engineer why', told(sam, 'Sam Rees', 'Ada Volt', /I cannot switch the emitters off: its controls are locked/) >= 1);
+    check('the Captain is told once that the engine is still firing', sentTo(ada, 'Cap Tain', /"text":"The emitters will not go off: its controls are locked/).length === 1);
   }
   if (VARIANT === 'engalone') {
     const first = byEngineer[0];

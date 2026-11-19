@@ -39,6 +39,8 @@ import {
   LIGHT_WORDS,
   LIT_WORDS,
   lightLine,
+  NOT_OFF_WORDS,
+  NOT_ON_WORDS,
   OFF_WORDS,
   ON_AGAIN_WORDS,
   RELIGHT_WORDS,
@@ -47,6 +49,14 @@ import {
   STUCK_WORDS,
   shutLine,
 } from './engineering';
+import {
+  describeForcing,
+  forcingAfterActing,
+  forcingCues,
+  forcingReads,
+  planForcing,
+  syncForcing,
+} from './forcing';
 import {
   captainName,
   hearReport,
@@ -60,14 +70,6 @@ import {
   syncMeeting,
   workReported,
 } from './head';
-import {
-  describeForcing,
-  forcingAfterActing,
-  forcingCues,
-  forcingReads,
-  planForcing,
-  syncForcing,
-} from './forcing';
 import type { Job } from './job';
 import { isMeetingOrder } from './meetings';
 import { totalWords } from './reports';
@@ -97,6 +99,8 @@ const LIT_GRACE_DS = 1200;
 const RELIGHT_EVERY_DS = 3000;
 /** How long (deciseconds) it waits to hear that the emitters are off before it gives that order again. */
 const SHUT_AGAIN_DS = 900;
+/** How long (deciseconds) between orders to switch the emitters off once it has been told they will not go off. */
+const SHUT_STUCK_AGAIN_DS = 3000;
 /** How far off (tiles) its engineer has to be standing before it walks up to them to speak. */
 const SPEAKING_DISTANCE = 2;
 /** The most characters a body can say at once, or send in one PDA message. Past that the end is cut off. */
@@ -115,6 +119,7 @@ function chiefOf(brain: NpcBrain): ChiefWork {
     shut: false,
     shutGivenAt: null,
     emittersOff: false,
+    notOff: null,
     relitAt: 0,
   };
   return brain.chief;
@@ -279,6 +284,7 @@ function syncTasks(brain: NpcBrain): void {
   if (reading && !chief.shut && reading.integrity < INTEGRITY_FLOOR) {
     chief.shut = true;
     chief.emittersOff = false;
+    chief.notOff = null;
     chief.litAt = null;
     chief.order = { what: 'shut', givenAt: null, sent: false };
     tellCaptain(
@@ -293,7 +299,9 @@ function syncTasks(brain: NpcBrain): void {
     !chief.emittersOff &&
     !chief.order &&
     chief.shutGivenAt !== null &&
-    brain.now - chief.shutGivenAt > SHUT_AGAIN_DS
+    // Told they will not go off, it gives the order again now and then, in case the way is open again.
+    brain.now - chief.shutGivenAt >
+      (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)
   ) {
     chief.order = { what: 'shut', givenAt: null, sent: false };
   }
@@ -590,6 +598,7 @@ function hearEngineer(
     if (chief.order?.what === 'shut') {
       chief.order = null;
     }
+    chief.notOff = null;
     if (!chief.emittersOff) {
       chief.emittersOff = true;
       tellCaptain(
@@ -598,6 +607,28 @@ function hearEngineer(
         `${from} has told you the emitters are off. You are telling the Captain by PDA.`,
       );
     }
+    return;
+  }
+  const notOff = text.match(NOT_OFF_WORDS);
+  if (notOff) {
+    heardIt();
+    if (chief.order?.what === 'shut') {
+      chief.order = null;
+    }
+    const what = notOff[1].trim();
+    // The Captain is told once, not on every order given again.
+    if (!chief.notOff) {
+      tellCaptain(
+        brain,
+        `The emitters will not go off: ${what}. The engine is still firing.`,
+        `${from} has told you the emitters will not go off: ${what}. You are telling the Captain by PDA.`,
+      );
+    }
+    chief.notOff = what;
+    return;
+  }
+  if (NOT_ON_WORDS.test(text)) {
+    heardIt();
     return;
   }
   if (ON_AGAIN_WORDS.test(text)) {
@@ -615,6 +646,7 @@ function lightAgain(brain: NpcBrain): void {
   }
   chief.shut = false;
   chief.emittersOff = false;
+  chief.notOff = null;
   chief.shutGivenAt = null;
   chief.stuck = null;
   chief.litAt = null;

@@ -10,7 +10,7 @@ const { lightingSteps, nextLightingStep, emitterSteps, batterySteps } = await im
 const { ENGINEER } = await import(ROOT + 'jobs/engineer');
 const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
 const { jobFor } = await import(ROOT + 'jobs/index');
-const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isEngineer, LIGHT_WORDS, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
+const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isEngineer, LIGHT_WORDS, notOffLine, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -195,6 +195,33 @@ said(sam, 'Ada Volt', lightLine('Sam Rees'));
 ENGINEER.syncTasks(sam);
 add('given the engine again by the Chief Engineer, it lights it', !!open(sam, 'light_engine'), true);
 
+// One emitter whose controls are locked: the others are still switched off, and the Chief Engineer is told why.
+sam = engineer();
+said(sam, 'Ada Volt', lightLine('Sam Rees'));
+work(sam, 'light_engine', () => true, 8);
+said(sam, 'Ada Volt', shutLine('Sam Rees'));
+{
+  const locked = emitterSteps(machines(), 'switch_off')[0].machine.id;
+  const tried: any[] = [];
+  for (let turn = 0; turn < 20; turn++) {
+    ENGINEER.syncTasks(sam);
+    const task = open(sam, 'emitters_off');
+    const plan = task ? ENGINEER.plan(sam, task) : null;
+    if (!task || !plan?.ready || !plan.act) break;
+    tried.push(plan.act.machine);
+    const goes = plan.act.machine !== locked;
+    ENGINEER.afterActing(sam, plan.act, task, goes, false, {}, goes ? 'You switch the emitter off.' : 'The emitter will not switch off: its controls are locked.');
+  }
+  ENGINEER.syncTasks(sam);
+  add('a locked emitter is tried twice, then the other two are switched off', [tried.length, tried.filter((it) => it === locked).length], [4, 2]);
+  add('and the shut-off is over', !!open(sam, 'emitters_off'), false);
+  add('and the Chief Engineer is told why, as an emergency', [sam.engine.words.map((it: any) => it.line), sam.tasks.find((t: any) => t.item === 'notoff' && t.state !== 'done')?.urgency], [['Ada, I cannot switch the emitters off: its controls are locked.'], 'emergency']);
+  said(sam, 'Ada Volt', shutLine('Sam Rees'));
+  ENGINEER.syncTasks(sam);
+  const again = open(sam, 'emitters_off');
+  add('ordered off again, the locked one is tried again', again ? ENGINEER.plan(sam, again)?.act?.machine : null, locked);
+}
+
 // The emitters have stopped.
 sam = engineer();
 said(sam, 'Ada Volt', lightLine('Sam Rees'));
@@ -273,6 +300,24 @@ add('said, the order is given', [ada.chief.order, !!openOf(ada, 'engine_order', 
 ada.now += 1000;
 CHIEF_ENGINEER.syncTasks(ada);
 add('nothing heard of it in a minute and a half: it is given again', ada.chief.order?.what, 'shut');
+{
+  // The engineer says they will not go off: the Captain is told once, and the order comes round only now and then.
+  const copy = structuredClone(ada);
+  copy.toTell = [];
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('told the emitters will not go off, the Captain is told why', copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line), ['The emitters will not go off: its controls are locked. The engine is still firing.']);
+  copy.chief.shutGivenAt = copy.now;
+  copy.now += 1000;
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('and the order is not given again a minute and a half on', copy.chief.order, null);
+  copy.now += 2500;
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('but it is, five minutes on', copy.chief.order?.what, 'shut');
+  copy.toTell = [];
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
+  add('told again, the Captain is not told twice', copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').length, 0);
+}
 heardBy(ada, 'Sam Rees', offLine('Ada Volt'));
 CHIEF_ENGINEER.syncTasks(ada);
 add('told the emitters are off, it stops asking', [ada.chief.emittersOff, ada.chief.order], [true, null]);

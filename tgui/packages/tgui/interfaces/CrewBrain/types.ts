@@ -614,7 +614,7 @@ export type EngineReading = {
 /** One thing an engineer has to tell the Chief Engineer, and how far it has got with telling it. */
 export type EngineWord = {
   /** What it is word of: the engine lit, a step that would not take, the emitters off, or on again. */
-  what: 'lit' | 'stuck' | 'off' | 'on';
+  what: 'lit' | 'stuck' | 'off' | 'on' | 'notoff' | 'noton';
   /** The line it is told in, word for word. */
   line: string;
   /** Server time it said the line and began waiting to hear that it was heard. */
@@ -651,6 +651,10 @@ export type EngineWork = {
   relighting: boolean;
   /** The emitters it has switched off, or on again, in the order it is about now. */
   switched: string[];
+  /** How many times each emitter has not switched, in the switching it is about now. After two it is given up on. */
+  switchTries?: Record<string, number>;
+  /** Why the first emitter it gave up on would not switch, in its own words, or null. */
+  wouldNot?: string | null;
   /** What it has yet to tell the Chief Engineer. */
   words: EngineWord[];
 };
@@ -686,6 +690,8 @@ export type ChiefWork = {
   shutGivenAt: number | null;
   /** TRUE once the engineer has said the emitters are off. */
   emittersOff: boolean;
+  /** Why the engineer said the emitters will not go off, or null. While it stands the order is given again only now and then. */
+  notOff?: string | null;
   /** Server time it last ordered the emitters on again, or 0. */
   relitAt: number;
 };

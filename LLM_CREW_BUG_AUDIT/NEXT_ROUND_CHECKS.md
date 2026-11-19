@@ -8,3 +8,4 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - CHEAT-09: each cleaner grenade a janitor throws has one "primed" line in `game.log` (log_bomber), not two; a spent casing is never offered as a grenade.
 - CHEAT-16: things tidied land on tables at the centre, about a second slower each; nothing is set on a flipped table; `work_put_away` still rises.
 - CORE-01: compare counts of `walk failed (go_to` and `walk failed (step_aside` with earlier rounds; "there is no way through" right after a walk was replaced should be gone.
+- ENG-01: after "Emitters off, now" in `pda.log` or `game.log`, either "the emitters are off" or "I cannot switch the emitters off:" follows, and the Captain gets "The emitters will not go off" at most once.

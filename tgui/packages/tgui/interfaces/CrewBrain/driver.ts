@@ -968,6 +968,7 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     !!event.details.ok,
     looped,
     event.details,
+    event.text,
   );
   wantedAfterActing(brain, last.act, !!event.details.ok, event.text);
   ordersAfterActing(
