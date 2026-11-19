@@ -1182,6 +1182,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(counted)
 		work_arrests++
 	arrested = WEAKREF(person)
+	// Sat in a chair or lying in a bed is being strapped to it: walked off by the arm, they stay where
+	// they are and the hold breaks on the first step. Got up first, by the click a player makes.
+	if(!unbuckle_for_hold(person))
+		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
+			return list(FALSE, "You could not get to it.")
+		var/atom/movable/seat = person.buckled
+		return list(FALSE, "[person.name] is in cuffs, but strapped to the [seat?.name || "seat"], and you cannot get them loose.", list("handle" = handle, "reason" = "no_hold", "cuffed" = TRUE, "hits" = hits, "buckled" = TRUE))
 	body.start_pulling(person)
 	if(body.pulling != person)
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) cuffed [key_name(person)] at [AREACOORD(body)] and could not get a hold of them.")
@@ -1191,6 +1198,25 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		their_controller.being_arrested(body)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) [counted ? "arrested" : "took hold of"] [key_name(person)] at [AREACOORD(body)][hits ? ", after [hits] baton hit\s" : ""].")
 	return list(TRUE, "You [counted ? "cuff [person.name] and take" : "take [person.name], who is in cuffs,"] [counted ? "[person.p_them()] " : ""]by the arm.", list("handle" = handle, "cuffed" = TRUE, "hits" = hits))
+
+/**
+ * Gets someone loose of the chair or bed they are strapped to, by a click with the empty hand on
+ * it, as a player makes (a click on the person is only a touch). Sleeps for the click.
+ * Returns TRUE if they are not strapped to anything now.
+ */
+/datum/ai_controller/crew_npc/proc/unbuckle_for_hold(mob/living/carbon/human/person)
+	var/mob/living/carbon/human/body = pawn
+	var/atom/movable/seat = person.buckled
+	if(isnull(seat))
+		return TRUE
+	var/seat_name = seat.name
+	if(empty_clicking_hand())
+		click_as_body(seat)
+	if(QDELETED(src) || QDELETED(body) || QDELETED(person))
+		return FALSE
+	var/loose = isnull(person.buckled)
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) [loose ? "got [key_name(person)] up from" : "could not get [key_name(person)] loose of"] the [seat_name] at [AREACOORD(body)].")
+	return loose
 
 // The cell
 
@@ -1274,10 +1300,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return
 	var/mob/living/carbon/human/body = pawn
 	var/mob/living/carbon/human/prisoner = arrested?.resolve()
-	// Let go of for a moment, and still standing there in cuffs: taken by the arm again.
-	if(!QDELETED(prisoner) && prisoner.handcuffed && body.pulling != prisoner && can_reach_target_now(prisoner))
+	// Let go of for a moment, and still standing there in cuffs: taken by the arm again. Not if they
+	// have sat down or been strapped in: walked off, they would stay put. The arrest again gets them
+	// up first (unbuckle_for_hold()), which takes a click this answer has no time for.
+	if(!QDELETED(prisoner) && prisoner.handcuffed && isnull(prisoner.buckled) && body.pulling != prisoner && can_reach_target_now(prisoner))
 		body.start_pulling(prisoner)
-	if(QDELETED(prisoner) || !prisoner.handcuffed || body.pulling != prisoner)
+	if(QDELETED(prisoner) || !prisoner.handcuffed || body.pulling != prisoner || !isnull(prisoner.buckled))
 		action_result(CREW_TOOL_JAIL, FALSE, "You have nobody in cuffs and by the arm to put in a cell.", list("reason" = "no_hold"))
 		return
 	var/wanted = isnum(minutes) ? minutes : text2num("[minutes]")
