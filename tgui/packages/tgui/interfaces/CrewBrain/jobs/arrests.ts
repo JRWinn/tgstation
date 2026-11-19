@@ -690,9 +690,12 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   }
   const last = shut.asked[shut.asked.length - 1];
   if (last && brain.now - shut.askedAt < LET_IN_WAIT_DS) {
+    // At the door, whoever comes to open it has to find it standing there: the wait comes before
+    // its other work, as a janitor's at a door does.
     return {
       ready: false,
       wait: true,
+      asked: atDoor,
       step: `${name} is in the ${shut.place}${within}, which is locked to you. You have asked ${last} to let you into the ${door}, and are waiting${atDoor ? ' at the door' : ''}.`,
     };
   }

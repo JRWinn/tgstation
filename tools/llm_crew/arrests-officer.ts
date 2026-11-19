@@ -167,6 +167,26 @@ const searching = () => {
   add('ARR-12: five minutes on, they may have taken the card off: they are tried again', A.planBeat(f.o, f.task)?.act?.person ?? null, 'p9');
 }
 
+// ---- ARR-14: at a door it asked to be let through, the wait comes before its other warrant
+{
+  const { workInOrder } = await import(ROOT + 'tasks');
+  const f = searching();
+  A.giveWarrant(f.o, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  const pun = A.beatOf(f.o).warrants[0];
+  pun.lastSeen = { place: 'Bar', at: f.o.now - 100 };
+  pun.shutOut = { place: 'Bar', at: f.o.now - 50, keepers: ['Zim Fire'], asked: ['Zim Fire'], askedAt: f.o.now - 20, door: 'Bar' };
+  f.o.atDoorOf = 'Bar';
+  f.o.blockedPlaces = ['Bar'];
+  f.o.location = 'Central Primary Hallway';
+  A.syncBeat(f.o);
+  const first = workInOrder(f.o)[0];
+  add('ARR-14: waiting at the door it asked at, it does not walk off on another warrant', [first?.task.item, first?.plan.wait, first?.plan.asked], ['Pun Pun', true, true]);
+  f.o.atDoorOf = null;
+  pun.doorTries = 2;
+  const away = workInOrder(f.o).find((it: any) => it.task.item === 'Pun Pun');
+  add('ARR-14: away from the door, nothing it plans holds it there', !!away?.plan.asked, false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
