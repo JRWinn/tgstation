@@ -444,12 +444,15 @@ function cratesWritten(numbers: number[]): string {
 /**
  * The held crate someone at the counter means. It goes by the number they gave. With no number, or
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
- * that name, and for a head their job will do as well.
+ * that name, and for a head their job will do as well. Failing those, the one crate held for
+ * whoever is asking: "I'm here for my crate" from the one it is for (CARGO-08). With several held
+ * for them and no number, it does not pick: they are asked which.
  */
 function crateMeant(
   brain: NpcBrain,
   number: number | null,
   heard: string,
+  speaker = '',
 ): HeldCrate | undefined {
   const named =
     number === null
@@ -457,6 +460,10 @@ function crateMeant(
       : brain.heldCrates.find((crate) => crate.number === number);
   if (named) {
     return named;
+  }
+  const theirs = heldFor(brain, speaker);
+  if (theirs.length === 1) {
+    return theirs[0];
   }
   const said = heard.toLowerCase();
   const says = (words: string) =>
@@ -472,6 +479,15 @@ function crateMeant(
       brain.pdaPeople.find((person) => person.name === crate.for)?.job ?? '';
     return says(crate.for) || says(firstName(crate.for)) || says(job);
   });
+}
+
+/** The held crates for this person that are still in the bay, not brought out or taken. */
+function heldFor(brain: NpcBrain, name: string): HeldCrate[] {
+  return name
+    ? brain.heldCrates.filter(
+        (crate) => crate.for === name && !crate.out && !crate.takenBy,
+      )
+    : [];
 }
 
 /**
@@ -2485,14 +2501,27 @@ export const CARGO: Job = {
         brain.now,
       )
     ) {
-      const crate = crateMeant(brain, number, heard);
+      const crate = crateMeant(brain, number, heard, speaker);
       brain.pickupAsked = {
         name: speaker,
         number: crate?.number ?? null,
         at: brain.now,
       };
       const first = firstName(speaker);
-      if (!crate) {
+      const theirs = heldFor(brain, speaker);
+      if (!crate && number === null) {
+        // No number given: "by that number" would be untrue. Ask which (CARGO-08).
+        brain.toTell.push({
+          to: speaker,
+          line:
+            theirs.length > 1
+              ? `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. Which number is it?`
+              : `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
+          why: `${speaker} has come to collect a crate and gave no number. ${theirs.length > 1 ? `You are holding ${theirs.length} for them, and are asking which one.` : 'You are holding none for them, nor one for anyone they named, and are asking for the number.'}`,
+          needs: /\b(which|number)\b/i,
+          at: Date.now(),
+        });
+      } else if (!crate) {
         brain.toTell.push({
           to: speaker,
           line: `Sorry, ${first}, I am not holding a crate by that number.`,

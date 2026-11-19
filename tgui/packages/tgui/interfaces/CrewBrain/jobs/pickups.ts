@@ -34,9 +34,36 @@ const ASKING = 'here to collect crate';
 /** The words by which it tells its head the crate is unpacked. The head knows the message by them. */
 const UNPACKED = 'is unpacked in';
 
-/** The words that mark what someone says at the counter as coming for a crate. */
+/**
+ * The words that mark what someone says at the counter as coming for a crate. "Get", "grab",
+ * "take" and "have" count only before "my crate" or a crate's number: "can I have a crate of
+ * soap" is an order (CARGO-08).
+ */
 export const COLLECT_WORDS =
-  /\b(collect|collecting|pick(ing)? (it |that |one )?up|pickup|here for|come for|came for|fetch)\b/i;
+  /\b(collect|collecting|pick(ing)? ([\w']+ ){0,2}up|pickup|here for|come for|came for|fetch|(get|grab|take|have)( [\w']+){0,2} (my crate|crate (number |no\.? |num |#)?#?\d+|#\d+))\b/i;
+/** Numbers as they are said for a crate's number, one to twenty. */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+};
 /** The words by which a head hears that a crate has been unpacked, with its number. */
 export const UNPACKED_WORDS = /crate #(\d+) is unpacked in/i;
 
@@ -57,10 +84,19 @@ export function sendForLine(
 
 /** The manifest number someone named in what they said or wrote, or null if they named none. */
 export function crateNumberIn(text: string): number | null {
-  const named = text.match(
-    /(?:\bcrate|\bnumber|\bmanifest|#)\s*(?:number\s*)?#?\s*(\d{1,6})\b/i,
-  );
-  return named ? Number(named[1]) : null;
+  // "crate 12", "number is 12", "crate no. 12", "num 12", "#12", "crate twelve" (CARGO-08).
+  // A number in words only after "crate" or "number": "no one" is nobody.
+  const named =
+    text.match(
+      /(?:\bcrate|\bnumber(?:\s+is)?|\bnum\b|\bno\b\.?|\bmanifest|#)\s*(?:number(?:\s+is)?\s*|no\b\.?\s*|num\b\s*)?#?\s*(\d{1,6})\b/i,
+    ) ??
+    text.match(
+      /(?:\bcrate|\bnumber(?:\s+is)?)\s+(?:number(?:\s+is)?\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/i,
+    );
+  if (!named) {
+    return null;
+  }
+  return NUMBER_WORDS[named[1].toLowerCase()] ?? Number(named[1]);
 }
 
 /**
