@@ -878,8 +878,10 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     ) {
       warrant.shutOut = undefined;
     }
+    // A walk at them has already failed with them in that room: near or far, fought back or not,
+    // the baton cannot reach them until someone lets it in.
     const far = (seen.distance ?? 0) > NEAR;
-    if (far && warrant.shutOut && !warrant.resisted) {
+    if (warrant.shutOut) {
       return letInStep(brain, warrant);
     }
     // Someone who has hit it gets no second telling: the baton, at once.

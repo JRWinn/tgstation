@@ -187,6 +187,18 @@ const searching = () => {
   add('ARR-14: away from the door, nothing it plans holds it there', !!away?.plan.asked, false);
 }
 
+// ---- ARR-19: someone across a locked counter is asked to be let in to, fought back or near
+for (const [label, distance, resisted] of [['who fought back', 3, true], ['two tiles off', 2, false]] as const) {
+  const f = wanted('Bar', 'Bar Lounge');
+  f.o.peopleInView[0].distance = distance;
+  f.warrant.resisted = resisted;
+  f.warrant.force = resisted;
+  f.warrant.toldAt = f.o.now - 10;
+  f.warrant.shutOut = { place: 'Bar', at: f.o.now - 5, keepers: ['Zim Fire'], asked: [], askedAt: 0 };
+  const act = A.planBeat(f.o, f.task)?.act;
+  add(`ARR-19: someone ${label}, in a room it is shut out of: it goes to the door, no arrest`, act?.tool, 'go_to_door');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
