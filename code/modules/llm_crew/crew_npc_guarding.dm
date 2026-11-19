@@ -202,7 +202,11 @@
 		// Having seen them out, the body goes back to where it works.
 		addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 	else
-		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [reason || "they got away from you"].")
+		var/why = reason || "they got away from you"
+		// A hold lost because this body itself went down is its own trouble, not theirs: they did not get away.
+		if(why == "they got away from you" && (body.incapacitated || body.body_position == LYING_DOWN))
+			why = "you were knocked down"
+		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].")
 
 /// Someone has taken this body by the arm to walk it out of a room. It goes along with it.
 /datum/ai_controller/crew_npc/proc/taken_hold_of(mob/living/carbon/human/by, place)
