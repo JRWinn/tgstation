@@ -66,6 +66,27 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(user.ckey == owner_ckey)
 		watch_close_all_key(user)
 
+/**
+ * Opens the window for its owner. In the lobby it waits until they have a body or a ghost: a window
+ * opened on the lobby mob is closed the moment they join or observe, and every brain with it.
+ */
+/datum/crew_brain_link/proc/open_for(client/owner)
+	if(isnull(owner) || isnull(owner.mob))
+		return
+	if(!isnewplayer(owner.mob))
+		ui_interact(owner.mob)
+		return
+	RegisterSignal(owner, COMSIG_CLIENT_MOB_LOGIN, PROC_REF(on_owner_mob_login), override = TRUE)
+	to_chat(owner, span_notice("The Crew Brain window opens when you join or observe."))
+
+/// The owner took a new mob: once it is no lobby mob, the window is opened on it.
+/datum/crew_brain_link/proc/on_owner_mob_login(client/source, mob/new_mob)
+	SIGNAL_HANDLER
+	if(isnewplayer(new_mob))
+		return
+	UnregisterSignal(source, COMSIG_CLIENT_MOB_LOGIN)
+	INVOKE_ASYNC(src, PROC_REF(ui_interact), new_mob)
+
 /datum/crew_brain_link/ui_state(mob/user)
 	return GLOB.always_state
 
@@ -125,7 +146,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		npc_list += list(list(
 			"id" = npc.npc_id,
 			"name" = body.real_name,
-			"job" = body.get_assignment(if_no_id = "", if_no_job = ""),
+			// Its own job as it reads it off its own card, the same one every job test on the server goes by.
+			"job" = npc.job_title(body),
 			// The colour of the department stripe on its own ID card, which the window shows its name and job in. Null with no card.
 			"card_color" = crew_npc_card_color(body),
 			"awake" = npc.can_sense(),

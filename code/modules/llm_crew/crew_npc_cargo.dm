@@ -15,8 +15,9 @@
 	// Its own job is what its own ID says, whatever it looks like to anyone else. get_assignment()
 	// answers as a stranger would see it: with its face hidden, by a potted plant held up in front of
 	// it, say, that is no job at all, and a head with no job walks off from its own staff meeting.
-	var/obj/item/card/id/card = body.get_idcard(TRUE)
-	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "")
+	// The card it wears comes first: one it only holds (picked up to tidy, or handed to it) is not its job.
+	var/obj/item/card/id/card = crew_npc_own_card(body)
+	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "", hand_first = FALSE)
 
 /// TRUE if the body's job is in cargo, which is what lets it order supplies.
 /datum/ai_controller/crew_npc/proc/works_in_cargo()
@@ -48,7 +49,7 @@
 		// A technician knocks at the Quartermaster's office door when it has word for it.
 		learn_head_office()
 		// The post is wherever the department's supply console is. Stations name that room differently.
-		var/obj/machinery/computer/cargo/console = supply_console()
+		var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
 		var/area/post_area = console ? get_area(console) : null
 		var/turf/spot = post_area ? find_post_turf(post_area, console) : null
 		if(spot)
@@ -156,6 +157,21 @@
 			continue
 		reached_through[place_name] = (post_place in beyond) ? post_place : beyond[1]
 
+/**
+ * TRUE if nothing on this tile shuts a way: no airlock or windoor (which may only stand open for a
+ * moment, as someone walks through), and no plastic flaps that nobody on their feet gets through.
+ * Shutters that are up are left out: they are the open side of a counter.
+ */
+/proc/crew_npc_doorless(turf/spot)
+	for(var/obj/thing in spot)
+		if(istype(thing, /obj/machinery/door/airlock) || istype(thing, /obj/machinery/door/window))
+			return FALSE
+		if(istype(thing, /obj/structure/plasticflaps))
+			var/obj/structure/plasticflaps/flaps = thing
+			if(flaps.require_resting)
+				return FALSE
+	return TRUE
+
 /// TRUE if a room has doors and every one of them asks for access, so the crew at large cannot walk in.
 /proc/crew_npc_room_is_closed(area/room, z_level)
 	var/list/doors = crew_npc_doors_of(room, z_level)
@@ -163,18 +179,48 @@
 		return FALSE
 	// An open way in from the next room, with no door on it, is open to anyone.
 	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
-		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE))
+		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE) || !crew_npc_doorless(room_turf))
 			continue
 		for(var/direction in GLOB.cardinals)
 			var/turf/next = get_step(room_turf, direction)
 			if(isnull(next) || get_area(next) == room || !isopenturf(next) || !istype(get_area(next), /area/station))
 				continue
-			if(!next.is_blocked_turf(exclude_mobs = TRUE))
+			if(!next.is_blocked_turf(exclude_mobs = TRUE) && crew_npc_doorless(next))
 				return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		if(!length(door.req_access) && !length(door.req_one_access))
 			return FALSE
 	return TRUE
+
+/// The supply console the cargo post is at, chosen once for the station, as a weak reference: see crew_npc_cargo_post_console().
+GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
+
+/**
+ * Returns the supply console the station's cargo staff work from, the same one for every technician
+ * and for the Quartermaster, so that they all have the one post wherever each was made. It is one in
+ * the Cargo Bay if there is one, else the one in the cargo room with the most floor. Chosen once from
+ * the map, and again only if that console is gone. Null if the station has none in a cargo room.
+ */
+/proc/crew_npc_cargo_post_console()
+	var/obj/machinery/computer/cargo/chosen = GLOB.crew_npc_cargo_post_console?.resolve()
+	if(!QDELETED(chosen))
+		return chosen
+	var/obj/machinery/computer/cargo/best_console
+	var/best_score = -1
+	for(var/obj/machinery/computer/cargo/console as anything in SSmachines.get_machines_by_type(/obj/machinery/computer/cargo))
+		if(console.requestonly || console.is_express || !is_station_level(console.z))
+			continue
+		var/area/room = get_area(console)
+		if(!istype(room, /area/station/cargo))
+			continue
+		var/score = length(room.get_turfs_by_zlevel(console.z))
+		if(istype(room, /area/station/cargo/storage))
+			score += 100000
+		if(score > best_score)
+			best_score = score
+			best_console = console
+	GLOB.crew_npc_cargo_post_console = best_console ? WEAKREF(best_console) : null
+	return best_console
 
 /**
  * Returns the supply console cargo staff order at: the nearest one in the cargo department.
@@ -506,12 +552,21 @@
 			continue
 		found[crate] = number
 		unmatched -= number
-	// A crate whose manifest has come off is known by what it is: its name starts with the name of
-	// the pack one of the numbers still unaccounted for was ordered as.
+	// A crate whose manifest has come off is known first by the number the shuttle writes on its name
+	// ("... - #12"), and with none there by what it is: its name starts with the name of the pack one
+	// of the numbers still unaccounted for was ordered as. A crate with its manifest on is someone
+	// else's order, as the first pass has said.
+	var/static/regex/name_number = regex(@"- #(\d+)")
 	for(var/obj/structure/closet/crate/crate as anything in aboard)
 		if(!length(unmatched))
 			break
-		if(found[crate] || crew_npc_held_entry(crate))
+		if(found[crate] || crew_npc_held_entry(crate) || !isnull(crew_npc_manifest_number(crate)))
+			continue
+		if(name_number.Find(crate.name))
+			var/named = text2num(name_number.group[1])
+			if(named in unmatched)
+				found[crate] = named
+				unmatched -= named
 			continue
 		for(var/number in unmatched)
 			var/datum/supply_pack/pack = SSshuttle.supply_packs[known[ordered_kinds["[number]"] || ordered_crate_name]]
@@ -520,6 +575,7 @@
 				unmatched -= number
 				break
 	ordered_numbers = list()
+	var/missing = length(unmatched) ? " [capitalize(crew_npc_numbers_written(unmatched))] did not come with it." : ""
 	if(!length(found))
 		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
 		return
@@ -546,7 +602,7 @@
 	var/word = ""
 	if(order_for)
 		word = order_via ? " Tell [order_via], face to face, that it has come in." : " Send [order_for] a PDA message with the number[several ? "s" : ""]."
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[word]", list("numbers" = numbers))
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[missing][word]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)
@@ -874,10 +930,17 @@
 			UnregisterSignal(computer, COMSIG_MODULAR_PDA_MESSAGE_RECEIVED)
 	watched_pdas = list()
 
+/**
+ * TRUE if the body has this on it: in a hand, a pocket or its bag, wherever the body itself is, a
+ * locker or the pipes among them. Something loose beside it in the same locker is not on it.
+ */
+/datum/ai_controller/crew_npc/proc/crew_npc_carries(atom/movable/thing)
+	return get_atom_on_turf(thing, /mob/living) == pawn
+
 /// The body's PDA has received a message. It reads it if the PDA is still on it.
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
-	if(!can_sense() || get_atom_on_turf(computer) != pawn)
+	if(!can_sense() || !crew_npc_carries(computer))
 		return
 	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
 	var/mob/living/carbon/human/body = pawn

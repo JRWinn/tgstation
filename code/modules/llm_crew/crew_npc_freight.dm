@@ -79,13 +79,16 @@
 	var/static/list/found_at = list()
 	var/key = "[REF(room)]|[z_level]"
 	var/list/squares = found[key]
-	if(!isnull(squares) && (length(squares) || world.time - found_at[key] < 5 MINUTES))
+	// Looked at again every few minutes, so paint scraped off or a floor taken up is noticed.
+	if(!isnull(squares) && world.time - found_at[key] < 5 MINUTES)
 		return squares
 	squares = list()
 	for(var/turf/open/tile in room.get_turfs_by_zlevel(z_level))
 		for(var/mutable_appearance/paint as anything in tile.overlays)
 			if(paint.icon_state == "bot_white" || paint.icon_state == "bot")
-				squares += tile
+				// Paint on a loading conveyor, or beside a door, marks a way through, not somewhere to leave a crate.
+				if(!(locate(/obj/machinery/conveyor) in tile) && crew_npc_clear_of_doors(tile))
+					squares += tile
 				break
 	found[key] = squares
 	found_at[key] = world.time
@@ -99,7 +102,8 @@
 	var/turf/nearest
 	var/nearest_distance = INFINITY
 	for(var/turf/square as anything in crew_npc_marked_squares(get_area(post_turf), post_turf.z))
-		if(!crew_npc_safe_turf(square) || square.is_blocked_turf(exclude_mobs = TRUE))
+		// Not the body's own spot at the counter, nor beside it.
+		if(!crew_npc_safe_turf(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
 			continue
 		var/distance = get_dist(square, here)
 		if(distance < nearest_distance)

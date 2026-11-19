@@ -71,6 +71,10 @@
 	SIGNAL_HANDLER
 	if(!isturf(body.loc) || !isturf(new_loc))
 		return
+	// A move the body is not making itself (dragged, thrown, carried on a chair, or shuffling where it
+	// is held) is never held back: the one moving it is already a step on, and the grip would break.
+	if(body.moving_from_pull || body.throwing || body.pulledby || body.buckled)
+		return
 	// Shoes that grip need no care taken.
 	var/careful = !HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL) && knows_slippery(new_loc)
 	if(!careful)
