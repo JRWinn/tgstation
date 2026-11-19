@@ -8,6 +8,7 @@ This checkout is /tg/station with LLM-driven crew NPCs being built on the `crew-
 
 Where things are:
 
+- Bugs and gaps found and waiting to be fixed, with how to fix each: `LLM_CREW_BUG_AUDIT/README.md` (branch `crew-bug-audit`)
 - Change log: `LLM_CREW_CHANGELOG.md`
 - What the project is and what was decided: `LLM_CREW_BRIEF.md`
 - Plans, each with a Status section: `LLM_CREW_PLAN_*.md`
