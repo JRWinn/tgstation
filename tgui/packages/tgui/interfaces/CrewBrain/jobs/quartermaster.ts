@@ -68,6 +68,7 @@ import {
   isQuartermaster,
   isTechnician,
   LOST_TOLD_WORDS,
+  letOutLine,
   NOT_PLACED_WORDS,
   NOTED,
   ORDERING,
@@ -1864,15 +1865,21 @@ export const QUARTERMASTER: Job = {
     // goes by PDA. It sends another technician to see what is shutting the way.
     const shutIn = isTechnician(job) ? text.match(SHUT_IN_WORDS) : null;
     if (shutIn) {
-      const other = technicians(brain).find((name) => name !== from);
+      // One it can see lying there or in cuffs is not sent (QM-05).
+      const other = technicians(brain).find(
+        (name) =>
+          name !== from &&
+          !brain.peopleInView.some(
+            (person) => person.name === name && (person.down || person.cuffed),
+          ),
+      );
       if (other) {
+        // Its own line, which the one sent reads as an ask to let the workmate out, and goes to
+        // that door (QM-05). The see-to line only had it take on the shuttle and the rooms.
         ledgerOf(brain).sendFor = {
           to: other,
-          line: seeToLine(
-            firstName(other),
-            `${firstName(from)} is shut in the ${shutIn[1].trim()}`,
-          ),
-          why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to see what is shutting the way.`,
+          line: letOutLine(firstName(other), firstName(from), shutIn[1].trim()),
+          why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
         };
       }

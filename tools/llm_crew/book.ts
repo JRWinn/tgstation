@@ -278,6 +278,36 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('and it is not the "see to it" line', S.SEE_TO_WORDS.test(line), false);
 }
 
+// QM-05: told by PDA that Cora is shut in the Warehouse, the Quartermaster sends Sam with the
+// let-out line, and Sam, hearing it, goes to the Warehouse door for Cora.
+{
+  const { CARGO } = await import(ROOT + 'jobs/cargo');
+  const S = await import(ROOT + 'jobs/supply');
+  const qm = makeBrain('Ada Finch', 'Quartermaster');
+  qm.staffPost = 'Cargo Bay'; qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Sam Rees', job: 'Cargo Technician' }, { name: 'Kim Lie', job: 'Cargo Technician' }];
+  // Kim is in view, lying on the floor: Sam is sent, not Kim.
+  qm.peopleInView = [{ name: 'Kim Lie', job: 'Cargo Technician', handle: 'p3', distance: 3, down: true }];
+  QUARTERMASTER.readsMessage(qm, 'Cora Tech', 'I am shut in the Warehouse and nobody has come to the door. Could you send someone to let me out to the Cargo Bay, please?', 5000, 'Cargo Technician');
+  const sent = qm.ledger?.sendFor;
+  add('the shut-in word sends one who is on their feet, with the let-out line', [sent?.to, sent?.line], ['Sam Rees', 'Sam, Cora is shut in the Warehouse. Could you let them out, please?']);
+  const sam: any = makeBrain('Sam Rees', 'Cargo Technician');
+  sam.post = 'Cargo Bay'; sam.location = 'Cargo Bay'; sam.closedRooms = ['Warehouse']; sam.now = 5100;
+  sam.peopleInView = [{ name: 'Ada Finch', job: 'Quartermaster', handle: 'p1', distance: 1 }];
+  sam.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }];
+  CARGO.overhears(sam, { kind: 'speech', details: { speaker: 'Ada Finch', message: sent?.line ?? '', said_to: 'me' } });
+  add('Sam takes it as a let-out ask from Cora, by PDA, for the Warehouse', (sam.doorAsks ?? []).map((ask: any) => `${ask.name} ${ask.room} ${ask.out} ${ask.byPda}`), ['Cora Tech Warehouse true true']);
+  add('and is not only given the shuttle and the rooms', sam.seeToUntil, 0);
+  CARGO.syncTasks(sam);
+  add('and goes to the Warehouse door for her', sam.tasks.filter((task: any) => task.kind === 'door' && task.state !== 'done').map((task: any) => `${task.item} ${task.place} ${task.out}`), ['Cora Tech Warehouse true']);
+  const kim: any = makeBrain('Kim Lie', 'Cargo Technician');
+  kim.post = 'Cargo Bay'; kim.location = 'Cargo Bay'; kim.closedRooms = ['Warehouse']; kim.now = 5100;
+  kim.peopleInView = [{ name: 'Ada Finch', job: 'Quartermaster', handle: 'p1', distance: 1 }];
+  CARGO.overhears(kim, { kind: 'speech', details: { speaker: 'Ada Finch', message: sent?.line ?? '', said_to: 'other' } });
+  add('a technician it was not said to takes no ask from it', kim.doorAsks ?? [], []);
+  add('the crate line is still the see-to line', S.SEE_TO_WORDS.test(S.seeToLine('Sam', 'crate #12 is in the Supply Shuttle and Cora could not get it off the shuttle')), true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
