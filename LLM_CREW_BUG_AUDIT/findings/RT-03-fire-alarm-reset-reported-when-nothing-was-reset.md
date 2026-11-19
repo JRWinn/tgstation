@@ -5,8 +5,10 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: DOOR-11
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:773, code/game/machinery/firealarm.dm:272
 fix: Reset the alarm by a right click as the body, then look at the room again before saying it worked
