@@ -18,14 +18,14 @@ When security asks the Chief Engineer to have a door forced, `forcingReads` does
 
 The word can fail to come in several ordinary ways:
 
-- **The order never reaches the engineer.** `send` puts it in `toTell`. The driver takes a line out of `toTell` the moment the step that sends it is chosen (`brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells)` in `driver.ts`), before the server answers. A PDA message that does not go (the network down, as when the power fails, or the Chief Engineer's PDA gone) is lost, and nothing sends it again. A line that waits in `toTell` more than two minutes (`TELL_KEPT_MS`) because the Chief Engineer was busy is dropped too.
+- **The order never reaches the engineer.** `send` puts it in `toTell`. The driver takes a line out of `toTell` the moment the step that sends it is chosen (`brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells)` in `driver.ts`), before the server answers. A PDA message that does not go (the network down, as when the power fails) is kept by the server and tried again every 20 seconds (`unsent_messages`, `resend_unsent` in `crew_npc_cargo.dm`), but only for eight minutes (`CREW_NPC_UNSENT_KEPT`); after that it is given up with a line in `game.log` and the brain is not told. A network down for longer than that loses the order. A line that waits in `toTell` more than two minutes (`TELL_KEPT_MS`) because the Chief Engineer was busy is dropped without being sent at all.
 - **The engineer's word back does not reach the Chief Engineer**, by the same two routes.
 - **The engineer is dead, in a cell, or a player** (ENG-03): it never answers.
 - **The engineer left off the job part way** ("left off forcing" in `force_door_open`): the server tells the brain nothing ("Nobody is told it: the errand is no longer this one"), and if the job is then dropped some other way, nothing goes back.
 
 In each case the Head of Security has been told someone is coming and hears no more. `askEngineering` will not ask again for the same room for ten minutes (`ASK_AGAIN_DS`), and when it does, the Chief Engineer sends the same engineer again, adds a second entry for the same room to `forcing.sent`, and tells security "I am sending Kim" again.
 
-One case: twenty minutes in the station power fails and PDA messages stop (the owner's memory note "station power fails early"). An officer is shut out of the Bar; the Head of Security's ask to the Chief Engineer was sent just before the network went. The Chief Engineer's `send` to the engineer fails. `forcing.sent` now holds `{ room: 'Bar', to: 'Kim ...', askedBy: 'Ray ...' }` and will for the rest of the round. Security was told "I am sending Kim to open the Bar." and waits; nobody tells the Captain that the door was never opened.
+One case: twenty minutes in the station power fails and PDA messages stop (the owner's memory note "station power fails early"). An officer is shut out of the Bar; the Head of Security's ask to the Chief Engineer was sent just before the network went. The Chief Engineer's `send` to the engineer fails, is kept by the server, and is given up eight minutes later with the network still down. `forcing.sent` now holds `{ room: 'Bar', to: 'Kim ...', askedBy: 'Ray ...' }` and will for the rest of the round. Security was told "I am sending Kim to open the Bar." and waits; nobody tells the Captain that the door was never opened.
 
 ## Where
 
@@ -71,7 +71,7 @@ Read from the code. Not seen in a round: the one round with a forcing job (`roun
 1. In `jobs/forcing.ts`, add a constant `SENT_WAIT_DS`, say 3000 (five minutes: a walk across the station, two goes at the door, and the word back).
 2. In `syncForcing`, for the Chief Engineer, go through `forcing.sent`. For each entry older than `SENT_WAIT_DS`, drop it and `send` the one who asked `forceFailedLine(firstName(askedBy), room, 'nobody from engineering has said they opened it')`. The Head of Security already reads `FAILED_WORDS`: it then tells the Captain and clears `forcing.asked[room]` so it may ask again. Keep the reason free of "I", as `whyNot` asks.
 3. When a new ask comes in for a room that already has an entry in `forcing.sent`, do not push a second entry or send "I am sending X" again: say the job is in hand.
-4. For a PDA line that matters to a job (this, and the engine words), the lost-on-failure behaviour in the driver is the root. That is the driver's to mend (keep the line in `toTell` until the server answers `ok`), and other findings touch it. The time limit above is needed even then, for the dead or silent engineer.
+4. The server's eight-minute resend covers a short outage. The time limit above is still needed for a longer one, and for the dead or silent engineer, and it is the only thing that tells security.
 
 ## How to test the fix
 
