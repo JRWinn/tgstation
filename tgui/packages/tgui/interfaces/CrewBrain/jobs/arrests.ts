@@ -1167,6 +1167,11 @@ export function beatAfterActing(
       );
       return;
     }
+    // Knocked down itself before it was done: that is no try at them, and says nothing of
+    // whether they would stand still. It goes at them again once it is up.
+    if (reason === 'down') {
+      return;
+    }
     // Would not stand still for the cuffs. The baton comes first from now on.
     if (reason === 'moved') {
       warrant.force = true;
@@ -1232,8 +1237,14 @@ export function beatAfterActing(
       beat.warrants = beat.warrants.filter((it) => it !== warrant);
       return;
     }
-    warrant.cellAttempts = (warrant.cellAttempts ?? 0) + 1;
     const reason = String(details.reason ?? '');
+    // Knocked down itself on the way in or out: the cell did not refuse them, and they did not get
+    // away. The same try is made again once it is up. It keeps its number, so that the try is
+    // held back like any step that failed, and not made over and over while it lies there.
+    if (reason === 'down') {
+      return;
+    }
+    warrant.cellAttempts = (warrant.cellAttempts ?? 0) + 1;
     if (reason === 'no_cell') {
       warrant.noCellAt = brain.now;
       return;

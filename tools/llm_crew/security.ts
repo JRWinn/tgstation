@@ -508,6 +508,36 @@ add('with a baton it does not run: it stops them', [hit.tasks.some((task: any) =
   add('ARR-02: a grab the server tells of is still an attack: it stops them', [beatOf(pulled).attacker?.name, pulled.tasks.some((task: any) => task.kind === 'stop_attacker' && task.state !== 'done')], ['Rex Hand', true]);
 }
 
+// ---- SEC-01: knocked down itself is no try at them, and no getting away
+{
+  const A = await import(ROOT + 'jobs/arrests');
+  const fallen = () => {
+    const o = makeBrain('Hale Stone', 'Security Officer');
+    o.post = 'Security Office'; o.pdaPeople = PDA;
+    know(o, ['Security Office', 'Bar', 'Brig']);
+    o.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+    A.giveWarrant(o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+    at(o, 5000, 'Bar', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Bar', distance: 1 }]);
+    A.syncBeat(o);
+    const task = o.tasks.find((it: any) => it.kind === 'serve_warrant');
+    const warrant = beatOf(o).warrants[0];
+    warrant.toldAt = 4990;
+    return { o, task, warrant };
+  };
+  let f = fallen();
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'down' });
+  add('SEC-01: an arrest cut short by its own fall is no try, and does not bring the baton out', [f.warrant.tries, f.warrant.force, f.warrant.toldAt, A.takeOutcomes(f.o)], [0, false, 4990, []]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'moved' });
+  add('SEC-01: one they walked off from still is a try', [f.warrant.tries, f.warrant.force], [1, true]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'jail', minutes: 5, attempt: 1 }, f.task, false, { reason: 'down', prisoner: 'Pun Pun', cell: 'Cell 1' });
+  add('SEC-01: knocked down on the way into a cell: not lost, not the cell refusing, the same try again', [A.takeOutcomes(f.o), f.warrant.toldAt, f.warrant.cellTries ?? 0, f.warrant.cellAttempts ?? 0, f.warrant.lastSeen], [[], 4990, 0, 0, { place: 'Bar', at: 5000 }]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'jail', minutes: 5, attempt: 1 }, f.task, false, { reason: 'got_away', prisoner: 'Pun Pun' });
+  add('SEC-01: one who got away on the walk is still lost', A.takeOutcomes(f.o).map((it: any) => it.what), ['lost']);
+}
+
 // ---- asking to be let in
 add('the ask names the door, the room and who the warrant is on', S.letInLine('Quin', 'Cargo Lobby ', 'Cargo Bay', 'Marisol Burris'), 'Quin, I am at the Cargo Lobby door of the Cargo Bay with a warrant for Marisol Burris. Could you let me in, please?');
 add('and is known for what it is', S.LET_IN_WORDS.test(S.letInLine('Captain', '', 'Kitchen', 'Pun Pun')), true);
