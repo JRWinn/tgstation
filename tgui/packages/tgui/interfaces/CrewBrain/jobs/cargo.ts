@@ -153,6 +153,17 @@ const ORDERING_WORDS = /\b(order|ordering|requisition)\b/i;
 const PICKUP_ASK_DS = 1200;
 /** Someone who is to be let through the door of the post. The task's item is their name. */
 const DOOR = 'door';
+/**
+ * Standing by a door it has just opened for someone, until they are through (KNB-04, step 7). The
+ * server holds the door from beside it, opening it again if it shuts too soon; a walk given now
+ * would take the body off and leave the door to shut on them. The task's item is their name, its
+ * place the room, its `out` which way.
+ */
+const DOOR_WATCH = 'door_watch';
+/** How long (deciseconds), at most, it stands by a door it opened: the server's hold, 15 s held on up to three times by 5 s, and a little over, so that a lost word cannot keep it there. */
+const DOOR_WATCH_DS = 350;
+/** How long (deciseconds) after seeing them through it stays, for the door to be shut behind them. */
+const DOOR_WATCH_SETTLE_DS = 20;
 /** The words that mark what someone says as asking for a door to be opened. */
 const DOOR_WORDS = /\bdoor\b|let (me|us) (in|out|through)|open up/i;
 /** The words that mark a request for a door as wanting out, not in. */
@@ -877,6 +888,29 @@ function syncTasks(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
+  // The door it is standing by is done with once they are seen through it, and a moment after
+  // for it to be shut behind them; or once the hold would be over in any case.
+  for (const task of brain.tasks) {
+    if (task.kind === DOOR_WATCH && task.state !== 'done') {
+      if (
+        brain.now - task.createdAt > DOOR_WATCH_DS ||
+        brain.now < task.createdAt
+      ) {
+        finishTask(brain, task);
+        continue;
+      }
+      const key = `${brain.id}:${task.id}`;
+      const since = seenThroughAt.get(key);
+      if (!throughDoor(brain, task)) {
+        seenThroughAt.delete(key);
+      } else if (since === undefined) {
+        seenThroughAt.set(key, brain.now);
+      } else if (brain.now - since >= DOOR_WATCH_SETTLE_DS) {
+        seenThroughAt.delete(key);
+        finishTask(brain, task);
+      }
+    }
+  }
   // Someone who asked by PDA and is not being let in is told so, by name, once. Nobody sent for
   // them, and a door locked to the crew does not open for the asking. Not someone who may come
   // in and is only waiting behind whoever the door is being opened for first, and never someone
@@ -958,6 +992,15 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === WONT_COME) {
     return wontComeStep(brain, task);
+  }
+  if (task.kind === DOOR_WATCH) {
+    // Waiting, and asked for: it ranks ahead of the rest of its work, so no walk takes it off.
+    return {
+      ready: false,
+      wait: true,
+      asked: true,
+      step: `You have opened the door of the ${task.place} for ${task.item} and are standing by it until they are through.`,
+    };
   }
   if (task.kind === DOOR) {
     // Whoever it is may be on the far side of the door, out of sight. The body still knows them.
@@ -1338,6 +1381,23 @@ function doorWanted(brain: NpcBrain): DoorWant | null {
     return null;
   }
   return want;
+}
+
+/** When whoever a door is being held for was first seen through it, by the technician's id and the task's. */
+const seenThroughAt = new Map<string, number>();
+
+/**
+ * TRUE if whoever a door is being held for is seen through it: let in, standing in the room it
+ * was opened into; let out, seen outside that room. Not seen at all, it cannot tell, and waits on.
+ */
+function throughDoor(brain: NpcBrain, task: Task): boolean {
+  const person = brain.peopleInView.find((seen) => seen.name === task.item);
+  if (!person) {
+    return false;
+  }
+  const inside =
+    task.place === brain.post ? !!person.in_post : person.place === task.place;
+  return task.out ? !inside : inside;
 }
 
 /** The warrant named by security asking at the door ("with a warrant for X"): by the technician's id, then by who asked. */
@@ -1723,6 +1783,9 @@ function describeTask(task: Task): string | null {
   }
   if (task.kind === DOOR) {
     return `open the door for ${task.item}`;
+  }
+  if (task.kind === DOOR_WATCH) {
+    return `hold the door of the ${task.place} for ${task.item}`;
   }
   if (task.kind === POST) {
     return 'get back to your post';
@@ -2110,6 +2173,25 @@ export const CARGO: Job = {
         } else {
           noteLetIn(brain.post, task.item, task.place, brain.name, brain.now);
         }
+      }
+      // It stands by the door while it is held, and takes no new walk until they are through.
+      if (ok && task.item && task.place) {
+        // Which way, as worked out above when the door was noted as opened.
+        const opened = lastOpened.get(brain.id);
+        const out =
+          opened?.name === task.item ? opened.out : (task.out ?? false);
+        for (const old of brain.tasks) {
+          if (old.kind === DOOR_WATCH && old.state !== 'done') {
+            finishTask(brain, old);
+          }
+        }
+        addTask(brain, {
+          kind: DOOR_WATCH,
+          item: task.item,
+          place: task.place,
+          urgency: 'asked',
+          source: 'own',
+        }).out = !!out;
       }
       const call = brain.post ? brain.janitorCalls[brain.post] : undefined;
       if (call && call.to === task.item) {
