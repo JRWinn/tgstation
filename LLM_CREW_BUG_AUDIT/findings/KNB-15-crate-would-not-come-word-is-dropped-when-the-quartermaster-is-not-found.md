@@ -3,10 +3,11 @@ id: KNB-15
 title: Word that a crate would not come is dropped without a trace when the Quartermaster is not found, and a technician who cannot reach its office door holds it five minutes for nothing
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:652, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:385, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1467, tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:221
 fix: When tellQuartermaster gives up on a would-not-come word, send the same line to the Quartermaster by PDA and have its readsMessage pass a technician's WONT_COME_WORDS to crateHeldUp
@@ -78,8 +79,8 @@ Read from the code, starting from the two 09:20 lines. The face-to-face path is 
 
 The owner ruled that word between the Quartermaster and a technician goes face to face, and then allowed one exception by PDA ("I am shut in"). CARGO-02 asks the owner the same question for an order that came in. Ask once for both: "When a technician has looked for the Quartermaster and not found it, may the word go by PDA?" If yes:
 
-1. In `syncWontCome`, when `telling.byPda` is set and the word is still `owed`, do not close the task. Return a step that sends the Quartermaster the same line by PDA: `{ tool: 'message', person: quartermaster.name, text: wontComeLine(...) }`, as the order path does for whoever ordered. Close the task once the message result comes back, and set `wontComeTold[item]`.
-2. In `tellQuartermaster`, also set `byPda` when the `go_to_door` for the office has failed twice (keep a count on the task, as `unheard` is kept), so a body that cannot reach the door does not hold the word for five minutes.
+1. In `syncWontCome`, when `telling.byPda` is set, the word is still `owed` and the body has a PDA (`brain.hasPda`), do not close the task. A sync function gives no step, so the step goes in `wontComeStep`: when `tellQuartermaster` returns null and `task.byPda` is set, return `{ ready: true, act: { tool: 'message', person: quartermaster.name, text: wontComeLine(...) } }`, as the waiting-crate path just above it does for whoever ordered. In cargo's `afterActing`, on that `message` for a `WONT_COME` task, set `task.sentByPda = true` (a new field on `Task`) whether it went or not, and set `wontComeTold[item]` if `ok`. `syncWontCome` then closes on `sentByPda` instead of `byPda`. With no PDA, close as now.
+2. In `tellQuartermaster`, also set `byPda` when the `go_to_door` for the office has failed twice (keep a count on the task, as `unheard` is kept, counted in cargo's `afterActing` on `act.tool === 'go_to_door' && !ok`, where the `knock` bookkeeping already is), so a body that cannot reach the door does not hold the word for five minutes. `tellQuartermaster` is shared with the order-came-in and still-waiting words, so this change reaches those too; that is wanted.
 3. In the Quartermaster's `readsMessage`, under `isTechnician(job)`, match `WONT_COME_WORDS` and call `crateHeldUp(brain, from, stuck[1].trim(), stuck[2], stuck[3] ?? null)`, as `overhears` does. Do not push the "I have that" line: the PDA result is the technician's proof it was sent.
 4. Mend the comment at `cargo.ts:650`.
 5. If the owner says no: at least log it. Add a sense event or a `game.log` line when the word is dropped, so a round shows it.
@@ -89,3 +90,7 @@ The owner ruled that word between the Quartermaster and a technician goes face t
 - Type check.
 - Simulator: `qmstuck` makes `unload` fail by hand. Add a variant in which the Quartermaster is sent off to a far room before the shuttle docks. Check that it is sent "I could not get crate #N off the shuttle" by PDA and that another technician is then told "See to it, please."
 - In a round: `grep -n "could not get crate" pda.log` should show the line whenever `game.log` has "has given up hauling" and the Quartermaster was away.
+
+## Check
+
+Checked by Opus 5.5. Read `tellQuartermaster` (`cargo.ts:328-410`): `byPda` is set only after two unheard tellings (362) or, with the Quartermaster out of sight, when there is no office or the knock was 90 seconds ago (`AT_QM_DOOR_DS = 900`, 385-390). `knockedAt` is set only in `afterActing` on a successful `knock` (`cargo.ts:1931`), so a body whose `go_to_door` keeps failing never reaches that give-up. Read `syncWontCome` (`cargo.ts:637-675`): `byPda` closes the task and clears `brain.gaveUp` with nothing sent, and `wontComeStep` (678-700) has no PDA step either; `WONT_COME_DS = 3000` is the five minutes. Read the Quartermaster's `readsMessage` (`quartermaster.ts:1445-1494`): a technician's PDA is read for `DOCKED_WORDS`, `ARRIVED_WORDS` and `SHUT_IN_WORDS` only; `WONT_COME_WORDS` and `crateHeldUp` are reached only from `overhears` (1538-1547). The two lines quoted from the 09:20 entry are at `LLM_CREW_CHANGELOG.md:995-996` and no later entry touches them. Not a duplicate: CARGO-02 is the order-came-in word on the same give-up, and CARGO-18 and LOGB-07 are about the face-to-face path. Confirmed. I raised effort to medium (three changes across `cargo.ts`, `quartermaster.ts` and a `Task` field) and put the PDA step in `wontComeStep`, since `syncWontCome` gives no step.
