@@ -130,11 +130,22 @@ const SAID_MAX = 200;
 /** The words that mark what a head says or writes to it as an order for supplies. */
 const ORDER_WORDS =
   /\b(order|ordering|requisition|buy|purchase)\b|\b(need|want|get|send)\b[^.?!]*\bcrates?\b/i;
-/** The words of the Captain's answer about a purchase. No is looked for first: "not approved" has both. */
+/**
+ * The words of the Captain's answer about a purchase. A bare "no" is a refusal only standing on
+ * its own ("No.", "No, not now.", "the answer is no") or as "no to order 2": "no rush", "no one",
+ * "no worries" and "no need to ask" are not. "Don't" is a refusal only of the buying itself.
+ */
 const NO_WORDS =
-  /\b(no|nope|nah|denied|deny|refused?|rejected?|not approved|do not|don'?t|negative|cancel)\b/i;
+  /^\s*no\b(?=\s*([.!,;:]|$|to\b))|\bno[.!]?\s*$|\bno to\b|\bno,? thanks?\b|\bno thank you\b|\b(nope|nah|denied|deny|refused?|rejected?|negative|cancel)\b|\bnot (approved?|ok(ay)?|fine|granted|authori[sz]ed|now)\b|\b(don'?t|do not)\s+(buy|order|get|place|approve|go ahead|bother|do it)\b/i;
 const YES_WORDS =
-  /\b(yes|yep|yeah|aye|approved?|granted|go ahead|go on|do it|buy it|get it|place it|places? (that|the|your) order|put it through|fine|ok|okay|sure|agreed|authori[sz]ed|no (objection|problem))\b/i;
+  /\b(yes|yep|yeah|aye|approved?|granted|go ahead|go on|go for it|do it|buy it|get it|place it|places? (that|the|your) order|put it through|fine|ok|okay|sure|agreed|authori[sz]ed|affirmative|absolutely|of course|green light|sounds good|very well|all ?right|no (objection|problem))\b/i;
+/** A yes said the other way about: "not approved", "don't buy it". Taken out before the yes is looked for. */
+const NEGATED_YES =
+  /\b(not|never|don'?t|do not)\s+(approved?|ok(ay)?|fine|granted|authori[sz]ed|agreed|buy it|get it|do it|place it|go ahead|go for it|put it through)\b/gi;
+/** An order named by its number: "order 3", "order #3", "#3". A bare number is a count of crates. */
+const ORDER_NUMBER = /(?:\border\s*#?|#)\s*\d+\b/i;
+/** A line of this many words or more is no answer about an order, unless it names the order. */
+const ANSWER_WORDS = 12;
 /**
  * The words that mark what the Captain says as being about an order, when it is neither a plain
  * yes or no nor an order that names a crate. With one waiting on their say, it is asked about.
@@ -383,8 +394,12 @@ function takeOrder(
   const ledger = ledgerOf(brain);
   const items = itemsAskedFor(said.toLowerCase(), brain.orderable);
   if (items.length === 0) {
-    // Only an outright order for something it cannot get is answered. Anything else is talk.
-    if (/\b(order|ordering|requisition)\b/i.test(said)) {
+    // Only an outright order for something it cannot get is answered. Anything else is talk, and
+    // so is a line about an order in the book by its number: "no to order 3".
+    if (
+      /\b(order|ordering|requisition)\b/i.test(said) &&
+      !ORDER_NUMBER.test(said)
+    ) {
       sendWord(
         brain,
         from,
@@ -476,6 +491,10 @@ export function orderAnswered(
   if (byNumber) {
     return byNumber;
   }
+  // A line that names another order is about that one: "cancel order 3" is no refusal of order 1.
+  if (named.length > 0) {
+    return undefined;
+  }
   // With none named, the answer is to the question asked last: the message in front of them.
   return [...asking].sort(
     (one, other) => (other.askedAt ?? -1) - (one.askedAt ?? -1),
@@ -483,18 +502,55 @@ export function orderAnswered(
 }
 
 /**
- * Reads what the Captain has said or written as its answer about a purchase, if it is one.
- * Returns TRUE if it was.
+ * What a line says as a yes or a no: both are looked for, and a line with both is unclear. NULL
+ * if it has neither.
  */
-function readAnswer(brain: NpcBrain, text: string): boolean {
+export function yesOrNo(text: string): 'yes' | 'no' | 'unclear' | null {
+  const no = NO_WORDS.test(text);
+  const yes = YES_WORDS.test(text.replace(NEGATED_YES, ' '));
+  if (yes && no) {
+    return 'unclear';
+  }
+  return yes ? 'yes' : no ? 'no' : null;
+}
+
+/**
+ * Reads what the Captain has said or written as its answer about a purchase, if it is one.
+ * Returns TRUE if it was. An answer is short, or names the order, and orders nothing of its own:
+ * a line that names a crate is a new order, and its yes or no is asked about (see `headsLine`).
+ * One with a yes and a no in it is asked about too, rather than guessed at.
+ */
+function readAnswer(
+  brain: NpcBrain,
+  captain: string,
+  text: string,
+  aloud: boolean,
+): boolean {
   const ledger = ledgerOf(brain);
   const order = orderAnswered(ledger, text);
-  const no = NO_WORDS.test(text) && !/\bno (objection|problem)\b/i.test(text);
-  const yes = YES_WORDS.test(text);
-  if (!order || (!no && !yes)) {
+  if (!order) {
     return false;
   }
-  if (no) {
+  const namesIt = new RegExp(`(?:\\border\\s*#?|#)\\s*${order.n}\\b`, 'i').test(
+    text,
+  );
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (
+    (!namesIt && words >= ANSWER_WORDS) ||
+    itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0
+  ) {
+    return false;
+  }
+  const answer = yesOrNo(text);
+  if (answer === null) {
+    return false;
+  }
+  if (answer === 'unclear') {
+    // Asked at most twice; after that the line is let go, and the order waits.
+    askWhatWasMeant(brain, captain, text, aloud, true);
+    return true;
+  }
+  if (answer === 'no') {
     order.state = 'refused';
     ledger.toWrite.push(BOOK.no(order));
     if (!order.own) {
@@ -520,6 +576,8 @@ function readAnswer(brain: NpcBrain, text: string): boolean {
  * answered with "I cannot order that", and the order it was about waited for the rest of the shift.
  *
  * It asks in the way it was spoken to: aloud to someone standing there, by PDA otherwise.
+ * `plainly` is TRUE when the line had a yes or a no in it that could not be taken as the answer:
+ * both at once, or said with a new order. Then it asks whatever else the line is about.
  * Returns TRUE if it asked.
  */
 function askWhatWasMeant(
@@ -527,13 +585,15 @@ function askWhatWasMeant(
   captain: string,
   text: string,
   aloud: boolean,
+  plainly = false,
 ): boolean {
   const ledger = ledgerOf(brain);
   const order = orderAnswered(ledger, text);
   if (
     !order ||
-    !ABOUT_ORDER_WORDS.test(text) ||
-    itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0 ||
+    (!plainly &&
+      (!ABOUT_ORDER_WORDS.test(text) ||
+        itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0)) ||
     (order.unclear ?? 0) >= UNCLEAR_ASKS
   ) {
     return false;
@@ -554,6 +614,39 @@ function askWhatWasMeant(
     });
   } else {
     sendWord(brain, captain, `Captain, is that a yes or a no to ${about}?`, why);
+  }
+  return true;
+}
+
+/**
+ * What a head or the Captain says or sends it that is not the Captain's plain answer about an
+ * order: an order of their own, or, from the Captain with an order waiting on their say, words
+ * about it that it cannot read. Returns TRUE if the line was theirs to it.
+ */
+function headsLine(
+  brain: NpcBrain,
+  from: string,
+  job: string,
+  text: string,
+  aloud: boolean,
+): boolean {
+  if (!isHead(job)) {
+    return false;
+  }
+  const captain = /captain/i.test(job);
+  // Something the Captain has said about an order, with one waiting on their say, that is no
+  // plain answer and names no crate: asked about, not taken for a new order.
+  if (captain && askWhatWasMeant(brain, from, text, aloud)) {
+    return true;
+  }
+  if (!ORDER_WORDS.test(text)) {
+    return false;
+  }
+  takeOrder(brain, from, job, text);
+  // "Ok, order me a crate of lights" with order 1 waiting: the new order is taken, and whether
+  // the ok was to order 1 is asked, not guessed.
+  if (captain && yesOrNo(text) !== null) {
+    askWhatWasMeant(brain, from, text, aloud, true);
   }
   return true;
 }
@@ -1454,7 +1547,7 @@ export const QUARTERMASTER: Job = {
   // An order from a head, the Captain's answer about one, or the Captain telling it to find out
   // how its staff are doing, by PDA.
   readsMessage: (brain, from, text, _at, job) => {
-    if (/captain/i.test(job) && readAnswer(brain, text)) {
+    if (/captain/i.test(job) && readAnswer(brain, from, text, false)) {
       return;
     }
     if (answersTo(brain.job, job) && isMeetingOrder(brain, text)) {
@@ -1463,13 +1556,7 @@ export const QUARTERMASTER: Job = {
       }
       return;
     }
-    // Something the Captain has written about an order, with one waiting on their say, that is
-    // no plain answer and names no crate: asked about, not taken for a new order.
-    if (/captain/i.test(job) && askWhatWasMeant(brain, from, text, false)) {
-      return;
-    }
-    if (isHead(job) && ORDER_WORDS.test(text)) {
-      takeOrder(brain, from, job, text);
+    if (headsLine(brain, from, job, text, false)) {
       return;
     }
     // A technician who could not find it sends word that an order has come in by PDA: in the
@@ -1613,7 +1700,7 @@ export const QUARTERMASTER: Job = {
     if (event.details.said_to !== 'me') {
       return;
     }
-    if (/captain/i.test(job) && readAnswer(brain, heard)) {
+    if (/captain/i.test(job) && readAnswer(brain, speaker, heard, true)) {
       return;
     }
     // Someone it answers to telling it to find out how its staff are doing: a meeting is called.
@@ -1626,14 +1713,7 @@ export const QUARTERMASTER: Job = {
       }
       return;
     }
-    // Something the Captain has said about an order, with one waiting on their say, that is no
-    // plain answer and names no crate: asked about, not taken for a new order.
-    if (/captain/i.test(job) && askWhatWasMeant(brain, speaker, heard, true)) {
-      return;
-    }
-    if (isHead(job) && ORDER_WORDS.test(heard)) {
-      takeOrder(brain, speaker, job, heard);
-    }
+    headsLine(brain, speaker, job, heard, true);
   },
   afterSaying: (brain, called) => {
     if (!called) {

@@ -133,6 +133,40 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('a count of crates is no order number', orderAnswered(waiting, 'yes, 1 crate is fine')?.n, 2);
 }
 
+// QM-01: the Captain's answer about an order waiting on their say, read for both yes and no.
+{
+  const waitingQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 600;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 1. Asked the Captain.'], 5000), next: 2, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    return qm;
+  };
+  const answered = (line: string) => {
+    const qm = waitingQm();
+    QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, 5100, 'Captain');
+    const one = qm.ledger.orders[0];
+    const said = qm.toTell.map((tell: any) => tell.line).join(' | ');
+    return `${one.state}${one.approved ? ` (${one.approved})` : ''}, ${qm.ledger.orders.length} in book${/yes or a no/.test(said) ? ', asked' : ''}${/said no/.test(said) ? ', told no' : ''}${/cannot order/i.test(said) ? ', cannot order' : ''}`;
+  };
+  add('"Sure, no worries." is a yes', answered('Sure, no worries.'), 'new (captain), 1 in book');
+  add('"Approved, but don\'t spend more than that." is a yes', answered("Approved, but don't spend more than that."), 'new (captain), 1 in book');
+  add('"Yes, go for it. No need to ask again." is a yes', answered('Yes, go for it. No need to ask again.'), 'new (captain), 1 in book');
+  add('"No one goes into the vault today." is no answer', answered('No one goes into the vault today.'), 'asking, 1 in book');
+  add('"No rush, but order me a crate of replacement lights." is a new order, and order 1 waits', answered('No rush, but order me a crate of replacement lights.'), 'asking, 2 in book');
+  add('"Ok, order me a crate of replacement lights." is a new order, and the ok is asked about', answered('Ok, order me a crate of replacement lights.'), 'asking, 2 in book, asked');
+  add('"Go for it" is a yes', answered('Go for it'), 'new (captain), 1 in book');
+  add('"Affirmative" is a yes', answered('Affirmative'), 'new (captain), 1 in book');
+  add('"Yes, place that order." is a yes, and nothing is sent back', answered('Yes, place that order.'), 'new (captain), 1 in book');
+  add('"No, not now." is a no', answered('No, not now.'), 'refused, 1 in book, told no');
+  add('"Not approved." is a no', answered('Not approved.'), 'refused, 1 in book, told no');
+  add('"Don\'t buy it." is a no', answered("Don't buy it."), 'refused, 1 in book, told no');
+  add('"Yes. No." is asked about', answered('Yes. No.'), 'asking, 1 in book, asked');
+  add('"No to order 3" is not about order 1', answered('No to order 3'), 'asking, 1 in book');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
