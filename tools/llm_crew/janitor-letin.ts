@@ -55,6 +55,25 @@ function calledOnce() {
   add('knocked, messaged and nobody came: still given up', task?.state, 'blocked');
 }
 
+// BRAIN-03: the asking at the door is wanted unless this door is held open for it. A door still
+// held from being let out of the room behind it is no way in.
+{
+  const { b, task } = calledOnce();
+  b.atDoorOf = 'Cargo Bay';
+  b.doorHeld = true;
+  b.doorHeldOut = false;
+  b.doorHeldFor = null;
+  const plan: any = JANITOR.plan(b, task);
+  add('held from being let out: it asks at the door', [!!plan?.say, plan?.sayIf?.()], [true, true]);
+  b.doorHeldFor = 'Library';
+  add('another room\'s door held: the line is still wanted', plan?.sayIf?.(), true);
+  b.doorHeldOut = true;
+  b.doorHeldFor = 'Cargo Bay';
+  add('this door held to let it out: the line is still wanted', plan?.sayIf?.(), true);
+  b.doorHeldOut = false;
+  add('this door held open for it meanwhile: the line is dropped', plan?.sayIf?.(), false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

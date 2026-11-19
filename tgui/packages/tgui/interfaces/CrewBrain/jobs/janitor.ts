@@ -108,10 +108,11 @@ export const NEEDS_SCRUBBING = 'it needs scrubbing with soap or a rag';
 /** The words of a call that asks a janitor to come only if it has that. */
 const ONLY_IF_WORDS = /needs scrubbing with soap or a rag\b.*\bif you have one\b/is;
 /**
- * The kinds of mess that only scrubbing shifts. A mop washes the floor and a spray washes what
- * it is sprayed at: neither moves these, and they stay when the floor round them is washed.
+ * The kinds of mess that only scrubbing shifts. A mop does not reach these and a spray only washes
+ * what it is sprayed at: they stay when the floor round them is mopped. Decomposing garbage and a
+ * gooey grey mass are not among them: a wet mop scrubs the floor and takes those up (JAN-02).
  */
-const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;
+const SCRUB_KINDS = /^(cobweb|rubble)$/i;
 
 /** Writes a short list the way it is said: "cobweb", "cobweb and rubble", "oil, ashes and dirt". */
 function listed(names: string[]): string {
@@ -235,10 +236,19 @@ function lacksTool(brain: NpcBrain): boolean {
   return !brain.cleaningTool || brain.poorTool;
 }
 
-/** The cleaning gear it knows the whereabouts of that would be worth going for: anything, or with a rag in hand, anything better. */
+/**
+ * The cleaning gear it knows the whereabouts of that would be worth going for: a proper tool if it
+ * knows of one, else, with nothing in hand, a rag. With a rag in hand, only something better.
+ * Taking the rag first would leave it short and send it back for the mop, so that one janitor held
+ * two of a crate's tools and the next had only the rag (TRA-01).
+ */
 function knownSupply(brain: NpcBrain): string | undefined {
-  const worthHaving = brain.poorTool ? PROPER_SUPPLY : CLEANING_SUPPLY;
-  return allKnownItems(brain).find((item) => worthHaving.test(item));
+  const known = allKnownItems(brain);
+  const proper = known.find((item) => PROPER_SUPPLY.test(item));
+  if (proper || brain.poorTool) {
+    return proper;
+  }
+  return known.find((item) => CLEANING_SUPPLY.test(item));
 }
 
 /**
@@ -757,8 +767,10 @@ function letInStep(
       say: `${caller.name.split(' ')[0]}, I am at the ${which}door${within || which ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
       needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
       // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
-      // for it would only get it opened a second time.
-      sayIf: () => !brain.doorHeld,
+      // for it would only get it opened a second time. Only this door counts: one held to let it
+      // out of the room behind it, or the door of some other room, is no way in (BRAIN-03).
+      sayIf: () =>
+        !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door),
     };
   }
   if (brain.now - asks.at < LET_IN_WAIT_DS) {
