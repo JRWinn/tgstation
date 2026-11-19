@@ -2,11 +2,12 @@
 id: ENG-03
 title: The emitters-off order, and every other engineering order, goes to whichever engineer is first in sight or on the PDA list, a player or a dead one included, not to the one that lit the engine
 kind: bug
-severity: high
+severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: engineering
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:133, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:371, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:212, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineering.ts:45
 fix: Have the Chief Engineer remember which engineer took the engine (and each door job) and give later orders to that one, and fall back to another only after the first has not answered twice, preferring one that has spoken the crew's set words before
@@ -20,11 +21,11 @@ The Chief Engineer does not keep who its engineer is. Each time it has an order 
 
 - a player who joined as a Station Engineer;
 - an engineer who is dead, or whose PDA is lying on the floor;
-- another owner's NPC engineer.
+- another owner's NPC engineer. That one does no harm: it runs the same code, takes "Emitters off, now" said to its first name, and switches the emitters off. The failing cases are a player and a dead or lost PDA.
 
 So with a player engineer aboard, the order that matters most, "Emitters off, now", can be sent by PDA to the player. The NPC engineer that lit the engine, which is the only one that will act on the set words, never hears it. The Chief Engineer then waits 90 seconds for `OFF_WORDS` ("the emitters are off"), which a player will not say in those words, and sends it again to whoever `engineer()` now gives. Nothing ever counts the tries.
 
-The light, relight and shut orders all go through `giveStep`, which calls `engineer(brain)` afresh each time; nothing ties them to the one that has the engine. The door-forcing order picks `engineersAboard(brain)[0]`, without even preferring one in sight.
+The light, relight and shut orders all go through `giveStep`, which calls `engineer(brain)` afresh each time; nothing ties them to the one that has the engine. The door-forcing order picks `engineersAboard(brain)[0]`. That does prefer one in sight, because `engineersAboard` lists `peopleInView` before `pdaPeople`, so it picks the same engineer `engineer()` would.
 
 One case: a round with a player as Station Engineer, whose PDA was made before the NPC's. The first meeting goes well: `lightStep` gives the engine to an engineer present at the meeting, the NPC, which lights it. Forty minutes later integrity falls to 94. `syncTasks` sets `chief.order = { what: 'shut' }`. The Chief Engineer is in its office; no engineer in sight. `engineer(brain)` returns `names[0]`, the player. `giveStep` sends the player "Jo, the engine is losing integrity. Emitters off, now." by PDA. `afterActing` sees the message sent and sets `shutGivenAt`. The NPC engineer, in Engineering, is told nothing. Ninety seconds later the same message goes to the player again. If the player is away, or does not read PDAs, or answers "on it", the emitters stay on.
 
@@ -86,3 +87,17 @@ Owner's question: should a player engineer be given orders at all? The rules say
 - `tools/llm_crew/engine.ts`: a Chief Engineer brain whose `pdaPeople` lists two engineers, the first never answering. After the engine was taken by the second, the shut order's `act.person` must be the second.
 - Simulator: add a second engineer to the `engine` scenario that never speaks, put first in the PDA list. The engine must still be shut off when the toy crystal's integrity falls.
 - In a round with a player engineer, grep `pda.log` for "Emitters off, now" and check whom it was sent to.
+
+## Check
+
+Checked by Opus 5.5. Confirmed. Severity lowered to medium.
+
+- Every quote matches the code today: `engineer()` at `chiefengineer.ts:133`, `giveStep` at `chiefengineer.ts:371`, `forcingReads` at `forcing.ts:212`, `engineersAboard` at `engineering.ts:45`.
+- `people_on_pda` (`crew_npc_cargo.dm:666`) lists every messenger in `GLOB.pda_messengers` that has a `saved_identification` and lies on a station level. It does not check who holds it, or whether they are alive or a player. The order follows the list's order, which our code does not control.
+- `giveStep` with the engineer out of sight and a PDA to hand sends the order by message. On a send that goes through, `afterActing` sets `shutGivenAt` and clears the order, and 90 seconds later `syncTasks` makes it again for whoever `engineer()` gives then. The Chief Engineer never walks to look for the engineer that has the engine. The NPC engineer takes the order only when its own first name leads the line (`saidTo`), so a PDA to someone else never reaches it.
+- Ran a throwaway script (bun, outside the repo). A Chief Engineer had "Jo Player" then "Sam Rees" (both Station Engineer) on its PDA, was told "the engine is lit" by Sam, then read integrity 90. Its shut-order step was `{"tool":"message","person":"Jo Player","text":"Jo, the engine is losing integrity. Emitters off, now."}`.
+- Two mends to the write-up: `forcingReads` does prefer an engineer in sight (see What is wrong), and another owner's NPC engineer is not a failing case.
+- Not a duplicate. HOLE-08 and HOLE-13 describe the general pattern and do not mention engineering. This file adds the engineering case and its fix.
+- Nothing in the change log or `LLM_CREW_PLAN_ENGINEERING.md` decides who among several engineers is ordered. The plan assumes one.
+- Severity medium, not high. It needs a second engineer aboard who is not a working NPC (a player, or a dead or lost PDA), listed first or in the Chief Engineer's sight. Every round so far has had one engineer. Where it does happen it is the safety order that goes astray, so it should be fixed with ENG-01. Effort medium stands: window only, in `chiefengineer.ts`, `forcing.ts` and `types.ts`.
+- The fix is sound and keeps the senses-only rule: step 1 takes the name from who said the set words. One addition for step 1: the meeting's `lightStep` gives the engine to the first engineer present, who may be the player. The NPC then starts by itself after `STANDING_DS` and says "the engine is lit", so take the name from `LIT_WORDS` over `ENGINE_TAKEN_WORDS` when the two differ.
