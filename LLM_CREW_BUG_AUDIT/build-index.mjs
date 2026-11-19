@@ -165,3 +165,68 @@ if (unreadable.length) {
 }
 writeFileSync(join(HERE, 'INDEX.md'), out.join('\n'));
 console.log(`INDEX.md written: ${findings.length} findings (${bugs.length} open bugs, ${gaps.length} open gaps, ${closed.length} closed)${unreadable.length ? `, ${unreadable.length} unreadable` : ''}.`);
+
+// SUMMARY.md: the open bugs for the owner to look over. Most severe first; within each severity the
+// easiest fix first; within that, confirmed before unsure before not yet checked. Gaps come after, apart.
+const STATUS_RANK = { confirmed: 0, unsure: 1, found: 2 };
+const CONFIDENCE_RANK = { sure: 0, likely: 1, guess: 2 };
+const summaryOrder = (a, b) =>
+  SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) ||
+  EFFORTS.indexOf(a.effort) - EFFORTS.indexOf(b.effort) ||
+  (STATUS_RANK[a.status] ?? 3) - (STATUS_RANK[b.status] ?? 3) ||
+  (CONFIDENCE_RANK[a.confidence] ?? 3) - (CONFIDENCE_RANK[b.confidence] ?? 3) ||
+  a.id.localeCompare(b.id, 'en', { numeric: true });
+const checkWord = (row) => (row.status === 'confirmed' ? 'confirmed' : row.status === 'unsure' ? 'unsure' : `not checked${row.confidence ? `, finder ${row.confidence}` : ''}`);
+const plain = (text) => String(text).replace(/\s+/g, ' ').trim();
+const effortWords = { small: 'Small fix (a few lines, one file)', medium: 'Medium fix (one part of the code)', large: 'Large fix (a design change, or both halves)' };
+let number = 0;
+function summaryList(rows, label) {
+  const lines = [];
+  for (const severity of SEVERITIES) {
+    const ofSeverity = rows.filter((row) => row.severity === severity).sort(summaryOrder);
+    if (!ofSeverity.length) continue;
+    lines.push(`## ${label}: ${severity} (${ofSeverity.length})`, '');
+    for (const effort of EFFORTS) {
+      const ofEffort = ofSeverity.filter((row) => row.effort === effort);
+      if (!ofEffort.length) continue;
+      lines.push(`### ${effortWords[effort]}: ${ofEffort.length}`, '');
+      for (const row of ofEffort) {
+        number++;
+        lines.push(`${number}. **[${row.id}](findings/${row.file})** (${checkWord(row)}, ${row.area}): ${plain(row.title)}`);
+        lines.push(`   - Fix: ${plain(row.fix) || 'see the finding'}`);
+      }
+      lines.push('');
+    }
+  }
+  return lines;
+}
+const sum = [];
+const openBugs = bugs;
+const openGaps = gaps;
+sum.push('# Crew NPC bugs: the summary');
+sum.push('');
+sum.push('**Built by `build-index.mjs` from `findings/`; do not edit by hand.** Every open bug, most severe first, and within each severity the easiest fix first. Duplicates, refuted findings and fixed ones are left out. Each bug links to its finding, which has the code, a concrete case, the steps to fix it and how to test it.');
+sum.push('');
+sum.push('Beside each: **confirmed** means a second reviewer tried to prove it wrong and could not. **not checked** means only its finder has looked at it; "finder sure" or "likely" is how sure that finder was. **unsure** means the second reviewer could not settle it.');
+sum.push('');
+sum.push(`${openBugs.length} open bugs (${count(openBugs, 'confirmed')} confirmed), then ${openGaps.length} gaps. ${closed.length} findings are closed (duplicates, refuted or fixed) and not listed.`);
+sum.push('');
+sum.push('| Severity | Small fix | Medium fix | Large fix | All | Confirmed |');
+sum.push('| --- | --- | --- | --- | --- | --- |');
+for (const severity of SEVERITIES) {
+  const rows = openBugs.filter((row) => row.severity === severity);
+  sum.push(`| ${severity} | ${EFFORTS.map((effort) => rows.filter((row) => row.effort === effort).length).join(' | ')} | ${rows.length} | ${count(rows, 'confirmed')} |`);
+}
+sum.push('');
+sum.push('Severity: **critical** stops a body, the whole crew or the window for the rest of the round; **high** makes a job fail or loop in a case most rounds will meet, breaks the no-cheats rule, or acts on the wrong person; **medium** is wrong in rarer cases, or noticeable while the work still gets done; **low** is wording, log noise, dead code or a misleading test.');
+sum.push('');
+sum.push(...summaryList(openBugs, 'Bugs'));
+sum.push('---');
+sum.push('');
+sum.push('# Gaps: missing or half built, for you to decide');
+sum.push('');
+sum.push('Not faults in what is there, but things planned and not built, or never thought of. Most need your decision before anyone builds them. Same order: most important first, then the smallest piece of work.');
+sum.push('');
+sum.push(...summaryList(openGaps, 'Gaps'));
+writeFileSync(join(HERE, 'SUMMARY.md'), sum.join('\n'));
+console.log(`SUMMARY.md written: ${openBugs.length} bugs and ${openGaps.length} gaps, numbered 1 to ${number}.`);

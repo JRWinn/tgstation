@@ -5,11 +5,12 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_motor.dm:94, code/modules/llm_crew/crew_npc_tools.dm:397, code/datums/ai/movement/ai_movement_navmap_astar.dm:45, code/datums/ai/generic_behaviors/move_to_target.dm:44, code/modules/llm_crew/crew_npc_cargo.dm:241
-fix: In start_walk, when a walk is already running, stop the old move loop (ai_movement.stop_moving_towards) before setting the new target, so the walk leaf starts a fresh loop with the new target and the right required_dist
+fix: In start_walk, when a different walk is already running, clear BB_CREW_NPC_WALK_TARGET before setting the new one, so the decorator cancels the old walk leaf and the next tick sets it up afresh with the new target and the right required_dist
 ---
 
 ## What is wrong
@@ -35,6 +36,8 @@ Why the leaf is not set up again: the walk decorator is `bb_key_set` with `BT_AB
 3. `tool_go_to` calls `start_walk(warehouse_spot, CREW_TOOL_GO_TO, "Warehouse", CREW_NPC_TRAVEL_TIMEOUT)`. `walk_tool` becomes `go_to`, the key becomes the Warehouse spot.
 4. The leaf's `perform` sees a new target, resets `started_at`, and the base `perform` calls `start_moving_towards`, which finds a loop already running and only calls `update_movement_target`. The loop keeps `target = post_turf`.
 5. The technician walks back to its counter and stands there. The route is empty, 20 failed steps later the movement fails, and the brain is told "You stop on the way to Warehouse: there is no way through. You are in Cargo Bay." The Warehouse goes into `blocked_places` and `blocked_tries`.
+
+(Checker's note: this case needs the `go_to` to land in the few seconds a return walk takes, since `return_to_post` only fires within the post's own room and `CREW_NPC_POST_LEASH` is 2. The cases below are the more common ones: in each the driver issues the new walk straight on top of the old one, with no stop sent first, `driver.ts` around line 733.)
 
 The same happens for every other walk that is replaced by a walk: being asked to step aside while walking (`dropToMove` in `driver.ts`), an order from someone it answers to that drops the walk it is on (`orderToDrop`), being told to leave the room (`dropToLeave`), and an officer whose patrol walk is dropped for a sighting when the next step is a walk.
 

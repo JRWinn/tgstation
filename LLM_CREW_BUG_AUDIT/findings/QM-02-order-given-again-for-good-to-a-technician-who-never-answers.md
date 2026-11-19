@@ -2,11 +2,12 @@
 id: QM-02
 title: An order is given to a technician who is down, dead or a human player, and given to the same one again every minute for the rest of the round
 kind: bug
-severity: high
-effort: small
+severity: medium
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:964, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:800, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:179, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1593
 fix: Leave out technicians who are down or cuffed when picking, count how often an order has gone unanswered and after two give it to another free technician, and take a plain ok from the technician it was given to as taken
@@ -86,3 +87,9 @@ Read from the code, then the script above (imports `tools/llm_crew/fixtures.ts` 
 ## How to test the fix
 
 Add the case above to `tools/llm_crew/book.ts`: one technician `down`, one standing; the order must go to the standing one. Add a second: one technician who never answers; after two lapses the order goes to the other. Add a third: the technician answers "on it"; `taken` is set. Type check and lint. In the next round, grep `game.log` for the give line ("order N: I need to order") and count how often the same line is said to the same person.
+
+## Check
+
+Read `syncTasks` (the lapse block), `giveStep` (`again`), `technicians`, `freeTechnicians` and the `TAKEN_WORDS` branch of `overhears` in `jobs/quartermaster.ts`; `TAKEN_WORDS` in `jobs/supply.ts:88`; the technician's side in `jobs/cargo.ts:2138` (it answers "Order N, right away." each time it is given the order, so a living NPC technician does answer); `people_on_pda` in `crew_npc_cargo.dm:666` (every named PDA on a station level, dead owner or not) and the `down` and `cuffed` fields in `crew_npc_senses.dm:191`. The quotes are what the code says. Ran a throwaway script in the scratchpad: a Quartermaster in the Cargo Bay, Cora Tech (`down`) and Vik Hale (standing) in view, order 1 given to Cora at 100; stepping `syncTasks`, `plan` and `afterSaying` every 10 seconds to 12,100 it said "Cora, order 1: ..." 17 times, every 70 seconds, and never to Vik. Not refuted: nothing passes over a down technician or counts lapses.
+
+Giving it again to the same one is a choice (change log, 12:23 round item (15); `LLM_CREW_PLAN_QUARTERMASTER.md:94`, "it gives the order again"), made so a technician who was not heard is not doubled up. That choice is sound for a living NPC technician; the fault is that it has no end. Severity lowered to medium: a living NPC technician always answers, so this needs a technician who is dead, unconscious or a human player, which comes up in some rounds, not most. Effort raised to medium: steps 1 to 3 touch `quartermaster.ts` and `types.ts` and come to more than 20 lines. Note for step 1: `down` is also set for a technician who has only slipped (`TRAIT_FLOORED`, `crew_npc_person_down`); such a one can still hear and answer, so passing over them for one giving is harmless, but do not count a slip as a lapse. Note for step 3: only take the short ok while the order is `given`, from `givenTo`, and within `TAKEN_WAIT_DS`, or a technician's unrelated "sure" marks the wrong order taken.

@@ -27,13 +27,14 @@ This folder is a list of bugs and gaps found in the LLM crew NPC work, each with
 
 | File | What it is |
 | --- | --- |
-| `INDEX.md` | The list: bugs by severity, easiest fix first, with the proposed change beside each. Then the gaps. Built by a script, so it may be older than the findings: build it again before you trust it. |
+| `SUMMARY.md` | The list to read through: every open bug numbered, most severe first, easiest fix first within each, with the proposed fix under each and whether it was confirmed. Then the gaps, apart. Built by the same script as `INDEX.md`. |
+| `INDEX.md` | The same list as tables, with the status, the model that found it and the place in the code, and the closed findings at the end. Built by a script, so it may be older than the findings: build it again before you trust it. |
 | `findings/` | One file for each bug or gap. The top block of each holds its severity, effort, status and one-line fix. |
 | `FORMAT.md` | How a finding is written, what each key means, and how to mark one checked or fixed. |
 | `build-index.mjs` | Builds `INDEX.md` from the findings. |
 | `save.sh` | Commits this folder, on this branch only. |
 
-Build the list again at any time:
+Build `INDEX.md` and `SUMMARY.md` again at any time:
 
 ```
 tools/bootstrap/.cache/bun-v1.3.5-x64/bun.exe LLM_CREW_BUG_AUDIT/build-index.mjs
