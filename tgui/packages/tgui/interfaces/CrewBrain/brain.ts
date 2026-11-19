@@ -142,6 +142,8 @@ const CHOICE_TIMEOUT_MS = 15000;
 /** Most tokens the LLM may spend reading an order code could not: three short fields. And how long that call may take. */
 const READING_MAX_TOKENS = 60;
 const READING_TIMEOUT_MS = 15000;
+/** A reading of an order is the likeliest one, not a varied one. */
+const READING_TEMPERATURE = 0;
 
 type Act = (action: string, payload?: object) => void;
 
@@ -1274,6 +1276,8 @@ async function readOrder(
       call.schema,
       READING_MAX_TOKENS,
       READING_TIMEOUT_MS,
+      // Its answer can become an arrest: the same message must read the same way every time.
+      READING_TEMPERATURE,
     );
     if (mySession !== session) {
       return;
@@ -2035,6 +2039,8 @@ async function callOllama(
   /** Most tokens the reply may run to, and how long the call may take. */
   maxTokens = REPLY_MAX_TOKENS,
   timeoutMs = THINK_TIMEOUT_MS,
+  /** How varied the reply is. A reading of an order wants the likeliest answer: 0. */
+  temperature = TEMPERATURE,
 ): Promise<{ text: string; promptTokens: number }> {
   const controller = new AbortController();
   inFlight = controller;
@@ -2051,7 +2057,7 @@ async function callOllama(
         think: false,
         keep_alive: '30m',
         options: {
-          temperature: TEMPERATURE,
+          temperature,
           num_predict: maxTokens,
           num_ctx: CONTEXT_TOKENS,
         },
