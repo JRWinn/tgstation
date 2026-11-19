@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1541, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1350, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:266
 fix: In tidyStep leave the call to the keeper only while leftTo says they are about, as every other piece of the standing work does
@@ -80,3 +81,13 @@ Read from the code, not seen in a round. `LLM_CREW_PLAN_QUARTERMASTER.md` says "
 - Simulator: the `qm` scenario divides the work. Add a step that takes the technician with the rooms out of the bay for good and puts a mess in the bay, and check that the other one sends the janitor a PDA message within a few minutes.
 - Type check.
 - In a round: `pda.log` should show a call for a janitor from the technician who does not have the rooms, after the one who does has been taken to the Brig.
+
+## Check
+
+Read on 2026-11-19 against `crew-bug-audit` at 2501deacd0c. The quotes are what the code says (the `roomsKeeper` test is at `cargo.ts:1541`, `leftTo` at 266, `dutyOf` at 253).
+
+- `plan` (`cargo.ts:938`) tests `leftTo(brain, dutyOf(task))` first. For a `tidy` task `dutyOf` gives `freightDuty(task)`, not `'rooms'`: the `isTidying` in `dutyOf` is `kind === 'put_away'` (`jobs/tidying.ts:16`), not the `TIDY` kind. So `plan` goes straight to `tidyStep`, and `tidyStep` returns not-ready whenever `roomsKeeper(brain)` names someone else. `roomsKeeper` reads only `brain.duties`; nothing in it or before it asks where the keeper is.
+- No other path sends the call: the only janitor call is the `message` act built further down `tidyStep`, reached only past that test.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this on purpose for a keeper who is away; the Quartermaster plan's rule (leave another's part only while they are about) is the opposite.
+
+Confirmed. The fix is right and small: `leftTo(brain, 'rooms')` already covers the "not divided", "mine", `seeToUntil` and "not seen for a minute" cases. Two things to add to it: the step-in technician must not wait the usual stagger on top of the minute `leftTo` already waited (keep the stagger, it is short); and the fix inherits CARGO-12's fault, so a keeper lying in view still blocks the call until CARGO-12 is built. In the simulator, a test can take the keeper out of the scene (remove the body from the sim's people list) rather than wait on a `down` flag the sim never sets (`sim.ts:1092` sends `down: 0` for everyone).

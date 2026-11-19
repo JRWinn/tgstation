@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1839, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:101, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2072, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:384
 fix: In itemsAskedFor strip who the order is for before matching, split on question and exclamation marks too, and take every kind a clause names by its own words rather than the first kind on the list
@@ -75,6 +76,16 @@ Not seen in a round: the test rounds' heads use the fixed "for my staff" line. P
 
 ## How to test the fix
 
-- Add the five lines above, and the existing multi-kind line "two crates of janitorial supplies and a crate of light bulbs", as cases in the order-reading table under `tools/llm_crew/` (or a small bun check like the one above), wanting Replacement Lights, Replacement Lights, 2 Replacement Lights, Replacement Lights, Bureaucracy Crate (once PARSE-06 gives paper its words), and the two kinds.
+- Add the five lines above, and the existing multi-kind line "two crates of janitorial supplies and a crate of light bulbs", as cases in the items table in `tools/llm_crew/reports.ts` (the `items` helper at line 50), wanting Replacement Lights, Replacement Lights, 2 Replacement Lights, Replacement Lights, Bureaucracy Crate (once PARSE-06 gives paper its words), and the two kinds.
 - Type check the window code.
 - In a round, ask a technician "Can you order some light bulbs for the janitors?" and check `game.log` for the order line naming Replacement Lights.
+
+## Check
+
+Read on 2026-11-19 against `crew-bug-audit` at 2501deacd0c, and ran a throwaway bun script in the scratchpad (imports `brain.ts`, then `itemsAskedFor` from `jobs/cargo.ts`, orderable in the server's order).
+
+- The quotes are what the code says: `CRATE_ASKED_AS` (`cargo.ts:100`), the `orderable.find` in `itemsAskedFor` (1838-1839), `fills` overwriting the model's crate (2071-2075), and the Quartermaster's `takeOrder` calling the same reader (`quartermaster.ts:384`). The server sends the names in the order of `orderable_crates()` (`crew_npc_cargo.dm:31`, via `assoc_to_keys` in `crew_brain_link.dm:144`), so the Janitorial Supplies Crate is always tried first.
+- The script printed `Janitorial Supplies Crate` for "can you order some light bulbs for the janitors?", "... replacement lights for the janitor, please", "two crates of light bulbs for the cleaner" (count 2) and "could you order a crate of lights? the janitor says ...". "can you order some light bulbs?" gives Replacement Lights, so it is the "for the janitor" that does it.
+- Not in the change log or the plans. PARSE-06 is a different fault (kinds with no words); its fix (janitor words as word starts, `\bjani`) still matches "janitors", so it does not mend this one.
+
+Confirmed. On the fix: step 1 is the one that matters, and step 3 must not go in without it, or "lights for the janitor" becomes an order for both crates. Keep step 1 to the job words (janitor, cleaner, custodian, staff, crew, department) and leave out "for <a name>" unless a case needs it; it needs the PDA names passed in and gains little. Drop step 4's lookahead: it is easy to get wrong and step 1 already covers it. The table to add the cases to is the items table in `tools/llm_crew/reports.ts` (`items(said)`, line 50), which already imports `itemsAskedFor`.
