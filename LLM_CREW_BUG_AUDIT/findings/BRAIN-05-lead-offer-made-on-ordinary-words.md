@@ -33,7 +33,7 @@ and the reply:
     "say": "Hey Caden! That dirt looks delicious, but I gotta find my space cleaner first. Where did I leave it?",
     "move": { "tool": "go_to", "place": "Cargo Lobby" }
 
-Caden Campbell had done the same three seconds earlier on the same line. Two of three janitors left the closet for the Cargo Lobby before they had picked up a tool. Others: `round-19.33.50`... no, see the list under "How it was found".
+Caden Campbell had done the same three seconds earlier on the same line. Two of three janitors were sent off to the Cargo Lobby before they had picked up a tool. The other eight are listed under "How it was found".
 
 ## Where
 
