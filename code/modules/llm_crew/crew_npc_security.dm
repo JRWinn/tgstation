@@ -828,6 +828,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		details["handle"] = handle_for(wanted)
 		details["place"] = get_area_name(wanted, TRUE)
 		details["keepers"] = room_keepers(get_area(wanted))
+		// Fire doors shut between them are said, as for a walk: the brain resets a pulled alarm to open them.
+		fire_door_report(details)
 	if(tool == CREW_TOOL_GET_KIT)
 		details += kit_details()
 		var/atom/target = kit_target?.resolve()
