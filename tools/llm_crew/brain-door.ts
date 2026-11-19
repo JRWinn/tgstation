@@ -122,6 +122,20 @@ const what = (step: any) => (step ? [step.act?.tool ?? 'say', step.act?.place ??
     CARGO.syncTasks(b);
     add('after 36 s: it gives up standing there', watching(b), false);
   }
+  {
+    // KNB-04 step 7: the server says the hold is over, out of sight of her: the watch ends then.
+    const { doorHoldOver } = await import(ROOT + 'jobs/cargo');
+    const b = opened();
+    b.now += 50;
+    CARGO.syncTasks(b);
+    doorHoldOver(b, 'Mining Office', 'Collin Archibald');
+    add('hold over for someone else: still by the door', watching(b), true);
+    doorHoldOver(b, 'Mining Office', 'Marina Shaffer');
+    add('hold over for her: the watch is over at once', watching(b), false);
+    b.toTell = [];
+    const step = nextStep(b);
+    add('and it goes to the next door', [step?.act?.tool, step?.act?.name], ['open_door', 'Collin Archibald']);
+  }
 }
 
 let failed = 0;

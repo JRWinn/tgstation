@@ -23,6 +23,7 @@ import {
   readPickup,
 } from './jobs/pickups';
 import { isWarrantOn, securityFeels } from './jobs/arrests';
+import { doorHoldOver } from './jobs/cargo';
 import { deskRead } from './jobs/desk';
 import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
@@ -659,6 +660,16 @@ export function ingest(npcs: Npc[], now: number): void {
         if (typeof closed === 'string') {
           brain.fireClosed[closed] = Date.now() + FIRE_CLOSED_MS;
         }
+      }
+      // The server let go of a door it was holding open for someone: stop standing by it.
+      if (typeof event.details.door_hold_over === 'string') {
+        doorHoldOver(
+          brain,
+          event.details.door_hold_over,
+          typeof event.details.door_held_for === 'string'
+            ? event.details.door_held_for
+            : '',
+        );
       }
       if (event.kind === 'person_in_view') {
         brain.lastArrivalAt = Date.now();

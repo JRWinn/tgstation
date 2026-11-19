@@ -1400,6 +1400,27 @@ function throughDoor(brain: NpcBrain, task: Task): boolean {
   return task.out ? !inside : inside;
 }
 
+/**
+ * The server says the hold on a door is over ("You are done holding the door of X for Y."): the
+ * watch on it ends, so the body is free to walk on at once and does not stand there until the
+ * time limit when they went through out of its sight (KNB-04, step 7). Matched by whom the door
+ * was held for, else by the room; a watch for someone else is left alone.
+ */
+export function doorHoldOver(
+  brain: NpcBrain,
+  room: string,
+  person: string,
+): void {
+  for (const task of brain.tasks) {
+    if (task.kind !== DOOR_WATCH || task.state === 'done') {
+      continue;
+    }
+    if (person ? task.item === person : !room || task.place === room) {
+      finishTask(brain, task);
+    }
+  }
+}
+
 /** The warrant named by security asking at the door ("with a warrant for X"): by the technician's id, then by who asked. */
 const warrantAsks = new Map<string, Map<string, string>>();
 /** Whom a warrant is for, in the words of an ask for a door: "a warrant for Pun Pun, who is in the ...". */
