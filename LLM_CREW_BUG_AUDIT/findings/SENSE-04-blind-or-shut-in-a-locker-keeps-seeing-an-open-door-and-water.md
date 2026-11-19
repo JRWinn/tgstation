@@ -26,7 +26,7 @@ So these keep the value from the last look before the body went blind or into th
 
 Separately, `last_seen_at` is left alone, so `recently_saw` stays true for everyone seen in the last `CREW_NPC_SIGHT_MEMORY` (15 s). Tools that check `recently_saw` (`tool_throw_out`, `tool_hold`, the door tool) accept a person for 15 s after the body was blinded. That is a small window and partly fair (it saw them a moment ago); it is noted here because the comment on `recently_saw` says "in view".
 
-One concrete case. A cargo technician is shut in the Warehouse (`shut_in`). Someone opens the Warehouse door; the next look sets `open_door_in_view = TRUE`. Before the technician reaches it, Pun Pun pushes it into the Warehouse locker and shuts it. Each look now takes the "not on a floor" return: the lists are cleared, `open_door_in_view` stays TRUE, and the window keeps sending the walk out through the door, which fails each time ("You are not standing on a floor"-type failures from the walk), until the tries run out.
+One concrete case. A cargo technician is shut in the Warehouse (`shut_in`). Someone opens the Warehouse door; the next look sets `open_door_in_view = TRUE`. Before the technician reaches it, Pun Pun pushes it into the Warehouse locker and shuts it. Each look now takes the "not on a floor" return: the lists are cleared, `open_door_in_view` stays TRUE, and the window keeps sending the walk out through the door, which fails each time (the base `allowed_to_move` in `_ai_movement.dm` will not step a body that is not on a turf, and the walk gives up after its tries), until the driver's tries run out.
 
 ## Where
 

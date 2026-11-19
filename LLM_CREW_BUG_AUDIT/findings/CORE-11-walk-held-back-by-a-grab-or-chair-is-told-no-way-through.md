@@ -16,7 +16,7 @@ fix: In the walk leaf, when the move loop gave up because the body was not allow
 
 See also: LIFE-01, which is the stunned case: the walk ended by the controller switching off. This is the other half: the controller stays on, but the body is not allowed to step.
 
-The crew controller keeps running while the body is cuffed or in an aggressive grab (`get_able_to_run` ignores `INCAPABLE_RESTRAINTS` and `INCAPABLE_GRAB`, on purpose: "Cuffed or grabbed crew can still shuffle about and talk"). So a walk carries on. But the base move loop will not step a body that is incapacitated in any way while someone pulls it, nor one that cannot move (`MOBILITY_MOVE` gone, as when buckled to a chair or a bed), nor one inside something. Each refused step is counted by `increment_pathing_failures`, and after `max_pathing_attempts` (20) `fail_movement` sends `COMSIG_MOB_AI_MOVEMENT_FAILED`. The walk leaf takes every such failure to mean the route is shut:
+The crew controller keeps running while the body is cuffed or in an aggressive grab (`get_able_to_run` ignores `INCAPABLE_RESTRAINTS` and `INCAPABLE_GRAB`, on purpose: "Cuffed or grabbed crew can still shuffle about and talk"). So a walk carries on. But the base move loop will not step a body that is incapacitated in any way while someone pulls it, nor one that cannot move (`MOBILITY_MOVE` gone), nor one inside something. And a body buckled to an anchored chair or bed tries each step and gets nowhere: `/mob/living/Move` hands the step to what it is buckled to and returns, and an anchored chair does not move (`living.dm:1049`), so each step is a `MOVELOOP_FAILURE`. Each refused or failed step is counted by `increment_pathing_failures`, and after `max_pathing_attempts` (20) `fail_movement` sends `COMSIG_MOB_AI_MOVEMENT_FAILED`. The walk leaf takes every such failure to mean the route is shut:
 
     	if(movement_failed)
     		fail_reason = CREW_NPC_NO_WAY
@@ -26,7 +26,7 @@ The crew controller keeps running while the body is cuffed or in an aggressive g
 Cases:
 
 1. The Captain, or any player, cuffs a crew member and drags it to the brig. It was walking to the Bar when cuffed. Every step is refused (`INCAPACITATED_IGNORING(pawn_mob, INCAPABLE_STASIS) && pawn.pulledby`), and after 20 the Bar is "no way through". (Crew security's own arrests clear the walk first, `crew_npc_security.dm:1399`, so this is a player's arrest or any other pull of a cuffed body.)
-2. A player puts a crew member in a chair and buckles it (or it is strapped to a medbay bed). Every walk it is told to take fails at once as "no way through", the room it was going to is written off, and it soon decides it is shut in where it sits.
+2. A player puts a crew member in a bolted-down chair and buckles it (or it is strapped to an anchored medbay bed). Every walk it is told to take fails at once as "no way through", the room it was going to is written off, and it soon decides it is shut in where it sits.
 3. A player holds it in an aggressive grab for a few seconds while it was walking: the same.
 
 None of these is a shut route, and a body that feels a hand on its arm or a strap across its lap knows it.
@@ -81,7 +81,7 @@ Read from the code, including the base `allowed_to_move` and `pre_move`. Not see
 ## How to fix it
 
 1. In `crew_npc_walk/perform`, before setting `fail_reason = CREW_NPC_NO_WAY`, look at the body as the base `allowed_to_move` does and name what stopped it:
-   - `body.buckled`: "you are strapped into the [buckled]";
+   - `body.buckled` and the thing it is buckled to is anchored: "you are strapped into the [buckled]";
    - `body.pulledby` and the body is cuffed or in an aggressive grab: "[pulledby] has hold of you";
    - `!(body.mobility_flags & MOBILITY_MOVE)`: "you cannot move your legs";
    - `!isturf(body.loc)`: "you are shut inside the [loc]".
