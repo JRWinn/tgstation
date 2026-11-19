@@ -461,14 +461,25 @@ function orderForItself(brain: NpcBrain, crate: string): void {
 }
 
 /** The order of those the Captain has been asked about that an answer is to: the one it names, or the one asked about first. */
-function orderAnswered(ledger: Ledger, text: string): LedgerOrder | undefined {
+export function orderAnswered(
+  ledger: Ledger,
+  text: string,
+): LedgerOrder | undefined {
   const asking = ledger.orders.filter(
     (order) => order.state === 'asking' && order.approved === null,
   );
-  const named = [...text.matchAll(/\b(\d+)\b/g)].map((found) =>
-    Number(found[1]),
+  // A number names an order only after "order" or "#": "yes, 2 crates" is no order number.
+  const named = [...text.matchAll(/(?:\border\s*#?|#)\s*(\d+)\b/gi)].map(
+    (found) => Number(found[1]),
   );
-  return asking.find((order) => named.includes(order.n)) ?? asking[0];
+  const byNumber = asking.find((order) => named.includes(order.n));
+  if (byNumber) {
+    return byNumber;
+  }
+  // With none named, the answer is to the question asked last: the message in front of them.
+  return [...asking].sort(
+    (one, other) => (other.askedAt ?? -1) - (one.askedAt ?? -1),
+  )[0];
 }
 
 /**

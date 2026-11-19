@@ -22,3 +22,10 @@ Built: crew no longer search or open a large wooden crate by hand; it is left al
 
 - A. Leave them alone (as built).
 - B. Have cargo, or an engineer, pry them open with a crowbar from its locker when what is inside is wanted.
+
+## QM-08: with two orders waiting on the Captain, how is a bare yes or no read?
+
+Built: it is taken as the answer to the order asked about last (the message in front of the Captain), and a number counts as naming an order only after "order" or "#".
+
+- A. Keep that.
+- B. With two or more waiting and none named, ask "Captain, is that order 2 (...) or order 1 (...)?" and act on neither until told.

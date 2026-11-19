@@ -93,6 +93,16 @@ for (const duties of [['counter'], ['shuttle', 'rooms'], ['counter', 'shuttle', 
 }
 add('talk about the work is not handing it out', dutiesIn('Cora, the counter is busy this shift.'), null);
 
+// QM-08: which waiting order an answer from the Captain is about.
+{
+  const { orderAnswered } = await import(ROOT + 'jobs/quartermaster');
+  const waiting = { orders: [{ n: 1, state: 'asking', approved: null, askedAt: 1000 }, { n: 2, state: 'asking', approved: null, askedAt: 4000 }, { n: 3, state: 'new', approved: 'self', askedAt: null }] } as any;
+  add('two waiting, a bare yes is to the one asked about last', orderAnswered(waiting, 'Yes.')?.n, 2);
+  add('"yes to order 1" is to order 1', orderAnswered(waiting, 'Yes to order 1')?.n, 1);
+  add('"#1 is fine" is to order 1', orderAnswered(waiting, '#1 is fine')?.n, 1);
+  add('a count of crates is no order number', orderAnswered(waiting, 'yes, 1 crate is fine')?.n, 2);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
