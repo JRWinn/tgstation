@@ -153,6 +153,8 @@ const heardFrom = new WeakMap<NpcBrain, Map<string, Speaker>>();
  * the report for the LLM to know of, but nothing is taken on, agreed to or ordered from it.
  */
 const linesForMe = new WeakMap<NpcBrain, Set<string>>();
+/** NPCs waiting on or with the LLM that have been told to stand still for it. */
+const heldToTalk = new WeakSet<NpcBrain>();
 /** Ids of NPCs waiting for the LLM. One GPU serves one request at a time, so they take turns. */
 const queue: string[] = [];
 /** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
@@ -824,8 +826,18 @@ export function ingest(npcs: Npc[], now: number): void {
     if (brain.wake && brain.awake && brain.status === 'idle') {
       brain.status = 'queued';
       queue.push(brain.id);
-      stopToTalk(brain);
+      // A remark it may or may not make is no reason to stop: it stands still once it has a line.
+      if (!remarkOnly(brain)) {
+        stopToTalk(brain);
+      }
       changed = true;
+    } else if (
+      brain.status === 'queued' &&
+      !heldToTalk.has(brain) &&
+      !remarkOnly(brain)
+    ) {
+      // Queued only to remark, it has since been spoken to or given a line to say.
+      stopToTalk(brain);
     }
   }
   if (changed) {
@@ -840,6 +852,7 @@ export function ingest(npcs: Npc[], now: number): void {
  * end of the hallway. It turns to whoever spoke to it, or failing that whoever is there.
  */
 function stopToTalk(brain: NpcBrain): void {
+  heldToTalk.add(brain);
   // A step aside it was asked for is taken first, and talked over: holding it would stop the walk
   // with the asker still waiting to get by.
   if (brain.lastAct?.act.tool === 'step_aside') {
@@ -855,6 +868,18 @@ function stopToTalk(brain: NpcBrain): void {
       args: { person: person.handle },
     });
   }
+}
+
+/**
+ * TRUE when all an NPC is queued for is a remark of its own accord: nobody waits on an answer and
+ * no line is called for. Worked out when needed, as a speaker can join while it waits its turn.
+ */
+export function remarkOnly(brain: NpcBrain): boolean {
+  return (
+    brain.remarkDue &&
+    brain.pendingSpeakers.size === 0 &&
+    brain.mustSay === null
+  );
 }
 
 /** The words of a line that carry what it says, for telling whether two lines say the same thing. */
@@ -1377,6 +1402,7 @@ async function think(brain: NpcBrain): Promise<void> {
     if (brain.pending.length === 0 && brain.pendingSpeakers.size === 0) {
       brain.wake = false;
       brain.status = 'idle';
+      heldToTalk.delete(brain);
       running = false;
       notify();
       pump();
@@ -1431,8 +1457,12 @@ async function think(brain: NpcBrain): Promise<void> {
   brain.mustSayExact = false;
   brain.sayingNow = mustSay !== null;
   brain.status = 'thinking';
-  // It may have waited its turn for the LLM a good while. It stands still from here until it has spoken.
-  stopToTalk(brain);
+  brain.remarking = remark;
+  // It may have waited its turn for the LLM a good while. It stands still from here until it has
+  // spoken, unless all it is asked for is a remark it may not make: the line stops it when said.
+  if (!remark) {
+    stopToTalk(brain);
+  }
   notify();
 
   const started = Date.now();
@@ -1762,12 +1792,16 @@ async function think(brain: NpcBrain): Promise<void> {
   brain.lastThinkEnd = Date.now();
   brain.lastActiveAt = Date.now();
   brain.status = 'idle';
+  brain.remarking = false;
+  heldToTalk.delete(brain);
   running = false;
   // More may have happened while the LLM was busy.
   if (brain.wake && brain.awake) {
     brain.status = 'queued';
     queue.push(brain.id);
-    stopToTalk(brain);
+    if (!remarkOnly(brain)) {
+      stopToTalk(brain);
+    }
   }
   notify();
   pump();

@@ -1537,6 +1537,8 @@ export type NpcBrain = {
   /** When this NPC last had something to do, in this window's clock (milliseconds). */
   lastActiveAt: number;
   lastDecision?: Decision;
+  /** TRUE while the LLM is being asked only for a remark of the NPC's own accord (ASYNC-07). */
+  remarking?: boolean;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
