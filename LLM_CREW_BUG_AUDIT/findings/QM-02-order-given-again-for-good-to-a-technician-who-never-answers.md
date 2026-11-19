@@ -14,6 +14,8 @@ fix: Leave out technicians who are down or cuffed when picking, count how often 
 
 ## What is wrong
 
+See also: HOLE-08 (the dead and the silent counted on for good, across all jobs). This is the Quartermaster's case of it, with its own cause (`again` in `giveStep`), a proof, and a fix that stands alone: here the Quartermaster passes over a free technician standing next to it.
+
 The Quartermaster gives an order to a technician by saying "Cora, order 1: I need to order a crate of janitorial supplies, for Hop Kins." It then waits a minute (`TAKEN_WAIT_DS`, 600) to hear the technician's fixed reply "Order 1, right away." If it does not hear it, `syncTasks` puts the order back to `cleared` with `pick` set to the same technician, and `giveStep` gives it to that same technician again, because `order.givenTo` is still one of `technicians(brain)`. There is no count and no limit. Nothing else ever frees the order for another technician but the words "order 1 did not go through".
 
 Who never says "Order 1, right away":

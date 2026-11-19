@@ -5,8 +5,10 @@ kind: bug
 severity: high
 effort: medium
 confidence: likely
-status: found
+status: duplicate
+duplicate_of: ARR-02
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1530, code/modules/llm_crew/crew_npc_security.dm:853, code/modules/llm_crew/crew_npc_guarding.dm:173, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1253, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:975
 fix: Do not tell the brain of a hold taken by a crew member putting it out of a room or by security arresting it, and refuse the stop-with-baton on a head of staff as it is refused on the Captain
@@ -99,3 +101,7 @@ The question for the owner: should an officer on a warrant be exempt from being 
 - Simulator: a scenario with an officer in the Cargo Bay and a technician who puts it out. The officer must not open a `stop_attacker` task. `sim.ts` plays the server, so it has to send the "takes hold of you" event the way the real server now would (or not at all).
 - Server compile on a side copy.
 - In a round: pull the officer as a non-Captain body, and have the Quartermaster walk it out of the bay. Grep `game.log` for "was laid hands on by" and for "(stop)": there should be no baton line after a grab.
+
+## Check
+
+Checked by Opus 5.5. Duplicate of ARR-02: the grab half is the same cause (`on_grabbed` tells a crew walk-out as an attack, and `securityFeels` makes the puller an attacker) and the same change mends it. The useful parts of this file (the `hold_arrested` case, the player's pull, the deferred skip on `in_hand_of` and `arrested_by`) are copied into ARR-02. The other half, the baton let through on a head of staff in `tool_arrest` and the `STOP` step, is a separate cause and a separate change: that is ARR-03. Body left as written.

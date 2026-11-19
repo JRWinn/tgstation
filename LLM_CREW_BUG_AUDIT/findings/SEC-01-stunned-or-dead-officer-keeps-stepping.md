@@ -5,14 +5,17 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:373, code/modules/llm_crew/crew_npc_security.dm:410, code/modules/mob/living/living.dm:1046
-fix: Before every body.Move in close_with and walk_steps, stop unless the body is awake, not immobilised and not buckled, the check the wander and the walk loops already make
+fix: Before every body.Move in close_with and walk_steps, stop unless the body has MOBILITY_MOVE, is not dead and is not buckled, the check the wander already makes
 ---
 
 ## What is wrong
+
+See also: SEC-03 (the same loops run on after the errand is called off, a different cause; both fixes add a check at the top of the same loop turns and can be built together).
 
 `close_with` (the steps after someone it means to hit or cuff) and `walk_steps` (the steps into and out of a cell) move the body with a bare `body.Move(next, dir)` in a loop with a `sleep` between steps. Neither looks at the state of the body before a step. The only checks are that the body, the controller and the target still exist and stand on a floor.
 
@@ -80,7 +83,7 @@ Read from the code. Not seen in a round: nobody has looked for it, and the log w
 
 ## How to fix it
 
-1. Add one small proc beside `close_with`, for example `/datum/ai_controller/crew_npc/proc/can_step()`, that returns FALSE when the body is `QDELETED`, `body.stat != STABLE` (this tree has no `CONSCIOUS` define, `crew_npc_person_down` in the same file uses `STABLE`), `IS_UNCONSCIOUS(body)`, `!(body.mobility_flags & MOBILITY_MOVE)`, `body.buckled`, or `HAS_TRAIT(body, TRAIT_IMMOBILIZED)`. Look at what `can_move` in `code/datums/ai/` idle walk checks and match it, so there is one rule.
+1. Add one small proc beside `close_with`, for example `/datum/ai_controller/crew_npc/proc/can_step()`, that returns FALSE when the body is `QDELETED`, `!(body.mobility_flags & MOBILITY_MOVE)`, `body.stat == DEAD`, or `body.buckled`. `MOBILITY_MOVE` is the core of it: it is what `/client/Move` (`mob_movement.dm`) and `can_move` in `code/datums/ai/generic_behaviors/random_walk.dm` both test, and it is cleared by `TRAIT_IMMOBILIZED` (`init_signals.dm`), which stun, paralyse, immobilise and the knocked-out status all add, and unconsciousness and death bring in through `TRAIT_KNOCKEDOUT`. `stat == DEAD` is there because `/client/Move` tests it apart. `body.stat != STABLE` would also stop a body in soft crit, which a player can crawl in; that is allowed, not needed. Also stop when `body.pulledby && body.pulledby.grab_state > GRAB_PASSIVE`: a player held in an aggressive grab has to resist first (`Process_Grab` in `/client/Move`). Do not use `can_move` itself: it refuses any pull at all, and a passive pull does not stop a player.
 2. In `close_with`, call it at the top of the loop, next to the `QDELETED` line, and return FALSE if it fails. A body knocked to the floor (`TRAIT_FLOORED` only) can crawl, as a player can: let that through, but then wait the crawling pace, not 0.2 seconds. `movement_delay` already follows `cached_multiplicative_slowdown`, so `sleep(max(movement_delay, 0.2 SECONDS))` is right once the stunned case is out.
 3. In `walk_steps`, call it inside the `while`, before `body.Move`, and return FALSE.
 4. In `baton_hits`, when `close_with` or `click_as_body` fails and `can_step()` is false (or the body `INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_GRAB)`), set `baton_stopped = "it was knocked down itself"` and `break`, so the loop does not burn its 8 swings in 1.6 seconds. In `make_arrest`, send that back with a reason of its own (for example `"down"`), not `moved`. The window then needs one line in `beatAfterActing` (`arrests.ts`) so that `down` does not set `warrant.force` or count as a try. Until the window knows the new reason, sending `lost` is wrong too (it posts "I lost them"): leave the reason out and it falls to the plain "one try" count, which is the least harm.

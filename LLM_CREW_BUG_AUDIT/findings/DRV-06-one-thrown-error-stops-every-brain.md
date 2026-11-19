@@ -10,7 +10,7 @@ found_by: Fable 5.2
 checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/index.tsx:95, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:219, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1162, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1273, tgui/packages/tgui-setup/helpers.js:395, code/modules/tgui/tgui.dm:103
-fix: Catch errors per NPC in ingest and round the whole of think, chooseJob and readOrder, log them through brain_log, and always free the LLM turn in a finally
+fix: Catch errors per NPC in ingest and round the whole of think, chooseJob and readOrder, log them through brain_log, always free the LLM turn in a finally, and escape names built into RegExps
 ---
 
 ## What is wrong
@@ -92,3 +92,16 @@ Read from the code: the window code, tgui's setup script, and the server's `tgui
 - Type check from `tgui/`.
 - A table case for `escapeForRegExp` with a name such as "Jim (Bob) Smith": each of the eleven matchers built from it does not throw and still matches "Jim (Bob), come here".
 - In a round, grep `crew_brain.log` for `ERROR in the window code`. Any line there is a bug that before this fix would have stopped the whole crew. Also grep the round's `href.log` for "User Agent:" next to `/datum/crew_brain_link`: that is tgui's own fatal report, and after the fix there should be none.
+
+## Check
+
+Checked by Opus 5.5. Read from the code, one small script run, not tried in a round.
+
+- The quotes hold: the effect at `index.tsx:95`, the `for` loop in `ingest` with no `try` (`brain.ts:219` to `784`), `running = true; void think(brain)` and the like at `brain.ts:1067`, `1161`, `1172`, `buildTalk` before the `try` in `think`, the job hooks inside its `catch`, and `running = false` after it, not in a `finally` (`brain.ts:1635`). `readOrder` calls `deskRead` and `chooseJob` builds its record outside their `try` too.
+- Strict mode is on for every tgui window (`code/modules/tgui/tgui.dm:103`). `window.onerror` in `tgui/packages/tgui-setup/helpers.js:395` shows the fatal screen, sends a `fatal` log and empties `window.update`; `window.onunhandledrejection` passes to it. On the server, a fatal log closes the UI at once (`code/modules/tgui/tgui.dm:374`) and the window is not suspended (`tgui_window.dm:341`, `can_be_suspended`), so opening it again loads a new page with empty brains.
+- No error boundary anywhere under `tgui/packages/tgui` (searched `ErrorBoundary`, `componentDidCatch`, `getDerivedStateFromError`), and `createRoot` in `renderer.ts` is given no `onUncaughtError`. React 19 unmounts the root on an uncaught error in an effect, which runs the `stopSession` clean-up. Taken from React's documented behaviour, not run.
+- Ran with bun, outside the repo: an `async` function that throws before its first `await` gives a rejected promise and leaves a `running` flag set to true; `new RegExp('\bJim(Bob\b')` throws a SyntaxError. Both as the write-up says.
+- Searched every round's `href.log` under `data/logs/` (66 rounds, 63 with the brain link) for "User Agent:", the mark tgui's handler puts on every fatal report: none. So no window error has fired in a played round so far. That keeps it a gap and keeps severity at high rather than critical: what follows an error is critical, but no error is known in game code today.
+- Mended: the RegExp sites are eleven, not two (two of the files the first list would have named are safe); the server closes its end at once; the stack is already in `href.log`; the catch in `ingest` cannot see `brain`; `reportError` would shadow a browser global; the `finally` must respect the session check. Added the escape helper as step 6 with its test.
+- Not the same fault as HOLE-02: the cause here is the missing guard, and the fix is window-side `try` and `finally`. HOLE-02's server snapshot would soften the end of this one but not stop the crew stopping.
+- Searched `LLM_CREW_CHANGELOG.md` and the plans for `onerror`, `unhandled`, error boundary and `stopSession`: nothing fixes or chooses this.
