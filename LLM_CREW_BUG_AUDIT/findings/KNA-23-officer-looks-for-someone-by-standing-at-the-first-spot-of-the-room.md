@@ -14,6 +14,9 @@ fix: After the first look from the arrival spot, walk to the middle of the room 
 
 ## What is wrong
 
+Also written up as: ARR-16
+See also: DESK-08 (the same thing for a janitor sent to a mess in a big room)
+
 Listed in the change log entry of 2026-11-18, 14:15, Known and not fixed: "A sighting names the room. In a wide room the officer may look for twenty seconds and not see them." No later entry touches it, and the code is as it was.
 
 When an officer has a fresh sighting it walks to the room (`go_to(place)`) and, once there, stands still for 20 seconds (`LOOK_DS`, a `wait` step). Then the sighting is marked looked at, and it falls through to walking the hallways. In a hallway it stands 10 seconds (`HALLWAY_DS`) and goes on to the next one. At no point does it walk through the room it is looking in.
@@ -21,6 +24,12 @@ When an officer has a fresh sighting it walks to the room (`go_to(place)`) and, 
 Where it stands is wherever `go_to` sets it down: the spot it first noted in that room if it has been there before (`visited_places`, which is the square it came in by), or else the nearest safe square inside the room to where it came from (`safe_spot_in(room, get_turf(pawn))`). Both are at the edge of the room by the door it came through. It sees 7 tiles (`CREW_NPC_VISION_RANGE`), less round corners and furniture.
 
 The case: the Head of Personnel sends "Security: Pun Pun is in the Bar Lounge." The officer comes in from the Central Primary Hallway and stops just inside. The Bar Lounge on MetaStation runs about 18 tiles east to west. Pun Pun is at the far end by the stage. The officer stands 20 seconds, sees nobody, sets `lookedAt`, and walks off to the Aft Primary Hallway. The sighting is used up: the same sighting is not looked at again (`warrant.lookedAt < sighting.at`). The same goes for every hallway on the round: the Central Primary Hallway on MetaStation is a loop round the bridge, and 10 seconds at one corner of it covers a few percent of it.
+
+More of what it costs, from ARR-16:
+
+- The hallway round sees a small part of each of its five hallways, waits 90 seconds (`BETWEEN_WALKS_DS`), and does the same again from the same near ends, because `visited_places` keeps the first spot it stood in. It never sees more of them in later rounds.
+- After a spent sighting the officer starts the hallway round from the first hallway by name, which may take it further away from where the person was.
+- The Head of Security hears nothing of it: nothing says "I looked and did not find them".
 
 This joins KNA-07 (which rooms it walks with no fresh word) and ARR-11 (one hallway it cannot reach stops the round). Neither covers how it looks once it is in the room.
 
@@ -70,8 +79,9 @@ Read from the code. Not seen as such in a round: in `data/logs/2026/11/19/round-
 2. The far side needs the server. Add an argument to `tool_go_to`, say `far`, that picks a safe, clear square of the room (as `middle_of` does) at the greatest distance from the body's square. It must be one the body can walk to: test it with `get_path_to` as `tool_go_to_door` does, and fall back to the middle.
 3. In a hallway, use the same legs, so a loop hallway is walked rather than glanced into. A shorter wait at each stop (5 seconds) keeps the whole round no longer than it is now.
 4. `dropsWalk: true` is already set on the step taken when the person comes into sight, so a leg is broken off the moment they are seen. Check that the `go_to` legs carry `dropsWalk: true` as well, so `orderToDrop` in `driver.ts` breaks them off (the arrest step is what replaces them).
-5. For the owner, if wanted: whether the officer should also look into the rooms that open off the room of the sighting (KNA-07's fix 1) belongs with this.
+5. From ARR-16: the server tool could instead be one `go_to` with a `spot` argument (`near`, `middle`, `far`), or a `search_room` walk that visits three or four spots spread through the room. Either way the body walks, and nothing is seen that it does not walk within sight of. Keep the leg count on the warrant and number each walk (`attempt`) so the driver does not hold a repeated `go_to` back. Rooms smaller than the body can see from one spot need none of this: the server can say how big a room is, and the window can skip the extra legs. Build it once for security and the janitor (DESK-08) with the same tool.
+6. For the owner, if wanted: whether the officer should also look into the rooms that open off the room of the sighting (KNA-07's fix 1) belongs with this.
 
 ## How to test the fix
 
-Simulator: the stand-in station is small, so add a scenario where the sighting room is wider than 7 tiles and the suspect is at its far end; the officer must arrest within one sighting. Tables: a case in `tools/llm_crew/security.ts` that walks `serveStep` through the legs with nobody in sight and checks the acts are `go_to`, `go_to` middle, `go_to` far, and only then the hallways. Next round, `game.log`: the officer's walks after "was seen in" should show two or three walks inside the one room.
+Simulator: the stand-in station is small, so add a scenario (a long hallway as well as a wide room) where the sighting room is wider than 7 tiles and the suspect is at its far end; the officer must arrest within one sighting. Tables: a case in `tools/llm_crew/security.ts` that walks `serveStep` through the legs with nobody in sight and checks the acts are `go_to`, `go_to` middle, `go_to` far, and only then the hallways. Next round, `game.log`: the officer's walks after "was seen in" should show two or three walks inside the one room.
