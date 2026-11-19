@@ -71,7 +71,7 @@ Read from the code on both sides. How often a janitor ends up holding a mop and 
 
 ## How to fix it
 
-1. Server: make `wants_bucket` also require a hand for it: an empty hand, or a rag in the other hand (what `free_a_hand` would put away). A small helper next to `free_a_hand` can answer "could a hand be freed" without moving anything.
+1. Server: make `wants_bucket` also require a hand for it. Split the choosing loop out of `free_a_hand` (`crew_npc_hands.dm:87`) into `spare_held_item()`, which returns what `free_a_hand` would give up (not a trade tool, a spent spray, or a rag beside a mop) without moving anything, and have `free_a_hand` call it. Then `wants_bucket` = mop held, no bucket held, and (`length(body.get_empty_held_indexes())` or `spare_held_item()`). One rule in one place, so the two cannot drift apart.
 2. Window: as a second guard, in the janitor's `afterActing`, on a failed `pick_up` of a bucket, set `task.noBucket = true`, and skip the bucket step for that task while it is set.
 3. Owner question, for later: with a mop and soap, should the janitor put the soap away in its bag to carry water? `free_a_hand` stows only what is not a trade tool. Leaving it as it is (no bucket) is the safe choice for now.
 
@@ -80,3 +80,15 @@ Read from the code on both sides. How often a janitor ends up holding a mop and 
 - Simulator: a janitor holding a mop and soap, a bucket in a remembered locker, a mess in another room. It must go to the mess.
 - Server compile to a side copy.
 - Next round: grep `game.log` for "Your hands are full of things you need" from a janitor, repeated.
+
+## Check
+
+Read `plan` and `changeForScrubbing` in `jobs/janitor.ts`, `crew_brain_link.dm:119`, `tool_pick_up` and `free_a_hand` in `crew_npc_hands.dm`, `trade_tool_types` and `is_trade_tool` in `crew_npc_inventory.dm`, `is_spent`, and `keyOf`/`fail`/`inBackoff` and the work loop in `driver.ts:500-545`. Every quote matches.
+
+The case holds. Soap and a space cleaner are both in the janitor's `trade_tool_types`; `is_spent` is only for an empty spray; the only trade tool `free_a_hand` gives up beside a mop is a rag. So with a mop and soap (or a full spray), `tool_pick_up` fails at its first hand check, before it even looks in the bag. The window's `wants_bucket` asks nothing about hands. In `plan`, soap is a proper tool so `mopNeedsWater` is FALSE, and the bucket step comes before the `go_to` for every CLEAN task elsewhere. Each task's step key is backed off in turn (`keyOf` includes the task id), and comes back the same.
+
+How a janitor gets a mop and soap: `changeForScrubbing` with one hand free goes straight to `pick_up` of the scrubber, and that step comes before the bucket step in `plan`, so a known bucket does not get fetched first. If the scrubber it knows of is a rag, `free_a_hand` gives the rag up and the bucket comes; only soap (or spray) gets stuck. Less common than the plain case, hence medium and `likely`.
+
+Ran a throwaway bun script (scratchpad, not in the repo): a janitor ingested holding a mop and soap, `wants_bucket` 1, a bucket remembered in a locker in the Custodial Closet, a CLEAN task for the Bar. `plan` gave `{"ready":true,...,"act":{"tool":"pick_up","item":"bucket"}}`. The server side was not run.
+
+Nothing in the change log fixes it; entry "(7)" built the bucket step and `free_a_hand`'s rag rule. The fix keeps the rules. LOGA-05 is a sibling (two rags), not the same fault.

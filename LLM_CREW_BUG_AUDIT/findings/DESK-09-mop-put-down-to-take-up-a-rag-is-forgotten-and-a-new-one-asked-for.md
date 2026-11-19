@@ -3,7 +3,7 @@ id: DESK-09
 title: A janitor that put its mop and bucket down to scrub with a rag forgets where they are, and asks its head for something better than a rag
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: likely
 status: confirmed
 found_by: Opus 5.5
