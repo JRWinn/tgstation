@@ -144,7 +144,14 @@
 		var/list/beyond = list()
 		for(var/obj/machinery/door/airlock/door as anything in doors)
 			var/list/sides = doors[door]
-			beyond |= get_area_name(sides[2], TRUE)
+			var/area/far_side = get_area(sides[2])
+			var/far_name = get_area_name(sides[2], TRUE)
+			// A door its own ID does not open, onto another department's locked room, is not one it
+			// lets anybody in by: the Delivery Office's door to the security post. A door onto a
+			// hallway or maintenance always counts, as anyone may come to it.
+			if(!door.allowed(body) && !(far_name in closed_rooms) && !istype(far_side, /area/station/hallway) && !istype(far_side, /area/station/maintenance))
+				continue
+			beyond |= far_name
 		if(!length(beyond) || length(beyond - closed_rooms))
 			continue
 		reached_through[place_name] = (post_place in beyond) ? post_place : beyond[1]
