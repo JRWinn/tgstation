@@ -102,3 +102,14 @@ Owner's question: a head who comes in person with several crates waiting and giv
 - Add the table above to a table of cases (`tools/llm_crew/orders.ts`, proposed in CARGO-05, or beside `addressing.ts`), with `crateMeant` exported for it.
 - Simulator: `collect` style scenarios must still pass with the fixed line. Add one in which the orderer comes in person and says "I'm here for my crate", and check a `release` call for their crate.
 - Type check.
+
+## Check
+
+Confirmed, on Opus 5.5.
+
+- The quotes match the code today: `crateMeant` at `jobs/cargo.ts:423-448`, the collecting branch of `overhears` at `:2219-2266`, `COLLECT_WORDS` at `jobs/pickups.ts:38` and `crateNumberIn` at `:57-62`. `overhears` gets the words alone (`event.details.message`), so the speaker's name in the report line plays no part.
+- `syncHeld` (`jobs/cargo.ts:455-478`) makes a `handover` task only when `pickupAsked.number` is not null, so a crate found by nobody is never brought out. `cues` (`:1746`) then tells the model "you are holding none by the number they gave".
+- Ran a throwaway bun script outside the repo with the real `crateNumberIn`, `COLLECT_WORDS` and `CARGO.overhears`. Every row of the table came out as written. With crate #37 held for "Hedley Bowchiew" and the Captain Hedley Bowchiew saying "I'm here for my crate.", `pickupAsked.number` was null and the line queued was "Sorry, Hedley, I am not holding a crate by that number." The crew NPCs' own fixed line ("I am here to collect crate 12 for Hop Kins, please.") reads 12, as the write-up says.
+- The smaller fault also holds: with a crate held for "Will Hale", the Captain saying "I will collect a crate" set `pickupAsked.number` to 37, Will's crate. That overlaps TRUST-04 (a held crate put out for anyone who names its owner), which keeps the wider fault.
+- Not in the change log or the plans. The owner's word that loose wording is to be understood is in the auto-memory (2026-11-18), not yet built.
+- Fix step 3 narrowed so that a new order put as "can I have a crate of..." is not read as collecting; step 5 points at TRUST-04. Severity medium is right: it only bites a person at the counter, not the NPCs.

@@ -3,10 +3,11 @@ id: CHEAT-05
 title: Cargo staff know what is inside every shut crate, which is empty, which holds mail, and what aboard the shuttle bars it, without opening anything
 kind: bug
 severity: medium
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_freight.dm:116, code/modules/llm_crew/crew_npc_freight.dm:26, code/modules/llm_crew/crew_npc_freight.dm:260, code/modules/llm_crew/crew_npc_held.dm:63
 fix: Know a crate's contents only from having opened it or seen it open, keep that on the controller, and treat a shut crate never looked into as full
@@ -25,7 +26,7 @@ Where that knowledge is used:
 - `crew_npc_crate_lost` writes a held crate off as "it has been emptied" when someone has taken things out and shut it again, wherever the crate is.
 - `what_bars_shuttle` walks `deck.get_all_contents()`, which goes into shut crates, and tells the body "it will not carry mail, and there is a letter in the Mail Crate aboard it". The console a player uses says only that something aboard is not allowed.
 
-Concrete case: a player takes the mops out of a Janitorial Supplies crate in the bay and shuts it. Every cargo NPC at once counts it as an empty (`empty_crates` goes up by one), and the next `recycle` puts it aboard to be sold, with nobody having lifted the lid. The reverse case: a player hides a gun in a crate the NPC thinks is empty. It is known to hold something, so it is never sent back, and `what_bars_shuttle` names a letter or a gun inside a shut crate on the deck.
+Concrete case: a player takes the mops out of a Janitorial Supplies crate in the bay and shuts it. Every cargo NPC at once counts it as an empty (`empty_crates` goes up by one), and the next `recycle` puts it aboard to be sold, with nobody having lifted the lid. The reverse case: a player hides something in a crate a player would take for empty. It is known to hold something, so it is never sent back. And if the thing is one the shuttle will not carry (a letter, a homing beacon, the disk: `GLOB.blacklisted_cargo_types` in `supply.dm`; a gun is not one), `what_bars_shuttle` names it and the crate it is shut in. The base game's console says only its fixed `safety_warning` list (`orderconsole.dm:17`), never what or where.
 
 The plan's own words are "Opening a crate drops everything in it onto the crate's own tile" (`LLM_CREW_PLAN_NO_CHEATS.md`, section 3); nothing in the plans or the change log allows knowing contents without that.
 
@@ -69,7 +70,7 @@ Read from the code. SUP-09 is about the same proc missing non-item contents; it 
 3. Work the rules round "not known":
    - A crate that came in on the shuttle is full until opened (that is what a delivery is). `freight_state` counts every shut crate aboard as one to unload; empties aboard are only those seen open or seen being put aboard by cargo itself.
    - Mail: a crate named "mail crate" (by its name, which anyone can read) is the mail crate. Open it to find out what is in it, as `take_mail` already does.
-   - To send a crate back, the body opens it first (a click) and closes it if it is empty. That is one more click per crate, which is what a player does.
+   - To send a crate back, the body opens it first (a click) and closes it again. That is one more click per crate, which is what a player does. It is safe in the base game: `closet/open` drops what is inside onto the crate's tile and `closet/close` takes what lies on that tile back in (`take_contents`, closets.dm:521). Use the body's own open and close, as `look_inside` (crew_npc_storage.dm:99) already does, and record what it saw.
    - `crew_npc_crate_lost` "emptied": only if a cargo body saw it open and empty.
 4. `what_bars_shuttle`: report only what is in view on the deck (loose, or lying by an open crate). For a shut crate say "something aboard is not allowed to travel", and let the technician open the crates aboard to look, one at a time (a step KNA-18 would add anyway).
 5. Leave `crew_npc_crate_holds` as it is for code that already has the crate open.
@@ -81,3 +82,7 @@ Question for the owner: is reading the shipping manifest (what was ordered) enou
 - Server compile.
 - Simulator: the freight numbers come from the sim's own server stand-in, so `sim.ts` must play "not known" for shut crates for the scenarios to mean anything. Run the cargo freight scenarios.
 - A round: take the things out of a delivered crate by hand and shut it. A technician must open it before sending it back (`game.log` shows the open, then the recycle). Put a letter in a shut crate aboard and press send: the reason given must not name the letter until a technician has opened that crate.
+
+## Check
+
+Opus 5.5, 2026-11-19. Read `crew_npc_crate_holds`, `crew_npc_crate_spent`, `crew_npc_crate_has_mail`, `what_bars_shuttle`, `crate_to_unload`, `misplaced_crates`, `mail_crate`, `spent_crates` and `freight_state` (crew_npc_freight.dm:26-290), the `STOW` destination (:448), `crew_npc_crate_lost` (crew_npc_held.dm:50), and the base game's `check_blacklist` (shuttle/mobile_port/variants/supply.dm:85) and the cargo console's `send` (cargo/orderconsole.dm:383). Quotes match. For a shut crate `crew_npc_crate_holds` iterates `crate` itself, which is its contents; nothing in any caller asks whether the body has seen inside. The console a player uses gives only a fixed list of what may not travel. No change log entry or plan allows it (change log entry (24), line 367, made mail count as not empty but did not touch how it is seen). The senses rule in the README is broken. Confirmed. Kept severity medium, as for the other knowledge findings (CHEAT-03, CHEAT-11, CHEAT-13): nothing is done to the world outside the rules, the bodies know too much. Raised effort to large: a crate memory, every caller reworked round "not known", a new open-and-close step before recycling, the sim's stand-in, and an owner question. Corrected the reverse case: a gun does not bar the shuttle. Not seen in a round.

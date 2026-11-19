@@ -17,16 +17,17 @@ fix: Treat a held crate that has left cargo's rooms in the hands of someone who 
 
 A held crate is "collected" only one way: a crew body's `collect` tool hauls it and `crate_collected` takes its entry off the list. Anything else that happens to it is read by `crew_npc_crate_lost`, which knows four answers: destroyed, off the station, emptied, nobody can get to it.
 
-A player who walks into the bay and takes their own crate, as players do, is none of those until they open it. Then it is "emptied":
+A player who walks into the bay and takes their own crate, as players do, is none of those at first. It becomes "nobody can get to it" or "emptied" later:
 
     	if(isnull(entry.collected_by) && crew_npc_crate_spent(crate))
     		return "it has been emptied"
 
 So:
 
-- While the player has it in their room, shut, the crate is still "waiting". `held_waiting` has no look at where it is, and every five minutes a technician says "Still waiting: crate 12 for Zim Fire. I will send word." and sends the player a reminder, up to three times (`look_over_held`).
-- When anyone comes to the counter for it, `tool_release` sends a technician to wherever it now is. It is in a room cargo cannot get into, so the errand fails, and after two such failures it is lost as "nobody can get to it" (`crew_npc_fail_errand`, `CREW_NPC_LOST_AFTER`).
-- When the player opens it and takes out what they ordered, it is lost as "it has been emptied". A technician says aloud "Crate 12 for Zim Fire is lost: it has been emptied. I will send word.", and a LOST notice goes to the player by PDA. With a Quartermaster, word that a crate of an order is lost makes `crateLost` order it again (QM-12): cargo pays a second time for what the player already has.
+- While the player has it in their room, shut, the crate is still "waiting". `held_waiting` has no look at where it is. Once it has waited five minutes, a technician's `check_held` goes to the nearest overdue crate. If that is one still in the bay, it says "Still waiting: crate 12 for Zim Fire. I will send word." and the player is sent a reminder, up to three times (`look_over_held`).
+- If the nearest overdue crate is the taken one, in a room cargo cannot get into, the `check_held` errand fails and `crew_npc_fail_errand` counts `entry.unreachable` (it does so for `CHECK_HELD`, `RELEASE` and `STOW`). After two such failures, five minutes or so apart, it is lost as "nobody can get to it" (`CREW_NPC_LOST_AFTER` = 2). This is the likelier end for a shut crate dragged off: written off about 10 to 15 minutes after it came in, with the LOST notice below. A `tool_release` for it fails the same way.
+- "Emptied" (`crew_npc_crate_spent`, `crew_npc_freight.dm:130`) means nothing left inside the shut crate, or, when it is open, nothing left on the open crate's own square (`crew_npc_crate_holds` reads `crate.drop_location()`). A player who opens a Janitorial Supplies Crate and takes two things leaves the rest spilled round it, and that is not "emptied". It is emptied once every item is taken from that square, the open crate is dragged off its spilled contents, or it is shut with nothing in it. Then it is lost as "it has been emptied".
+- Either way, at the write-off: A technician says aloud "Crate 12 for Zim Fire is lost: it has been emptied. I will send word.", and a LOST notice goes to the player by PDA. With a Quartermaster, word that a crate of an order is lost makes `crateLost` order it again (QM-12): cargo pays a second time for what the player already has.
 
 A concrete case, which is the usual one for a Captain with all access:
 
