@@ -152,6 +152,25 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('the only technician in cuffs: nobody is asked', planPickups(lone, other)?.say ?? null, null);
 }
 
+// JOBS-02: once the crate is out, the rest of the errand is kept a half hour from then. (What
+// keeps it is the give-up rule in tasks.ts reading keepUntil, which this table does not run.)
+{
+  const { syncPickups, pickupsAfterActing } = await import(ROOT + 'jobs/pickups');
+  const b: any = makeBrain('Jan Mopp', 'Janitor');
+  b.now = 17_000;
+  b.heldCrates = [{ number: 12, for: 'Hop Kins', what: null, place: 'Cargo Lobby', out: false, takenBy: null, waited: 100 }];
+  const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+  b.tasks = [task];
+  syncPickups(b);
+  add('the crate not out yet: nothing kept past the usual', task.keepUntil ?? null, null);
+  b.heldCrates[0].out = true;
+  syncPickups(b);
+  add('the crate put out at 28 minutes: kept a half hour from then', task.keepUntil, 17_000 + 18_000);
+  b.now = 19_000;
+  pickupsAfterActing(b, { tool: 'collect_crate', number: 12, place: 'Bar' }, task, true);
+  add('unpacked: kept a half hour from then', task.keepUntil, 19_000 + 18_000);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -868,6 +868,8 @@ export type Task = {
   asks?: number;
   /** For a crate to collect: TRUE while it has put the errand off because cargo did not bring the crate out when asked (CARGO-13). */
   notBroughtOut?: boolean;
+  /** Server time (deciseconds) until which the task is kept, in place of the half hour from createdAt (JOBS-02). */
+  keepUntil?: number;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */

@@ -28,6 +28,12 @@ const TRY_AGAIN_DS = 1200;
 const BROUGHT_OUT_WAIT_DS = 600;
 /** How many times it asks at the counter with nothing brought out before it tells its head and puts the errand off a while (CARGO-13). */
 const ASKS_BEFORE_TELLING = 3;
+/**
+ * How long (deciseconds) the errand is kept from the moment the crate is in its hands: the haul,
+ * the unpacking, the word to its head and the walk back with the empty each get a full half hour,
+ * not what is left of the half hour from when it was sent (JOBS-02).
+ */
+const KEEP_HAULING_DS = 18000;
 
 /** The words by which a head sends someone for a crate, which is how such a message is known. */
 const WAITING_AT_CARGO = 'is waiting at cargo';
@@ -181,6 +187,10 @@ export function syncPickups(brain: NpcBrain): void {
       task.reported = true;
       finishTask(brain, task);
       continue;
+    }
+    // Put out for it: the rest of the errand has its own half hour from now (JOBS-02).
+    if (crate?.out && task.keepUntil === undefined) {
+      task.keepUntil = brain.now + KEEP_HAULING_DS;
     }
     blockTask(
       task,
@@ -397,6 +407,8 @@ export function pickupsAfterActing(
   }
   if (act.tool === 'collect_crate' && ok) {
     task.unpacked = true;
+    // The word to its head and the walk back with the empty have a half hour of their own (JOBS-02).
+    task.keepUntil = brain.now + KEEP_HAULING_DS;
     // Whoever unpacked it knows where the things are, with nobody having to tell them. If it is
     // short of something for its own work, that is where it goes once the crate is back.
     brain.suppliesSentAt = brain.now;
