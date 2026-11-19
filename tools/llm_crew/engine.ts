@@ -328,6 +328,34 @@ add('an engine it shut off is not lit again by itself', ada.chief.order, null);
 CHIEF_ENGINEER.readsMessage(ada, 'Cap Tain', 'Chief, light the engine again when you are ready.', 0, 'Captain');
 add('the Captain says light the engine: it gives its engineer the engine again', [ada.chief.shut, ada.chief.order?.what], [false, 'light']);
 
+// ENG-08: shut off, then lit again by someone else.
+const shutOff = () => {
+  const it = chief();
+  it.engineReading = { integrity: 90, energy: 500 };
+  CHIEF_ENGINEER.syncTasks(it);
+  CHIEF_ENGINEER.afterSaying(it, shutLine('Sam Rees'));
+  heardBy(it, 'Sam Rees', offLine('Ada Volt'));
+  it.toTell = [];
+  return it;
+};
+ada = shutOff();
+for (const energy of [500, 400, 300]) {
+  ada.engineReading = { integrity: 90, energy };
+  ada.now += 100;
+  CHIEF_ENGINEER.syncTasks(ada);
+}
+add('shut off, the energy dying away is not taken for the engine lit again', [ada.chief.shut, ada.chief.order, ada.toTell.length], [true, null, 0]);
+ada = shutOff();
+for (const energy of [300, 400, 500]) {
+  ada.engineReading = { integrity: 90, energy };
+  ada.now += 100;
+  CHIEF_ENGINEER.syncTasks(ada);
+}
+add('shut off, energy rising: it is lit again, the Captain is told once and the emitters are ordered off again', [ada.chief.shut, ada.chief.order?.what, ada.toTell.filter((tell: any) => tell.line === 'The engine has been lit again.').length, ada.toTell.filter((tell: any) => /losing integrity/.test(tell.line)).length], [true, 'shut', 1, 1]);
+ada = shutOff();
+heardBy(ada, 'Sam Rees', litLine('Ada Volt'));
+add('shut off, then told the engine is lit: it is watched again', [ada.chief.shut, ada.chief.litAt !== null], [false, true]);
+
 // Its engineer is somewhere else.
 ada = chief(false);
 ada.engineReading = { integrity: 80, energy: 900 };

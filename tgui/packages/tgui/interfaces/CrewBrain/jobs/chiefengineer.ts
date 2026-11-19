@@ -101,6 +101,8 @@ const RELIGHT_EVERY_DS = 3000;
 const SHUT_AGAIN_DS = 900;
 /** How long (deciseconds) between orders to switch the emitters off once it has been told they will not go off. */
 const SHUT_STUCK_AGAIN_DS = 3000;
+/** How far (energy) over the lowest seen since the emitters went off the crystal must read to be taken as lit again by someone. */
+const RISING_BY = 50;
 /** How far off (tiles) its engineer has to be standing before it walks up to them to speak. */
 const SPEAKING_DISTANCE = 2;
 /** The most characters a body can say at once, or send in one PDA message. Past that the end is cut off. */
@@ -285,6 +287,7 @@ function syncTasks(brain: NpcBrain): void {
     chief.shut = true;
     chief.emittersOff = false;
     chief.notOff = null;
+    chief.energyAt = null;
     chief.litAt = null;
     chief.order = { what: 'shut', givenAt: null, sent: false };
     tellCaptain(
@@ -292,6 +295,23 @@ function syncTasks(brain: NpcBrain): void {
       `The engine is losing integrity: ${Math.floor(reading.integrity)} percent. I am having the emitters switched off.`,
       `The engine monitor on your PDA reads ${Math.floor(reading.integrity)} percent integrity. You are having the emitters switched off, and telling the Captain so by PDA.`,
     );
+  }
+  // Shut off, with the emitters said to be off: energy rising in the crystal means someone has
+  // lit it again by hand. Left alone the energy only falls, so the lowest seen is kept.
+  if (reading && chief.shut && chief.emittersOff) {
+    if (chief.energyAt == null || reading.energy < chief.energyAt) {
+      chief.energyAt = reading.energy;
+    } else if (reading.energy > chief.energyAt + RISING_BY) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+      chief.litAt = brain.now;
+      tellCaptain(
+        brain,
+        'The engine has been lit again.',
+        'The engine monitor on your PDA shows energy rising in the crystal again, after the emitters were switched off. You are telling the Captain by PDA.',
+      );
+    }
   }
   // The order to switch them off has been given, and nothing has been heard of it.
   if (
@@ -576,6 +596,12 @@ function hearEngineer(
     chief.litAt = brain.now;
     chief.lightTaken = true;
     chief.stuck = null;
+    // Lit after a shut-off, whoever lit it: the crystal is watched again.
+    if (chief.shut) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+    }
     return;
   }
   const stuck = text.match(STUCK_WORDS);
@@ -635,6 +661,11 @@ function hearEngineer(
     heardIt();
     // Give the crystal time to take the beams before reading it as stopped again.
     chief.litAt = brain.now;
+    if (chief.shut) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+    }
   }
 }
 
@@ -648,6 +679,7 @@ function lightAgain(brain: NpcBrain): void {
   chief.emittersOff = false;
   chief.notOff = null;
   chief.shutGivenAt = null;
+  chief.energyAt = null;
   chief.stuck = null;
   chief.litAt = null;
   chief.lightTaken = false;

@@ -466,6 +466,10 @@ function takeWord(
     engine.switched = [];
     engine.switchTries = {};
     engine.wouldNot = null;
+    // Word owed from before that the engine is lit, or on again, is out of date now.
+    engine.words = engine.words.filter(
+      (word) => word.what !== 'lit' && word.what !== 'on',
+    );
     return;
   }
   if (RELIGHT_WORDS.test(text)) {

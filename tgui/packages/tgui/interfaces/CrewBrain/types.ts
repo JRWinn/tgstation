@@ -696,6 +696,8 @@ export type ChiefWork = {
   notOff?: string | null;
   /** Server time it last ordered the emitters on again, or 0. */
   relitAt: number;
+  /** The lowest energy read in the crystal since the emitters were said to be off (ENG-08), or null. */
+  energyAt?: number | null;
 };
 
 /** A PDA message cargo owes someone about their crates. */
