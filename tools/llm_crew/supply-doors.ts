@@ -73,6 +73,30 @@ const COLLIN = 'I am done in the Delivery Office and am at the Delivery Office d
   add('an ask long run out is dropped', b.doorAsks.map((ask: any) => ask.name), ['Collin Archibald']);
 }
 
+// The keeper's welcome (jobs/guarding.ts): someone whose work is done and who has asked to be let
+// out is on their way, and is not walked out, though another ask came in after theirs.
+{
+  const { syncGuarding } = await import(ROOT + 'jobs/guarding');
+  const b = tech();
+  const marina = { handle: 'p4', name: 'Marina Shaffer', job: 'Janitor', place: 'Cargo Bay', distance: 3, in_post: 1 };
+  b.sentFor['Marina Shaffer'] = b.now;
+  b.peopleInView = [marina];
+  syncGuarding(b);
+  CARGO.readsMessage(b, 'Marina Shaffer', 'I am done in the Cargo Bay and am at the Cargo Bay door. Could you let me out, please?', b.now, 'Janitor');
+  b.now += 50;
+  CARGO.readsMessage(b, 'Collin Archibald', COLLIN, b.now, 'Janitor');
+  for (let t = 0; t < 900; t += 50) {
+    b.now += 50;
+    b.peopleInView = [marina];
+    syncGuarding(b);
+  }
+  add('asked out, then another asks: she is not walked out after the minute', b.strangers['Marina Shaffer']?.verdict, 'stay');
+  b.now += 3000;
+  b.peopleInView = [marina];
+  syncGuarding(b);
+  add('her ask long run out, she is seen out after all', b.strangers['Marina Shaffer']?.verdict, 'go');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

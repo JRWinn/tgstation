@@ -294,6 +294,22 @@ function welcomeStands(brain: NpcBrain, name: string): boolean {
   );
 }
 
+/** How long (deciseconds) an ask to be let out counts as being on the way out: as long as the ask stands (LET_OUT_ASK_DS in cargo.ts). */
+const ASKED_OUT_DS = 3000;
+
+/**
+ * TRUE if this person has asked the NPC to be let out, lately: they are on their way. Any of their
+ * asks is looked at, not only the newest: a second janitor asking a few seconds later used to
+ * leave the first one to be walked out at the door it was waiting at (KNA-01).
+ */
+function askingOut(brain: NpcBrain, name: string): boolean {
+  const asks = brain.doorAsks ?? (brain.doorAsked ? [brain.doorAsked] : []);
+  return asks.some(
+    (ask) =>
+      ask.name === name && !!ask.out && brain.now - ask.at < ASKED_OUT_DS,
+  );
+}
+
 /** How someone the NPC answers to is spoken to: the Captain by rank, anyone else by first name. */
 function titleOf(brain: NpcBrain, name: string): string {
   const job = brain.peopleInView.find((seen) => seen.name === name)?.job ?? '';
@@ -535,7 +551,7 @@ export function syncGuarding(brain: NpcBrain): void {
         stranger.overAt = undefined;
       } else {
         stranger.overAt ??= brain.now;
-        const leaving = brain.doorAsked?.name === name && !!brain.doorAsked.out;
+        const leaving = askingOut(brain, name);
         if (!leaving && brain.now - stranger.overAt > WELCOME_GRACE_DS) {
           stranger.seenOut = true;
           settle(brain, name, stranger, 'go');
