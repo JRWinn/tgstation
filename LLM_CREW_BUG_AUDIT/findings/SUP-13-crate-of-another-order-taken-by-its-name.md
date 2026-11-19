@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:487, code/modules/llm_crew/crew_npc_cargo.dm:479, code/modules/shuttle/mobile_port/variants/supply.dm:295
 fix: In the by-name pass of order_arrived skip any crate that still has a manifest or whose name ends in another order's number, and read the number from the name when the manifest is gone
@@ -18,7 +19,9 @@ fix: In the by-name pass of order_arrived skip any crate that still has a manife
 
 The second pass does not check that the manifest has in fact come off. A crate of a different order, with its own manifest still on it, matches by name just as well. So whenever one of this order's crates did not come, a crate of the same kind belonging to someone else's order is taken in its place.
 
-An order's crate does not come when `buy()` skips it: the budget ran out part way through the cart (see SUP-11), or the shuttle's floor was full (`if(!empty_turfs.len) break`). The pending order is the last one placed, so it can be loaded while an earlier one of the same order was not.
+An order's crate does not come when `buy()` skips it because the budget ran out part way through the cart (see SUP-11): that is a `continue`, so a later order can still be paid. The pending order is the last one placed, so it can be loaded while an earlier one of the same order was not. (A full shuttle floor is not a way in: `if(!empty_turfs.len) break` stops the loop, so every order after the first one left out is left out too, the pending one with them.)
+
+As with SUP-11, a Quartermaster's book would hold Maria's order below for money (`moneyFree` counts given orders), so the case needs technicians taking orders with no Quartermaster, or an order in the cart the book does not know of.
 
 The base game already writes the number on the crate: `buy()` does `crate.name += " - #[spawning_order.id]"`. So even with the manifest gone a player can read which order a crate is, and the code could too. It reads only the start of the name.
 
