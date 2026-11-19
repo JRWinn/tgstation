@@ -710,6 +710,17 @@ export function letGoLine(to: string, name: string, pardoned: boolean): string {
 }
 export const LET_GO_WORDS = /^\S+, (.+?) is to be let go\b/i;
 
+/**
+ * The Head of Security telling its officer that a warrant the officer may still hold has been
+ * served by someone else: the person is in a cell. The officer gives its copy up, and lets
+ * nobody go.
+ */
+export function servedLine(to: string, name: string): string {
+  return `${firstName(to)}, ${name} is in a cell: the warrant is served.`;
+}
+export const SERVED_WORDS =
+  /^\S+, (.+?) is in a cell: the warrant is served\b/i;
+
 /** The Head of Security telling its officer, who broke off hurt, to make arrests again. */
 export function againLine(to: string): string {
   return `${firstName(to)}, you are to make arrests again.`;

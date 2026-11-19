@@ -200,6 +200,17 @@ export function dropWarrant(
   }
 }
 
+/**
+ * Gives a warrant up that someone else has served: the person is in a cell already. Unlike
+ * `dropWarrant` it lets nobody go, so a prisoner left in cuffs in a cell stays there.
+ */
+export function forgetWarrant(brain: NpcBrain, name: string): void {
+  const beat = beatOf(brain);
+  beat.warrants = beat.warrants.filter(
+    (it) => !sameName(name, it.name) && !sameName(it.name, name),
+  );
+}
+
 /** Notes where someone it has a warrant on was last seen, if that is newer than what it had. */
 export function noteSeen(
   brain: NpcBrain,

@@ -233,6 +233,36 @@ deskTakes(b, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
 syncDesk(b);
 add('with no officer aboard the warrant goes into its own hands', beatOf(b).warrants.map((w: any) => w.name), ['Pun Pun']);
 
+// ---- TRB-03: a warrant served by one holder is given up by the other, and nobody is let go by it
+{
+  const OFFICER = (await import(ROOT + 'jobs/index')).jobFor('Security Officer');
+  const outHurt = () => {
+    const d = head();
+    deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+    deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, I could not take Pun Pun. I am hurt.', false);
+    syncDesk(d);
+    d.toTell = [];
+    return d;
+  };
+  let d = outHurt();
+  add('the officer out hurt, the Head of Security holds the warrant itself', beatOf(d).warrants.map((w: any) => w.name), ['Dana Reyes']);
+  deskOutcome(d, { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 2', minutes: 5, resisted: false }, 'Joan Marsh', false);
+  const served = said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'));
+  add('served by the Head of Security: the officer is told it is served', served, ['PDA to Hale Stone: Hale, Dana Reyes is in a cell: the warrant is served.']);
+  add('and the line is not read as an outcome', S.readOutcome(S.servedLine('Hale Stone', 'Dana Reyes')), null);
+  const hale = makeBrain('Hale Stone', 'Security Officer');
+  hale.pdaPeople = [...PDA.filter((person) => person.name !== 'Hale Stone'), { name: 'Joan Marsh', job: 'Head of Security' }];
+  know(hale, ['Security Office', 'Brig']);
+  // In the brig, with the prisoner left in cuffs in the cell before it.
+  at(hale, 5000, 'Brig', [{ handle: 'p5', name: 'Dana Reyes', job: 'Janitor', place: 'Brig', distance: 2, cuffed: 1 }]);
+  (await import(ROOT + 'jobs/arrests')).giveWarrant(hale, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  OFFICER.readsMessage(hale, 'Joan Marsh', S.servedLine('Hale Stone', 'Dana Reyes'), 0, 'Head of Security');
+  add('the officer gives its copy up, and lets nobody out of the cell', [beatOf(hale).warrants.length, beatOf(hale).toFree.length], [0, 0]);
+  d = outHurt();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, Dana Reyes is in Cell 1 for 5 minutes.', false);
+  add('served by the hurt officer: the Head of Security gives its own copy up', [beatOf(d).warrants.length, beatOf(d).toFree.length, said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'))], [0, 0, []]);
+}
+
 // ---- the desk says so when it cannot use what it is sent
 const { jobFor } = await import(ROOT + 'jobs/index');
 const HOS = jobFor('Head of Security');

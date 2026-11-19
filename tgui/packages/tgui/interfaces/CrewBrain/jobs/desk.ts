@@ -40,6 +40,7 @@ import type {
 import {
   arrestAgain,
   dropWarrant,
+  forgetWarrant,
   giveWarrant,
   handBack,
   noteSeen,
@@ -86,6 +87,7 @@ import {
   SIGHTING_WORDS,
   sameName,
   seenLine,
+  servedLine,
   sightedName,
   TRY_AGAIN_WORDS,
   takenLine,
@@ -790,6 +792,19 @@ export function deskOutcome(
       if (warrant) {
         desk.warrants = desk.warrants.filter((it) => it !== warrant);
         desk.serial += 1;
+      }
+      // The warrant is served, and the one who did not serve it gives up its copy: else it
+      // would arrest them again once the cell opens. Nobody is let go by this.
+      if (!own) {
+        forgetWarrant(brain, warrant?.name ?? outcome.name);
+      } else if (warrant && officerAboard(brain)) {
+        // Its officer may have it still: given it before it broke off hurt, or given it and
+        // then outrun to the arrest.
+        tellOfficer(
+          brain,
+          servedLine(officerAboard(brain) ?? '', warrant.name),
+          `${warrant.name} is in a cell, and you served the warrant yourself. You are telling your officer, who may still have it, that it is served.`,
+        );
       }
       tellCaptain(
         brain,

@@ -31,6 +31,7 @@ import {
   beatOf,
   describeBeat,
   dropWarrant,
+  forgetWarrant,
   giveWarrant,
   noteSeen,
   onLead,
@@ -67,6 +68,7 @@ import {
   readGiven,
   readWarrant,
   SEEN_WORDS,
+  SERVED_WORDS,
   saidTo,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
@@ -352,6 +354,12 @@ function takeWord(
     if (place) {
       noteSeen(brain, seen[1], place, brain.now);
     }
+    return;
+  }
+  // Someone else has served a warrant it holds: it gives its copy up, and lets nobody go.
+  const served = text.match(SERVED_WORDS);
+  if (served) {
+    forgetWarrant(brain, served[1]);
     return;
   }
   const letGo = text.match(LET_GO_WORDS);
