@@ -81,6 +81,8 @@ const ARREST_TRIES = 3;
 const REST_DS = 300;
 /** Why there is no arrest yet, of someone in sight that three tries have not taken. It reads the same in any mouth. */
 const WILL_NOT_STAND = 'they will not stand still for the baton or the cuffs';
+/** Why there is no arrest yet, of someone in sight it cannot walk to and has nobody to ask to let it through. */
+const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -1176,15 +1178,20 @@ export function beatAfterActing(
     const reason = String(details.reason ?? '');
     // It could not get to them, and can still see them: a door or a counter is between them.
     // That is not losing them. It asks to be let in.
+    // In its own room, behind a counter or a shut fire door, or with nobody to ask: there is no
+    // door to ask at, so it is a try that came to nothing like any other, and after three it
+    // rests and says why.
     if (reason === 'no_way') {
-      warrant.toldAt = null;
-      noteShutOut(
+      const asking = noteShutOut(
         brain,
         warrant,
         String(details.place ?? target(brain, warrant)?.place ?? ''),
         details.keepers,
       );
-      return;
+      if (asking || warrant.shutOut) {
+        warrant.toldAt = null;
+        return;
+      }
     }
     // Knocked down itself before it was done: that is no try at them, and says nothing of
     // whether they would stand still. It goes at them again once it is up.
@@ -1203,7 +1210,10 @@ export function beatAfterActing(
     warrant.tries += 1;
     if (reason === 'lost' || warrant.tries >= ARREST_TRIES) {
       warrant.tries = 0;
-      warrant.toldAt = null;
+      // Someone it cannot get to needs no telling again: they heard it the first time.
+      if (reason !== 'no_way') {
+        warrant.toldAt = null;
+      }
       warrant.lastSeen = { place: brain.location, at: brain.now };
       warrant.lookedAt = brain.now;
       if (reason === 'lost') {
@@ -1220,13 +1230,14 @@ export function beatAfterActing(
         // there is no arrest yet, once.
         warrant.restUntil = brain.now + REST_DS;
         beat.cannotTold ??= {};
-        const key = `${warrant.name}|${WILL_NOT_STAND}`;
+        const why = reason === 'no_way' ? NO_WAY_TO_THEM : WILL_NOT_STAND;
+        const key = `${warrant.name}|${why}`;
         if (beat.cannotTold[key] === undefined) {
           beat.cannotTold[key] = brain.now;
           beat.outcomes.push({
             what: 'cannot',
             name: warrant.name,
-            why: WILL_NOT_STAND,
+            why,
           });
         }
       }
