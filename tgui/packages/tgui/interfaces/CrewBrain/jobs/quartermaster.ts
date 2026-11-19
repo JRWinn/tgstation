@@ -1250,6 +1250,19 @@ function syncTasks(brain: NpcBrain): void {
   if (atDoor && !answer) {
     addTask(brain, { kind: KNOCK, urgency: 'asked', source: 'own' });
   } else if (!atDoor && answer) {
+    // Out of its office after a knock there: the knock is answered. Cleared here, as well as when
+    // the walk's result comes in, since the task the result looks for is gone by then if the body
+    // was seen in the bay first, and the same knock sent it out again and again for a minute.
+    // A knock gone stale while it is still in the office leaves it where it is: it never came out.
+    if (
+      knock &&
+      brain.office &&
+      knock.room === brain.office &&
+      brain.location !== brain.office
+    ) {
+      brain.knockAt = null;
+      ledger.cameOutAt = brain.now;
+    }
     finishTask(brain, answer);
   }
 
