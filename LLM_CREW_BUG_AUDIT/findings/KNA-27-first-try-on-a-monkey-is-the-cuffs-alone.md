@@ -8,7 +8,7 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: security
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:753, tgui/packages/tgui/interfaces/CrewBrain/types.ts:43, code/modules/llm_crew/crew_npc_senses.dm:1
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:753, tgui/packages/tgui/interfaces/CrewBrain/types.ts:43, code/modules/llm_crew/crew_npc_senses.dm:191
 fix: Send in each person in view whether they are a person or an animal, as the body sees it, and go straight to the baton for one that cannot be told to stand still, if the owner agrees
 ---
 
