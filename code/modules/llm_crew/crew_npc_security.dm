@@ -327,6 +327,34 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(!empty_clicking_hand())
 			draw_stopped = "something was put in its hand as it reached"
 			continue
+		// A player can click something in a belt or bag only once it is open on screen: the open
+		// click (a right click with the empty hand) on each storage it is in, outermost first. A left
+		// click would take a box out of the bag, or take off a worn thing with pockets. Storages that
+		// show nothing when opened are left alone: a right click on them falls through to a pick-up.
+		var/list/holders = list()
+		var/atom/holder = thing.loc
+		while(isitem(holder) && holder != body && holder.atom_storage)
+			holders.Insert(1, holder)
+			holder = holder.loc
+		var/opened = TRUE
+		for(var/obj/item/storage_item as anything in holders)
+			if(!storage_item.atom_storage?.display_contents)
+				continue
+			if(!empty_clicking_hand() || !click_as_body(storage_item, "right=1", gap))
+				opened = FALSE
+				break
+		if(QDELETED(src) || QDELETED(body) || QDELETED(thing))
+			draw_stopped = "it was gone"
+			return FALSE
+		if(errand_over(serial))
+			draw_stopped = "it was called away"
+			return FALSE
+		if(!opened)
+			draw_stopped = "it could not open what it was kept in"
+			continue
+		if(!empty_clicking_hand())
+			draw_stopped = "something was put in its hand as it reached"
+			continue
 		if(!click_as_body(thing, null, 0))
 			draw_stopped = "it was in no state to reach for it"
 			continue
