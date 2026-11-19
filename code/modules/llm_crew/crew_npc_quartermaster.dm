@@ -66,7 +66,7 @@
 		if(QDELETED(sheet))
 			book_sheets -= sheet_ref
 			continue
-		if(get_atom_on_turf(sheet) == pawn)
+		if(crew_npc_carries(sheet))
 			sheets += sheet
 	return sheets
 

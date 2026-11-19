@@ -920,10 +920,17 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 			UnregisterSignal(computer, COMSIG_MODULAR_PDA_MESSAGE_RECEIVED)
 	watched_pdas = list()
 
+/**
+ * TRUE if the body has this on it: in a hand, a pocket or its bag, wherever the body itself is, a
+ * locker or the pipes among them. Something loose beside it in the same locker is not on it.
+ */
+/datum/ai_controller/crew_npc/proc/crew_npc_carries(atom/movable/thing)
+	return get_atom_on_turf(thing, /mob/living) == pawn
+
 /// The body's PDA has received a message. It reads it if the PDA is still on it.
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
-	if(!can_sense() || get_atom_on_turf(computer) != pawn)
+	if(!can_sense() || !crew_npc_carries(computer))
 		return
 	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
 	var/mob/living/carbon/human/body = pawn
