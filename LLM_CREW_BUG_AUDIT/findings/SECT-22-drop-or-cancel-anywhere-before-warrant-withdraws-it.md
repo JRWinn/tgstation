@@ -79,3 +79,11 @@ Add to the desk cases in `tools/llm_crew/security.ts`, using its `head()` and `s
 - With nothing standing: "Hale, drop what you are doing, warrant for Dana Reyes, for theft" and "Call off your patrol, I have a warrant for Dana Reyes" each put a warrant on Dana Reyes, and the answer is the "I have that: a warrant for Dana Reyes" line.
 - Kept: "Cancel the warrant on Pun Pun." still withdraws it, and the two existing take-back cases (a head its own, not the Captain's) still pass.
 - Run `bun run security.ts` in `tools/llm_crew/` and check nothing else in it changed.
+
+## Check
+
+Read `CANCEL_WORDS` (security.ts:779-780) and `deskTakes` (desk.ts:311-420): both quotes are what the code says today. The cancel test is the first of the head's and Captain's orders, before the pardon and `readWarrant`, and returns TRUE in every branch, so nothing later sees the line. `mendWords` leaves "Don't", "drop" and "call off" alone. `strike` (desk.ts:259) takes the warrant off the list and tells the officer to let the person go if it had been given the warrant. The callers are the Head of Security's `readsMessage` (headofsecurity.ts:219) and an officer alone (officer.ts:448), with no guard on the wording before them.
+
+Ran a throwaway bun script (outside the repo) with the fixtures and the same `head()` as `tools/llm_crew/security.ts`. All four lines in the write-up give exactly the results shown, and "Do not withdraw the warrant on Pun Pun" withdraws it too. `readWarrant` on its own reads Dana Reyes out of both lost-warrant lines, so the warrant is lost only because the cancel test is first. Nothing in LLM_CREW_CHANGELOG.md or the plans chose this; the plan (LLM_CREW_PLAN_SECURITY.md:328) gives only "Cancel the warrant on Pun Pun." as the form.
+
+Confirmed. Severity lowered from high to medium: the right person is acted on, but wrongly, and only for these wordings, which will not come up in most rounds. The Captain is told "withdrawn" or "nothing against them" each time, so the mistake is seen and can be put right by declaring again.

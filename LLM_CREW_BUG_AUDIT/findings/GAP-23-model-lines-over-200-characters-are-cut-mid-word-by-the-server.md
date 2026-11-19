@@ -14,7 +14,7 @@ fix: Trim every say to the last whole sentence that fits in 200 characters in th
 
 ## What is wrong
 
-The server cuts anything a body is told to say at 200 characters (`CREW_NPC_SAY_MAX_LENGTH`), wherever that falls. The window knows the limit (`SAY_MAX = 200` in `jobs/reports.ts`) but uses it only when it joins a word-for-word line to a remark (`withRemark`). A line the model words itself has no limit anywhere on the window side: the `say` field of the reply schema has none, the prompt asks for nothing short, and nothing trims it. So the model's long lines are said with their last words chopped off mid-word.
+The server cuts anything a body is told to say at 200 characters (`CREW_NPC_SAY_MAX_LENGTH`), wherever that falls. The window knows the limit (`SAY_MAX = 200` in `jobs/reports.ts`) but uses it only when it joins a word-for-word line to a remark (`withRemark`). A line the model words itself has no limit anywhere on the window side that code enforces: the `say` field of the reply schema has none, and nothing trims it. The fixed part of the prompt does ask for "one or two short sentences" (`SPEAKING` in `person.ts`), and the model often does not keep to it. So the model's long lines are said with their last words chopped off mid-word.
 
 Two harms:
 
@@ -60,7 +60,7 @@ A grep of every round's `game.log` for says of 199 characters or more that do no
 
 ## How it was found
 
-Seen in round logs (the two lines quoted, by grep: `grep -h "was told by its brain to say: " data/logs/2026/11/*/round-*/game.log`, keeping lines whose text is 199 characters or more and does not end in `.`, `!`, `?` or a quote). Then read in the code: nothing on the window side bounds a model-worded line. Not seen: a case where a needed word was cut and a hearer missed it. That half is read from the code.
+Seen in round logs (the two lines quoted, by grep: `grep -h "was told by its brain to say: " data/logs/2026/11/*/round-*/game.log`, keeping lines whose text is 199 characters or more and does not end in `.`, `!`, `?` or a quote). Then read in the code: nothing on the window side bounds a model-worded line but the request in the prompt. Not seen: a case where a needed word was cut and a hearer missed it. That half is read from the code.
 
 ## How to fix it
 
