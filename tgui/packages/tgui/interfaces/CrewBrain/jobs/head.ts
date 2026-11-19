@@ -45,7 +45,7 @@ import {
 } from '../tasks';
 import type { Action, NpcBrain, PersonInView, Plan, Task } from '../types';
 import { isCargo } from './cargo';
-import { isJanitor } from './janitor';
+import { HAS_COME, isJanitor } from './janitor';
 import type { Job } from './job';
 import {
   ALOUD_CALL_WORDS,
@@ -1363,7 +1363,8 @@ export const HEAD_OF_PERSONNEL: Job = {
         }
         brain.toTell.push({
           to: ask.who,
-          line: `${ask.who.split(' ')[0]}, what you asked for has come. It is in the ${room}.`,
+          // The janitor knows this word by HAS_COME alone, so the line is built from it (DESK-01).
+          line: `${ask.who.split(' ')[0]}, ${HAS_COME}. It is in the ${room}.`,
           why: `${from} has collected what ${ask.who} asked for from cargo and unpacked it in the ${room}. You are sending ${ask.who} a PDA message to say so.`,
           byPda: true,
           at: Date.now(),
