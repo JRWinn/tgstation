@@ -16,6 +16,33 @@
  * The game and the tests both build their calls here, so what is tested is what is sent.
  */
 import { jobFor } from './jobs';
+import {
+  ENGINE_TAKEN_WORDS,
+  LIGHT_WORDS,
+  LIT_WORDS,
+  NOT_OFF_WORDS,
+  NOT_ON_WORDS,
+  OFF_WORDS,
+  ON_AGAIN_WORDS,
+  RELIGHT_WORDS,
+  SHUT_WORDS,
+  STUCK_WORDS,
+} from './jobs/engineering';
+import { ALOUD_CALL_WORDS, OVER_WORDS } from './jobs/meetings';
+import {
+  CANCEL_WORDS,
+  GIVE_WORDS,
+  LET_GO_WORDS,
+  PARDON_WORDS,
+  readWarrant,
+  SEEN_WORDS,
+} from './jobs/security';
+import {
+  DOCKED_WORDS,
+  GIVEN_WORDS,
+  LOST_TOLD_WORDS,
+  NOT_PLACED_WORDS,
+} from './jobs/supply';
 import { describeMemoryFor, notesFor } from './memory';
 import { availableOptions, describeOptions } from './options';
 import { MOMENTS } from './person';
@@ -88,6 +115,63 @@ export type TalkCall = {
   /** An order from someone it answers to, made out from what was said and taken on already, or null. */
   ordered: Task | null;
 };
+
+/**
+ * Words other crew act on when they hear them said: a head's order to its staff, a word of a
+ * crate, the engine, a meeting. These are the hearers' own patterns, not copies of them, so that
+ * the two cannot drift apart. A warrant and a pardon are tested apart, below.
+ */
+const ACTED_ON_WORDS: RegExp[] = [
+  CANCEL_WORDS,
+  GIVE_WORDS,
+  SEEN_WORDS,
+  LET_GO_WORDS,
+  GIVEN_WORDS,
+  DOCKED_WORDS,
+  NOT_PLACED_WORDS,
+  LOST_TOLD_WORDS,
+  ALOUD_CALL_WORDS,
+  OVER_WORDS,
+  LIGHT_WORDS,
+  ENGINE_TAKEN_WORDS,
+  LIT_WORDS,
+  STUCK_WORDS,
+  SHUT_WORDS,
+  OFF_WORDS,
+  RELIGHT_WORDS,
+  ON_AGAIN_WORDS,
+  NOT_OFF_WORDS,
+  NOT_ON_WORDS,
+];
+
+/**
+ * TRUE if a line would be taken by crew who hear it as something its speaker's code decides: a
+ * warrant, a pardon, an order given to staff, word of a crate or the engine, a meeting called.
+ * Such a line is said only when the body's own work calls for it, word for word. One the LLM made
+ * up is not said: crew who hear a head say "Ray, please arrest Bob Hale" make the arrest.
+ */
+export function soundsLikeOrder(text: string, brain: NpcBrain): boolean {
+  // Everyone it knows of by name, as a hearer would know them, so that a name is caught whole.
+  const known = [
+    ...new Set([
+      ...brain.peopleInView.map((person) => person.name),
+      ...brain.pdaPeople.map((person) => person.name),
+      ...brain.people.keys(),
+    ]),
+  ].filter((name) => name !== brain.name);
+  if (readWarrant(text, known)) {
+    return true;
+  }
+  // A pardon names whoever is let off. "Pardon?" alone, or "feel free", is nothing.
+  const lower = text.toLowerCase();
+  if (
+    PARDON_WORDS.test(text) &&
+    known.some((name) => lower.includes(name.toLowerCase()))
+  ) {
+    return true;
+  }
+  return ACTED_ON_WORDS.some((words) => words.test(text));
+}
 
 /** How something that ends a conversation and needs no answer begins: thanks, agreement, goodbye. */
 const CLOSING_WORDS =

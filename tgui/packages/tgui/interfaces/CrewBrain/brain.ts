@@ -46,7 +46,7 @@ import {
   withoutHandles,
 } from './prompt';
 import { describeFeeling, shiftFeeling } from './relationships';
-import { buildTalk, type Speaker } from './talk';
+import { buildTalk, type Speaker, soundsLikeOrder } from './talk';
 import {
   afterSaying,
   describeTask,
@@ -1470,17 +1470,27 @@ async function think(brain: NpcBrain): Promise<void> {
         );
       }
     }
-    const actions = replied.filter(
-      (action) =>
-        action.tool !== 'say' ||
-        !(
-          alone ||
-          (dropped && speakers.length === 0) ||
-          (unprompted &&
-            (isFiller(String(action.text ?? '')) ||
-              saidBefore(brain, String(action.text ?? ''))))
-        ),
-    );
+    const actions = replied.filter((action) => {
+      if (action.tool !== 'say') {
+        return true;
+      }
+      const text = String(action.text ?? '');
+      // What other crew act on when they hear it is said only when the body's own work calls for
+      // it, in its own fixed words. The LLM's line is the voice, not the work: a head it has
+      // talked into saying "arrest Bob Hale" has not declared a warrant. The plain line its work
+      // calls for, if any, is said instead below; and as a remark to an exact line, it is left off.
+      if (soundsLikeOrder(text, brain)) {
+        decision.calls.push(
+          `say(${JSON.stringify(text)}) [sounded like an order: not said]`,
+        );
+        return false;
+      }
+      return !(
+        alone ||
+        (dropped && speakers.length === 0) ||
+        (unprompted && (isFiller(text) || saidBefore(brain, text)))
+      );
+    });
     if (mustSay && exact) {
       // The line is said as it stands: the numbers in it are the server's, and whoever hears it
       // goes by its words. Whatever the LLM gave is a remark to follow it, if it is fit to be one.
