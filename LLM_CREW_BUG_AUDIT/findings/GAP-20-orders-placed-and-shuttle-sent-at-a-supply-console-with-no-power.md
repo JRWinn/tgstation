@@ -5,8 +5,10 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: SUP-01
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:379, code/modules/llm_crew/crew_npc_cargo.dm:176, code/modules/llm_crew/crew_npc_freight.dm:633, code/modules/cargo/orderconsole.dm:221
 fix: Refuse in place_order and send_shuttle_back when the console is not operational, with words the brain can pass on, and skip dead consoles in supply_console
