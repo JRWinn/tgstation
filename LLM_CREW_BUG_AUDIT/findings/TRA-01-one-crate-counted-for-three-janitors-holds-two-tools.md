@@ -77,9 +77,14 @@ Read from the code and the base-game supply pack. Not seen in a round: no round 
 2. Better, keep the count beside the crate it is about: add `perCrate: 2` to the janitor entry in `SUPPLIES` and use `supply.perCrate` in `orderFor`. A future entry (light bulbs for the light replacer plan) will hold a different number.
 3. In `tools/llm_crew/sim.ts`, give the simulator's crate the rag the real one has: `contents: ['mop', 'space cleaner', 'damp rag']`, so that the simulator gets the same mix as a round.
 4. Check `CRATES_MAX` (4) still covers the crew: with `perCrate: 2`, eight janitors short is four crates.
+5. Worth doing with it: `knownSupply` in `janitor.ts` takes the first known item that matches `CLEANING_SUPPLY`, which can be the rag. A janitor with nothing that takes the rag first is then `poorTool`, goes back for the mop (`PROPER_SUPPLY`) and holds both, so one janitor can take two of the crate's three tools. Have a janitor with nothing prefer a `PROPER_SUPPLY` item when it knows of one, and take the rag only when it knows of nothing better. Without this, 2 per crate is right only when the janitors happen to reach the mop and spray first.
 
 ## How to test the fix
 
 - Type check from `tgui/`.
 - Add a simulator scenario (or a variant of `crew`) in which all three janitors start with nothing and the closet is empty. Pass if the head's first order is for 2 crates, and if no janitor reports "something better than a rag" at the second meeting.
 - In the next round's `pda.log`, find the head's "I need to order ..." line after a meeting at which three janitors reported a need: it should say "2 crates of janitorial supplies".
+
+## Check
+
+Read `PER_CRATE`, `CRATES_MAX` and `orderFor` in `jobs/head.ts`, `CLEANING_SUPPLY`, `PROPER_SUPPLY`, `knownSupply`, `lacksTool` and `supplyStep` in `jobs/janitor.ts`, `needStep` in `jobs/meetings.ts`, `has_poor_tool` in `crew_npc_cleaning.dm:27`, the base-game `/datum/supply_pack/service/janitor` in `code/modules/cargo/packs/service.dm`, and the simulator's crate at `tools/llm_crew/sim.ts:502`. The quotes are what the code says. The real crate holds one mop, one spray cleaner and one rag and nothing else that `PROPER_SUPPLY` counts (no soap); a janitor whose working tool is a rag is short and, with nothing better found, asks its head for "something better than a rag" through `needStep`. So one crate makes at most two janitors whole, and `PER_CRATE = 3` orders one crate for three. Searched the change log and plans for `PER_CRATE`, "good for", "poor tool": nothing chose 3 knowingly after the rag was made a poor tool; entry (16) on `has_poor_tool` shows a second crate being ordered for this kind of reason was already seen once. Confirmed. Added step 5: a janitor can take the rag and then the mop, which makes even 2 per crate hold only by luck. Severity medium (a third janitor works with a rag and a second order follows; the work still gets done) and effort small stand. Nothing was run.
