@@ -83,12 +83,18 @@
 	var/mob/living/carbon/human/body = pawn
 	return locate(/obj/item/pen) in body.get_all_contents()
 
-/// Takes something the body has on it into a hand, if it is not in one already. Returns FALSE if it has no hand free for it.
+/**
+ * Takes something the body has on it into a hand, if it is not in one already. Returns FALSE if it
+ * has no hand free for it, and then the thing stays where it was: put_in_hands would drop it.
+ */
 /datum/ai_controller/crew_npc/proc/take_in_hand(obj/item/thing)
 	var/mob/living/carbon/human/body = pawn
 	if(body.is_holding(thing))
 		return TRUE
-	return body.put_in_hands(thing)
+	for(var/index in body.get_empty_held_indexes())
+		if(body.can_put_in_hand(thing, index) && body.put_in_hand(thing, index))
+			return TRUE
+	return FALSE
 
 /**
  * Gets the body ready to write on a sheet of its order book the way anyone would: the clipboard
@@ -101,6 +107,12 @@
 	if(!istype(board))
 		board = null
 	var/obj/item/held = board || sheet
+	var/mob/living/carbon/human/body = pawn
+	// A full sheet of the book still in a hand goes back in the bag, as anyone would put a full page away.
+	if(!board && !body.is_holding(sheet))
+		for(var/obj/item/paper/old_sheet in body.held_items)
+			if(old_sheet != sheet && (WEAKREF(old_sheet) in book_sheets))
+				body.equip_to_storage(old_sheet, ITEM_SLOT_BACK, indirect_action = TRUE)
 	if(!take_in_hand(held))
 		return "Your hands are full, so you cannot get your [held.name] out to write in it."
 	if(board?.pen)
@@ -116,8 +128,9 @@
 		board.update_appearance()
 	else if(!take_in_hand(pen))
 		return "Your hands are full, so you cannot hold a pen to write with."
-	if(istype(kept_in) && kept_in.inserted_item == pen)
+	if(istype(kept_in) && kept_in.inserted_item == pen && pen.loc != kept_in)
 		kept_in.inserted_item = null
+		kept_in.update_appearance()
 	return null
 
 /// Makes a sheet of paper the next sheet of the order book.
