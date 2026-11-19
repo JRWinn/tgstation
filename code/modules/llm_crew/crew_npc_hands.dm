@@ -439,6 +439,8 @@
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
+		if(istype(target, /obj/structure/table) || istype(target, /obj/structure/rack) || istype(target, /obj/machinery/disposal/bin))
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) could not get to the [target.name] at [AREACOORD(target)] to put things on it: passed over for a while.")
 	// Water it could not get to, a sink behind glass most often, is not water to hand for a while.
 	if(crew_controller.errand_tool == CREW_TOOL_CLEAN && !QDELETED(target) && (istype(target, /obj/structure/sink) || istype(target, /obj/structure/mop_bucket) || istype(target, /obj/structure/reagent_dispensers)))
 		crew_controller.water_failed[REF(target)] = world.time

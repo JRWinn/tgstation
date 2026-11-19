@@ -52,8 +52,7 @@
 /datum/ai_controller/crew_npc/proc/wants_tidying(obj/item/thing)
 	if(!isturf(thing.loc) || thing.anchored || thing.pulledby || (thing.item_flags & ABSTRACT) || thing.w_class >= WEIGHT_CLASS_BULKY)
 		return FALSE
-	var/skipped_at = tidy_skipped[REF(thing)]
-	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
+	if(tidy_skipped_lately(thing))
 		return FALSE
 	// Broken glass cuts bare hands, and mail with a name on it is being kept for someone.
 	if(istype(thing, /obj/item/shard) || (istype(thing, /obj/item/mail) && crew_npc_mail_for(thing)))
@@ -94,10 +93,14 @@
 		var/obj/structure/closet/crate/crate = container
 		if(crate.crew_npc_unpacked)
 			return FALSE
-	var/skipped_at = tidy_skipped[REF(container)]
-	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
+	if(tidy_skipped_lately(container))
 		return FALSE
 	return !isnull(locate(/obj/item) in container.loc)
+
+/// TRUE if this thing, or this place to put things, was given up on in the last few minutes: one it could not get to.
+/datum/ai_controller/crew_npc/proc/tidy_skipped_lately(atom/thing)
+	var/skipped_at = tidy_skipped[REF(thing)]
+	return skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP
 
 /// Returns the nearest disposal bin in the body's work area, or null.
 /datum/ai_controller/crew_npc/proc/nearest_bin(atom/from)
@@ -105,6 +108,9 @@
 	var/nearest_distance = INFINITY
 	for(var/area/room as anything in tidy_rooms())
 		for(var/obj/machinery/disposal/bin/bin in room)
+			// One it could not get to is not carried things to again for a while.
+			if(tidy_skipped_lately(bin))
+				continue
 			var/distance = get_dist(from, bin)
 			if(distance < nearest_distance)
 				nearest_distance = distance
@@ -119,7 +125,7 @@
 	for(var/obj/structure/surface in room)
 		if(!istype(surface, /obj/structure/table) && !istype(surface, /obj/structure/rack))
 			continue
-		if(!crew_npc_free_surface(get_turf(surface)))
+		if(!crew_npc_free_surface(get_turf(surface)) || tidy_skipped_lately(surface))
 			continue
 		var/distance = get_dist(from, surface)
 		if(distance < nearest_distance)
@@ -176,7 +182,7 @@
 		var/has_bin = !isnull(nearest_bin(pawn))
 		var/has_surface = FALSE
 		for(var/obj/structure/surface in room)
-			if((istype(surface, /obj/structure/table) || istype(surface, /obj/structure/rack)) && crew_npc_free_surface(get_turf(surface)))
+			if((istype(surface, /obj/structure/table) || istype(surface, /obj/structure/rack)) && crew_npc_free_surface(get_turf(surface)) && !tidy_skipped_lately(surface))
 				has_surface = TRUE
 				break
 		if(!has_bin && !has_surface)
