@@ -437,7 +437,8 @@ export function ingest(npcs: Npc[], now: number): void {
       brain.outAsks = null;
       brain.cameFrom = brain.location || brain.cameFrom;
       // Where it was a moment ago, and when it left. Someone pushed a tile out of a room has not left it.
-      if (brain.location) {
+      // A body that walked out on a walk of its own has (brain.walking is still the last update's).
+      if (brain.location && !brain.walking) {
         brain.leftPlace = { place: brain.location, at: Date.now() };
       }
     }
