@@ -642,7 +642,8 @@ export function deskTakes(
     return true;
   }
   // Word of where someone wanted is.
-  const seen = nameIn(text, standing);
+  // A first name alone, a misspelling or a name run together is taken, as for a pardon.
+  const seen = nameIn(text, standing) ?? closeIn(text, standing);
   const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
   if (seen && place && SIGHTING_WORDS.test(text)) {
     const warrant = desk.warrants.find((it) => it.name === seen);

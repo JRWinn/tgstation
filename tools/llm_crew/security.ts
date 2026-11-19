@@ -410,6 +410,23 @@ const HOS = jobFor('Head of Security');
 b = head();
 deskTakes(b, 'Zim Fire', 'Captain', 'Pun Pun is in the bar', false);
 add('a sighting of someone with no warrant on them is answered, with the words that would declare one', said(b), ['PDA to Zim Fire: Captain, there is no warrant on Pun Pun. To declare one, say: Warrant for Pun Pun.']);
+// SECT-15: a sighting by first name, or run together, of someone wanted is taken.
+for (const [line, name] of [['Dana is in the bar', 'Dana Reyes'], ['Punpun is in the bar', 'Pun Pun'], ['I just saw Dana in the bar', 'Dana Reyes']]) {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  d.toTell = [];
+  deskTakes(d, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" is a sighting of ${name}`, [deskOf(d).warrants.find((w: any) => w.name === name)?.lastSeen?.place, said(d).filter((it: string) => /no warrant/.test(it))], ['Bar', []]);
+}
+{
+  const d = head();
+  d.pdaPeople = [...PDA, { name: 'Dana Smith', job: 'Cook' }];
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Smith, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Dana is in the bar', false);
+  add('"Dana is in the bar" with two Danas wanted is taken for neither', deskOf(d).warrants.map((w: any) => w.lastSeen), [null, null]);
+}
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
 add('a message from the Captain that code can make nothing of waits for the LLM to read it', [said(b), deskOf(b).unread.map((it: any) => it.text)], [[], ['How are things over there today']]);
