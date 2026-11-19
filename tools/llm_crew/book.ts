@@ -219,6 +219,15 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('a cancel written in the book is read back as off', readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. Cancelled by Hop Kins.'], 5000).map((order: any) => `${order.state} ${order.cancelledBy}`), ['refused Hop Kins']);
 }
 
+// QM-05 (words only, not yet said): the Quartermaster sending a technician to let a workmate out.
+{
+  const S = await import(ROOT + 'jobs/supply');
+  const line = S.letOutLine('Sam', 'Cora', 'Warehouse');
+  add('the let-out line', line, 'Sam, Cora is shut in the Warehouse. Could you let them out, please?');
+  add('read back: to whom, who, and where', line.match(S.SEND_TO_LET_OUT_WORDS)?.slice(1, 4), ['Sam', 'Cora', 'Warehouse']);
+  add('and it is not the "see to it" line', S.SEE_TO_WORDS.test(line), false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
