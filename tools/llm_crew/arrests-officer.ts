@@ -104,12 +104,13 @@ const wanted = (place = 'Bar', where = 'Bar') => {
   add('ARR-09: back over half and hurt again, it breaks off at half as before', A.beatOf(f.o).hurt, true);
 }
 
-// ---- ARR-10: short of what the arrest needs, with them in sight, it goes for its kit and says so
+// ---- ARR-10 (telling part): short of what the arrest needs, with them in sight, it says so at once.
+// Whether it then leaves them for the lockers is the owner's question: it stays with them, as H2 has it.
 {
   const f = wanted('Bar');
   f.o.security.has_cuffs = 0;
   A.syncBeat(f.o);
-  add('ARR-10: no cuffs and them in sight: it goes for its kit', !!open(f.o, 'security_kit'), true);
+  add('ARR-10: no cuffs and them in sight: it stays with them (H2)', !!open(f.o, 'security_kit'), false);
   add('ARR-10: and says once that it has no cuffs', [A.takeOutcomes(f.o), (A.syncBeat(f.o), A.takeOutcomes(f.o))], [[{ what: 'cannot', name: 'Pun Pun', why: 'no cuffs' }], []]);
   add('ARR-10: the arrest still says why it is not made', A.planBeat(f.o, f.task)?.ready, false);
 }
@@ -120,7 +121,7 @@ const wanted = (place = 'Bar', where = 'Bar') => {
   add('ARR-10: no baton, and they have stood still so far: it does not leave them', [!!open(f.o, 'security_kit'), A.takeOutcomes(f.o)], [false, []]);
   f.warrant.force = true;
   A.syncBeat(f.o);
-  add('ARR-10: no baton once they would not stand still: it goes for one, and says so once', [!!open(f.o, 'security_kit'), A.takeOutcomes(f.o)], [true, [{ what: 'cannot', name: 'Pun Pun', why: 'no baton' }]]);
+  add('ARR-10: no baton once they would not stand still: it says so at once, once, and stays', [!!open(f.o, 'security_kit'), A.takeOutcomes(f.o), (A.syncBeat(f.o), A.takeOutcomes(f.o))], [false, [{ what: 'cannot', name: 'Pun Pun', why: 'no baton' }], []]);
 }
 
 // ---- ARR-11: one hallway it cannot walk to does not stop the search

@@ -390,18 +390,12 @@ export function onLead(brain: NpcBrain): boolean {
 function wantsKit(brain: NpcBrain): boolean {
   const beat = beatOf(brain);
   const security = brain.security;
-  // Short of what the arrest itself needs: no cuffs, or no baton for someone who would not stand
-  // still. Watching them gets it nowhere, so it goes even while they are in sight.
-  const stopsArrest =
-    !!security &&
-    (!security.has_cuffs ||
-      (!security.has_baton && beat.warrants.some((it) => it.force)));
   return (
     !!security &&
     (!security.has_baton || !security.has_cuffs) &&
     !security.holding &&
     // Not while it is after someone: a trip to the lockers is a minute with its back to them.
-    (!onLead(brain) || stopsArrest) &&
+    !onLead(brain) &&
     (beat.kitTries < KIT_TRIES || brain.now - beat.kitAt > KIT_AGAIN_DS)
   );
 }
