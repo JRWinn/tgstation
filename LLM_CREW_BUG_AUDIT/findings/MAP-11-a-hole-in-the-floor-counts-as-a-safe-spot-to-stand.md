@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_motor.dm:43, code/modules/llm_crew/crew_npc_tools.dm:370, code/modules/llm_crew/crew_npc_cargo.dm:245, code/modules/llm_crew/crew_npc_spawn.dm:79
 fix: Make crew_npc_safe_turf refuse any tile the body could fall through, using the turf's own can_cross_safely, so every spot picker leaves holes out
@@ -24,7 +25,7 @@ The game has a test for exactly this: `/turf/open/openspace/can_cross_safely` is
 
 Open space inside station rooms, counted from the maps' `.dmm` files: Tramstation's Brig has 46 open-space tiles of its 281 with nothing over them; IceBox's Cargo Bay has 12 bare ones (and 7 more under catwalks, which are safe); NebulaStation's Brig 13; CatwalkStation has hundreds in its hallways, dorms and recreation (many under catwalks). MetaStation has none, which is why it has never shown.
 
-What follows when a hole is picked: a walk there has no route ("there is no way through"), the room is put in `blocked_places`, and a body that has a trail counts it toward being shut in (`note_way_out_failed`). A body made on a hole falls to the floor below as soon as it is made, hurt. With MAP-05 fixed so that rooms on every floor are looked in, the spawn case becomes likely on Tramstation and CatwalkStation.
+What follows when a hole is picked: a walk there has no route ("there is no way through"), the room is put in `blocked_places`, and a body that has a trail counts it toward being shut in (`note_way_out_failed`). A body made on a hole would fall to the floor below as soon as it is made, hurt. Today that cannot happen: `spawn_test_crew` passes only the lowest station floor (MAP-05), and on Tramstation, IceBox, NebulaStation and CatwalkStation no station room on that floor has open space (counted in the check). With MAP-05 fixed so that rooms on every floor are looked in, the spawn case becomes real on all four, since `crew_npc_spawn_turf` takes the first tile that passes, not a random one.
 
 ## Where
 

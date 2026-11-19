@@ -3,13 +3,14 @@ id: CORE-02
 title: A body that is stunned or paralysed for a moment is treated as senseless, so what is said to it is not heard and a PDA message that comes in then is lost for good
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_senses.dm:101, code/modules/llm_crew/crew_npc_controller.dm:313, code/datums/ai/_ai_controller.dm:475, code/modules/llm_crew/crew_npc_cargo.dm:805, code/modules/llm_crew/crew_npc_senses.dm:384
-fix: Make can_sense depend on the body (alive, conscious, no player in it), not on ai_status, and keep PDA messages that come while it cannot sense to read when it can
+fix: Make can_sense depend on the body (alive, conscious, no player in it), not on ai_status; add can_act for doing things and for the window's awake; keep PDA messages that come while it cannot sense to read when it can
 ---
 
 ## What is wrong
@@ -66,14 +67,20 @@ Read from the code, following `COMSIG_MOB_INCAPACITATE_CHANGED` through `update_
 
 ## How to fix it
 
-1. Split the one test into two. Keep `can_sense()` for "can this body perceive anything": the body exists, is not dead, is not unconscious, has no player in it (`isnull(body.client)`), and the controller has not been forced off (`!forced_off`). Do not look at `ai_status` or `able_to_run`.
-2. Add `can_act()` for "can this body do anything": `can_sense() && able_to_run`. Use it in `handle_tool_call` where the "Your body is not responding." refusal is given, so a stunned body still refuses to walk or pick things up. `tool_say` can stay on `can_sense()` plus the body's own `can_speak()`, since a stunned person can still talk.
+1. Split the one test into two. Keep `can_sense()` for "can this body perceive anything": the body exists, is not dead, is not unconscious, and has no player in it (`isnull(body.client)`, which is the base's own reason to turn it off, `_ai_controller.dm`, `get_expected_ai_status`). Do not look at `ai_status` or `able_to_run`. (There is no `forced_off` var on the controller; do not invent one.)
+2. Add `can_act()` for "can this body do anything": `can_sense() && able_to_run && ai_status != AI_STATUS_OFF`. Use it in `handle_tool_call` where the "Your body is not responding." refusal is given (`crew_npc_tools.dm:16`), so a stunned body still refuses to walk or pick things up; let `CREW_TOOL_SAY` through on `can_sense()` and the body's own `can_speak()`, since a stunned person can still talk.
+2a. Send `can_act()`, not `can_sense()`, as `"awake"` in `crew_brain_link.dm:92`. The window (`driver.ts`, `drive`, `!brain.awake`) uses it to hold back steps; on `can_sense()` it would send steps to a stunned body, each refused and put in back-off as a failure.
 3. Leave `look_around` on `can_sense()`. A stunned body then goes on seeing who is about.
 4. For PDA messages that arrive while the body is unconscious: in `on_pda_message`, if the PDA is on the body but `can_sense()` is FALSE, keep `list(sender, job, message)` in a new list on the controller. At the top of `look_around`, once `can_sense()` is TRUE again, emit each as an ordinary `CREW_SENSE_PDA_MESSAGE` with the words "While you were out, your PDA got a message from ...". Cap the list at, say, ten. This is a player looking at their PDA when they come to, not a hidden channel.
-5. Check the callers of `can_sense()` one by one after the split (grep `can_sense()` in `code/modules/llm_crew/`). Most are fine on either meaning; any that stand for "the body can act" move to `can_act()`.
+5. Check the callers of `can_sense()` one by one after the split (grep `can_sense()` in `code/modules/llm_crew/`). Seeing and hearing stay on `can_sense()`: `look_around` (`crew_npc_senses.dm:129`), `on_pre_hear`, `on_pda_message`, the knock heard (`crew_npc_doors.dm:689`), the looks in `crew_npc_engineering.dm:74` and `crew_npc_security.dm:1590`, and the look in `action_result`. Doing moves to `can_act()`: `handle_tool_call`, `start_search` (`crew_npc_storage.dm:53`), `write_off_lost_crates` (`crew_npc_held.dm:93`, it speaks aloud and changes records; speech alone would do, but it is part of the work), and `awake` above.
+6. `look_around` runs on its own looping timer (`crew_npc_senses.dm:18`), not on the controller's tick, so step 4's catch-up runs even while `ai_status` is off.
 
 ## How to test the fix
 
 - Server compile.
 - In a round, use the admin Paralyze on a crew NPC for ten seconds and, while it is down, send it a PDA message and say something beside it. With the fix the window shows both events, and the PDA message is acted on. Grep `crew_brain.log` for the message text.
 - Knock one out (the admin Sleep) and send a PDA message: with the fix it is read once it wakes, with the "While you were out" words.
+
+## Check
+
+Checked by Opus 5.5. The quotes match the code. Traced it: `crew_npc_controller.dm` `setup_able_to_run` registers `COMSIG_MOB_INCAPACITATE_CHANGED` to the base `update_able_to_run` (`_ai_controller.dm:590`), which calls the crew `get_able_to_run`; `INCAPACITATED_IGNORING(... RESTRAINTS|STASIS|GRAB)` is true under stun and paralyse (both add `TRAIT_INCAPACITATED`, `debuffs.dm:62` and `:108`) and in stamina crit, so `able_to_run` goes FALSE and `get_expected_ai_status` returns `AI_STATUS_OFF` (`_ai_controller.dm:475`); `set_ai_status` stores it. `can_sense()` then returns FALSE, and `on_pda_message` (`crew_npc_cargo.dm:805`) returns without storing the message anywhere; nothing in `code/modules/llm_crew/` reads the PDA's chats later. Knockdown alone (a water slip) adds only `TRAIT_FLOORED` and does not trigger this; a baton into stamina crit, a tackle's `Paralyze` and lube do. Nothing in the change log or plans chose this. Kept medium: it comes up mainly in arrests and fights, and loses an order or an answer for good. Effort raised to medium: the split touches `crew_npc_senses.dm`, `crew_npc_tools.dm`, `crew_npc_cargo.dm`, `crew_brain_link.dm`, `crew_npc_storage.dm` and `crew_npc_held.dm`. Mended the fix: there is no `forced_off` var, and the window's `awake` must follow `can_act()` or the window sends steps to a stunned body.

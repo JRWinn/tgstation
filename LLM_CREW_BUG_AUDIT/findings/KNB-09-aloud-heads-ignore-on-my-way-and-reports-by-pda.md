@@ -73,7 +73,7 @@ Read from the code. `grep COMING_WORDS jobs/*.ts` finds it used in `head.ts` alo
 
 1. In `jobs/head.ts`, lift the block quoted above into an exported function, `staffMeetingWord(brain, from, text, at): boolean`, that handles `COMING_WORDS` and `REPORT_BY_PDA` (with `readReport`, `addCounts`, `noteAsk`) and returns TRUE if the message was one of them. Call it from the Head of Personnel's `readsMessage` in place of the block.
 2. Call it near the top of `readsMessage` in `jobs/quartermaster.ts`, `jobs/chiefengineer.ts` (before `hearEngineer`) and `jobs/headofsecurity.ts` (which can then drop its own copy, keeping `KEPT_AWAY` in the pattern).
-3. In `endMeeting`, send the "meeting is over" word to those who were called by PDA whatever the way: keep a list on the meeting (`meeting.calledByPda`, pushed to where `meetStep` sends the PDA call) and loop over that when `way.aloud`.
+3. In `endMeeting`, send the "meeting is over" word to those who were called by PDA whatever the way: keep a list on the meeting (`meeting.calledByPda`) and loop over that when `way.aloud`. The place to push to it is `meetingActed` in `head.ts`, in the branch that already does `meeting.invited.push(String(act.person))` for a sent message beginning "Staff meeting in the": the aloud call is a `say`, so only a PDA call reaches that branch. Steps 1 and 3 go in together: the "meeting is over" word makes the staff member send "Sorry I missed the meeting. ..." (`summons.missed` in `readSummons`, then `planMeetings`), which the head has to be able to read.
 4. The Quartermaster's need-taking: check that `noteAsk` does for it what it does for the Head of Personnel. The Quartermaster orders for its own staff through `orderForItself`, so a technician's need by PDA has to land wherever a spoken one lands (`hearReport`).
 
 Keeps the rules: all of it is fixed lines read by code. Nothing waits on the model.
@@ -83,3 +83,15 @@ Keeps the rules: all of it is fixed lines read by code. Nothing waits on the mod
 - Type check and lint.
 - `tools/llm_crew/reports.ts`: add cases for "On my way to the Cargo Bay." and "Sorry I missed the meeting. ..." read by the Quartermaster's and the Chief Engineer's `readsMessage`.
 - Simulator: `qm` with one technician started out of the Quartermaster's sight. Checks: the Captain's report counts 2 of 2, or 1 of 2 with "1 reported by PDA"; the late technician is back at its work within a minute of the meeting ending.
+
+## Check
+
+Checked by Opus 5.5. Every quote is still what the code says (line numbers drift by a few: `awaited` is now `head.ts:383`, the `endMeeting` loop `head.ts:482`, the Head of Personnel's block `head.ts:1314`).
+
+- `meetStep` (`head.ts:768-813`): under an aloud way, someone not in sight is sent "Staff meeting in the X now, please. Send word that you are coming, ..." by PDA, and `meetingActed` (`head.ts:1145`) adds them to `invited`. The staff side reads it as a call (`readSummons`, `meetings.ts:291`) and answers "On my way to the X." (`planMeetings`, `meetings.ts:400-414`).
+- `COMING_WORDS` is used only in `head.ts:1316`, inside the Head of Personnel's `readsMessage`. The Quartermaster's `readsMessage` (`quartermaster.ts:1445-1490`) reads only Captain answers, meeting orders, orders from heads, docked and arrived words, and shut-in words. The Chief Engineer's (`chiefengineer.ts:650`) hands every engineer message to `hearEngineer`, which reads only engine words. So `answers[from]` is never 'coming' for them, and `awaited` drops the person after `WORD_BACK_DS` (90 s).
+- `endMeeting` sends nothing by PDA when `way.aloud`; all three of the Quartermaster, Chief Engineer and Head of Security are aloud (`quartermaster.ts:780`, `chiefengineer.ts:238`, `headofsecurity.ts:114`). On the staff side a PDA summons clears only on the over word, a report sent, `headGone` (needs `summons.said`) or `SUMMONS_STANDS_DS` (4200 ds) in `syncMeetings` (`meetings.ts:318-340`), so a late arrival waits up to seven minutes from the call with an emergency task.
+- A latecomer who arrives while the meeting still runs is called on (`nextTurn`), so the loss is only for those who arrive after it closes, as the concrete case says.
+- Listed and left in the change log's "Known and not fixed" (`LLM_CREW_CHANGELOG.md:811`) for the Quartermaster only; no later entry fixes it.
+
+Effort raised to medium: the helper and its four callers span `head.ts`, `quartermaster.ts`, `chiefengineer.ts` and `headofsecurity.ts`, plus a field on the meeting. Severity medium stands: the work goes on, a player sees a technician standing idle and a wrong head count.

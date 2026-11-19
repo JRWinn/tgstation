@@ -94,3 +94,19 @@ Read from the code, following `get_path_to` into its `UNTIL`, and `start_errand`
 - Compile.
 - Simulator: `sim.ts` answers tools at once, so route testing cannot be held up there. A case can still check step 3: put `choosing_where_to_explore` in the fake state and see the driver does not issue another step.
 - Next round: grep `game.log` for the new line. Before the fix, a `walk_to` or `go_to` sent while an `explore` or `force_door` was in hand shows as a step that never gets an answer in `crew_brain.log`.
+
+## Check
+
+Confirmed, read from the code, not run. The quotes are what the code says today.
+
+- `ui_act` dispatch (`crew_npc_tools.dm:36`, `:65`, `:101`): `explore` and `force_door` go through `INVOKE_ASYNC`, `go_to_door` is called straight, so a sleep in any of them leaves the body free to take the next tool.
+- `get_path_to` (`code/__HELPERS/paths/path.dm:29`) waits in `UNTIL(length(hand_around))` for `SSpathfinder` (wait 0.5). Each route test is a tick or more; `pick_somewhere_new` can make up to eight, `tool_force_door` up to six, `tool_go_to_door` up to three.
+- After the tests, `tool_explore` (`crew_npc_tools.dm:265`), `tool_force_door` (`crew_npc_forcing.dm:241`) and `tool_go_to_door` (`crew_npc_doors.dm:407`) go straight to `start_walk` / `start_errand` with no look at whether anything else was started. Their only checks are `QDELETED(src) || QDELETED(body)`.
+- `start_walk` calls `cancel_errand` (`errand_serial++`) and `start_errand` does `errand_serial++` and clears `BB_CREW_NPC_WALK_TARGET` (`crew_npc_hands.dm:161`). The cut-off walk's leaf then reaches `walk_finished`, finds the blackboard key no longer its target, and returns silently (`crew_npc_tools.dm:409`).
+- Window side: `noteResult` (`driver.ts:943`) ignores a result whose tool is not `lastAct.tool`; `orderToDrop` (`driver.ts:631`) will not break off for an order whose task is already `lastAct.task`; `LOST_ACT_MS` (`driver.ts:672`) waits while `walking` or `doing` is set. That makes the case in step 5 worse than first written, and the body is corrected above.
+- `describe_doing` (`crew_npc_hands.dm:449`) and `walking` in `ui_data` have nothing for the three busy flags.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions the busy flags or this race.
+
+How often: the window for it is the time the route tests take, a fraction of a second to a second or so, so it needs an order, an eviction or a step-aside request to land in that time. Explore is called often by idle bodies, so it will come up, but not in most rounds' every hour. Medium stands.
+
+On the fix: step 1 and 2 work as written, since every new walk or errand moves `errand_serial` on, and the guard must also be put after the early returns inside the loops that `return` on `QDELETED` (none of which clear the busy flag, though there the controller is gone anyway). For step 3, setting `walking` while route testing is right; `dropFor`, `dropToLeave` and `dropToMove` still break in, which is what step 2 handles. For step 4, the "answer it" form is the one to build: `action_result(tool, FALSE, "You are still working out the way.")`. A test case for the window can put `doing: "working out the way"` and `walking: true` in the fake state and check that `drive` returns null and does not count `lastAct` as lost after `LOST_ACT_MS`.

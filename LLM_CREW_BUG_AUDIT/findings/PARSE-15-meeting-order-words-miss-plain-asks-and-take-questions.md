@@ -1,12 +1,13 @@
 ---
 id: PARSE-15
-title: Status report on your department and gather your staff call no meeting, while did you hold a meeting and check the bar, no need for a meeting each call one and drop the order
+title: Status report on your department and gather your staff call no meeting, while did you hold a meeting and get the bar cleaned, no need for a meeting each call one, the second dropping the order
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:83, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:127, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:257, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1452
 fix: Refuse MEETING_ORDER_WORDS in a question or after a negation, add the plain asks for a report and for gathering staff, and test it per clause so an order in another clause still stands
@@ -37,7 +38,9 @@ Run with a Head of Personnel (a head with staff):
 | did you hold a meeting? | **true** |
 | get the janitors to clean the bar, no need for a meeting | **true** |
 
-The last two are a question and a "no need". For the last, the head calls a meeting the Captain said was not needed. If the line were "check the bar, no need for a meeting", the look order would be dropped as well: `workInWords` returns null for any superior's line that `isMeetingOrder` matches.
+The last two are a question and a "no need". For the last, the head calls a meeting the Captain said was not needed, and the order in the same line is dropped as well: the line names the Bar, and `workInWords` returns null for any superior's line that `isMeetingOrder` matches. (Corrected by the checker: "check the bar, no need for a meeting" does not match, since it has none of hold, call, have, run, convene or get before "meeting". Lines that do, each calling a meeting and losing the order: "have the bar cleaned, we can have a meeting later", "Don't call a meeting, just clean the bar", and to the Quartermaster by PDA "get a crate of lightbulbs ordered, no meeting needed", where the meeting test in its `readsMessage`, `quartermaster.ts:1449`, comes before `ORDER_WORDS` and `takeOrder`.)
+
+See also PARSE-09 (a negated or question clause taken as an order to clean, in `workInWords`): the same per-clause test serves both.
 
 A missed ask is not silent: the model is told nothing of a meeting, may say it will hold one, and none is held.
 
