@@ -14,7 +14,7 @@ fix: Send the face the voice comes from with each line heard, and have the windo
 
 ## What is wrong
 
-See also: HOLE-01 (rank from the job text on a card). This is a second, separate way in: the voice.
+See also: HOLE-01 (rank from the job text on a card), and API-02 (the same voice-against-face split, seen from the other side: an honest Captain with an honorific on is not obeyed). API-02's fix, look the speaker up by handle and fall back to the name, mends that case and leaves this one open: here the handle is someone with no rank and the fallback by name is what gives the rank away. This is a second, separate way in: the voice.
 
 The server tells the window who spoke by `speaker.get_voice()`, and nothing else about the name. For a human that is `override_voice` if set, the ID's name if a voice changer is on, and otherwise the real name (`human_say.dm:32`). A player hearing the same line sees more: `get_message_voice` adds " (as <the name on their ID>)" whenever the voice is not the name they show (`human_say.dm:44`). So a player sees "Jane Doe (as Bob Hale)" and knows something is off. The crew body is told "Jane Doe" and that is all.
 
