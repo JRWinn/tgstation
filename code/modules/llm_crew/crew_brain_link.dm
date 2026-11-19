@@ -177,7 +177,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// and whether it holds a mop and no bucket to carry water for it.
 			"water_from" = npc.water_from,
 			"bucket_to_fill" = npc.bucket_to_fill,
-			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()),
+			// Only with a hand to carry it in, or one it would free for it (DESK-10).
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(body.get_empty_held_indexes()) || !isnull(npc.spare_held_item())),
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
 			"door_open" = npc.open_door_in_view,

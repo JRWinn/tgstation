@@ -87,6 +87,22 @@
  */
 /datum/ai_controller/crew_npc/proc/free_a_hand()
 	var/mob/living/carbon/human/body = pawn
+	var/obj/item/spare = spare_held_item()
+	if(isnull(spare))
+		return FALSE
+	var/spare_name = format_text(spare.name)
+	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
+		return FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
+	return !!length(body.get_empty_held_indexes())
+
+/**
+ * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
+ * spent spray, a rag beside a mop, or one of two alike. Null if it needs everything it holds.
+ * One rule in one place, so the window's wants_bucket and the freeing of a hand agree (DESK-10).
+ */
+/datum/ai_controller/crew_npc/proc/spare_held_item()
+	var/mob/living/carbon/human/body = pawn
 	var/list/trade_tools = trade_tool_types()
 	var/obj/item/spare
 	for(var/obj/item/held in body.held_items)
@@ -104,13 +120,7 @@
 		for(var/obj/item/other in body.held_items)
 			if(other != held && istype(other, held.type))
 				spare ||= held
-	if(isnull(spare))
-		return FALSE
-	var/spare_name = format_text(spare.name)
-	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
-		return FALSE
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
-	return !!length(body.get_empty_held_indexes())
+	return spare
 
 /// TRUE if a thing is used up and no good to anyone as it is: a spray bottle with nothing left in it.
 /datum/ai_controller/crew_npc/proc/is_spent(obj/item/thing)
