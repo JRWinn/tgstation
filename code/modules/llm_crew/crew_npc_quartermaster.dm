@@ -41,7 +41,7 @@
 		known += office_place
 		sentences += "You are the station's Quartermaster, the head of the supply staff. Your office is the [office_place], and you know the way there."
 	// Its technicians work from wherever the department's supply console is. Stations name that room differently.
-	var/obj/machinery/computer/cargo/console = supply_console()
+	var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
 	var/area/staff_area = console ? get_area(console) : null
 	if(staff_area)
 		staff_post_place = learn_place(staff_area.type)

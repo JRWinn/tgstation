@@ -49,7 +49,7 @@
 		// A technician knocks at the Quartermaster's office door when it has word for it.
 		learn_head_office()
 		// The post is wherever the department's supply console is. Stations name that room differently.
-		var/obj/machinery/computer/cargo/console = supply_console()
+		var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
 		var/area/post_area = console ? get_area(console) : null
 		var/turf/spot = post_area ? find_post_turf(post_area, console) : null
 		if(spot)
@@ -191,6 +191,36 @@
 		if(!length(door.req_access) && !length(door.req_one_access))
 			return FALSE
 	return TRUE
+
+/// The supply console the cargo post is at, chosen once for the station, as a weak reference: see crew_npc_cargo_post_console().
+GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
+
+/**
+ * Returns the supply console the station's cargo staff work from, the same one for every technician
+ * and for the Quartermaster, so that they all have the one post wherever each was made. It is one in
+ * the Cargo Bay if there is one, else the one in the cargo room with the most floor. Chosen once from
+ * the map, and again only if that console is gone. Null if the station has none in a cargo room.
+ */
+/proc/crew_npc_cargo_post_console()
+	var/obj/machinery/computer/cargo/chosen = GLOB.crew_npc_cargo_post_console?.resolve()
+	if(!QDELETED(chosen))
+		return chosen
+	var/obj/machinery/computer/cargo/best_console
+	var/best_score = -1
+	for(var/obj/machinery/computer/cargo/console as anything in SSmachines.get_machines_by_type(/obj/machinery/computer/cargo))
+		if(console.requestonly || console.is_express || !is_station_level(console.z))
+			continue
+		var/area/room = get_area(console)
+		if(!istype(room, /area/station/cargo))
+			continue
+		var/score = length(room.get_turfs_by_zlevel(console.z))
+		if(istype(room, /area/station/cargo/storage))
+			score += 100000
+		if(score > best_score)
+			best_score = score
+			best_console = console
+	GLOB.crew_npc_cargo_post_console = best_console ? WEAKREF(best_console) : null
+	return best_console
 
 /**
  * Returns the supply console cargo staff order at: the nearest one in the cargo department.
