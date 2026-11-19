@@ -4,9 +4,10 @@ title: With a head among those who just spoke, an order can be taken from a line
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2059, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1873, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1486
 fix: In agrees, pass only a line whose speaker is in view and may order (a head or the Captain, and with a Quartermaster aboard the head who said it did not answer), and said to this technician
@@ -75,7 +76,7 @@ Read from the code, not seen in a round and not tried against the model. Whether
 ## How to fix it
 
 1. In `cargo.ts`, write `mayOrderFrom(brain, person)`: true if `person.command || isHead(person.job)`, and, when `quartermasterAboard(brain)`, only if `brain.qmSilent` is still standing and `person.name === brain.qmSilent.by`. Use it in `offers` (in place of the two tests there) so that the rule is in one place.
-2. In `agrees`, find the speaker: `brain.peopleInView.find((person) => person.name === speakerOf(heard))`. Return false if there is none or `!mayOrderFrom(brain, speaker)`.
+2. In `agrees`, find the speaker by the handle in the line, as `brain.ts` does when it sets `action.for`: `const handle = heard.match(/\(person (\w+)/)?.[1]; const speaker = brain.peopleInView.find((person) => person.handle === handle)`. Return false if there is none or `!mayOrderFrom(brain, speaker)`. By handle rather than by `speakerOf`: two people can share a name, and TRUST-09 is about the name being read out of the line's own text.
 3. Also return false for a line the report marks as said to someone else: `/, speaking to (?!you|everyone)/.test(heard)`. The wording comes from `describeEvent` in `brain.ts`.
 4. Run `SUPPLY_WORDS` on `spokenIn(heard)`, as `COLLECT_WORDS` is.
 5. `takeOrder` is called inside the test, and claims the asking as a side effect. Keep it last in the chain so that a line that fails the new tests claims nothing.
@@ -85,3 +86,15 @@ Read from the code, not seen in a round and not tried against the model. Whether
 - Simulator: a scenario with a chatty model set to answer `order`, a janitor who asks for soap and a head who says good morning. The check: no `order` tool call reaches the sim. Then the same with the head asking, where one must.
 - A table of cases is better: `agrees` is a pure function of the brain and a line. Add it to the `orders.ts` table proposed in CARGO-05.
 - Type check.
+
+## Check
+
+Confirmed, on Opus 5.5.
+
+- The quotes match the code today: `agrees` at `jobs/cargo.ts:2059`, the head test in `offers` at `:1873`, the reverse walk over `heardLines` at `brain.ts:1482-1490`, and `action.for` taken from the `(person pN` handle of `calledFor` at `brain.ts:1500`.
+- `offers` is put in the prompt through `availableOptions` (`options.ts:42`), called from `buildTalk` (`talk.ts:137`) with everyone in `speakers` who is in view. `speakers` holds only those who spoke to this technician (`shouldWake`, `brain.ts:965`), but `report` holds every line heard, so a line said to someone else is still walked by `agrees`.
+- Nothing later checks who the order is for: `tool_order` (`crew_npc_cargo.dm:323`) takes `for_handle` as given and places it.
+- Ran a throwaway bun script outside the repo that calls the real `CARGO.agrees` (through `jobs/index.ts`, to get round the import cycle). It printed `false` for the head's "Morning, Sam.", `true` for the janitor's "Sam, could you order me a crate of soap?", `true` for "Maria, bring the crate over." marked "speaking to Maria Lee", and `true` for "Morning, Sam." said by a "Bob Gearhart". So the line-from-anyone, line-to-anyone and name-in-the-line points all hold.
+- Not in the change log or the plans. `LLM_CREW_PLAN_NO_CHEATS.md` 4.2 uses the same supply-words test for a kept ask, and does not change this.
+- Confidence raised to sure: the check passing a non-head's line was run, not guessed. Whether a model picks `order` in the case is still the model's doing. Severity stays medium: it needs a head and a non-head speaking to the technician in the same moment, with no Quartermaster or one said not to answer.
+- Fix step 2 changed to find the speaker by handle. The rest of the fix is sound: `hears` already goes by `offers(brain, [asker])` for one person, so the window has the pieces.

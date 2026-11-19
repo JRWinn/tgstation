@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:224, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:231, code/modules/llm_crew/crew_npc_held.dm:102, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:66
 fix: In pickupsOverhear act only on a line that names the task's own crate number, or on a numberless no-such-crate line said to this body by name or beside it

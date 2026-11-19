@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:183, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:200, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:154, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:386
 fix: Ask a technician who is on their feet, turn to another after an ask that brought nothing, and after three asks tell the head who sent it and put the errand off

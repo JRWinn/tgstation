@@ -3,10 +3,11 @@ id: JOBS-01
 title: A department security officer, Security Officer (Cargo) or (Engineering), is taken for a cargo technician or a station engineer
 kind: bug
 severity: medium
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:19, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:84, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineering.ts:19, tgui/packages/tgui/interfaces/CrewBrain/jobs/index.ts:21, code/modules/llm_crew/crew_npc_senses.dm:191, code/modules/jobs/job_types/security_officer.dm:41
 fix: Send each person's base job title from the server (crew_npc_job_of(person).title) beside the ID assignment and match jobs on that, or failing that strip a trailing bracketed department before matching
@@ -21,7 +22,7 @@ The window tells jobs apart by testing the title on an ID with a loose regular e
 - `isCargo` is `/cargo|quartermaster/i` and `isTechnician` is `/cargo/i && !isQuartermaster`. A security officer posted to Supply has the ID title **"Security Officer (Cargo)"** (`JOB_SECURITY_OFFICER_SUPPLY` in `code/__DEFINES/jobs.dm:71`). Both tests are TRUE for it.
 - `isEngineer` is `/engineer/i && !isChiefEngineer`. An officer posted to Engineering has **"Security Officer (Engineering)"** (`JOB_SECURITY_OFFICER_ENGINEERING`). "engineer" is inside "Engineering", so the test is TRUE.
 
-These are not made-up titles. They are the `alternate_titles` of the Security Officer job, and `setup_department` in `security_officer.dm` writes them onto the officer's ID and PDA whenever a player has a department set in their preferences (it is a common preference). The server sends the ID assignment as the person's job: `person.get_assignment(...)` in `crew_npc_senses.dm:191` for people in view, and `computer.saved_job` for the PDA list (`crew_npc_cargo.dm:679`), which `imprint_id(..., assignment)` set to the same title.
+These are not made-up titles. They are the `alternate_titles` of the Security Officer job, and `setup_department` in `security_officer.dm` writes them onto the officer's ID and PDA whenever a player has a department set in their preferences. The preference defaults to none (`security_department.dm`, `create_default_value` returns `SEC_DEPT_NONE`), so it takes a player who has chosen one. The server sends the ID assignment as the person's job: `person.get_assignment(...)` in `crew_npc_senses.dm:191` for people in view, and `computer.saved_job` for the PDA list (`crew_npc_cargo.dm:679`), which `imprint_id(..., assignment)` set to the same title.
 
 So a player who joins as a security officer posted to Cargo is, to every crew NPC:
 
@@ -99,3 +100,15 @@ Owner question: should an officer posted to Cargo be let into the bay like cargo
 - Simulator: a player-held `Security Officer (Cargo)` on the PDA list in a Quartermaster scenario; no duty or order may go to them.
 - Simulator: a `pickup` scenario with a person titled "Security Officer (Cargo)" standing in the lobby before the technician; the collector must ask the technician.
 - Type check and compile. In a round with a second player set to a security department, grep `game.log` for the collector's "here to collect crate" line and check whose first name begins it.
+
+## Check
+
+Confirmed. The three quoted tests are today's code (`supply.ts:19`, `cargo.ts:84`, `engineering.ts:19`), and `JOBS` in `index.ts:21` lists `CARGO` and `ENGINEER` before `OFFICER`. Ran a throwaway bun script (in the scratchpad, importing `jobs/index.ts` first because of a circular import, then `supply.ts`, `cargo.ts`, `engineering.ts`) that printed, for isTechnician, isCargo, isEngineer and jobFor:
+
+    Security Officer (Cargo) true true false CARGO
+    Security Officer (Engineering) false false true ENGINEER
+    Security Officer false false false OFFICER
+
+Base game read: `JOB_SECURITY_OFFICER_SUPPLY` is "Security Officer (Cargo)" (`code/__DEFINES/jobs.dm:71`); `setup_department` (`security_officer.dm:82-140`) applies `/datum/id_trim/job/security_officer/supply`, whose assignment is that title (`code/datums/id_trim/jobs.dm:1182`), and re-imprints the PDA with it. The server sends that assignment as `job` (`crew_npc_senses.dm:191`, `get_assignment`) and `saved_job` on the PDA list (`crew_npc_cargo.dm:679`). The callers named were spot-checked by grep (`pickups.ts:184` now, not 182; `head.ts:183` and `950`, `janitor.ts:677`, `quartermaster.ts:183`, `engineering.ts:49`, `forcing.ts:242-272`); line numbers in the write-up drift by a few lines but the code is as described. "Engineering Response Officer", "Janitorial Response Officer" and "Visiting Engineer" are real defines (`jobs.dm:107`, `110`, `127`). MAP-02 is already marked a duplicate of this one. Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions department officers.
+
+One correction: the department preference defaults to none, so this needs a player who picked a department; that is why medium, not high, is right. Effort raised from medium to large: the recommended fix (step 1 and 2) changes both the server and the window, which FORMAT counts as large; the window-only strip in step 3 alone is medium. `crew_npc_job_of` (`crew_npc_guarding.dm:45`) does resolve the trim's job (`trim.job` is `/datum/job/security_officer` for the department trims, `jobs.dm:1134`), so step 1 works as written; send `job_of?.title` and an empty string with no card.

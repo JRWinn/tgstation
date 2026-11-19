@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: code/modules/llm_crew/crew_npc_held.dm:63, code/modules/llm_crew/crew_npc_held.dm:171, code/modules/llm_crew/crew_npc_held.dm:92, code/modules/llm_crew/crew_npc_held.dm:265
 fix: Treat a held crate that has left cargo's rooms in the hands of someone who is not crew as collected, and only call one emptied in cargo's own rooms lost

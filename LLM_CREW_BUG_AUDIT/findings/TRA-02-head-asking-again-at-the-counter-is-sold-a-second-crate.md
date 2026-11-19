@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1859, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2059, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:646, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1177, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1257
 fix: At the counter, answer a head's order with the number of any crate already held for it in a fixed line and offer no order for that kind, and have the head read that line, and an overheard has-come-in, the same as the PDA message

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:465, code/modules/llm_crew/crew_npc_held.dm:127, code/game/objects/structures/crates_lockers/crates.dm:113, code/modules/cargo/order.dm:132
 fix: Learn a crate's number by tearing its manifest off with a click and reading it, one crate at a time as each is unloaded, and only then hold and label it
@@ -68,5 +69,16 @@ Question for the owner: a torn-off manifest is a stamped form that cargo players
 ## How to test the fix
 
 - Server compile.
+- Check that a crate's manifest is torn off by the body's own click (`game.log`, or the paper turning up in its hand or bag), and that a crate whose manifest a workmate already took is still matched by name once the body is beside it.
 - Simulator: `sim.ts` sends the arrival with numbers today. It must send the dock first and the numbers on unloading; the cargo scenarios then check the PDA message waits for the unload.
 - A round: order two crates for two people. `game.log` should show each crate's manifest torn off at the shuttle before its number appears in any PDA message (`pda.log`).
+
+## Check
+
+Confirmed. Read `order_arrived` and `place_order` (`crew_npc_cargo.dm:382-528`), `crew_npc_manifest_number` (`crew_npc_held.dm:127`), the base crate (`crates.dm`: `closet_update_overlays` shows only a "manifest" overlay, `attack_hand` and `after_open` tear it off, `/obj/structure/closet/examine` says nothing of it), `generateManifest` (`order.dm:127-185`: the paper goes inside the crate and only the paper's name carries `#id`; the crate's name, set by the pack, has no number), and the supply console's `ui_data` (`orderconsole.dm:84`). The quotes match today's code. The only guard is that `order_arrived` runs when the body is in its post's area as the shuttle docks (`supply_run_step`, line 438); it never goes near a crate before every number is matched to a crate.
+
+One correction to the write-up: the numbers themselves are not all secret. The console's cart, which the body stands at in `place_order`, shows `#id` for each kind ordered (`orderconsole.dm:124`, first order of each kind only), so knowing "I ordered #12" is fair. What is not fair is knowing which crate on the shuttle is #12, and that #12 is aboard at all, without reading its manifest. That is what the held-crate entries, the counter and the PDA notice all rest on, so the fault stands.
+
+Severity medium kept: it breaks the senses-only rule, but the crew still does the right thing and a player would rarely notice. Effort medium kept: it is server work in `order_arrived` and `haul_freight` plus the simulator's arrival message. Not run, not seen in a round. Searched `LLM_CREW_CHANGELOG.md` and the plans for "manifest" and `order_arrived`: no entry chooses this or fixes it (the Quartermaster plan only lists "Stamping manifests" as later work).
+
+On the fix: step 2 works with the base game (`attack_hand` with an empty hand puts the manifest in the hand), but the body must have a free hand before it clicks, and must click before `start_pulling` in `haul_freight` (`crew_npc_freight.dm:459`), since opening a crate later also tears the manifest and drops it on the floor. The owner question (keep or bin the manifests) should be settled before building.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:124, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:252, code/modules/cargo/packs/service.dm:27, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:45, tools/llm_crew/sim.ts:502
 fix: Count a Janitorial Supplies Crate as good for two janitors (its mop and its spray cleaner), not three, and give the simulator's crate the rag the real one has

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:154, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:111, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:298, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:964
 fix: Give a Task a keepUntil that the give-up rule in syncTasks honours, and have pickups push it on when the crate is put out, when collect_crate succeeds and when the empty is being taken back
@@ -26,9 +27,11 @@ So if the errand reaches the haul, the unpacking, the PDA message or the walk ba
 2. **After unpacking.** The task is gone before `planPickups` gives the `message` step. The head never gets "Crate #12 is unpacked in the Custodial Closet". In `head.ts` the entry stays in `brain.pickups` for good, so the head's cues say "Cargo is holding crates of yours for collection, and you have sent for them" for the rest of the round (`head.ts:1028`), and the staff who asked for the supplies are never sent "what you asked for has come" (`head.ts:1290` onward only runs on that message).
 3. **The empty crate.** The server has set `crate_to_return` in `crate_collected` (`crew_npc_held.dm:419`). The only thing in the window that ever sends `take_back` is `planPickups` for a task that is `unpacked`. With the task gone, nobody does: the empty crate stays in the room where it was tipped out, and cargo never gets it back to send on the shuttle.
 
+(Checker's note: the window is narrower than this suggests. A task still at the counter is open between tries, so if the crate is not out by the 30th minute the task is dropped there, which is CARGO-13 and MEM-11. This finding is the errand whose crate comes out in the last few minutes before the 30th, so that the haul, unpacking, message or walk back crosses it.)
+
 The wait to get there is not unusual. CARGO-13 shows the collector can stand at the counter, leave for two minutes (`TRY_AGAIN_DS`) and come back over and over when no technician is at the counter, and the errand only starts once the head has read cargo's arrival message, which may itself sit while the body finishes a meeting. Once the crate is finally out, the haul, the unpacking, the message and the walk back take two to four more minutes.
 
-One concrete case: the Head of Personnel sends the janitor for crate #12 at minute 10. The technicians are busy unloading and away from the counter. The janitor waits, leaves, comes back, and is finally handed the crate at minute 38. At minute 38.5, halfway to the Custodial Closet, the task is more than 30 minutes old and open, and is dropped. The haul finishes and the crate is tipped out. The janitor goes back to mopping. The head is never told. The empty crate stays in the closet for the rest of the round.
+One concrete case: the Head of Personnel sends the janitor for crate #12 at minute 10. The technicians are busy unloading and away from the counter. The janitor waits, leaves, comes back, and the crate is finally put out at minute 38. At minute 40, halfway to the Custodial Closet, the task is 30 minutes old and open, and is dropped. The haul finishes and the crate is tipped out. The janitor goes back to mopping. The head is never told. The empty crate stays in the closet for the rest of the round.
 
 ## Where
 
@@ -76,3 +79,11 @@ Read from the code: `tasks.ts` `syncTasks` and `addTask`, all of `pickups.ts`, `
 
 - Simulator: a `pickup` scenario with the clock jumped so the head's message is 29 minutes old when the crate is put out. The collector must haul it, message the head with "is unpacked in", and send `take_back`.
 - Type check. In a round, grep `game.log` for `take_back` after every "is unpacked in" PDA line in `pda.log`, and for crates left standing in the Custodial Closet at round end.
+
+## Check
+
+Confirmed. Read `syncTasks` (`tasks.ts:137-156`, `GIVE_UP_DS = 18000` at line 47, the filter at 154), `addTask` (`createdAt: brain.now`, line 101, never moved after), all of `jobs/pickups.ts` (`readPickup`, `syncPickups`, `planPickups`, `pickupsAfterActing`), `noteResult` in `driver.ts:943-984` (all three `afterActing` calls look the task up by id in `brain.tasks`, so a dropped task gives `undefined`), and the head side (`head.ts:337` and `1279-1287`, the only places an entry leaves `brain.pickups`; the cue at `head.ts:1029`). `take_back` is sent only from `planPickups` for an `unpacked` task (grep of the window). The quotes are today's code.
+
+The case does not survive as first written: a crate handed over at minute 38 of a task made at minute 10 is 28 minutes old, not past 30. Corrected to the drop at minute 40, mid-haul, and a note added on how narrow the window is: before the crate is out the task is open between tries, so anything not out by the 30th minute is dropped at the counter instead (CARGO-13). Severity medium kept: the case is not common, but when it comes the head's cue is stuck for the rest of the round and the empty crate is never taken back.
+
+Effort: kept small. The change is a few lines in `types.ts`, `tasks.ts` and `pickups.ts`, window only. The `keepUntil` fix works: the haul result then finds the task, `unpacked` is set, and the tail has its own half hour. Better still, set it in `planPickups` when it returns the `collect_crate` act as well as in `syncPickups`, since `syncPickups` and `planPickups` see the same `out` and either order works. Build it with MEM-11's `openSince` if that is taken, so the filter is changed once. Nothing was run; not seen in a round.

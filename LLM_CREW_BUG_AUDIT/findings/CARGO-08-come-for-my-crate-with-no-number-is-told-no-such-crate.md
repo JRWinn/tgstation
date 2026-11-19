@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:423, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2219, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:59, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:38
 fix: In crateMeant fall back to the crates held for the speaker, read more ways of giving a number, and say there is no crate for you instead of by that number when none was given
@@ -90,9 +91,9 @@ A script that was run: it imports `crateNumberIn` and `COLLECT_WORDS` from `jobs
 
 1. Give `crateMeant` the speaker's name. After the number and before the names in the words, try the crates held for the speaker: if there is exactly one that is not out and not taken, that is the one. If there are several, bring out the one that has waited longest (`waited` is on `HeldCrate`) and let them ask again for the next, or bring each in turn: owner's choice, see below.
 2. `crateNumberIn`: allow "no", "no." and "num" before the number, "is" between ("number is 12"), and number words one to twenty. Keep `\d{1,6}`.
-3. `COLLECT_WORDS`: add "get", "grab", "take", "have" when followed within a few words by "crate" or a number, and "pick my crate up" (any one or two words between "pick" and "up").
+3. `COLLECT_WORDS`: add "get", "grab", "take", "have" only when followed within a few words by a crate number or by "my crate", and "pick my crate up" (any one or two words between "pick" and "up"). Not by "crate" alone: "can I have a crate of soap" and "could I get a crate of lights" are orders, and taken as collecting they would be told no crate is held and not placed (the fault in CARGO-15).
 4. When no number was given and nothing was found, say "Sorry, Hedley, I am holding no crate for you. Which number is it?" The line "by that number" is for when a number was given.
-5. Make the first-name test in `crateMeant` need the name to come after "for" ("for Will", "for Will Hale", "Will's crate"), which is how a crate's owner is named at a counter.
+5. Make the first-name test in `crateMeant` need the name to come after "for" ("for Will", "for Will Hale", "Will's crate"), which is how a crate's owner is named at a counter. TRUST-04 is about who may take a crate named for someone else at all; build this with it.
 
 Owner's question: a head who comes in person with several crates waiting and gives no number. Bring them all out one after another, or one and ask which next?
 

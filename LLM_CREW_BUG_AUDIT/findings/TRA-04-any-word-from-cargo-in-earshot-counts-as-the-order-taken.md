@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1181, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:924, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:934, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1873, code/modules/llm_crew/crew_npc_cargo.dm:413
 fix: Have the technician who places a head's order say a fixed line naming the head and what was ordered, and count only that line, said to the head, as the order taken
@@ -80,9 +81,23 @@ Read from the code. Not seen in a round; the case at the counter while a janitor
 2. In `head.ts` `overhears`, set `heardBack` only on that line (or on the technician's "orders go through the Quartermaster", which should set `viaCounter` false and send it back to the PDA path), said by a cargo worker and naming this head. Drop the any-word rule.
 3. On the Quartermaster path, `heardBack` should come only from `NOTED_WORDS` in `readsMessage`, as the comment there already says. Do not let `overhears` set it while `viaCounter` is false.
 4. Keep `ANSWER_WAIT_DS` as it is: with step 2 it now does what it was meant to. Cap the re-asks (HEAD-01 asks the same).
+5. If step 1 is put off, a smaller stop-gap in `overhears` alone: count only a line from the technician the head named in its ask, with `said_to === 'me'`, and not one that matches the lines cargo says about other work (`crate .* is out in the lobby`, `not holding a crate`, `coming to the door`). This still takes "One moment" as a yes, so it is not the fix.
 
 ## How to test the fix
 
 - Type check from `tgui/`.
 - Simulator: in a no-Quartermaster scenario, have a janitor ask for a crate at the counter just before the head orders, so the order tool is withheld. Pass if the head asks again within a minute and the order is placed before the janitor's crate is out.
 - In the next round's `game.log`, every "I need to order" line said by a head at the counter should be followed within a minute by an `order` result for that head, or by the head saying it again.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quote in `overhears` (`jobs/head.ts:1179-1184`) is the code today. `brain.ts:659-660` calls `overhears` for every `speech_heard` from a person, whoever it is said to, so a technician's word to Jan or to nobody reaches it. `isCargo` (`jobs/cargo.ts:84`) is any title with "cargo" or "quartermaster" in it.
+- `requisitionStep` (`head.ts:924-938`) is as quoted: with `heardBack` set it skips the 30-second re-ask and stands on "They will send word". The only thing that undoes that is the `ORDER_OVERDUE_DS` (6000 ds, ten minutes) reset in `syncTasks` (`head.ts:645-653`).
+- `offers` (`cargo.ts:1858-1885`) does withhold the `order` tool while `pickupAsked` is under `PICKUP_ASK_DS` (1200 ds) old or `doorWanted`, and the dead-model fallback `hears` (`cargo.ts:2344`) goes through `offers` too, so in that case nothing can place the order while the technician still answers in words. The finding's concrete case holds.
+- `place_order` (`crew_npc_cargo.dm:413`) returns its result to the body only; nothing is said to the asker, so there is no line today that could be told apart from other cargo talk. The server already knows the asker (`order_for`, set from `for_handle` at `crew_npc_cargo.dm:362-364`; the window sets `action.for` in `brain.ts:1507`), so step 1 of the fix has what it needs.
+- The Quartermaster path is touched too, as the write-up says: after the PDA is sent `askedAt` is set, and `overhears` does not look at `viaCounter`. It needs the head to be within earshot of a cargo worker in the three minutes, so it is the rarer half.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans records the any-word rule as chosen or the fault as known.
+
+Severity medium stands: the order is still placed, ten minutes late, in a case (the counter busy with a collection or a door) that comes up in some rounds. Effort medium stands: `supply.ts`, `cargo.ts` and `head.ts`, all on the window side. Not run in the simulator.

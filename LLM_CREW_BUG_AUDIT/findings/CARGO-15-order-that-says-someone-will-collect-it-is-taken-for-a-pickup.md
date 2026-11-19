@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2222, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2063, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1880, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:38
 fix: Take a line as someone come for a crate only when it does not also ask for one to be ordered, and read the collect words only when they are about a crate that is already here
@@ -23,6 +24,10 @@ A technician decides that someone at the counter has come to collect a held crat
 Concrete case, no Quartermaster aboard: the Captain (human player) at the counter: "Sam, order a crate of cleaning supplies, I'll send someone to pick it up." `COLLECT_WORDS` matches "pick it up"; `/\bcrates?\b/` matches "crate"; `takeOrder(post, "<Captain>, for a crate", ...)` claims it for Sam. `crateMeant` finds nothing (no number, no held crate for the Captain). Sam's `pickupAsked = {name: <Captain>, number: null}` and Sam says "Sorry, <first>, I am not holding a crate by that number." The model is then woken with no order option, and the cue "has come to collect a crate, and you are holding none by the number they gave". No crate is ordered. The Captain asked for one and was told something that makes no sense.
 
 The other technician hears the same line; `takeOrder` refuses it the same key for two minutes, so it does nothing either.
+
+With a Quartermaster aboard it is the same. The "send it to the Quartermaster" reply in `overhears` (cargo.ts:2192) is guarded by `ORDERING_WORDS.test(heard) && !COLLECT_WORDS.test(heard)`, so a head who says "order a crate of soap, I'll send someone to pick it up" is not told where orders go; the pickup branch below it answers "not holding a crate by that number" instead.
+
+Worse where a crate is held for someone the line names: `crateMeant` also matches by name and by job (`says(job)`). "Order me a crate of lights, the janitor will collect it", said while a crate for a janitor is held, makes that crate this technician's `handover`, and it is brought out to the lobby for the Captain.
 
 Lines the window's own NPCs use do not hit it (the head's fixed line has none of the words), which is why the test rounds have not shown it. Human players will.
 
@@ -81,12 +86,18 @@ The rest is read from the code. Not seen in a round. GAP-08 is the wider fault t
 ## How to fix it
 
 1. In `pickups.ts` add `export const ORDER_ASK_WORDS = /\b(order|requisition|buy|purchase|get (me|us) (some|a)|can (i|we) (get|have))\b/i` (or reuse `ORDERING_WORDS` from `cargo.ts`, with `can I get` added).
-2. In `overhears`, read a line as a pickup only if `number !== null` (a number was given), or if it has collect words and **not** `ORDER_ASK_WORDS`, and there is a held crate it could mean (`crateMeant` finds one). A line that names no number, names no held crate, and asks for something to be ordered is an order, and is left to the model with the order option.
-3. In `agrees`, refuse an order on collect words only when the line also gave a number or `crateMeant` finds a held crate: "here for crate 12" is not an order; "order a crate, I'll send someone to pick it up" is.
-4. Keep "Sorry, I am not holding a crate by that number" for a line that gave a number which is no crate's.
+2. In `cargo.ts` add one helper, `comeForCrate(heard, number)`: true when `COLLECT_WORDS` match and either a number was given, or the line says "crate" and does **not** match `ORDER_ASK_WORDS`. Use it in all three places instead of the bare `COLLECT_WORDS` test: the pickup branch of `overhears` (cargo.ts:2222), the Quartermaster redirect just above it (cargo.ts:2193, `!COLLECT_WORDS.test(heard)` becomes `!comeForCrate(...)`), and `agrees` (cargo.ts:2063). A line that gives no number and asks for something to be ordered is then an order: offered to the model, agreed, or sent to the Quartermaster.
+3. Keep "Sorry, I am not holding a crate by that number" for a line taken as a pickup that names no held crate: "I'm here to collect my crate" with none held still gets a plain no. (The draft said to require `crateMeant` to find one; that would leave such a person with no answer at all.)
+4. A line with both a number and an order ("I'm here for crate 12, and can you order another?") stays a pickup. Rare; leave it.
 
 ## How to test the fix
 
-- Add the five lines above to the order-reading table in `tools/llm_crew/` with no crate held, wanting: not a pickup, order offered and agreed. Add "I'm here for crate 12" and "I'm here to collect crate #12" with crate 12 held, wanting a pickup.
+- Add the five lines above to the order-reading table in `tools/llm_crew/` with no crate held, wanting: not a pickup, order offered and agreed. Add "I'm here for crate 12" and "I'm here to collect crate #12" with crate 12 held, wanting a pickup. Add "I'm here to collect my crate" with none held, wanting the "not holding" reply.
+- The same order line with a Quartermaster aboard, said by a head: wanting the "send it by PDA" reply, not "not holding".
+- "Order me a crate of lights, the janitor will collect it" with a crate held for a janitor: wanting no `handover` task.
 - Type check.
 - In a round, say to a technician "Order a crate of cleaning supplies, I'll send someone to pick it up." and look in `game.log` for the order being placed and no "not holding a crate by that number".
+
+## Check
+
+Opus 5.5, 2026-11-19. Read `overhears` (cargo.ts:2083 on), `offers` (:1857), `agrees` (:2060), `hears` (:2343), `crateMeant` (:423), `syncHeld` (:455), `cues` (:1746), `takeOrder` (expected.ts:151) and the call of `overhears` in `ingest` (brain.ts:660), which runs before the model is asked. All quotes match the code today. Ran a throwaway bun script importing `COLLECT_WORDS` and `crateNumberIn`: "Sam, order a crate of cleaning supplies, I'll send someone to pick it up." matches the collect words, gives no number and says "crate". So the pickup branch is taken, `pickupAsked` is set with no number, "not holding a crate by that number" is queued, `offers` returns nothing for two minutes, `hears` returns null through `offers`, and `agrees` would refuse an order anyway. Nothing earlier in `overhears` returns for this line. No entry in the change log or the plans covers it. Confirmed. Added the Quartermaster-aboard case and the wrong-crate case found while tracing, and reworked the fix so the one test is shared by all three places and a person come for a crate that is not held still gets an answer. Not seen in a round.
