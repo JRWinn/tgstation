@@ -29,7 +29,9 @@ The door timer names, read from each map's `.dmm`:
 
 Concrete case: DeltaStation. The officer cuffs someone outside the Brig and is told to jail them. `tool_jail` calls `free_cell`, which returns "Cargo Cell" while it is empty, and `start_errand(timer, ...)` walks the prisoner by the arm to the Cargo security checkpoint, across the station, past the Brig. The next prisoner goes to "Cell 1" in the Brig only because the Cargo Cell is now in use. The Head of Security's report and the officer's own state then say a prisoner is in "Cargo Cell", which nobody on security is near, and the window's "you are taking them back to the brig to wait there" step (`arrests.ts`, `brigPlace`) sends it to the Brig while the cell it was refused at is elsewhere.
 
-On Tramstation it is worse: no cell has "Cell N" for a name, and the brig's own cells are the "Isolation Cell" ones, so the order is Cargo, Engineering, then the brig.
+On Tramstation it is worse. No timer at all is in `/area/station/security/brig`: the four "Isolation Cell" timers are in `/area/station/security/execution/transfer` on the lower level, and the rest are in the department checkpoints. So the room the officer is taught as "the cells are in the Brig" has no cell, and the order it tries is Cargo, Engineering, then the isolation cells. On IceBox and DeltaStation the "Isolation Cell" is in the transfer room too, not the Brig; it sorts after "Cell N" and is used once those are full.
+
+Where each map's door timers stand (read from the `.dmm`): MetaStation, KiloStation, CatwalkStation, all in the Brig; IceBox, three in the Brig and one in the transfer room; NebulaStation, three in the Brig and four in checkpoints; DeltaStation, two in the Brig, three in checkpoints, one in the transfer room; Tramstation, none in the Brig.
 
 ## Where
 
@@ -56,9 +58,10 @@ Read from the code. The timer names were read from each map with `grep -A3 "^/ob
 ## How to fix it
 
 1. In `crew_npc_brig_cells`, record for each cell the area of its timer (`get_area(timer)`).
-2. In `free_cell`, sort the free cells by: first, whether the timer's area is the brig the body knows (`istype(get_area(timer), /area/station/security/brig)` covers the brig and its `upper`, `lower` and `entrance` parts on IceBox and NebulaStation); then by `get_dist` from the body. A checkpoint cell (`/area/station/security/checkpoint`) is taken only if no brig cell is free. An isolation or prison cell (`/area/station/security/prison`, or a name with "Isolation") is taken last.
-3. Keep `cell_refused` working as it is: a refused cell drops to the back of its group, not of the whole list.
-4. Fix the comment on `cmp_crew_npc_brig_cells`, or drop the sort once the new order is in.
+2. In `free_cell`, sort the free cells by: first, whether the timer's area is the brig the body knows (`istype(get_area(timer), /area/station/security/brig)` covers the brig and its `upper`, `lower` and `entrance` parts on IceBox and NebulaStation); then by `get_dist` from the body. A checkpoint cell (`/area/station/security/checkpoint`) is taken only if no brig cell is free. An isolation or transfer cell (`/area/station/security/execution`, `/area/station/security/prison`) is taken last.
+3. Where no timer is in the brig at all (Tramstation), the "brig" the officer is taught in `learn_security_places` should be the room that holds the most cell timers, not `/area/station/security/brig` by type, so the window's "take them back to the brig to wait" goes where the cells are.
+4. Keep `cell_refused` working as it is: a refused cell drops to the back of its group, not of the whole list.
+5. Fix the comment on `cmp_crew_npc_brig_cells`, or drop the sort once the new order is in.
 
 Question for the owner: may a crew officer use a department checkpoint's cell at all? A player officer posted to Cargo often does. If not, leave them out entirely.
 
