@@ -4,9 +4,10 @@ title: Work blocked for over thirty minutes never lapses while blocked, and is d
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
 files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:148, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:484, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:887
 fix: Count a task's age for giving up from when it last became open, not from when it was made, and give blocked work a limit of its own
@@ -57,13 +58,22 @@ Read from the code. The order of `syncTasks` (jobs first, filter last) and the j
 
 ## How to fix it
 
-1. Add `openSince?: number` to `Task` (`types.ts`). In `addTask` set it to `brain.now`. In `blockTask`, when the state goes from `blocked` to `open`, set `openSince = brain.now`.
-2. In the `syncTasks` filter, give up on open work by `brain.now - (task.openSince ?? task.createdAt) < GIVE_UP_DS`.
-3. Give blocked work a limit of its own, longer, say an hour (`BLOCKED_GIVE_UP_DS`), so a told-of mess nobody let it in to does not sit in every prompt all round. Whether whoever asked should be sent word when a told task is given up this way ("I could not get into the Cargo Bay about the mess") is a question for the owner; it was not checked whether the janitor already sends such word when nobody lets it in.
+1. Add `openSince?: number` and `blockedSince?: number` to `Task` (`types.ts`). Note that `blockTask(task, blockedOn)` takes no brain and no time, and has eight callers in five job files; do not change its signature. Keep both fields in the `syncTasks` filter instead, which runs every sync with `brain.now` to hand: for a blocked task, `task.blockedSince ??= brain.now` and `task.openSince = brain.now`; for an open one, `task.blockedSince = undefined`. A task unblocked by its job then has `openSince` from the last sync it was blocked in, a second or so ago.
+2. In the same filter, give up on open work by `brain.now - (task.openSince ?? task.createdAt) < GIVE_UP_DS`.
+3. Give blocked work a limit of its own, longer, say an hour (`BLOCKED_GIVE_UP_DS`, from `blockedSince`), so a told-of mess nobody let it in to does not sit in every prompt all round. Whether whoever asked should be sent word when a told task is given up this way ("I could not get into the Cargo Bay about the mess") is a question for the owner; it was not checked whether the janitor already sends such word when nobody lets it in.
 4. Leave done tasks as they are.
 
 ## How to test the fix
 
 - A table of cases for `syncTasks` with a fake job: a task made at t=0, blocked at t=100, unblocked at t=24000; it is still on the list after that `syncTasks`. A task blocked from t=0 is gone after the blocked limit.
+- With the real janitor (no fake job needed): `janitor()` from `tools/llm_crew/fixtures.ts`, `know` the Library, `addTask` a told `clean` there, set `blockedPlaces = ['Library']`, `at(b, 3100, ...)` (blocked `NO_WAY_IN`), `at(b, 27000, ...)` (still there), then `blockedPlaces = []` and `at(b, 27100, ...)`: today the task is gone; after the fix it is open and on the list. A told task made at t=3000 and never blocked must still go at t=21000+, as now.
 - `bun tools/llm_crew/sim.ts quiet` on the janitor scenarios with a locked room.
 - Type check from `tgui/`.
+
+## Check
+
+Checked by Opus 5.5. Read `syncTasks`, `blockTask` and `addTask` (`tasks.ts`; `GIVE_UP_DS = 18000`, game deciseconds, 30 minutes), the janitor's `syncTasks` (`jobs/janitor.ts`: the `via` branch and the `NO_WAY_IN` branch both call `blockTask(task, null)` as soon as the way is open) and `meets` (clears `letInAsks` when cargo staff turn up). The job syncs run first and the filter last, as the finding says. A told task is not made again: the janitor only adds tasks for `brain.messPlaces`, what the body has seen, and a mess behind a locked door was never seen. Searched the change log and plans for `GIVE_UP_DS`, "forgotten business" and blocked tasks: nothing.
+
+Ran a throwaway script (scratchpad, bun, `fixtures.ts` `janitor()` and `at()`, which calls `syncTasks`): a told `clean` task in the Library with `blockedPlaces = ['Library']` was blocked "you could not find a way in" at t=3100 and still kept at t=27000; with `blockedPlaces` emptied, the next `at()` left it open and off the list. Confidence raised to sure.
+
+One precision: what matters is the task's age from when it was made, not how long it was blocked. A task made 31 minutes ago and blocked for only the last five is dropped the same way when it is unblocked. Medium stands: told work silently lost in a case that needs a long wait, but locked rooms are common. Effort small: the filter and two fields, in `tasks.ts` and `types.ts`.
