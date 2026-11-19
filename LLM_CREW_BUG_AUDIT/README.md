@@ -4,7 +4,7 @@ This folder is a list of bugs and gaps found in the LLM crew NPC work, each with
 
 - Asked for by the owner on 2026-11-18: "find as many bugs as you can (with our alterations, not the base SS13) ... document the way that you would go about solving the bug ... if you see any glaring gaps or things we missed write that up too ... document it enough so that another agent can come in and pick up".
 - Branch: `crew-bug-audit`, cut from `master` at `3e1419ed2cd` (the merge of `security-arrest`). The line numbers in the findings are for that commit.
-- Made by Claude with many reviewers working at once, each given one part of the code or one line of attack.
+- Made by Claude with many reviewers working at once, each given one part of the code or one line of attack. **Two models did it.** It began on Claude Fable 5.2, whose usage ran out part way; the owner switched to Claude Opus 5.5 and asked that every finding after that be marked as found by Opus. Each finding's `found_by` line says which model found it, and `checked_by` which checked it.
 
 ## Where it stands
 
@@ -98,4 +98,6 @@ Round logs are in `data/logs/YYYY/MM/DD/round-HH.MM.SS/`. The folder's date is t
 
 ## Progress
 
-- 2026-11-18: branch made, this folder set up, hunt started.
+- 2026-11-18, evening: branch made, this folder set up, hunt started on Claude Fable 5.2 with 39 reviewers, each owning one part of the code or one line of attack.
+- 2026-11-18, about 22:07, and again at 23:05: Fable's usage ran out. 14 reviewers had written 141 findings (24 high bugs, 1 critical gap) and were cut off part way. The other 25 never started. Nothing had been checked.
+- 2026-11-19: the owner switched to Claude Opus 5.5. Every finding now carries `found_by`. A second run started on Opus: the 25 areas nobody had begun, the 14 cut off part way (each carrying on from a list of what its first reviewer had read), checks of the first run's 25 worst findings in groups that may hold the same fault twice, then one reviewer marking duplicates across the whole list.
