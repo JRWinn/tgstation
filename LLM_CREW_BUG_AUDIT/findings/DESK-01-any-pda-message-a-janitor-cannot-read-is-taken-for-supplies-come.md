@@ -5,10 +5,11 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: janitor
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:881, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:296, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:756, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1296
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:881, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:296, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:792, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1298
 fix: Set suppliesSentAt in the janitor's readsMessage only when the message has the head's fixed words what you asked for has come, and ignore every other message
 ---
 
@@ -59,7 +60,7 @@ The mess branch, which does not return when no room is named (janitor.ts:833):
       return;
     }
 
-The only message that is meant to land here, `head.ts:1296`:
+The only message that is meant to land here, `head.ts:1298`:
 
     line: `${ask.who.split(' ')[0]}, what you asked for has come. It is in the ${room}.`,
 
@@ -86,4 +87,15 @@ Also read from the code, and the senders checked: every fixed PDA line sent to a
 
 - Simulator: a janitor with no tool that has told its head, then sent a PDA message from the Captain with no mess or door words. It must stay where it is and its SUPPLIES task must stay blocked. Then send it the head's "what you asked for has come. It is in the Custodial Closet." and check it goes there.
 - Type check from `tgui/`.
-- Next round, grep `game.log` for "your PDA says what you asked for has come" and check each one follows a "what you asked for has come" line in `pda.log`.
+- Next round, grep `crew_brain.log` (where the step text is) for "your PDA says what you asked for has come" and check each one follows a "what you asked for has come" line in `pda.log`.
+- Add the three messages from the Check below to the table PARSE-01 proposes, wanting no change to `suppliesSentAt` for each.
+
+## Check
+
+Checked by Opus 5.5. The quoted end of `readsMessage` is `janitor.ts:881-884` today, and the comment over it is at `:792-794`. Read the dispatch in `brain.ts:580-597`: only `readSummons`, `readPickup` and `readWanted` take a PDA message before the job's `readsMessage`, so anything else reaches the fall-through. `brain.ts:556-559` clears `suppliesSentAt` only while the janitor holds a proper tool, as the finding says. Ran a throwaway bun script (scratchpad, outside the repo) with the `janitor(null)` fixture from `tools/llm_crew/fixtures.ts` (it needs `stowed = []` added) and the real `JANITOR.readsMessage`, `toldHeadAt` set first, messages from a Captain. It printed:
+
+    "Thanks, hang in there." 3005 Cargo Lobby null
+    "There's vomit all over the hallway outside medbay" 3005 Cargo Lobby null
+    "Go to the Bridge" 3005 Bridge null
+
+(`suppliesSentAt`, `suppliesAt`, `toldHeadAt`.) So every one is taken for supplies come, and "Go to the Bridge" sends it to the Bridge for them. Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this or fixed it; the comment's "most likely, cargo saying the supplies are in" predates supplies going through the head. Not a duplicate of PARSE-01, which is why calls miss the mess branch and points here for the fall-through. The fix is right and keeps the rules: the head's line is sent word for word (`toTell.line`), so an `includes` test on the fixed words holds. Severity medium, effort small, one file plus an exported constant.

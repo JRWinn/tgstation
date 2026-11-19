@@ -72,3 +72,12 @@ Read from the code, with the timings from the round's `game.log` named above. Wh
 ## How to test the fix
 
 Server compile to a side copy. An airlock shuts itself after a few seconds, so to make the case at will, as an admin set `autoclose` to 0 on the "Service Hall" airlock at (129,118) with View Variables and open it (it stays open, powered and unbolted: "open this minute"). Then (or in a round with a janitor holding a Service Hallway door open) send the officer after someone in the Bar Backroom: `pda.log` should read "I have a warrant for Pun Pun, who is in the Bar Backroom. I cannot get to its door." (the far line) or the Service Hallway named as locked, not "I am at the Bar Storage door".
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed.
+
+- Code read as it is today: `tool_go_to_door` (`crew_npc_doors.dm:298`; `outer_locked` at :372, the open-door test at :378), `route_by_open_door` (:286), `locked_out_of` (`crew_npc_guarding.dm:118`, FALSE for any `/area/station/hallway` on its first line), `hallway_locked_to` (`crew_npc_forcing.dm:78`, used only at :227 in `tool_force_door`). The base game: `CanAStarPass` (`airlock.dm:1523`) passes any airlock with `density` FALSE; `door/allowed` (`door.dm:330`) is the ID check plus emergency access, and does not count an unrestricted side. The quotes match.
+- The map, read with a throwaway parser of `MetaStation.dmm`: the Service Hallway (`/area/station/hallway/secondary/service`, 57 tiles) is entered by "Service Hall" at (129,118) and (148,117) (`access/all/service/general`, free to open only from inside), Kitchen, Hydroponics and Bar Storage (service-only), two windoors and the deliveries flaps. None opens to an officer, so `hallway_locked_to` is TRUE for it and `locked_out_of` is FALSE: the test at :378 is skipped and a route through a door someone has open is kept. For the Bar Backroom, the Bar door's score gets +200 (the Bar is locked to security), the Bar Storage door's does not, so Bar Storage is tried first, as in the round.
+- The change log entry of 2026-11-18, 20:19 to 20:40, says the rule was built for this case and calls how the officer got in "inferred". No later entry touches `route_by_open_door`. Round `data/logs/2026/11/19/round-20.00.21` was played before that change, so it shows the hole, not the fix failing in play; the fix's failure is read from the code.
+- Fix step 1 mended: as written it would also refuse a door an engineer has forced open (unpowered, it stays open: `airlock.dm:1413`), which is the way security is meant to get in. Severity and effort left as they were.

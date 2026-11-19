@@ -3,13 +3,14 @@ id: MULTI-07
 title: A crate the head sends a second collector for is gone after by both, and at the crate each pulls it out of the other's hands and wipes the other's claim on it
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
-files: code/modules/llm_crew/crew_npc_held.dm:388, code/modules/llm_crew/crew_npc_held.dm:426, code/modules/llm_crew/crew_npc_held.dm:372, code/modules/llm_crew/crew_npc_grip.dm:58, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:331
-fix: Set collected_by when tool_collect starts the errand, refuse haul_collected and haul_released when someone else has the crate in hand, clear collected_by on failure only if it is still this body's, and have the head stand the first collector down
+files: code/modules/llm_crew/crew_npc_held.dm:397, code/modules/llm_crew/crew_npc_held.dm:426, code/modules/llm_crew/crew_npc_held.dm:372, code/modules/llm_crew/crew_npc_grip.dm:58, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:331
+fix: Refuse haul_collected, haul_released and haul_crate_back when someone else has the crate in hand, clear collected_by on failure only if it is still this body's, and have the window end a COLLECT task the server refuses for that
 ---
 
 ## What is wrong
@@ -70,13 +71,18 @@ Read from the code. Not seen in a round. HEAD-09 is a different fault in the sam
 ## How to fix it
 
 1. Server, `haul_collected`, `haul_released` and `haul_crate_back`: before `start_pulling`, if `crate.pulledby && crate.pulledby != body`, return `list(FALSE, "[crate.pulledby.name] already has hold of it.")`, as `haul_freight` does.
-2. Server, `tool_collect`: set `entry.collected_by = body.real_name` there, when the errand starts, so a second collector is refused at once. Clear it if the errand is cancelled or fails.
-3. Server, `crate_collected` on failure: clear `collected_by` only if it is this body's name.
-4. Window, `head.ts` `sendFor`: when it sends a second collector, also send the first "Y is collecting crate #12 now: leave it, please." and have `readPickup`'s side drop a COLLECT task on those words.
-5. Window, `pickups.ts`: on a `collect_crate` failure with `no_such_crate`, finish the task quietly instead of going to the counter; the crate has been collected by someone.
+2. Server, `crate_collected` on failure: clear `collected_by` only if it is this body's name (`entry.collected_by == body.real_name`). With step 1 this is what stops the fight: the loser's next `collect_crate` is refused by the guard already in `tool_collect`, and `syncPickups` (`pickups.ts:122`) ends its task once `taken_by` names someone else.
+3. Window, `pickups.ts`: the window does not read the `no_such_crate` detail today (nothing in `CrewBrain/` does). In `pickupsAfterActing`, on a failed `collect_crate` whose result says someone else is taking it or has hold of it, finish the task quietly instead of going to the counter. `pickupsAfterActing` is given only `ok`, so the detail has to be passed in, or the check made where the result event is read.
+4. Optional, server, `tool_collect`: set `entry.collected_by = body.real_name` when the errand starts, so a second collector is refused at once. I would leave this out: `held_waiting` (`crew_npc_held.dm:172`) skips any crate with `collected_by` set, so a claim made before the crate is in hand must be cleared on `cancel_errand`, on a failed walk to it, and on the body's death, or cargo stops reminding anyone of a crate nobody is coming for. Steps 1 and 2 cover the fault without it.
+5. Optional, window, `head.ts` `sendFor`: when it sends a second collector, also send the first "Y is collecting crate #12 now: leave it, please." and have `readPickup`'s side drop a COLLECT task on those words. This saves the first a walk; it is not needed to stop the fight.
 
 ## How to test the fix
 
 - Compile to a side copy.
 - Simulator (window side only): a head with two janitors, a held crate, and a reminder after the first collector has been held up. The first must drop its task when told; only one `collect_crate` must be sent.
 - In a round, `attack.log` shows "pulled from" between two crew members over a crate; with the fix there should be none.
+- Server compile only covers steps 1 and 2; nothing in the simulator runs them. The round check above is the only test of the fight itself.
+
+## Check
+
+Checked by Opus 5.5. The quotes are what the code says (`tool_collect` `crew_npc_held.dm:372-374`, `haul_collected` `:397-400`, `crate_collected` `:425-427`, `haul_freight`'s guard `crew_npc_freight.dm:434-435`, `sendFor` `head.ts:331-334`). Base `start_pulling` (`code/modules/mob/living/living.dm:415-421`) takes a pulled thing out of the other's grip with no check but `can_be_pulled`, and logs "pulled from". `haul_released` (`crew_npc_held.dm:328`) and `haul_crate_back` (`crew_npc_cargo.dm:600`) have no guard either. `crate_got_away` (`crew_npc_grip.dm:58`) returns FALSE when someone else has the crate, and `crate_collected` then nulls `collected_by` whoever's it is. How both get there: `held_state` (`crew_npc_held.dm:150`) tells every window of a crate once it is `out`, wherever the body is, so both collectors' `planPickups` send `collect_crate` on the same update and both pass `tool_collect`; the driver does not cancel a running errand when the window's task ends (`busy` in `driver.ts:726`). The second send itself is real but slower than the finder implied: `sendFor` waits `SENT_GRACE_DS` (`head.ts:128`, 5 minutes) after the first, so the first collector has to be held up that long. Not seen in a round. Not checked: whether the second collector's errand walk follows a crate that is moving away, or fails on reach; either way, if it reaches it the crate is taken. Effort raised to medium: steps 1 and 2 are server, step 3 is the window. Reordered the fix: the early claim (old step 2) is now optional with its risk named, and the window step says the detail it relies on is not read today.
