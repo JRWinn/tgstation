@@ -146,7 +146,13 @@
 	var/static/regex/line_breaks = regex(@"[\r\n\t]+", "g")
 	// Plain speech only: these prefixes would turn it into a radio message, an emote, a whisper or a special say mode.
 	var/static/regex/say_prefixes = regex(@"^[\s;:.,*#%!^]+")
+	// An asterisk anywhere turns what comes before it into an emote (HAND-03). A *...* at the start
+	// or end of the line is an action, and goes; one in the middle is emphasis, and keeps its word.
+	var/static/regex/action_spans = regex(@"^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$", "g")
+	var/static/regex/asterisks = regex(@"\*+", "g")
 	text = line_breaks.Replace(text, " ")
+	text = action_spans.Replace(text, "")
+	text = asterisks.Replace(text, "")
 	text = say_prefixes.Replace(text, "")
 	text = trim(copytext_char(text, 1, CREW_NPC_SAY_MAX_LENGTH + 1))
 	if(!length(text))
