@@ -153,6 +153,41 @@ add('the Captain pardons: off the list, and answered', [deskOf(b).warrants.lengt
 b.toTell = [];
 deskTakes(b, 'Zim Fire', 'Captain', 'Pardon Dana Reyes.', true);
 add('a pardon for someone with nothing against them', said(b), ['says to Zim Fire: Captain, there is nothing against Dana Reyes.']);
+// SECT-02: a pardon is read only with the name by the pardon word, and never when said not to.
+function wantedPunPun() {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for theft.', false);
+  d.toTell = [];
+  return d;
+}
+function heldPunPun() {
+  const d = wantedPunPun();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, Pun Pun is in Cell 1 for 5 minutes.', false);
+  d.toTell = [];
+  return d;
+}
+for (const line of ["Don't release Pun Pun until his time is up.", 'Do not let go of Pun Pun', 'Pun Pun broke free of the cuffs, find him', "Keep Pun Pun locked up, don't let him go free", 'Did you release Pun Pun?']) {
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', line, false);
+  const h = heldPunPun();
+  deskTakes(h, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" pardons nobody, wanted or held`, [deskOf(w).warrants.length, Object.keys(deskOf(h).held), said(w).concat(said(h)).filter((it: string) => /pardon|let go/.test(it))], [1, ['Pun Pun'], []]);
+}
+for (const line of ['Pardon Pun Pun', 'Release Pun Pun', 'Let Pun Pun go', 'Set Pun Pun free', "Don't worry, release Pun Pun", 'Could you set free Pun Pun?']) {
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', line, false);
+  const h = heldPunPun();
+  deskTakes(h, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" pardons, wanted or held`, [deskOf(w).warrants.length, Object.keys(deskOf(h).held), said(w)], [0, [], ['PDA to Zim Fire: Captain, Pun Pun is pardoned.']]);
+}
+{
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for setting the slimes free, 10 minutes', false);
+  add('a warrant with "free" in its reason changes the time, and pardons nobody', [deskOf(w).warrants.map((it: any) => [it.name, it.minutes]), said(w)], [[['Pun Pun', 10]], ['PDA to Zim Fire: Captain, I have that: Pun Pun, 10 minutes.']]);
+  w.toTell = [];
+  deskTakes(w, 'Walker Wolfe', 'Head of Personnel', "Don't release Pun Pun until his time is up.", false);
+  add('a head saying not to release someone is not told a pardon is the Captain\'s', said(w).filter((it: string) => /pardon/.test(it)), []);
+}
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
 b.toTell = [];

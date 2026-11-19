@@ -72,13 +72,14 @@ import {
   noticeLines,
   noWarrantLine,
   outcomeLine,
-  PARDON_WORDS,
+  pardonAsked,
   pardonedLine,
   pardonNamed,
   pardonToldLine,
   REFUSALS,
   readGiven,
   readOutcome,
+  readPardon,
   readTerm,
   readWarrant,
   termLine,
@@ -395,11 +396,21 @@ export function deskTakes(
     }
     return true;
   }
-  // A pardon. It names someone there is something against, or uses the word.
-  const pardoned = PARDON_WORDS.test(text)
-    ? (nameIn(text, anyone) ?? closeIn(text, anyone))
-    : undefined;
-  if (pardoned || /\bpardon\b/i.test(text)) {
+  // A pardon. It names someone there is something against, right by the pardon word, or uses
+  // the word "pardon". "Don't release Pun Pun" and "Pun Pun broke free" are no pardon. A warrant
+  // declared on the same person, with "free" or "release" in its reason, is the warrant.
+  const warrantToo = readWarrant(text, knownNames(brain));
+  const loose = readPardon(text, anyone);
+  const pardoned =
+    loose &&
+    !(
+      warrantToo &&
+      !pardonAsked(text) &&
+      (sameName(warrantToo.name, loose) || sameName(loose, warrantToo.name))
+    )
+      ? loose
+      : undefined;
+  if (pardoned || pardonAsked(text)) {
     if (!captain) {
       reply(
         brain,

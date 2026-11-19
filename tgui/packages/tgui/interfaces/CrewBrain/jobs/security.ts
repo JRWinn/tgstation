@@ -825,6 +825,70 @@ export const CANCEL_WORDS =
 /** The words by which the Captain has security make arrests again after its staff were hurt. */
 export const TRY_AGAIN_WORDS = /\btry again\b/i;
 
+/** One of these names, if these words are that name, in full or a letter or two out. */
+function nameOf(words: string[], names: string[]): string | undefined {
+  const said = words.join(' ').toLowerCase();
+  if (!said) {
+    return undefined;
+  }
+  return (
+    names.find((name) => nameWords(name).join(' ') === said) ??
+    closeName(said, names)
+  );
+}
+
+/**
+ * Who of these names a pardon is for: the name has to come right after the word ("Pardon Pun
+ * Pun", "Release Dana", "Set free Pun Pun"), or between the words ("Let Pun Pun go", "Set Dana
+ * Reyes free"). Null if no pardon word has one of these names by it, or if the one it has is
+ * said not to be let go or asked about ("Don't release Pun Pun", "Did you free Pun Pun?"). "Pun
+ * Pun broke free of the cuffs" names nobody after "free", so it is no pardon.
+ */
+export function readPardon(text: string, names: string[]): string | null {
+  for (const verb of text.matchAll(
+    /\b(?:pardon|release|set\s+free|free|let|set)\b/gi,
+  )) {
+    const at = verb.index ?? 0;
+    if (heldBack(text, at)) {
+      continue;
+    }
+    // The words after it, up to the end of the clause.
+    const after = text.slice(at + verb[0].length);
+    const stop = after.search(/[,.;:!?]/);
+    const words = nameWords(stop === -1 ? after : after.slice(0, stop)).slice(
+      0,
+      6,
+    );
+    const word = verb[0].toLowerCase();
+    if (word === 'let' || word === 'set') {
+      // "Let Pun Pun go", "set Dana Reyes free": the name is what comes between.
+      const end = words.indexOf(word === 'let' ? 'go' : 'free');
+      const meant = end > 0 ? nameOf(words.slice(0, end), names) : undefined;
+      if (meant) {
+        return meant;
+      }
+      continue;
+    }
+    // "Pardon Pun Pun", "release the Pun Pun": the name, with one word at most before it.
+    for (let start = 0; start <= 1; start++) {
+      for (let size = Math.min(4, words.length - start); size > 0; size--) {
+        const meant = nameOf(words.slice(start, start + size), names);
+        if (meant) {
+          return meant;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** TRUE if these words use the word "pardon" as an ask, not to say no to one or to ask about one. */
+export function pardonAsked(text: string): boolean {
+  return [...text.matchAll(/\bpardon\b/gi)].some(
+    (word) => !heldBack(text, word.index ?? 0),
+  );
+}
+
 /** Who a pardon names when they are nobody security has anything against: the words after "pardon". */
 export function pardonNamed(text: string): string {
   return tidyName(
