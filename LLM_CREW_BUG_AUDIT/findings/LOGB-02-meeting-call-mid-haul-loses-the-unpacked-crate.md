@@ -2,11 +2,12 @@
 id: LOGB-02
 title: A meeting called while a janitor hauls a collected crate makes its brain lose the haul, so it unpacks the crate, then tells its head the crate is lost
 kind: bug
-severity: high
+severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:825, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:945, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:408, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:307
 fix: Do not let a step that stays put (a PDA reply) take the place of brain.lastAct while a walk or haul is still waiting on its result, keep it aside and match results to either
@@ -88,7 +89,7 @@ Related but different: ASYNC-02 and API-03 are a result taken for the wrong step
 
 ## How to fix it
 
-1. In `drive` (`driver.ts`), when `busy` and the step being sent is one that stays put (`STAYS.has(step.act.tool)`, a `message` above all), send it without touching `brain.lastAct`. Keep it as `brain.sideAct` (same shape) so its failure can still be noted, and match results to `lastAct` first and then to `sideAct` by tool name in `noteResult`. Clear `sideAct` after `LOST_ACT_MS` like `lastAct`.
+1. In `drive` (`driver.ts`), when `busy` and the step being sent is one that stays put (`STAYS.has(step.act.tool)`, a `message` above all), send it without touching `brain.lastAct`. Keep it as `brain.sideAct` (same shape) so its failure can still be noted, and match results to `lastAct` first and then to `sideAct` by tool name in `noteResult`. Clear `sideAct` after `LOST_ACT_MS` like `lastAct`. Two things this must keep: (a) the side step's result has to go through the same hooks as now (`afterActing`, `meetingsAfterActing`, `pickupsAfterActing` and the rest in `noteResult`), because `summons.answered` is only set in `meetingsAfterActing` (`meetings.ts:685-690`); so move the body of `noteResult` into a helper that takes the matched step, and call it for whichever of the two matched. Clear only the one that matched: the `brain.lastAct = null` and the breath at the end of `noteResult` (`driver.ts:1035`) belong to the long step only. (b) While a `sideAct` is waiting, do not send another (`orderToDrop` will still find the meeting's reply ready until its result is in).
 2. Or, smaller: in `planMeetings`, hold the "On my way" reply back while `brain.doing` matches `HAULING`, as the walk already is. The head counts on no word for 90 seconds (`WORD_BACK_DS`), which a haul fits in. This fixes only this case.
 3. As a second line, in `planPickups`: a COLLECT task not marked unpacked, whose crate is no longer in `brain.heldCrates`, while `brain.crateToReturn` is TRUE and the brain's memory has "You haul the crate #N to ... and unpack it there", is unpacked. The server could send `collected_number` with `crate_to_return` so the window need not read the text.
 
@@ -99,3 +100,11 @@ I would take 1: it mends every case of a stay-put step sent over a long one, not
 - A simulator scenario: a janitor sent for a crate, with the head calling a meeting while the haul is under way. Want "Crate #N is unpacked in the Custodial Closet" by PDA, a `take_back`, and no second "here to collect crate N".
 - Type check, and the existing `qm` and `crew` scenarios.
 - Next round, `game.log`: no "Cargo says there is no crate #N" after "You haul the crate #N to ..." for the same N.
+
+## Check
+
+Checked by Opus 5.5. Read in the window: `drive` (`driver.ts:657` on: `busy`, `orderToDrop`, the `brain.lastAct = {...}` at about line 826 that overwrites whatever was waiting), `orderToDrop` (`driver.ts:631`: an `emergency` task with a ready act breaks in unless `lastAct` is already that task's), `noteResult` (`driver.ts:943`: returns at once when `lastAct` is missing or its tool differs, and sets `lastAct = null` at the end), `planMeetings` (`meetings.ts:408`: the reply is `ready: true` whatever the hands do; only the `go_to` below waits on `HAULING`), the MEETING task's `urgency: 'emergency'`, and `pickupsAfterActing` (`pickups.ts:307`, the only setter of `task.unpacked`). On the server, the `message` tool answers at once with `action_result(CREW_TOOL_MESSAGE, TRUE, ...)` (`crew_npc_cargo.dm:738`), and the haul answers later with `action_result(CREW_TOOL_COLLECT, TRUE, "You haul the ... and unpack it there ...")` (`crew_npc_held.dm:423`). So: haul sent, `lastAct` = collect_crate; reply sent, `lastAct` = message; message result clears it; collect result finds no `lastAct` and is dropped. Even if the message result came later, the collect result would not match `lastAct.tool` and would be dropped the same way.
+
+Round log checked: `round-17.48.05/game.log` lines 775-776 (the call at 00:01:50.148 and "On my way" 0.07 s later), the brain's memory at 18:01:57 "You haul the crate #7740 to Custodial Closet and unpack it there", the same prompt still listing "collect crate #7740 ... waiting its turn", and `pda.log` line 131 (the false "Cargo says there is no crate #7740"). No later change-log entry (19:38, 20:19, 20:53) touches `lastAct`, `noteResult` or the meeting reply.
+
+Changed: severity to medium. It needs a meeting call (or another emergency stay-put step) to land inside a haul, which is timing, not most rounds; the supplies are unpacked and only the report, the take-back and the walks are wrong, which FORMAT.md puts at medium. Added to fix step 1 the two things it must keep, since a plain `sideAct` that skips the hooks would send "On my way" again and again. Not run.

@@ -5,11 +5,12 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:73, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:687, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:202, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:507
-fix: Take it as an order to leave only when the leave word has the room, here, or nothing after it as its object, with no negation before it
+fix: Take it as an order to leave only when a clause, with the body's name and please taken off, is a bare leave or get out (of here, of the room) said to the body, not a negation and not the speaker of itself
 ---
 
 ## What is wrong
