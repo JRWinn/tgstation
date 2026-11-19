@@ -82,6 +82,24 @@ add('"Sam let me in": Sam', answers('Sam let me in'), by('Sam Tech'));
 add('"Ann sent me, Donna": Ann', answers('Ann sent me, Donna'), by('Ann Moss'));
 add('"nobody, just looking": go', answers('nobody, just looking'), go);
 
+// ---- SECT-09: a workmate's yes or no, read from how it begins
+const { yesOrNo } = await import(ROOT + 'jobs/guarding');
+for (const [line, want] of [
+  ['Yes, Donna, I asked Tolly in. No need to worry.', true],
+  ["Yes, he's not done yet", true],
+  ['No, I did not ask him', false],
+  ['Not me, ask Quin', false],
+  ['Hmm?', null],
+  ['I did not ask him in.', false],
+  ['Donna, yes, I did.', true],
+  ['Yeah, no worries', true],
+  ['No problem, I asked him in.', null],
+  ['Nope.', false],
+  ['I never did.', false],
+] as [string, boolean | null][]) {
+  add(`"${line}" is ${want === null ? 'neither' : want ? 'a yes' : 'a no'}`, yesOrNo(line.toLowerCase()), want);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

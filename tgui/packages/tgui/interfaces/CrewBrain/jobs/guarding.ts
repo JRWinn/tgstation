@@ -49,6 +49,14 @@ const VOUCH_WORDS = /did you (ask|call|send|let|tell|invite)/;
 /** What a no and a yes sound like. A line with both in it is a no: "no, I did not". */
 const NO_WORDS = /\b(no|nope|not|never|didn'?t)\b/;
 const YES_WORDS = /\b(yes|yeah|yep|aye|i did|i have|correct)\b/;
+/** Set phrases with a no-word in them that mean nothing of the kind. */
+const SET_PHRASES =
+  /\bno (?:problem|worries|trouble|bother)\b|\bno need\b[^.!?]*|\bnot (?:yet|done|finished)\b|\bnot a problem\b/g;
+/** An answer that begins, after a name and a comma, with a no or a yes. */
+const BEGINS_NO =
+  /^\W*(?:\w+,\s*)?(?:no|nope|never|i did not|i didn'?t|not me)\b/;
+const BEGINS_YES =
+  /^\W*(?:\w+,\s*)?(?:yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b/;
 /** What owning up to having no reason to be in a room sounds like. */
 const NO_REASON_WORDS =
   /nobody|no one|should not be|shouldn'?t be|no business|no reason|just looking|only looking|lost/;
@@ -553,11 +561,20 @@ function jobWords(job: string): RegExp {
 }
 
 /** What a yes-or-no answer, in lower case, comes to, or null if it is neither. */
-function yesOrNo(heard: string): boolean | null {
-  if (NO_WORDS.test(heard)) {
+export function yesOrNo(heard: string): boolean | null {
+  // "No problem", "not done yet" and the like are no no (SECT-09).
+  const line = heard.replace(SET_PHRASES, ' ');
+  // How the answer begins settles it, the no first: "I did not" begins with "I did".
+  if (BEGINS_NO.test(line)) {
     return false;
   }
-  return YES_WORDS.test(heard) ? true : null;
+  if (BEGINS_YES.test(line)) {
+    return true;
+  }
+  if (NO_WORDS.test(line)) {
+    return false;
+  }
+  return YES_WORDS.test(line) ? true : null;
 }
 
 /** Makes sure there is a task of this kind about this person or thing, and none about any other. */
@@ -762,7 +779,8 @@ function vouchStep(brain: NpcBrain): Plan {
     say: did
       ? `Yes, ${firstName(asked.by)}, I asked ${firstName(asked.about)} to come in.`
       : `No, ${firstName(asked.by)}, I did not ask ${firstName(asked.about)} in here.`,
-    needs: has(answer),
+    // The answer comes first, so the one who asked reads it right (SECT-09).
+    needs: new RegExp(`^\\W*${answer}\\b`, 'i'),
   };
 }
 
