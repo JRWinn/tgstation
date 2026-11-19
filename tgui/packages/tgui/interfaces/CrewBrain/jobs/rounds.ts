@@ -172,9 +172,15 @@ export function planRounds(brain: NpcBrain, task: Task): Plan | null {
     };
   }
   // With someone at the post to hear it, it says where it is off to before it goes: that is what
-  // tells them the job is taken, and to stay.
+  // tells them the job is taken, and to stay. A body lying there or in cuffs is not keeping the
+  // post, and is not told (CARGO-12).
   const workmate = brain.peopleInView.some(
-    (person) => person.in_post && person.belongs && person.name !== brain.name,
+    (person) =>
+      person.in_post &&
+      person.belongs &&
+      !person.down &&
+      !person.cuffed &&
+      person.name !== brain.name,
   );
   if (workmate && !task.announced && brain.location === brain.post) {
     return {
