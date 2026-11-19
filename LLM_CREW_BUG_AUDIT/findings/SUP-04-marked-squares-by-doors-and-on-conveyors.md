@@ -97,5 +97,15 @@ What must keep working: on MetaStation the same sixteen squares are found, and c
 
 - Server compile to a side copy.
 - No simulator case: the window is only told a count (`freight.misplaced`).
-- The same map script can be run before and after to list which painted tiles pass the new test on each station. On KiloStation the three conveyor tiles must drop out. On MetaStation all sixteen must stay.
-- In a round on KiloStation or DeltaStation (the owner has not played one): order two crates and watch where they are stood. `game.log` should show no run of `stow_crate` results for one crate.
+- The same map script can be run before and after to list which painted tiles pass the new test on each station. On KiloStation all eight conveyor tiles must drop out, and the three by a door with a machine on them, (150,113), (150,109) and (154,118); the ten in the block at x 153 to 155 must stay. On MetaStation all sixteen must stay.
+- In a round on KiloStation (the owner has not played one): order two crates and watch where they are stood: on the block of squares in the bay, not on the loading lines at the dock. The `stow_crate` results are not written to `game.log`; look in `crew_brain.log` for a `stow_crate` straight after each `unload`, which is the double haul this causes today.
+
+## Check
+
+Checked by Opus 5.5. Confirmed, with the KiloStation tiles and step 5 of the case corrected.
+
+- Read `crew_npc_marked_squares`, `free_square`, `misplaced_crates`, `storage_spot`, `haul_freight` and `freight_hauled` (`crew_npc_freight.dm:75` to `:520`) and `crew_npc_clear_of_doors` (`crew_npc_cargo.dm`). The quotes are what the code says. A painted tile gets none of `storage_spot`'s checks; `misplaced_crates`' first loop calls any crate within a tile of a non-fire door misplaced; STOW of a crate in the bay goes to `free_square(get_turf(crate))` first.
+- Ran my own throwaway map reader (bun, in the scratchpad, outside the repo) over KiloStation, MetaStation and DeltaStation for `/area/station/cargo/storage` tiles with `turf_decal/bot` or `bot_white`. KiloStation: twenty-one `bot` tiles, eight of them with a conveyor (157-160,109; 158-160,113; 158,115), three of those within a tile of a door, as the finder said. MetaStation: sixteen `bot_white` tiles, none by a door. DeltaStation: six by a door, each with a dense machine or cabinet on it, as the finder said.
+- Wrong in the write-up: only three conveyor tiles were named, and the crate was said to go back and forth. From (160,113) the STOW goes to (159,113), which is clear of the doors, and it stays there. Mended. The fault is still real: crates are stood on the loading conveyor lines and each is hauled twice.
+- Already known in part: the change log's entry for round 13.32 lists under "Known and not fixed" "A crate on a marked square that is within a tile of a door would be moved again. The bay on MetaStation has no such square." This finding adds the conveyors, the maps where it happens and the fix, so it stands.
+- The fix is right and keeps the rules (it only narrows which painted tiles count). Doing it in `crew_npc_marked_squares` keeps `free_square`, `misplaced_crates` and `freight_hauled` in step. Step 2 had to move to `free_square`: mended. Not checked in a round: that the decal is readable from `tile.overlays` at all, which the change log also lists as unseen.

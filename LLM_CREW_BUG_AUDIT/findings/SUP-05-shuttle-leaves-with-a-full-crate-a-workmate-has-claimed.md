@@ -16,7 +16,7 @@ fix: Decide whether the shuttle may leave from every full crate aboard, not only
 
 "Is there anything left to unload?" is asked in four places before the shuttle is sent, and all four use a count that leaves out a crate a workmate has claimed. A claim is made the moment a workmate's brain calls `unload`, before its body has taken a step, and it stands for 45 seconds (`CREW_NPC_CRATE_CLAIM`) whether or not the workmate ever gets there. So while one technician is walking to the last full crate, the other is told the shuttle is unloaded.
 
-The shuttle will not fly with a living body aboard, so nothing goes wrong once the workmate has reached the deck. The gap is the walk to it, and any time the workmate was called away after claiming.
+The shuttle will not fly with a living body aboard, so nothing goes wrong once the workmate has reached the deck. And the base game checks that twice more after the send: `moveShuttle(..., TRUE)` only starts 5.5 seconds of ignition (`request()`, `ignitionTime` in `mobile_port.dm`), and both `enterTransit()` and `initiate_docking()` ask `canMove()` again before it goes. So a workmate who is on the deck within about five seconds of the send stops it. The gap is a walk to the crate that is longer than that, and above all any time the workmate was called away, or its errand failed, after claiming: the claim then stands for the rest of its 45 seconds with nobody on the deck.
 
 When the supply shuttle reaches the far dock the game sells everything on it that is not fixed down (`sell()` in `supply.dm`). A full crate left aboard is sold with what is in it. If it was a crate being held for someone, its held entry finds the crate deleted, calls it "destroyed", and it is written off as lost.
 
@@ -24,9 +24,11 @@ One case, with two technicians and two orders close together (the Quartermaster 
 
 1. Order 1 docks: two janitorial crates and a mail crate. Maria is in the bay, so `order_arrived` runs at once and her `supply_run_active` goes FALSE with all three crates still aboard.
 2. The Quartermaster gives Maria order 2. She places it. Her `supply_run_step` now runs every five seconds. The order is not aboard and the shuttle is docked, so it asks `crate_to_unload()`.
-3. Sam unloads. When he calls `unload` for the last full crate, `tool_unload` claims it and he starts to walk.
-4. Maria's next tick: `crate_to_unload()` skips the crate because `crate_taken(crate)` is TRUE (Sam's claim). It returns null. `shuttle.canMove()` is TRUE: Sam is not on the deck yet. `SSshuttle.moveShuttle("cargo", "cargo_away", TRUE)`.
-5. The shuttle leaves with the last crate of order 1. Sam's errand fails. A minute later the crate and its contents are sold. Its held entry becomes lost: "it has been destroyed".
+3. Sam unloads. When he calls `unload` for the last full crate, `tool_unload` claims it and he starts to walk. Before he reaches the deck he is cut off: someone comes to the counter, or the walk fails (a door, someone in the way), and the errand is dropped. The claim stands.
+4. Maria's next tick: `crate_to_unload()` skips the crate because `crate_taken(crate)` is TRUE (Sam's claim). It returns null. `shuttle.canMove()` is TRUE: nobody is on the deck. `SSshuttle.moveShuttle("cargo", "cargo_away", TRUE)`.
+5. 5.5 seconds later nobody has stepped aboard, and the shuttle leaves with the last crate of order 1. A minute later the crate and its contents are sold. Its held entry becomes lost: "it has been destroyed".
+
+(Sam merely walking to the crate is enough only if he is not on the deck within about five seconds of Maria's tick: from the far side of the bay or the lobby.)
 
 The same hole is open through the `send_shuttle` tool with no order pending: Maria's window is told `to_unload` is 0 (the same count), opens a SEND task, and `tool_send_shuttle` agrees.
 
@@ -104,7 +106,7 @@ Leaving a workmate's crate out of "what is mine to unload" is right. Using the s
 3. In `tool_send_shuttle`, replace `crate_to_unload()` with `full_crates_aboard()`.
 4. In `send_shuttle_back`, in the docked branch, ask again before the shuttle is moved, since the walk to the console took time: if `full_crates_aboard()`, return `list(FALSE, "There is still something aboard the supply shuttle that has to come off first.")`. Count `empties` from spent crates only, so the words are true.
 5. In `freight_state`, add `"full_aboard" = <that count>` to the list. In the window, add `fullAboard` where `brain.freight` is filled (`brain.ts`, next to `toUnload`) and to its type in `types.ts`, and change the SEND test in `syncFreight` from `freight?.toUnload === 0` to `(freight?.fullAboard ?? freight?.toUnload) === 0`. Add the field to the simulator's freight state in `tools/llm_crew/sim.ts`.
-6. Release a claim when its errand ends without the crate in hand: in `finish_errand` (`crew_npc_hands.dm`), when the tool was `unload`, `stow_crate` or `recycle` and the outcome is a failure, remove the body's own entry from `GLOB.crew_npc_crate_claims`. Also in `cancel_errand` when `errand_tool` is one of those. Then a workmate called away does not keep a crate out of everyone's count for 45 seconds.
+6. Release a claim when its errand ends: at the top of `cancel_errand` (`crew_npc_hands.dm:171`), before `errand_tool` is cleared, when `errand_tool` is `unload`, `stow_crate` or `recycle`, remove every entry of `GLOB.crew_npc_crate_claims` whose claimant is this controller. `finish_errand` calls `cancel_errand` first thing, so this covers an errand that ends at the crate as well as one dropped on the way. It is safe when the haul has begun: `haul_freight` has the crate pulled by then, and `crate_taken` checks `crate.pulledby` before the claim. Then a workmate called away does not keep a crate out of everyone's count for 45 seconds. This step alone does not close the fault (the walk is still a gap); steps 1 to 5 do.
 
 What must keep working: two technicians still do not go for the same crate (`crate_taken` is untouched), and a shuttle with only empties aboard is still sent.
 

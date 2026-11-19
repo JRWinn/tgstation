@@ -3,12 +3,13 @@ id: SUP-07
 title: Any PDA message to a person strikes off the first crate notice owed to them, so a note about mail cancels the word that their order has come in
 kind: bug
 severity: medium
-effort: small
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
-files: code/modules/llm_crew/crew_npc_cargo.dm:709, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:205, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:720
+files: code/modules/llm_crew/crew_npc_cargo.dm:710, tools/llm_crew/sim.ts:736, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:205, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:720
 fix: Have the window say which notice a message is about and have tool_message strike off only a notice of that kind
 ---
 
@@ -84,7 +85,7 @@ Read from the code. Not seen in a round: no `pda.log` was searched for a mail me
 
    Keep it before the "cannot find that person" return, so that "having tried is enough" still holds for someone with no PDA.
 3. Window, `jobs/cargo.ts`: add `about` to each message that pays a notice off: `about: 'arrived'` on the two arrival messages in `plan` (the one to the Quartermaster by PDA and the one to whoever ordered), `about: 'lost'` in the LOST branch of `planHeld`, `about: 'waiting'` in the REMIND branch. The mail message in `freight.ts` and the janitor call get none.
-4. `tools/llm_crew/sim.ts` plays the server. Find where it answers the `message` tool and drops a notice, and make it go by `about` the same way, or the simulator will pass what the game fails.
+4. `tools/llm_crew/sim.ts` plays the server. Its `message` answer (`sim.ts:736`, `body.notices.findIndex((notice) => notice.to === args.person)`) copies the same fault today; make it go by `args.about` the same way, as its `word_passed` answer at `:918` already goes by `kind`, or the simulator will pass what the game fails.
 5. `types.ts`: `about` is one more optional field on an action. Check `prompt.ts` so it is not offered to the model as a parameter.
 
 What must keep working: a notice to someone with no PDA is still dropped after one try, as the comment says. The `word_passed` tool is unchanged.

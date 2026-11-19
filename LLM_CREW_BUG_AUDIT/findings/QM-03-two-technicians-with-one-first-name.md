@@ -4,11 +4,12 @@ title: Two technicians with one first name both place every order given to eithe
 kind: bug
 severity: medium
 effort: medium
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:684, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1634, tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:138, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2142, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2111
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:684, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1634, tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:144, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2142, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2111
 fix: Address a technician by first name only when no other technician aboard shares it, else by full name, and read the full name back on both sides
 ---
 
@@ -73,9 +74,18 @@ Read from the code on both sides of the line, not run and not seen in a round. C
 1. Add a helper in `supply.ts`, `calledBy(name, others)`: the first name if no other name in `others` has the same first name, otherwise the full name. `others` is `technicians(brain)` on the Quartermaster's side.
 2. Use it in `giveLine`, `dutyLine` (pass the name it returns), `seeToLine` and `tryAgainLine` calls in `quartermaster.ts`, and in `heardIt` (the "Sam, I have that." line).
 3. `dutiesIn` reads `^(\S+), the ...`: change it to read everything before ", the counter|shuttle|rooms", and in `afterSaying` match that against the full name first, then the first name. `SEE_TO_WORDS` the same.
-4. On the technicians' side (`cargo.ts:2111`, `:2130`, `:2142`, and the `WORD_HEARD` check at `:2095`), take a line as its own when it begins with its full name, or with its first name and no other technician it knows of shares that first name.
+4. On the technicians' side (`cargo.ts:2111`, `:2130`, `:2142`, and the `WORD_HEARD` check at `:2095`), take a line as its own when it begins with its full name, or with its first name alone (followed straight by the comma) and no other technician it knows of shares that first name. A line that begins with a full name that is not its own is never its own, even if the first word matches: the technician may not know of its namesake (it is not in view and not on the PDA list) when the Quartermaster does, and the present `^Sam\b` test would still match "Sam Cole, order 3". The duty line read back at `:2111` must also take the full name when one is given, so the duties go against the right workmate.
 5. Keep the plain first name in the common case, so the lines read as now.
 
 ## How to test the fix
 
 In `tools/llm_crew/book.ts`, add a Quartermaster with technicians Sam Bell and Sam Cole: the give line must start "Sam Bell," and two duty lines must leave `ledger.duties` with one entry each. In `tools/llm_crew/sim.ts`, a scenario with two cargo technicians given the same first name: one order, one crate bought (grep `game.log` for "order" lines from each body), and the meeting closes with "The meeting is over".
+
+## Check
+
+Checked by Opus 5.5. Every quote is what the code says today (`dutyLine` returns at `supply.ts:144`, not 138; the top block is mended). I followed both faults through the code:
+
+- The order. `cargo.ts` `overhears` (line 2138 on) takes any Quartermaster line that matches `GIVEN_WORDS` and starts with its own first name, and sets `brain.givenOrder`. It does not look at `event.details.said_to` or at who the Quartermaster walked up to. `syncTasks` (`cargo.ts:740`) then makes a `GIVEN` task, and its step (`cargo.ts:993`) goes to the console and orders, held back only by `brain.orderPending`, which is that body's own order. Nothing on the server stops the second order. `noteDocked` (`quartermaster.ts:1371`) returns on an order already `docked`, so the second word of order 3 is dropped.
+- The meeting. `dutiesFor` deals by sorted full name, `dutyOwed` compares by full name, and `afterSaying` (`quartermaster.ts:1634`) writes the line against the first technician in `technicians(brain)` whose first name matches. Whatever the order of that list, one Sam is always written to and the other never, so `dutyOwed` always finds the other owed. `dutyStep` is the meeting's `before` step (`head.ts:869`), which comes ahead of the closing line, so the meeting is ended only by `MEETING_MAX_DS` (4200 deciseconds, seven minutes, `head.ts:597`) or by everyone leaving the room. That is certain from the code, so I raised confidence to sure.
+
+Not a duplicate: HEAD-03 is the call-on for reports at any head's meeting, SECT-16 is warrants. Not in the change log or plans. Severity medium stands: the case is uncommon (two cargo staff with one first name) but costs credits and a meeting each time. The fix works; I added to step 4 that a line starting with someone else's full name must never be taken as one's own, since the technician's list of workmates can be shorter than the Quartermaster's. Not run.

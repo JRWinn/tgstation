@@ -3,12 +3,13 @@ id: SUP-06
 title: A body sent somewhere else in the middle of a haul keeps dragging the crate, and a crate being collected stays "being taken away" for good
 kind: bug
 severity: medium
-effort: small
-confidence: likely
-status: found
+effort: medium
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
-files: code/modules/llm_crew/crew_npc_tools.dm:397, code/modules/llm_crew/crew_npc_tools.dm:409, code/modules/llm_crew/crew_npc_hands.dm:161, code/modules/llm_crew/crew_npc_held.dm:400, code/modules/llm_crew/crew_npc_held.dm:372, code/modules/llm_crew/crew_npc_guarding.dm:183, code/modules/llm_crew/crew_npc_guarding.dm:213, code/modules/llm_crew/crew_npc_tools.dm:20, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:726
+files: code/modules/llm_crew/crew_npc_tools.dm:397, code/modules/llm_crew/crew_npc_tools.dm:409, code/modules/llm_crew/crew_npc_motor.dm:93, code/modules/llm_crew/crew_npc_hands.dm:161, code/modules/llm_crew/crew_npc_held.dm:400, code/modules/llm_crew/crew_npc_held.dm:372, code/modules/llm_crew/crew_npc_guarding.dm:183, code/modules/llm_crew/crew_npc_guarding.dm:213, code/modules/llm_crew/crew_npc_tools.dm:20, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:726
 fix: Have start_walk and start_errand end a haul or a walk out they replace - let go, clear collected_by or call put_out, tell the brain - and let a collected_by claim or an in_hand hold lapse when nobody is pulling
 ---
 
@@ -30,15 +31,15 @@ So when a body that is hauling is given any tool that starts a new walk or a new
 - **The brain is told nothing about the haul.** No `action_result` for `collect_crate`, `unload` and so on.
 - **A crate being collected stays `collected_by` that body.** `tool_collect` refuses everyone else ("X is already taking crate #N away"), `tool_release` refuses to bring it out again, `held_waiting` leaves it out so nobody is reminded of it, `misplaced_crates` leaves it lying wherever it is, and `crew_npc_crate_lost` will never call it "emptied". It is held for ever and nobody can take it.
 
-The window does send a new tool in the middle of a walk. `orderToDrop` in `driver.ts` is "the one thing it drops what it is doing for": a ready task of urgency `emergency` (an order from someone the body answers to, a call to flee). And the model's own reply to someone speaking can carry `go_to` or `walk_to`.
+The window does send a new tool in the middle of a walk. `orderToDrop` in `driver.ts` is "the one thing it drops what it is doing for": a ready task of urgency `emergency`. `takeToldWork` (`tasks.ts`) gives that urgency to any work told by someone the body answers to (a head saying "clean the Bar", the Captain's "go and look at" order), and the security jobs have their own. `dropToMove` drops the haul for anyone's "step aside". Only the meeting call waits: `jobs/meetings.ts:425` holds the walk to a meeting until `doing` no longer starts with "hauling".
 
 One case:
 
 1. A janitor has come for crate #12. `haul_collected` sets `entry.collected_by = "Ysabel Harrold"`, takes hold of the crate and starts the walk to the Custodial Closet.
-2. Halfway there the Head of Personnel calls a meeting, or the Captain says "Ysabel, come to the bridge". The window sends `go_to`.
-3. `tool_go_to` calls `start_walk`. `walk_tool` becomes `go_to` and the walk target key is set to the new spot. The old walk's `finish_action` calls `walk_finished(old target, FALSE)`, which sees a different target on the blackboard and returns.
-4. Ysabel walks to the Bar with crate #12 behind her and is told "You arrive in Bar". She is still pulling it. The crate is left wherever she happens to be when something else breaks the pull.
-5. Crate #12's entry says `collected_by = "Ysabel Harrold"` for the rest of the round. If her brain later asks to collect it again it is allowed (the name matches), but nothing makes it ask: the window's pick-up task was for a crate in the lobby.
+2. Halfway there the Head of Personnel, whom she answers to, tells her "Ysabel, clean up the Bar". `takeToldWork` makes an `emergency` task, `orderToDrop` returns it, and the window sends `go_to` the Bar. (A meeting call would not do this: it waits for the haul.)
+3. `tool_go_to` calls `start_walk`. `walk_tool` becomes `go_to` and the walk target key is set to the new spot. The walk leaf does not end: `perform` in `crew_npc_motor.dm:93` sees the new target and only restarts its clock ("Told to walk to someone else mid-walk; the parent retargets"). When that walk ends it reports as `go_to`. Nothing ever reports the haul.
+4. Ysabel walks to the Bar with crate #12 behind her and is told "You arrive in Bar". She is still pulling it. Since `walk_tool` is no longer a haul, the grip test in `perform` (`CREW_NPC_HAULS(walk_tool) && isnull(puller.pulling)`) does not run either.
+5. Crate #12's entry says `collected_by = "Ysabel Harrold"`. Her own COLLECT task is still open and the crate is still `out`, so once the Bar is done `planPickups` will as a rule send `collect_crate` again, and it is accepted (the name matches): the crate, still in tow, goes on to the closet. It stays stuck for good when that task is gone: her window reloaded, she died or was knocked out, or the task was closed. Then nobody else can take it.
 
 For a technician the same thing happens with `unload`, `recycle`, `stow_crate` and `release`: called to the counter in the middle of unloading, it drags the crate to the counter. That at least rights itself, since the crate is in cargo's rooms and gets stowed.
 
@@ -132,7 +133,9 @@ The walk-out side (SENSE-07) was read from the code by a second finder, sure of 
 3. `finish_haul` on a failure may leave the crate in a doorway. That is no worse than today, and for cargo's rooms `misplaced_crates` picks it up. If the owner wants better, the body could put it clear first (`put_clear`) before it obeys, at the cost of some seconds on an emergency.
 4. Give `collected_by` a way to lapse, for the cases no finisher covers. In `crew_npc_held_crates()` (`crew_npc_held.dm`), for an entry with `collected_by` set: if the crate has no `pulledby`, note the time on the entry (`loose_since`), and when that is more than `CREW_NPC_CRATE_CLAIM` (45 seconds) old, set `collected_by = null`. Clear `loose_since` whenever the crate is being pulled.
 5. Let an `in_hand` hold lapse when the hand is gone (from SENSE-07), for the keeper that dies or is knocked out mid-walk. In `taken_hold_of`, keep a weak reference to `by` (`in_hand_by`). In `look_around` (once a second), if `world.time < in_hand_until` and the body's `pulledby` is not `in_hand_by`, call `let_go_of(by, place, FALSE)` and clear it. Keep the 40 s as the upper bound. Leave security's custody (`custody_phase`) to its own code.
-6. Window: a `collect_crate` result with `ok` false already puts the pick-up back (`pickupsAfterActing`). But this result will arrive when the last act was the new tool, so `noteResult` in `driver.ts` will not match it. Check `jobs/pickups.ts`: the pick-up task should reopen from the server's `held_crates` list (the crate is `out` again with no `taken_by`), not only from the tool's result.
+6. Window: probably no change. This result will arrive when the last act was the new tool, so `noteResult` in `driver.ts` will not match it. That is fine for a pick-up: `planPickups` (`jobs/pickups.ts`) plans from the server's `held_crates`, and the crate is still `out` with no `taken_by`, so the COLLECT task sends `collect_crate` again once the order is done. Check that the unmatched result does not land on the new task as its failure.
+
+Note for whoever builds it: in `start_walk` the helper must run before `walk_tool = tool`, or it sees the new tool. The walk leaf retargets rather than ending (`crew_npc_motor.dm:93`), so no second report comes from the old walk.
 
 What must keep working: a crate that slips the grip is still gone back for three times (`crate_got_away`), and a haul that ends by itself still reports once, not twice.
 
@@ -143,3 +146,9 @@ What must keep working: a crate that slips the grip is still gone back for three
 - Simulator, the walk out (from SENSE-07): a technician walking a janitor out, and a step-aside request in the middle. After the fix the technician's window gets a `throw_out` result ("you were called away"), and the janitor's window gets "lets go of you" at once.
 - In a round, grep `game.log` for `took hold of` and check each is followed by `walked ... out of` or a fail for the same pair.
 - In a round: have a janitor collect a crate and call it away mid-haul. It should let go where it stands. `game.log` should have the haul's failure line, and the crate's line in the Crew Brain window should show nobody taking it. Then send someone else for it: `collect_crate` must be accepted.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Read `start_walk` and `walk_finished` (`crew_npc_tools.dm:397-420`), `start_errand` (`crew_npc_hands.dm:161`), the walk leaf `crew_npc_walk` (`crew_npc_motor.dm:80-160`), `haul_collected`, `crate_collected` and `tool_collect` (`crew_npc_held.dm:366-430`), `finish_haul` (`crew_npc_grip.dm:336`), `take_hold_of`, `put_out`, `taken_hold_of` and `let_go_of` (`crew_npc_guarding.dm:163-232`), the in-hand refusal (`crew_npc_tools.dm:20`), and on the window side `drive` and `orderToDrop` (`driver.ts:631-760`), `takeToldWork` (`tasks.ts:184`), the meeting plan (`jobs/meetings.ts:420-435`) and `planPickups`/`syncPickups` (`jobs/pickups.ts`). The quotes match. `stop_pulling` is called only in the haul finishers, the grip code, eviction and security. No server guard refuses a new walk while hauling, and the window drops a haul for an order told by a superior (`emergency`) and for any step-aside ask. The change log and plans say nothing of a haul broken off.
+
+Changed: the meeting example, which is wrong (meetings wait for the haul to end); step 3, since the old walk is retargeted, not finished; step 5, since the janitor's own pick-up task usually sends `collect_crate` again and so the crate is stuck only when that task is gone; confidence to sure; effort to medium (a helper plus the two lapses, spread over five server files, with no window change expected). Severity stays medium: the work as a rule still gets done, but a crate is dragged through an order, a stranger is held for 40 s by nobody, and a crate can be stuck for good. SENSE-07 is already marked a duplicate of this. Not run.

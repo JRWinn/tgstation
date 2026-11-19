@@ -8,7 +8,7 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: core
-files: code/modules/llm_crew/crew_npc_controller.dm:293, code/datums/ai/_ai_controller.dm:675, code/modules/llm_crew/crew_npc_senses.dm:103, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:938, code/modules/llm_crew/crew_npc_security.dm:871, code/modules/admin/verbs/debug.dm:166
+files: code/modules/llm_crew/crew_npc_controller.dm:293, code/datums/ai/_ai_controller.dm:675, code/modules/llm_crew/crew_npc_senses.dm:103, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:938, code/modules/llm_crew/crew_npc_security.dm:873, code/modules/admin/verbs/debug.dm:166
 fix: Have the crew controller notice COMSIG_MOB_LOGIN on its body, take PASSMOB off, tell the window the body is now a player's and drop it from the window's crew, and on logout not take the body back unless the owner says so
 ---
 
@@ -22,12 +22,12 @@ What happens today when a player's key lands in a crew body:
 2. **The player walks through people.** `TryPossessPawn` gave the body `PASSMOB` (`crew_npc_controller.dm:293`) and only `UnpossessPawn` takes it off. The player in the body now steps through every person and mob on the station, which no other player can do. (CHEAT-01 is about crew bodies having it; this is a player having it.)
 3. `can_sense()` goes false because `ai_status` is `AI_STATUS_OFF` (`crew_npc_senses.dm:103`), so the window gets `awake: false` for this body for as long as the player is in it, and every tool call is refused "Your body is not responding". The brain stays in the window with all its tasks.
 4. **The other crew go on taking the player for one of their own crew.** The window decides that a speaker is a fellow NPC by looking for a brain with that name (`brain.ts:938`, `brain.ts:1018`). The body's brain is still there, so the player is answered once at most ("One reply each is a conversation"), is not answered at all in a staff meeting, and is counted among `others` when the window works out who a line was said to (`brain.ts:603`). Each head still counts them as staff who answer in set words.
-5. **Security treats the player as a crew prisoner.** `make_arrest` tests `istype(person.ai_controller)` (`crew_npc_security.dm:871`), which is still true. It calls `being_arrested` on the controller, which makes the player's body let go of what it is pulling (`body.stop_pulling()`), and `put_in_cell` takes the cuffs off them because they "have a crew controller".
+5. **Security treats the player as a crew prisoner.** `make_arrest` tests `istype(person.ai_controller)` (`crew_npc_security.dm:873`), which is still true. It calls `being_arrested` on the controller, which makes the player's body let go of what it is pulling (`body.stop_pulling()`), and `put_in_cell` takes the cuffs off them because they "have a crew controller".
 6. **When the player leaves, the brain takes the body back.** On logout the base controller's `on_sentience_lost` calls `reset_ai_status()` (`_ai_controller.dm:682`), the body is awake to the window again, and the brain carries on with the tasks it had before the player came, in whatever room the player left it, holding whatever the player left in its hands. Nothing tells the brain that time has passed or that the body was someone else's. If the player only ghosted to look around (`ghostize(TRUE)`), they can come back into a body the brain has been walking about meanwhile.
 
 Concrete case: the owner is testing and an assistant player asks to try being a cargo technician. The admin uses Give Direct Control on the NPC technician. The player now walks through the Quartermaster and anyone in the lobby. The Quartermaster gives the player orders in its set words and, when the player answers in their own words, answers them once and then stops answering (the fellow-NPC rule). Twenty minutes later the player logs off; the controller wakes, the old brain remembers the order it was given twenty minutes ago and walks off to place it.
 
-The owner's own case is worse: Assume Direct Control on one of their own NPCs moves the owner's client by `PossessByPlayer` (`debug.dm:179`), which does not call `SStgui.on_transfer`, so the owner's old mob logs out and `SStgui.on_logout` closes the Crew Brain window, wiping every brain (HOLE-02).
+The owner's own case is worse: Assume Direct Control on one of their own NPCs moves the owner's client by `PossessByPlayer` (`debug.dm:180`), which does not call `SStgui.on_transfer`, so the owner's old mob logs out and `SStgui.on_logout` closes the Crew Brain window, wiping every brain (HOLE-02).
 
 ## Where
 
@@ -59,7 +59,7 @@ The owner's own case is worse: Assume Direct Control on one of their own NPCs mo
           other.name === (event.details.speaker ?? event.details.name),
       );
 
-`code/modules/llm_crew/crew_npc_security.dm:871`, in `make_arrest`:
+`code/modules/llm_crew/crew_npc_security.dm:873`, in `make_arrest`:
 
     	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
     	// One of the crew stands for it, and goes along. It is told before a hand is laid on it.

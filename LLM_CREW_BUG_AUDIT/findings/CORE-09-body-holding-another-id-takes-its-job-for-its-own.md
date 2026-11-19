@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_cargo.dm:11, code/modules/llm_crew/crew_brain_link.dm:89, code/modules/mob/living/carbon/human/human_helpers.dm:117, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:412
-fix: Read the body's own job from the card it wears first (get_idcard with hand_first FALSE), and send that same job_title() to the window instead of get_assignment
+fix: Read the body's own job from crew_npc_own_card (worn card first, hand only if none worn), and send that same job_title() to the window instead of get_assignment
 ---
 
 ## What is wrong
@@ -68,7 +69,7 @@ Read from the code. Not seen in a round: no player has handed a crew member an I
 
 ## How to fix it
 
-1. In `job_title`, read the worn card first, the way `crew_brain_rooms.dm:22` does: `var/obj/item/card/id/card = body.get_idcard(hand_first = FALSE)`. Only if there is no worn card at all, fall back to the hand (a body that has lost its own and picked up a spare is a separate question; see below). Drop the `get_assignment` fallback, which is also hand first.
+1. In `job_title`, use the helper that already exists: `var/obj/item/card/id/card = crew_npc_own_card(body)` (`crew_brain_rooms.dm:21`). It returns the worn card (ID slot, then belt) and only with none worn the one in a hand, which is the fallback step 1 asks for. Note that the base `get_idcard(hand_first = FALSE)` on its own returns only the worn card, never the hand. Drop the `get_assignment` fallback, which is also hand first; keep a fallback only for a worn PDA with no card in it if that matters (`get_assignment` reads `pda.saved_job` then), e.g. `get_assignment(if_no_id = "", if_no_job = "", hand_first = FALSE)`.
 2. In `ui_data`, send `"job" = npc.job_title()` instead of `get_assignment`. That also stops `TRAIT_UNKNOWN_APPEARANCE` from blanking the body's own job, which the window papers over today with `npc.job || brain.job`.
 3. Leave the people-in-view `"job"` in `look_around` as it is here; HOLE-01 is the place to settle how others' cards are read.
 
@@ -79,3 +80,7 @@ Question for the owner: a crew member whose own ID has been taken, and who is th
 - Server compile.
 - In a round, put your ID card in the Head of Personnel's empty hand through its strip menu. Without the fix its card in the window shows your job and it stops behaving as a head; with it, it stays the Head of Personnel.
 - Drop an ID card on the Cargo Bay floor and wait for a technician to tidy it. Grep `crew_brain.log` for the technician's routine steps during the carry: with the fix they are still cargo steps.
+
+## Check
+
+Read `job_title` (`crew_npc_cargo.dm:11`), `ui_data` (`crew_brain_link.dm:89`), base `get_assignment` (`human_helpers.dm:9`, `hand_first = TRUE` by default), human `get_idcard` (`human_helpers.dm:117`) and living `get_idcard` (`living.dm:633`, active hand then other hand), and `/obj/item/modular_computer/GetID` (`computer.dm:268`, returns the stored card). All quotes match the code today. With `hand_first` TRUE any ID or PDA-with-ID in either hand wins over the worn one, so both the server's job tests (nine `job_title()` callers: cargo, security, engineering, quartermaster, HoP, janitor inventory) and the window's `brain.job` -> `jobFor` follow the held card. `wants_tidying` (`crew_npc_tidying.dm:48`) has no filter against ID cards or PDAs (only bulky, anchored, pulled, abstract, shards, named mail), so a technician tidying a dropped card carries another job for the length of the carry. Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this; the only `job_title` entry is the spawn-time fix (H1). The fix is sound and small; `crew_npc_own_card` already does the right order and is used for the card colour, so the window's name colour and its job already disagree in this case. Severity medium stands: it needs a held card, which tidying makes possible in ordinary rounds, but the job comes back when the card is put down. Not run in a round.

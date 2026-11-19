@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1700, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:886, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:148
 fix: Clear brain.knockAt in syncTasks as soon as the Quartermaster is out of its office after a knock, not only in afterActing where the task it looks for has already been thrown away
@@ -23,7 +24,7 @@ A technician with word for the Quartermaster knocks at its office door. The knoc
     if (task?.kind === KNOCK) {
       brain.knockAt = null;
 
-But the task is gone by then. As soon as a state update shows the Quartermaster in the Cargo Bay, `syncTasks` sees it is no longer at its door and finishes the task, and the general `syncTasks` in `tasks.ts` drops every finished task that nobody is owed word of, in the same pass. The walk to the next room is a few tiles, so the state update showing it arrived comes in before, or with, the walk's `action_result`. `noteResult` then looks the task up by id, finds nothing, and `task?.kind === KNOCK` is false. `knockAt` is never cleared.
+But the task is gone by then. As soon as a state update shows the Quartermaster in the Cargo Bay, `syncTasks` sees it is no longer at its door and finishes the task, and the general `syncTasks` in `tasks.ts` drops every finished task that nobody is owed word of, in the same pass. `brain.location` is the area the body stands in (`get_area_name` in `crew_brain_link.dm`), so it reads "Cargo Bay" the moment the body is through the office door. The walk does not end there: `tool_go_to` walks to `place_spot`, a spot inside the bay, and only then sends the result. The window gets the body's state on every tgui update (about once a second, and whenever any owned NPC has an event), so at least one update showing it in the bay comes in before the walk's `action_result`. (If the two came in the same update it would be fine: `brain.ts` runs `noteResult` on the events before it calls `syncTasks`. It is the update that comes first that does the harm.) `noteResult` then looks the task up by id, finds nothing, and `task?.kind === KNOCK` is false. `knockAt` is never cleared.
 
 So for the rest of that minute, every time the Quartermaster goes back to its office, the same knock adds a new `qm_knock` task, and out it goes again. The technician has long since said its word and been heard.
 
@@ -83,7 +84,7 @@ The same trap waits for any job whose `afterActing` needs a task of its own that
 
 ## How to fix it
 
-1. In `quartermaster.ts` `syncTasks`, in the `else if (!atDoor && answer)` branch: if the Quartermaster is out of its office (`brain.location !== brain.office`) and the knock was for its office, set `brain.knockAt = null` and `ledger.cameOutAt = brain.now` before `finishTask`. That is the moment the knock is answered, whatever order the server's messages come in.
+1. In `quartermaster.ts` `syncTasks`, in the `else if (!atDoor && answer)` branch: if the Quartermaster is out of its office (`brain.location !== brain.office`) and the knock was for its office (`knock?.room === brain.office`), set `brain.knockAt = null` and `ledger.cameOutAt = brain.now` before `finishTask`. That is the moment the knock is answered, whatever order the server's messages come in. When the branch is reached only because the knock has gone stale while it is still in the office, leave `cameOutAt` alone: it never came out.
 2. Keep the `afterActing` branch for the case where the result comes first.
 3. Wider, and optional: in `noteResult` (`driver.ts`), keep the task the step was for on `brain.lastAct` itself (the object, not only its id), so `afterActing` gets it even after `syncTasks` has dropped it. That closes the trap for every job at once.
 
@@ -92,3 +93,7 @@ The same trap waits for any job whose `afterActing` needs a task of its own that
 - A simulator scenario: a technician with word knocks once at the Quartermaster's office. Want exactly one `go_to` to the Cargo Bay from the Quartermaster in the next minute. The simulator sends state and results in its own order: check it sends the arrival state before the walk's result, or the test will pass without the fix.
 - Type check.
 - Next round, `crew_brain.log`: "Someone is knocking at the door of your office" once per technician `knock()` step.
+
+## Check
+
+Checked by Opus 5.5. Every quote is what the code says today (`quartermaster.ts:886`, `:1700`, `tasks.ts:148`, `driver.ts:964`). I read the order of work in `brain.ts`: the state is copied in (`brain.location = npc.location`, line 423), then each event goes through `noteResult` (line 729), then `syncTasks` (line 746). So the task is only lost when an update showing the body in the bay comes in before the one with the walk's result. `tool_go_to` (`crew_npc_tools.dm:200`) walks to `place_spot`, a spot inside the room, not to its edge, and the location is the area name the body is in (`crew_brain_link.dm:94`), so that update does come first. Nothing else clears `knockAt` for the Quartermaster (the other `knockAt = null` is in `cargo.ts`, for technicians). The knock event is set once per knock (`brain.ts:616`, from `crew_npc_doors.dm:690`). I also checked the round log: `round-17.06.14/crew_brain.log` has Rylie's one "You are knocking" at 23:13:56 and Dalton's "Someone is knocking at the door of your office" five times, at the times quoted. The change log lists the fault at line 290 with no cause and no fix. The fix in step 1 works and touches nothing else; I added that it should only fire when the Quartermaster really is out of its office. Not run in the simulator.
