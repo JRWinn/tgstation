@@ -799,6 +799,8 @@ export type Talk = {
   lastHeardAt: number;
   /** Server world time (deciseconds) the NPC last spoke in reply to this speaker, if it has. Kept when they go quiet. */
   repliedAt?: number;
+  /** Server world times (deciseconds) of its latest replies to this speaker, kept when they go quiet (BRAIN-01). */
+  replyTimes?: number[];
 };
 
 /**
@@ -872,6 +874,10 @@ export type Task = {
   unheard?: number;
   /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
   walkedUp?: boolean;
+  /** Server time (deciseconds) of the last sync it was blocked at, or when open work began again (MEM-11). */
+  openSince?: number;
+  /** Server time (deciseconds) it was first seen blocked, since it was last open (MEM-11). */
+  blockedSince?: number;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -1547,6 +1553,8 @@ export type NpcBrain = {
   /** When this NPC last had something to do, in this window's clock (milliseconds). */
   lastActiveAt: number;
   lastDecision?: Decision;
+  /** TRUE while the LLM is being asked only for a remark of the NPC's own accord (ASYNC-07). */
+  remarking?: boolean;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */

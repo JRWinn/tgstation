@@ -247,6 +247,18 @@ function describeTalk(brain: NpcBrain): string[] {
   ];
 }
 
+/**
+ * The lines of a report said to this NPC: to it by name, or failing any, to everyone there. A line
+ * said to someone else asks nothing of it.
+ */
+export function saidToMe(report: string[]): string[] {
+  const spoken = report.filter((line) => line.includes(' says: '));
+  const toMe = spoken.filter((line) => line.includes(', speaking to you)'));
+  return toMe.length > 0
+    ? toMe
+    : spoken.filter((line) => line.includes(', speaking to everyone there)'));
+}
+
 /** Builds the call for one moment. Takes on an order made out from what was said, as a side effect. */
 export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const { report, speakers, mustSay } = moment;
@@ -277,7 +289,7 @@ export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const options = availableOptions(
     brain,
     spokenTo,
-    report.filter((line) => line.includes(' says: ')).join(' '),
+    saidToMe(report).join(' '),
     brain.peopleInView.filter((person) => speakers.includes(person.handle)),
   );
   // How it feels is asked about whoever has just spoken to it, and nobody else: someone merely

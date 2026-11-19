@@ -105,8 +105,16 @@ export function addNote(brain: NpcBrain, note: string): string {
   if (!noteKey(trimmed) || isSighting(brain, trimmed)) {
     return '';
   }
-  if (brain.notes.some((existing) => sameNote(existing, trimmed))) {
+  const same = brain.notes.filter((existing) => sameNote(existing, trimmed));
+  // A note it has already, or a shorter copy of one, is not kept: the full note stays.
+  const key = noteKey(trimmed);
+  if (same.some((existing) => noteKey(existing).includes(key))) {
     return '';
+  }
+  // Any other note on the same thing is what was said last, and corrects the older: "Pun Pun is
+  // no longer wanted" after "Pun Pun is wanted for theft". The older ones go.
+  for (const old of same) {
+    brain.notes.splice(brain.notes.indexOf(old), 1);
   }
   brain.notes.push(trimmed);
   if (brain.notes.length > NOTES_MAX) {

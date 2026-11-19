@@ -65,6 +65,22 @@ add('"Go and look at the Bar and report back" is not that', isMeetingOrder(hop, 
 add('"Find out what is in the Custodial Closet" is not that', isMeetingOrder(hop, 'Find out what is in the Custodial Closet.'), false);
 add('someone with no staff cannot be told to', isMeetingOrder(janitor, 'Jan, find out how your section is doing.'), false);
 
+// GAP-23: a line the model words is cut to what the server will say, at a sentence or a word, never mid-word.
+{
+  const { fitSay } = await import(ROOT + 'prompt');
+  const first = `${'Sure thing, I am on it right away and '.repeat(4).slice(0, 149)}.`;
+  const long = `${first} ${'And then there is the matter of the crate in the lobby, which '.repeat(3)}`;
+  add('250 characters, a stop at 150: the first 150 kept', fitSay(long.slice(0, 250)), first);
+  const noStop = 'word '.repeat(60);
+  const cut = fitSay(noStop);
+  add('no stop: cut at a word, under 200, ends with a full stop', [cut.length <= 200, cut.endsWith('word.'), !cut.includes('  ')], [true, true, true]);
+  add('under 200: unchanged', fitSay('Right away, Captain.'), 'Right away, Captain.');
+  const exact = `${'x'.repeat(199)}.`;
+  add('exactly 200 characters: unchanged', fitSay(exact), exact);
+  const needed = `${'Hello there, how are you doing on this fine day aboard the station? '.repeat(3)}Crate 12 is out in the lobby.`;
+  add('the needed words past 200: cut away, so the needs test then falls back to the plain line', /12.*lobby/i.test(fitSay(needed)), false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

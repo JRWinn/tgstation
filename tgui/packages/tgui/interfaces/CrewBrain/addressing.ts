@@ -62,16 +62,22 @@ const OPENERS =
  * bar" does not call on Zim Fire. It has to be their first name, used the way a name is when
  * calling on someone: at the start of what was said, or set off from the rest by a comma.
  */
-function callsOn(heard: string, name: string): boolean {
+export function callsOn(heard: string, name: string, inView = true): boolean {
   const first = name.split(/[^A-Za-z]+/).find((part) => part.length > 2);
   if (!first) {
     return false;
   }
   const lower = heard.toLowerCase();
   const word = first.toLowerCase();
-  const atStart = new RegExp(`^\\W*(?:${OPENERS}\\W+)?${word}\\b`);
+  // "Oh hey Arielle!" is how the model often opens a line to someone. A first name that is also
+  // a word is not one when "I", "me" or "the" follows it: "May I come in?", "Grant me access",
+  // "Mark the crate". And someone who is not there is called on only with a comma or a colon:
+  // "May, are you there?".
+  const atStart = new RegExp(
+    `^\\W*(?:oh\\W+)?(?:${OPENERS}\\W+)?${word}\\b(?!\\s+(?:i|me|the)\\b)`,
+  );
   const byComma = new RegExp(`(,\\s*${word}\\b)|(\\b${word}\\s*[,:])`);
-  return atStart.test(lower) || byComma.test(lower);
+  return (inView && atStart.test(lower)) || byComma.test(lower);
 }
 
 /**
@@ -103,8 +109,13 @@ export function saidTo(
     ...brain.people.keys(),
     ...others,
   ]);
+  const inView = new Set(brain.peopleInView.map((person) => person.name));
   for (const name of known) {
-    if (name !== brain.name && name !== speaker && callsOn(heard, name)) {
+    if (
+      name !== brain.name &&
+      name !== speaker &&
+      callsOn(heard, name, inView.has(name))
+    ) {
       return { to: 'other', name };
     }
   }

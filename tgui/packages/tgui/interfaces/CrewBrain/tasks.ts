@@ -45,6 +45,8 @@ import type { NpcBrain, Plan, Task, Urgency } from './types';
 const KEEP_DONE_DS = 6000;
 /** How long (deciseconds) a task may sit before it is given up on as forgotten business. */
 const GIVE_UP_DS = 18000;
+/** How long (deciseconds) work may wait blocked before it is given up on: an hour. */
+const BLOCKED_GIVE_UP_DS = 36000;
 /** Most tasks listed to the LLM. */
 const TASKS_SHOWN = 4;
 /** How many of the latest lines of whoever told it of work are read for that work. */
@@ -153,7 +155,16 @@ export function syncTasks(brain: NpcBrain): void {
       const owedWord = task.askedBy && !task.reported;
       return owedWord && brain.now - (task.doneAt ?? 0) < KEEP_DONE_DS;
     }
-    return brain.now - task.createdAt < GIVE_UP_DS || task.state === 'blocked';
+    // Blocked work is kept while it waits, up to a limit of its own. Open work is given up on as
+    // forgotten business only once it has been open that long: work that was blocked a long while
+    // and can go on at last is not dropped the moment it can.
+    if (task.state === 'blocked') {
+      task.blockedSince ??= brain.now;
+      task.openSince = brain.now;
+      return brain.now - task.blockedSince < BLOCKED_GIVE_UP_DS;
+    }
+    task.blockedSince = undefined;
+    return brain.now - (task.openSince ?? task.createdAt) < GIVE_UP_DS;
   });
 }
 
@@ -472,10 +483,41 @@ export function wordOwed(brain: NpcBrain): Task[] {
   );
 }
 
-/** Notes that the NPC has spoken, which tells anyone in view who was waiting to hear a task was done. */
-export function afterSaying(brain: NpcBrain): void {
+/** Words that say a piece of work is done, whoever words it. */
+const DONE_WORDS = /\b(done|finished|clean|cleaned|sorted|taken care)\b/;
+
+/**
+ * Notes what the NPC has just said, which tells whoever was waiting to hear a task was done, if a
+ * line was to them and said it was done. Any other line, or a done line to someone else, leaves
+ * them still to be told.
+ */
+export function afterSaying(brain: NpcBrain, said: string[]): void {
+  const job = jobFor(brain.job);
   for (const task of wordOwed(brain)) {
-    task.reported = true;
+    const asker = task.askedBy ?? '';
+    const first = asker.split(' ')[0];
+    const doneLine = `${first}, ${job.sayDone?.(task) ?? 'that is done'}.`;
+    const own = job.sayDone?.(task)?.toLowerCase();
+    // The model is apt to say "Captain, ..." to the Captain or a head, not their name.
+    const title = brain.peopleInView
+      .find((person) => person.name === asker)
+      ?.job.toLowerCase();
+    const told = said.some((line) => {
+      if (line === doneLine) {
+        return true;
+      }
+      const lower = line.toLowerCase();
+      const words = lower.split(/[^a-z']+/);
+      const toThem =
+        words.includes(first.toLowerCase()) ||
+        (!!title && lower.includes(title));
+      return (
+        toThem && ((!!own && lower.includes(own)) || DONE_WORDS.test(lower))
+      );
+    });
+    if (told) {
+      task.reported = true;
+    }
   }
 }
 
