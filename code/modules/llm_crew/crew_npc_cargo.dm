@@ -15,8 +15,9 @@
 	// Its own job is what its own ID says, whatever it looks like to anyone else. get_assignment()
 	// answers as a stranger would see it: with its face hidden, by a potted plant held up in front of
 	// it, say, that is no job at all, and a head with no job walks off from its own staff meeting.
-	var/obj/item/card/id/card = body.get_idcard(TRUE)
-	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "")
+	// The card it wears comes first: one it only holds (picked up to tidy, or handed to it) is not its job.
+	var/obj/item/card/id/card = crew_npc_own_card(body)
+	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "", hand_first = FALSE)
 
 /// TRUE if the body's job is in cargo, which is what lets it order supplies.
 /datum/ai_controller/crew_npc/proc/works_in_cargo()

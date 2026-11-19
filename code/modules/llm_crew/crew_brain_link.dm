@@ -125,7 +125,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		npc_list += list(list(
 			"id" = npc.npc_id,
 			"name" = body.real_name,
-			"job" = body.get_assignment(if_no_id = "", if_no_job = ""),
+			// Its own job as it reads it off its own card, the same one every job test on the server goes by.
+			"job" = npc.job_title(body),
 			// The colour of the department stripe on its own ID card, which the window shows its name and job in. Null with no card.
 			"card_color" = crew_npc_card_color(body),
 			"awake" = npc.can_sense(),
