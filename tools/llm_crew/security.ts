@@ -470,6 +470,18 @@ add('with the lockers no use, it goes back to its post', planBeat(hit, away)?.ac
 hit.security.has_baton = 1;
 syncBeat(hit);
 add('with a baton it does not run: it stops them', [hit.tasks.some((task: any) => task.kind === 'get_away' && task.state !== 'done'), hit.tasks.some((task: any) => task.kind === 'stop_attacker' && task.state !== 'done')], [false, true]);
+// ARR-02: the server no longer tells of a hold by a keeper walking the body out, or by whoever
+// arrested it. A grab it does tell of (a player's pull) is still an attack.
+{
+  const pulled = makeBrain('Hale Stone', 'Security Officer');
+  pulled.post = 'Security Office'; pulled.pdaPeople = PDA;
+  know(pulled, ['Security Office', 'Bar', 'Brig']);
+  pulled.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+  at(pulled, 5000, 'Bar', [{ handle: 'p8', name: 'Rex Hand', job: 'Assistant', place: 'Bar', distance: 1 }]);
+  securityFeels(pulled, { details: { struck_name: 'Rex Hand', struck_by: 'p8', how: 'grab' } });
+  syncBeat(pulled);
+  add('ARR-02: a grab the server tells of is still an attack: it stops them', [beatOf(pulled).attacker?.name, pulled.tasks.some((task: any) => task.kind === 'stop_attacker' && task.state !== 'done')], ['Rex Hand', true]);
+}
 
 // ---- asking to be let in
 add('the ask names the door, the room and who the warrant is on', S.letInLine('Quin', 'Cargo Lobby ', 'Cargo Bay', 'Marisol Burris'), 'Quin, I am at the Cargo Lobby door of the Cargo Bay with a warrant for Marisol Burris. Could you let me in, please?');

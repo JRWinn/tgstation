@@ -1703,11 +1703,27 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(isliving(attacker))
 		tell_struck(attacker, (attack_flags & ATTACKER_SHOVING) ? "shove" : "hit")
 
-/// Someone has taken hold of the body.
+/// Someone has taken hold of the body. Whether that is an attack is settled a moment later, in grab_felt:
+/// the pull signal comes inside start_pulling, before a keeper walking the body out has told it so.
 /datum/ai_controller/crew_npc/proc/on_grabbed(datum/source, mob/living/puller)
 	SIGNAL_HANDLER
 	if(isliving(puller))
-		tell_struck(puller, "grab")
+		addtimer(CALLBACK(src, PROC_REF(grab_felt), WEAKREF(puller)), 0)
+
+/**
+ * Tells the brain of a hold on the body, unless the body already knows why it is held: whoever
+ * has it by the arm to walk it out of a room (it was told so in words), or whoever has arrested it.
+ * A hold by anyone else is told as before.
+ */
+/datum/ai_controller/crew_npc/proc/grab_felt(datum/weakref/puller_ref)
+	var/mob/living/puller = puller_ref?.resolve()
+	if(QDELETED(src) || QDELETED(pawn) || QDELETED(puller))
+		return
+	if(world.time < in_hand_until && in_hand_of == puller.name)
+		return
+	if(in_custody() && arrested_by?.resolve() == puller)
+		return
+	tell_struck(puller, "grab")
 
 /// Its baton or its cuffs have left the body. A moment later it looks at whose hands they are in.
 /datum/ai_controller/crew_npc/proc/on_kit_gone(datum/source, obj/item/item)
