@@ -3,12 +3,13 @@ id: CARGO-01
 title: An order that fails after it was placed is told to nobody, and the Quartermaster's book keeps it as given for good
 kind: bug
 severity: high
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1911, code/modules/llm_crew/crew_npc_cargo.dm:419, code/modules/llm_crew/crew_npc_cargo.dm:499, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915, code/modules/llm_crew/crew_npc_cargo.dm:423, code/modules/llm_crew/crew_npc_cargo.dm:454, code/modules/llm_crew/crew_npc_cargo.dm:500, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674
 fix: Have the server owe a notice of kind failed when a placed order is given up, and have the technician pass it on like any other word (to the Quartermaster face to face, or to whoever ordered by PDA)
 ---
 
@@ -37,7 +38,7 @@ One concrete case, one technician and a Quartermaster:
 3. In the window `orderPending` is now false. `syncTasks` closes the `order` task. Sam goes back to its post.
 4. The Quartermaster's book still reads "Order 3. Given to Sam." It never gives Sam another order. The Head of Personnel waits for a crate that was never fetched.
 
-Note that the server leaves the order itself in `SSshuttle.shopping_list`. If the shuttle later makes a run for someone else, the crates come anyway, and nobody holds them for anyone: `ordered_numbers` is still set on the controller but `order_arrived` is never called.
+Note that the server leaves the order itself in `SSshuttle.shopping_list`. If the shuttle later makes a run for someone else, the crates come anyway, and nobody holds them for anyone: no timer is running for the given-up run, so `order_arrived` is never called for its numbers, and the next `place_order` by the same body starts with `ordered_numbers = list()`, which forgets them altogether. SUP-02 sets this side out in full.
 
 ## Where
 
@@ -57,13 +58,13 @@ and at line 454:
         pending_order = null
         action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle will not leave to fetch [ordered_words]: ...
 
-and at line 499 in `order_arrived`:
+and at line 500 in `order_arrived`:
 
     if(!length(found))
         action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
         return
 
-`tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1911`, the only place the window notes how an order went, which runs only for the answer to the placing:
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915`, the only place the window notes how an order went, which runs only for the answer to the placing:
 
     const given = brain.givenOrder;
     if (task?.kind === GIVEN && act.tool === 'order' && given) {
@@ -104,7 +105,7 @@ Keep it on the same rails as the other word a technician owes.
 3. Window, `cargo.ts`: treat a `failed` notice like `arrived` in `orderInHand`, `syncTasks` and `plan`. In `plan`, for a notice with `via` the Quartermaster and a number `ref`, call `tellQuartermaster` with the line `` `${first}, order ${ref} ${NOT_PLACED}. ${why}.` `` and `{ tool: 'word_passed', person: to, kind: 'failed' }`. With no Quartermaster, or when `tellQuartermaster` returns null, send whoever ordered a PDA message: "Your order did not come: <what>. <Why>. Ask again when it is clear."
 4. Window, `quartermaster.ts` `overhears`: the `NOT_PLACED_WORDS` branch must call `heardIt()` like the other three, or the technician will never get "I have that" back and will fall through to the PDA after two tries. It already puts the order back to `new` with `retryAt`, which is the right outcome. Also read `NOT_PLACED_WORDS` in `readsMessage` from a technician, for when the word comes by PDA (see CARGO-02 and CARGO-03).
 5. Window: when the `failed` notice is first seen, clear `brain.givenOrder` if its number is the notice's `ref`.
-6. Decide what happens to the order left in `SSshuttle.shopping_list`. Simplest that keeps the no-cheats rule: leave it, and in `freight_state` or `tool_unload` call the same matching that `order_arrived` does when a crate whose manifest number is in `ordered_numbers` is seen aboard, so that crates which come late are still held for whoever ordered. Then send an `arrived` notice as usual. Owner's question: should a late crate be held for the first asker when the Quartermaster has since given the order out again?
+6. Decide what happens to the order left in `SSshuttle.shopping_list`. Do not go by the controller's `ordered_numbers` for this: `place_order` clears it on the body's next order. Use SUP-02's plan instead (a global list of given-up manifest numbers with who they are for, matched in `freight_state` when such a crate is seen, and an `arrived` notice then). Build this finding and SUP-02 as one change: they are the same fault seen from the window and from the server, and the notice kind should be one kind, not `failed` here and `held_up` there. Owner's questions: cancel the order at the console or leave it in the cart (SUP-02), and should a late crate be held for the first asker when the Quartermaster has since given the order out again? If the Quartermaster gives it out again, the book must not count the cost twice in `moneyFree`.
 
 What must keep working: the immediate failure at the console (CARGO-03 covers its own weakness), and an order with no Quartermaster aboard.
 
@@ -114,3 +115,16 @@ What must keep working: the immediate failure at the console (CARGO-03 covers it
 - `tools/llm_crew/book.ts`: a case for the new line against `NOT_PLACED_WORDS`.
 - Type check and server compile.
 - In a round: stand on the shuttle deck while an order is placed. In `game.log` look for "The order is off until it is clear", then in `pda.log` or `game.log` for the technician telling the Quartermaster "order N did not go through".
+
+## Check
+
+Confirmed, Opus 5.5, 2026-11-19. Read from the code, nothing run.
+
+- The three server quotes are as the code reads today (`crew_npc_cargo.dm` lines 423, 454 and 500). Each sends `action_result(CREW_TOOL_ORDER, FALSE, ...)` from a timer, minutes after `place_order` answered ok, and none adds to `notices_owed`.
+- `noteResult` (`driver.ts:943`) returns unless `brain.lastAct` is a step with the same tool. After the placing's answer `lastAct` is set to null (`driver.ts:1035`), and while `supply_run_active` is TRUE the body cannot be sent another `order` (`tool_order` refuses it), so no later `order` step can be standing when the timer's answer comes. `afterActing` is never called for it. I found no other reader of an `order` result in `brain.ts`, `driver.ts`, `cargo.ts` or `quartermaster.ts`.
+- `brain.givenOrder` is only set (`cargo.ts:2148`) and cleared on a failed placing (`cargo.ts:1920`). With `placed: true` nothing touches it again.
+- In `quartermaster.ts` an order leaves `given` only on the has-come-in words, the did-not-go-through words, or the wait for "right away" (`TAKEN_WAIT_DS`, line 802), which is for `!order.taken` only. An order the technician said it had stays `given`: `freeTechnicians` (674) and `moneyFree` (214) behave as written.
+- The `WONT_COME` task in `cargo.ts` is not this: it is fed by `brain.gaveUp`, which comes from a `gave_up` haul, not from an order.
+- The change log and plans do not list it. SUP-02 is the same fault (written from the server side: the order left in the cart, the crate that comes later as a stranger, the timeout when the body is out of the bay). Both stand; the fixes should be built as one, and whoever checks SUP-02 should mark one of the two a duplicate of the other.
+
+Changed: effort to large, since the fix is on both the server and the window; step 6 of the fix, which leaned on `ordered_numbers` (cleared by the next `place_order`); the line numbers. Also note when building step 3: with the Quartermaster not to be found, a PDA to whoever ordered leaves the book open the same way (CARGO-02), so the failed word needs the same answer as that finding's.

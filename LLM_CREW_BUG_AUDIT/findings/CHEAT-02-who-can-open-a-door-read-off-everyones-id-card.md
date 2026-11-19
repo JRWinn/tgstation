@@ -52,6 +52,8 @@ Concrete cases where the body knows what a player could not:
 
 `code/modules/llm_crew/crew_npc_security.dm:800`, in `room_keepers`, the same lines again.
 
+The station-level test alone (where each PDA is) is also in `janitors_on_pda` and `people_on_pda`, `code/modules/llm_crew/crew_npc_cargo.dm:648` and `:666`, which give every body its list of whom it can write to ("Only people aboard. PDAs lying in ruins and on other ships are on the list too"). Those should drop it in the same change, or keep it only for PDAs the messenger itself hides.
+
 What a player sees, `code/modules/modular_computers/file_system/programs/messenger/messenger_program.dm:356`:
 
     			"name" = computer.saved_identification,

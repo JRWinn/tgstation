@@ -3,13 +3,14 @@ id: CARGO-02
 title: When a technician cannot find the Quartermaster, word that an order came in goes to the head only, and the Quartermaster never gives that technician another order
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1063, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:674, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1467
-fix: In the PDA fall-back for an order given by the Quartermaster, also send the Quartermaster the has-come-in line by PDA, which its readsMessage already reads
+fix: In the PDA fall-back for an order given by the Quartermaster, also send the Quartermaster the has-come-in line by PDA, which its readsMessage already reads - the owner must first allow a PDA between technician and Quartermaster, which the plan rules out
 ---
 
 ## What is wrong
@@ -101,9 +102,14 @@ Read from the code, not seen in a round. I followed every way `order.state` leav
    `readsMessage` in `quartermaster.ts` reads that line already and calls `noteDocked`.
 2. `noteDocked` then sends whoever ordered "Your order has come in: ..." a second time. Either accept the repeat (the head's `readsMessage` closes its ask on either), or pass a flag so that `noteDocked` skips `tellOrderer` when the word came by PDA from a technician for someone else's order. I would skip it: the technician has told them.
 3. Do the same for the `waiting` and `lost` fall-backs only if the book needs them. `lost` does: `crateLost` in `quartermaster.ts` is what has the crate ordered again. Send the Quartermaster the `LOST_TOLD_WORDS` line by PDA in that fall-back too, and read it in `readsMessage`.
-4. The rule in the comments, "nothing between a technician and the Quartermaster goes by PDA", is already broken for the Quartermaster's own order. Owner's question: is a PDA message to the Quartermaster acceptable as the last resort for every order? The alternative is to keep the word owed and say it face to face whenever the Quartermaster is next seen, with no time limit, which needs a list on the brain that outlives the task.
+4. The rule "nothing between a technician and the Quartermaster goes by PDA" is the owner's, not only a comment: `LLM_CREW_PLAN_QUARTERMASTER.md` line 13 lists it under **Decided**. It is already broken for the Quartermaster's own order (change log, 12:00 entry). So ask the owner before building steps 1 to 3. Owner's question: is a PDA message to the Quartermaster acceptable as the last resort for every order? The alternative is to keep the word owed and say it face to face whenever the Quartermaster is next seen, with no time limit, which needs a list on the brain that outlives the task.
 
 The related hole on the Quartermaster's side, that a `given` order has no time limit at all, belongs with the Quartermaster findings.
+
+Two things to watch when building step 1:
+
+- The PDA to the Quartermaster goes through `tool_message`, which drops the first owed notice whose `to` is the person messaged (`crew_npc_cargo.dm:709`). If the body also owes the Quartermaster a notice of its own (its own order in, a crate waiting), that notice is dropped unsent. Send the Quartermaster's line only once no other notice to the Quartermaster is owed, or have `tool_message` drop a notice only when the text sent is that notice's line.
+- Capturing `ref`, `via` and the itemised text on the task at plan time, as step 1 says, is needed: the notice is gone from `brain.notices` by the next state update. A simpler order of steps that does the same: in the fall-back, send the Quartermaster its line first (as the own-order branch does now, with a flag on the task so it is sent once), then the orderer's line as now. Both lines then come out of `plan`, and nothing is pushed in `afterActing`.
 
 ## How to test the fix
 
