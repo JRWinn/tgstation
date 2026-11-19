@@ -1998,22 +1998,58 @@ export function itemsAskedFor(
  * department. Anyone else is not offered it at all, so the LLM cannot take their order by mistake:
  * they take what they need to their own head, who orders for the whole of their staff at once.
  */
+/**
+ * TRUE if the technician takes an order from this person: the Captain or a head of department,
+ * and with a Quartermaster aboard only the head who has just said that the Quartermaster did not
+ * answer. The one place the rule is kept: what is offered (offers) and what is agreed to (agrees)
+ * both go by it (CARGO-06).
+ */
+function mayOrderFrom(
+  brain: NpcBrain,
+  person: { name: string; job: string; command?: unknown },
+): boolean {
+  if (!person.command && !isHead(person.job)) {
+    return false;
+  }
+  if (quartermasterAboard(brain)) {
+    const silent = brain.qmSilent;
+    return (
+      !!silent &&
+      brain.now - silent.at <= QM_SILENT_DS &&
+      person.name === silent.by
+    );
+  }
+  return true;
+}
+
+/**
+ * Who said a line of a report, as the body knows them: by the handle in the line, as whoever the
+ * order is for is found (brain.ts), and failing that, out of sight now, by the name among those it
+ * knows from the PDA list. Null if it cannot say.
+ */
+function sayerOf(
+  brain: NpcBrain,
+  line: string,
+): { name: string; job: string; command?: unknown } | null {
+  const handle = line.match(/\(person (\w+)/)?.[1];
+  const seen = handle
+    ? brain.peopleInView.find((person) => person.handle === handle)
+    : undefined;
+  if (seen) {
+    return seen;
+  }
+  const name = speakerOf(line);
+  return (
+    (name && brain.pdaPeople.find((known) => known.name === name)) || null
+  );
+}
+
 function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
   // With a Quartermaster aboard, an order is taken from the Quartermaster and nobody else, and
   // that is done by code from its own words (see overhears). The one way round it is a head who
   // has said that the Quartermaster did not answer.
-  if (quartermasterAboard(brain)) {
-    const silent = brain.qmSilent;
-    if (
-      !silent ||
-      brain.now - silent.at > QM_SILENT_DS ||
-      !askers.some((person) => person.name === silent.by)
-    ) {
-      return [];
-    }
-  }
   if (
-    !askers.some((person) => !!person.command || isHead(person.job)) ||
+    !askers.some((person) => mayOrderFrom(brain, person)) ||
     brain.orderable.length === 0 ||
     brain.orderPending ||
     // Someone at the door wants the door. Offered an order as well, the LLM sometimes takes it.
@@ -2223,12 +2259,26 @@ export const CARGO: Job = {
     }
   },
   // An order has to have been asked for, and only one of those at the post takes any one asking.
-  agrees: (brain, action, heard) =>
-    action.tool !== 'order' ||
-    (SUPPLY_WORDS.test(heard) &&
+  // An order is agreed to only from a line said to it by someone it takes orders from: with a
+  // head and a janitor both just speaking, the janitor's "could you order me soap?" was ordered,
+  // for the janitor (CARGO-06). The words alone are tested, not the speaker's name in the line.
+  // The order is claimed last, so a line that fails the rest claims nothing.
+  agrees: (brain, action, heard) => {
+    if (action.tool !== 'order') {
+      return true;
+    }
+    const sayer = sayerOf(brain, heard);
+    const words = spokenIn(heard);
+    return (
+      !!sayer &&
+      mayOrderFrom(brain, sayer) &&
+      !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
+      SUPPLY_WORDS.test(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
-      !COLLECT_WORDS.test(spokenIn(heard)) &&
-      takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)),
+      !COLLECT_WORDS.test(words) &&
+      takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
+    );
+  },
   // Which kinds of crate, and how many of each, as they were asked for: one order may be for
   // several kinds. Where they go is for whoever collects them.
   fills: (brain, action, heard) => {
