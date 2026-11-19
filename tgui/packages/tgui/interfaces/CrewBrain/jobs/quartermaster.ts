@@ -1688,6 +1688,11 @@ function crateLost(
     it.crates?.some((crate) => numbers.includes(crate.number)),
   );
   let again: LedgerOrder | null = null;
+  // Its own crate, lost: it can never be opened now. Done with, so that it is not tried for the
+  // rest of the round and it may order for itself again.
+  if (order?.own) {
+    order.unpacked = true;
+  }
   if (order && !order.reordered) {
     // What kind each lost crate was, as the book has it: the same again, crate for crate.
     const kinds = new Map<string, number>();
@@ -2018,7 +2023,7 @@ export const QUARTERMASTER: Job = {
       ledger.toWrite.push(BOOK.given(order, order.pick));
     }
   },
-  afterActing: (brain, act, task, ok, looped) => {
+  afterActing: (brain, act, task, ok, looped, details) => {
     const ledger = ledgerOf(brain);
     meetingActed(brain, act, ok, looped);
     // What it wrote is written. What it could not write waits for paper.
@@ -2049,6 +2054,18 @@ export const QUARTERMASTER: Job = {
     // Its own crate is open, and what was in it is out where it can be got at.
     if (task?.kind === UNPACK && act.tool === 'open_own_crate' && ok) {
       const order = ledger.orders.find((it) => String(it.n) === task.item);
+      if (order) {
+        order.unpacked = true;
+      }
+      ledger.paperRetryAt = 0;
+    }
+    // Cargo holds no such crate for it any more: lost, or opened or collected by someone else. It
+    // is done with, and paper is looked for again at once: its paper may be out already.
+    if (act.tool === 'open_own_crate' && !ok && details?.no_such_crate) {
+      const order = ledger.orders.find(
+        (it) =>
+          it.own && it.crates?.some((crate) => crate.number === act.number),
+      );
       if (order) {
         order.unpacked = true;
       }
