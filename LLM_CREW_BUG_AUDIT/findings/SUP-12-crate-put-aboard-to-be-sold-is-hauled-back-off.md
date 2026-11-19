@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: supply
 files: code/modules/llm_crew/crew_npc_freight.dm:267, code/modules/llm_crew/crew_npc_freight.dm:165, code/modules/llm_crew/crew_npc_freight.dm:623, code/modules/llm_crew/crew_npc_cargo.dm:446, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:82
 fix: Note which crates are aboard when the shuttle docks at the station and unload only those, so a crate put aboard afterwards goes out with the shuttle

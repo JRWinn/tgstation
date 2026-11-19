@@ -34,7 +34,7 @@ Two cases:
 
 It also means an NPC's message is the one kind of PDA message that reaches a crew NPC un-encoded. `on_pda_message` calls `html_decode` on what arrives, which is right for a player's message and happens to do nothing for an NPC's.
 
-Smaller things the same shortcut skips, all of which a player's send goes through:
+Smaller things the same shortcut skips, all of which a player's send goes through (the first two are CHEAT-14's, confirmed, whose fix of sending through `send_message` mends this finding as well):
 
 - `send_message` will not send to a PDA whose owner has turned receiving off (`sending_and_receiving`). The NPC's message goes through anyway.
 - `send_message` adds the message to the sender's own chat history. An NPC's PDA shows nothing it sent.
@@ -103,3 +103,9 @@ What must keep working: a message that will not send is still kept and tried aga
 - Server compile to a side copy.
 - No simulator case: the simulator does not run this.
 - In a round, or with a debug call: have an NPC send a message whose text is `a <b>bold</b> & b`. The Captain's chat must show those characters as typed, not bold text. A receiving NPC's event list (Crew Brain window) must show the same characters. `pda.log` should be unchanged in shape.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Read `tool_message` and `resend_unsent` (`crew_npc_cargo.dm:691-790`): the text is cut, stripped of line breaks and run through `is_ic_filtered`, and never encoded before `send_message_signal`. Read the base game: `sanitize_pda_message` (`messenger_program.dm:461`, `sanitize` is `html_encode` in `code/__HELPERS/text.dm:37`), `send_message` (:474, which calls it), `send_message_signal` (:573, which echoes the text into the sender's chat as given), `receive_message` (:664-723, which pastes `format_message()`, the raw `data["message"]`, into `to_chat`), and `format_message` (`message_server.dm:220`). The live chat panel puts message HTML in with `innerHTML` (`tgui-panel/chat/renderer`); DOMPurify is used only when saved chat is loaded again. So the fault is real.
+
+Changed: severity to low. Case 1 as written is wrong: an HTML5 parser shows `<12>` and a bare `&` as typed, so only a `<` followed by a letter is lost, which the window's fixed lines never have and the model seldom writes. Case 2 needs the brain link's owner, who is always an admin with `R_SPAWN` (`crew_npc_spawn.dm:29`, :126, :150 and the round-start spawn), not any player. Noted that the receiving-off check and the sender's history are CHEAT-14's (confirmed); its fix (send through `send_message`) fixes this too, so build the two together. The fix in step 1 is right as it stands; `sanitize_pda_message` with a null sender skips only the player pop-up filter. Not run.

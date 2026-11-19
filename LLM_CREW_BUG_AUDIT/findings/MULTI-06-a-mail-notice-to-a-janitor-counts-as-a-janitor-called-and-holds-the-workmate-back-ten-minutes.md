@@ -3,10 +3,11 @@ id: MULTI-06
 title: Any PDA message a technician sends a janitor, a mail notice among them, counts as the post having called a janitor, and holds its workmate's calls to every mess back for ten minutes
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:736, code/modules/llm_crew/crew_npc_guarding.dm:235, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1550, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:207
 fix: Note a janitor call only for a message that is a call to a mess (have the window say so in the tool call), keep the room it was for, and let a workmate's call hold back only a call to that room
@@ -68,7 +69,8 @@ Read from the code, not seen in a round. GAP-09 is about the window being told o
 
 ## How to fix it
 
-1. Let the window say when a message is a call to a mess: add `"call_for": place` to the `message` tool's arguments from `tidyStep` (cargo.ts) and nowhere else. In `tool_message` (and when the kept message is resent), call `note_janitor_called(place)` only when `call_for` is a room of the post's department.
+0. A one-line stopgap, window only, for the case above: in `tidyStep`, hold back for `brain.workmateCalled` only when no rooms keeper is set (`(brain.workmateCalled && !keeper) || ...`). By that line `keeper` is either null or this technician (any other keeper has returned just above), and once the work is divided the keeper is the only one at the post who sends for janitors, so a workmate's message to a janitor cannot be a call. It does not mend the undivided case, where either technician's mail notice still holds the other back.
+1. Let the window say when a message is a call to a mess: add `call_for: place` to the `message` act from `tidyStep` (cargo.ts, about line 1628) and nowhere else. On the server, the dispatch `tool_message(arguments["person"], arguments["text"])` (`crew_npc_tools.dm:112`) takes it as a third argument; `tool_message` keeps it in the `unsent_messages` entry as well, so that `resend_unsent` can tell a kept call from a kept notice; and both call `note_janitor_called(place)` only when `call_for` is one of the post's department rooms (`post_place`, `look_in_rooms`).
 2. Keep `GLOB.crew_npc_janitor_calls` per post and room: `[post][room] = list(caller, time, janitor)`. Send `workmate_called` as the list of rooms a workmate has called for (or, with GAP-09, rooms and names).
 3. In `tidyStep`, hold back only when `task.place` is one of those rooms.
 4. If the owner rules on GAP-06 that this list is not allowed, step 2 is replaced by hearing the caller say aloud "I have sent for Ysabel to the Cargo Bay", and step 1 still decides what is a call.
@@ -76,4 +78,9 @@ Read from the code, not seen in a round. GAP-09 is about the window being told o
 ## How to test the fix
 
 - Simulator: two technicians with the work divided. The shuttle one sends a janitor a mail notice; a mess then appears in the bay. The rooms one must send for a janitor after its usual wait, not ten minutes later. (The sim plays `workmate_called`; it has to play it from the new per-room list.)
+- The simulator makes the same mistake today: `tools/llm_crew/sim.ts:725` sets `janitorCall` for any message to a janitor, and line 1134 sends `workmate_called` from it. Change it with the server, or the scenario will pass or fail for the wrong reason.
 - Compile. In a round, grep `game.log` for "to PDA" lines from the rooms technician after a mail notice to a janitor.
+
+## Check
+
+Checked by Opus 5.5. Read `tool_message` and `resend_unsent` (`crew_npc_cargo.dm`, about lines 735 and 779): both note a call for any message whose PDA's `saved_job` says janitor, with no look at the words. Read `workmate_called_janitor` and `note_janitor_called` (`crew_npc_guarding.dm`, about line 235): one entry per post, no room, ten minutes (`CREW_NPC_CALL_STANDS`, `_defines.dm:207`), and the caller's own calls do not count against it. Read `tidyStep` (`jobs/cargo.ts`, about line 1509): the rooms keeper is not exempt from the `workmateCalled` hold, and nothing else lifts it. The mail notice in `jobs/freight.ts` (DELIVER) and the lost-crate and still-waiting notices in `jobs/cargo.ts` (about lines 591 and 622) all go out with the same `message` tool. Nothing in the change log or plans covers it. Confirmed. Effort raised to medium: the full fix touches the server (`tool_message`, `resend_unsent`, the dispatch, the call list), the window (`tidyStep`) and the simulator.

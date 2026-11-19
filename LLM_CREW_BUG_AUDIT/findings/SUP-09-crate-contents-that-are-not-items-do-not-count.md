@@ -5,10 +5,11 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
-files: code/modules/llm_crew/crew_npc_freight.dm:116, code/modules/llm_crew/crew_npc_cargo.dm:558, code/modules/llm_crew/crew_npc_held.dm:63, code/modules/cargo/packs/general.dm:95, code/modules/cargo/packs/service.dm:45
+files: code/modules/llm_crew/crew_npc_freight.dm:116, code/modules/llm_crew/crew_npc_cargo.dm:558, code/modules/llm_crew/crew_npc_quartermaster.dm:375, code/modules/llm_crew/crew_npc_held.dm:63, code/modules/cargo/packs/general.dm:95, code/modules/cargo/packs/service.dm:45
 fix: Count everything a crate holds, not only /obj/item, and unpack by opening the crate so that what cannot be lifted comes out too
 ---
 
@@ -22,9 +23,11 @@ fix: Count everything a crate holds, not only /obj/item, and unpack by opening t
 
 This already bites one of the three crates cargo can order today. The Bureaucracy Crate (`/datum/supply_pack/misc/paper`, which `orderable_crates` lists) holds a wheeled filing cabinet, `/obj/structure/filingcabinet/chestdrawer/wheeled`, beside its paper and pens.
 
+The one NPC that orders that crate by itself is the Quartermaster, for its own paper (`orderForItself` in `jobs/quartermaster.ts`), and it does not collect it: `open_own_crate` (`crew_npc_quartermaster.dm:375`) opens it by the game's own `open`, and the cabinet comes out with the rest. So today the fault needs someone else's Bureaucracy Crate collected by an NPC: a player (the Captain) has one ordered for a head, and the head sends one of its staff for it.
+
 One case, today:
 
-1. The Head of Personnel has paper ordered. Crate #14 comes in and is held. A janitor is sent for it and hauls it to the office.
+1. The Captain has a Bureaucracy Crate ordered for the Head of Personnel. Crate #14 comes in and is held. The Head of Personnel sends a janitor for it (`sendFor` in `jobs/head.ts`; `SUPPLIES` has no row for paper, so it falls back to the janitorial row and the Custodial Closet), who hauls it there.
 2. `crate_collected` calls `tip_out`. The paper bins, pens and labeler are moved to the floor. The filing cabinet is not an item, so it stays in the crate. The body is told it has unpacked the crate and "The empty crate is yours to take back to cargo."
 3. `tool_take_back` hauls the crate to the lobby. `misplaced_crates` sees a spent crate there and has it stowed in the bay. `spent_crates` then lists it (`crew_npc_came_by_shuttle` is set, `crew_npc_crate_spent` is TRUE), `tool_recycle` puts it aboard, and the shuttle sells the crate with the cabinet in it.
 
@@ -94,3 +97,9 @@ What must keep working: a crate with nothing in it but its manifest is still emp
 - Server compile to a side copy.
 - No simulator case: the window only sees counts.
 - In a round: have a Bureaucracy Crate ordered and collected by someone other than the Quartermaster. After the unpack the filing cabinet must be out on the floor with the paper, and the crate that goes back to the bay must show as empty when examined. Before the fix the cabinet goes back with it.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Read `crew_npc_crate_holds`, `crew_npc_crate_spent` and `crew_npc_crate_has_mail` (`crew_npc_freight.dm:116-135`) and every caller of the first two (freight.dm :169, :218, :224, :247, :270, :448, :536; `tip_out` in `crew_npc_cargo.dm:558-571`; `crew_npc_crate_lost` in `crew_npc_held.dm:63`), `crate_collected` (`crew_npc_held.dm:410`), `open_own_crate` (`crew_npc_quartermaster.dm:375`), `orderable_crates` (`crew_npc_cargo.dm:27`), the two packs (`general.dm:95`, `service.dm:45`), the large crate (`crates/large.dm`: `attack_hand` and `item_interaction` refuse, `crowbar_act` opens, dumps and deletes it), `insertion_allowed` (`closets.dm:575`), and the head's `sendFor` (`jobs/head.ts`). The quotes match. `for(var/obj/item/thing in ...)` skips the cabinet, `tip_out` leaves it in the shut crate, and the crate then counts as spent everywhere. The no-cheats plan's section 2 still says the cart crate cannot be ordered, and its decisions table (line 219) says it is to be added; nothing in the change log or plans speaks of non-item contents.
+
+Changed: the case. The Head of Personnel does not order paper; the only NPC that orders the Bureaucracy Crate is the Quartermaster for itself, and it opens that crate honestly, cabinet and all. So today the fault needs a player to order one for a head. Severity stays medium: rare today, and it would lose the janitorial cart every time once that crate is added. Effort stays medium. Note for fix step 1: on an open crate's tile `insertion_allowed` refuses a dense structure (the cabinet), which is right, since shutting the crate would not take it back either. Note for 4.6's fallback ("takes the things out by hand, one at a time"): a cabinet or cart cannot be carried, so it must be pulled clear, not picked up. Not run.
