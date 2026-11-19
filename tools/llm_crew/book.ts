@@ -243,6 +243,32 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('read back from the book: the reorder is known for one', back.map((order: any) => `${order.n} ${!!order.reordered}`), ['3 true', '4 true']);
 }
 
+// TRUST-07: "did not go through" only from whoever has the order; a big reorder goes to the Captain.
+{
+  const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400 };
+  qm.budget = 5000;
+  qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay'; qm.staffPost = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Sam Tech', job: 'Cargo Technician' }, { name: 'Kim Lie', job: 'Cargo Technician' }, { name: 'Jane Marsh', job: 'Head of Personnel' }, { name: 'Zim Fire', job: 'Captain' }];
+  const book = readBook([
+    'Order 4. From Jane Marsh, Head of Personnel: 2 Janitorial Supplies Crate. 800 cr.', 'Order 4. Given to Sam Tech.',
+    'Order 5. From Jane Marsh, Head of Personnel: 3 Janitorial Supplies Crate. 1200 cr.', 'Order 5. Asked the Captain.', 'Order 5. The Captain said yes.', 'Order 5. Given to Sam Tech.',
+    'Order 5. Docked: crates #21, #22 and #23 (Janitorial Supplies Crate).',
+  ], 5000, 'Ada Finch');
+  qm.ledger = { orders: book, next: 6, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+  const from = (who: string, line: string) => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: who, handle: 'p9', message: line, said_to: 'me' } } as any);
+  const four = qm.ledger.orders.find((order: any) => order.n === 4);
+  from('Kim Lie', 'Ada, order 4 did not go through.');
+  add('"did not go through" from a technician who has not the order: it stays with Sam', [four.state, four.givenTo], ['given', 'Sam Tech']);
+  from('Sam Tech', 'Ada, order 4 did not go through.');
+  add('from Sam, who has it: it is to be given again', [four.state, four.givenTo, qm.ledger.toWrite.includes('Order 4. Could not be placed.')], ['new', null, true]);
+  from('Kim Lie', 'Ada, crates #21, #22 and #23 for Jane Marsh are lost: they have been destroyed.');
+  const again = qm.ledger.orders.find((order: any) => order.n === 6);
+  add('a lost crate told by another technician is still ordered again', again?.items, [{ crate: 'Janitorial Supplies Crate', count: 3 }]);
+  add('but a big reorder does not carry the Captain\'s yes over: it is asked again', again?.approved, null);
+}
+
 // QM-05 (words only, not yet said): the Quartermaster sending a technician to let a workmate out.
 {
   const S = await import(ROOT + 'jobs/supply');

@@ -1720,8 +1720,10 @@ function crateLost(
       costOf(brain, items),
     );
     again.own = order.own;
-    // Whoever cleared the order cleared this much of it already.
-    again.approved = order.approved;
+    // Whoever cleared the order cleared this much of it already. Not a big purchase, though: a
+    // technician's word that a crate is lost is all this rests on, so that goes to the Captain
+    // as any big order does.
+    again.approved = again.cost > BIG_PURCHASE_CR ? null : order.approved;
     order.reordered = true;
     // Once by itself, and only once: if this one is lost too, whoever ordered is told, and it is
     // theirs to order again. Each reorder its own once bought crate after crate.
@@ -1962,7 +1964,9 @@ export const QUARTERMASTER: Job = {
       const failed = heard.match(NOT_PLACED_WORDS);
       if (failed) {
         const order = ledger.orders.find((it) => it.n === Number(failed[1]));
-        if (order && order.state === 'given') {
+        // Only from whoever has the order: from anyone else it would be given again while it is
+        // being placed, and bought twice.
+        if (order && order.state === 'given' && order.givenTo === speaker) {
           order.state = 'new';
           order.givenTo = null;
           order.pick = null;
