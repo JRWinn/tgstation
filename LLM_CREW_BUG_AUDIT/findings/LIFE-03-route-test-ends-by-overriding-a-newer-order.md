@@ -18,7 +18,7 @@ Three tools work out where to go by testing routes with `get_path_to`, which sle
 
 - `tool_explore` → `pick_somewhere_new` (up to four rooms, then up to four tunnels), run with `INVOKE_ASYNC`.
 - `tool_force_door` (up to three doors, two routes each), run with `INVOKE_ASYNC`.
-- `tool_go_to_door` (up to three doors), run straight from `ui_act`, which the verb queue runs async.
+- `tool_go_to_door` for a door into a room (up to three doors; a door out of the room it is in is not route tested), run straight from `ui_act`, which the verb queue runs async.
 
 When the tests are done each of them goes straight on to `start_walk` or `start_errand`. None looks at whether the body has been given anything else to do while it was testing, or whether it can still act. `start_walk` and `start_errand` both clear the other's blackboard key, so the late one wins: the order the body was given in the meantime is thrown away.
 
