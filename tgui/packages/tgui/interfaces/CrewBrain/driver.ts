@@ -191,33 +191,40 @@ function jobKey(taskId: string | number): string {
   return `job:${taskId}`;
 }
 
+/** How many walks to the door out may fail before a shut-in NPC sends word from where it stands. */
+const DOOR_TRIES_BEFORE_WORD = 2;
+
 /** How many walks out may fail with a door standing open before the door is taken to be no way out. */
 const OPEN_DOOR_TRIES = 2;
 
 /**
- * Who a shut-in NPC sends word to next, when it has knocked and sent word to whoever let it in
- * and nobody has come: someone else whose own ID opens the door, and after them its own head.
- * Null if it is not yet time, or there is nobody left it has not written to.
+ * Who a shut-in NPC sends word to next, when it has knocked (or cannot get to the door to knock)
+ * and sent word to whoever let it in, and nobody has come: someone else whose own ID opens the
+ * door, and after them its own head. Null if it is not yet time, or there is nobody left it has
+ * not written to.
  */
-function nextToWrite(brain: NpcBrain): { name: string; head: boolean } | null {
+function nextToWrite(
+  brain: NpcBrain,
+  cannotReachDoor: boolean,
+): { name: string; head: boolean } | null {
   const asks = brain.outAsks;
   if (
-    !asks?.knocked ||
+    !(asks?.knocked || asks?.messaged || cannotReachDoor) ||
     !brain.hasPda ||
     // Whoever let it in is written to first, where there is such a person.
-    (!!brain.letInBy && !asks.messaged) ||
-    Date.now() - asks.wroteAt < NOBODY_CAME_MS
+    (!!brain.letInBy && !asks?.messaged) ||
+    Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS
   ) {
     return null;
   }
+  const wrote = asks?.wrote ?? [];
   const written = (name: string) =>
-    name === brain.letInBy || asks.wrote.includes(name);
+    name === brain.letInBy || wrote.includes(name);
   const keepers = brain.doorKeepers.filter((name) => name !== brain.name);
   const keeper = keepers.find((name) => !written(name));
   if (
     keeper &&
-    keepers.filter((name) => asks.wrote.includes(name)).length <
-      KEEPERS_WRITTEN_TO
+    keepers.filter((name) => wrote.includes(name)).length < KEEPERS_WRITTEN_TO
   ) {
     return { name: keeper, head: false };
   }
@@ -377,9 +384,19 @@ export function nextStep(brain: NpcBrain): Step | null {
     };
   }
   // Nobody in sight to ask, or nobody left it has not asked. A voice does not carry through a
-  // shut door, so it knocks, once, and sends word, once, to whoever let it in.
-  if (stuck && !helper && brain.atDoorOf === brain.location) {
-    if (!brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
+  // shut door, so it knocks, once, and sends word, once, to whoever let it in. A PDA needs no
+  // door: one it has failed to get to twice (bad air beyond every door, crates in the doorway)
+  // is no reason not to send word, worded for where it is.
+  const atDoor = brain.atDoorOf === brain.location;
+  const cannotReachDoor =
+    !atDoor &&
+    (brain.failures.get(keyOf(null, { tool: 'go_to_door' }))?.count ?? 0) >=
+      DOOR_TRIES_BEFORE_WORD;
+  const whereAt = atDoor
+    ? `am at the ${doorCalled(brain, brain.location)}door`
+    : 'cannot get to its door';
+  if (stuck && !helper && (atDoor || cannotReachDoor)) {
+    if (atDoor && !brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
       return {
         key: KNOCK_OUT_KEY,
         text: `You are shut in ${brain.location} with nobody in sight to ask. You are knocking at the door, for anyone on the other side of it.`,
@@ -387,25 +404,29 @@ export function nextStep(brain: NpcBrain): Step | null {
       };
     }
     if (
-      brain.outAsks?.knocked &&
-      !brain.outAsks.messaged &&
+      (brain.outAsks?.knocked || !atDoor) &&
+      !brain.outAsks?.messaged &&
       brain.letInBy &&
       brain.hasPda &&
       !inBackoff(brain, WORD_OUT_KEY)
     ) {
       return {
         key: WORD_OUT_KEY,
-        text: `Nobody has come to the door of ${brain.location}. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`,
+        text: atDoor
+          ? `Nobody has come to the door of ${brain.location}. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`
+          : `You are shut in ${brain.location} and cannot get to its door. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`,
         act: {
           tool: 'message',
           person: brain.letInBy,
-          text: `I am done in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
+          text: atDoor
+            ? `I am done in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`
+            : `I am shut in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`,
         },
       };
     }
     // Still nobody. Word goes further afield, to one person at a time and once each, with a wait
     // between: someone else whose own ID opens the door, and after them its own head.
-    const next = nextToWrite(brain);
+    const next = nextToWrite(brain, cannotReachDoor);
     if (next && !inBackoff(brain, `${WRITE_OUT_KEY}:${next.name}`)) {
       return {
         key: `${WRITE_OUT_KEY}:${next.name}`,
@@ -415,7 +436,7 @@ export function nextStep(brain: NpcBrain): Step | null {
           person: next.name,
           text: next.head
             ? `I am shut in the ${brain.location} and nobody has come to the door. Could you send someone to let me out${outTo}, please?`
-            : `I am shut in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
+            : `I am shut in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`,
         },
         writes: next.name,
       };
