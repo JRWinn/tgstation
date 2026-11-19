@@ -25,12 +25,15 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	var/log_window_started = 0
 	/// Brain log records received in the current counting window.
 	var/log_records_in_window = 0
+	/// The mob whose close-all-windows key (Home) is caught so that it leaves this window open.
+	var/mob/watched_mob
 
 /datum/crew_brain_link/New(owner_ckey)
 	src.owner_ckey = owner_ckey
 	GLOB.crew_brain_links[owner_ckey] = src
 
 /datum/crew_brain_link/Destroy(force)
+	watch_close_all_key(null)
 	for(var/datum/ai_controller/crew_npc/npc as anything in npcs)
 		npc.brain_link = null
 	npcs.Cut()
@@ -60,12 +63,48 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(!ui)
 		ui = new(user, src, "CrewBrain", "Crew Brain")
 		ui.open()
+	if(user.ckey == owner_ckey)
+		watch_close_all_key(user)
 
 /datum/crew_brain_link/ui_state(mob/user)
 	return GLOB.always_state
 
 /datum/crew_brain_link/ui_status(mob/user, datum/ui_state/state)
-	return user.ckey == owner_ckey ? UI_INTERACTIVE : UI_CLOSE
+	if(user.ckey != owner_ckey)
+		return UI_CLOSE
+	// The window moves with its owner when they ghost or change body, so the key is caught on whichever mob has it now.
+	if(user != watched_mob)
+		watch_close_all_key(user)
+	return UI_INTERACTIVE
+
+/datum/crew_brain_link/ui_close(mob/user)
+	. = ..()
+	watch_close_all_key(null)
+	log_game("Crew Brain window of [owner_ckey] closed: every crew brain's memory is wiped and the crew do nothing until it is opened again.")
+
+/// Catches the close-all-windows key on this mob (and lets go of the last one), so that Home closes every other window but this.
+/datum/crew_brain_link/proc/watch_close_all_key(mob/new_mob)
+	if(watched_mob)
+		UnregisterSignal(watched_mob, list(COMSIG_KB_CLIENT_CLOSEUI_DOWN, COMSIG_QDELETING))
+	watched_mob = new_mob
+	if(new_mob)
+		RegisterSignal(new_mob, COMSIG_KB_CLIENT_CLOSEUI_DOWN, PROC_REF(on_close_all_key))
+		RegisterSignal(new_mob, COMSIG_QDELETING, PROC_REF(on_watched_mob_deleted))
+
+/datum/crew_brain_link/proc/on_watched_mob_deleted(mob/source)
+	SIGNAL_HANDLER
+	watch_close_all_key(null)
+
+/// The owner pressed the close-all-windows key: close every window they have open but the Crew Brain, and stop the key's own handler.
+/datum/crew_brain_link/proc/on_close_all_key(mob/source)
+	SIGNAL_HANDLER
+	INVOKE_ASYNC(src, PROC_REF(close_other_windows), source)
+	return COMSIG_KB_ACTIVATED
+
+/datum/crew_brain_link/proc/close_other_windows(mob/source)
+	for(var/datum/tgui/ui in source.tgui_open_uis.Copy())
+		if(ui.src_object != src)
+			ui.close()
 
 /datum/crew_brain_link/ui_static_data(mob/user)
 	var/list/data = list()
