@@ -105,19 +105,29 @@ const STEP_INSIDE_MAX = 2;
 /** How many times each NPC has stepped clear to wait, and in which room, by its id. */
 const stepInsideTries = new Map<string, { place: string; count: number }>();
 
-/**
- * TRUE if the NPC may step clear once more in the room it is in, and counts that it has. Stepping
- * clear and finding itself still by a door, a janitor did it eight times in three minutes at a
- * staff meeting: some rooms have a door by every tile it can stand on.
- */
-function mayStepInside(brain: NpcBrain): boolean {
+/** How many times the NPC has stepped clear in the room it is in now. */
+function stepInsideCount(brain: NpcBrain): number {
   const tries = stepInsideTries.get(brain.id);
-  const count = tries && tries.place === brain.location ? tries.count : 0;
-  if (count >= STEP_INSIDE_MAX) {
-    return false;
-  }
-  stepInsideTries.set(brain.id, { place: brain.location, count: count + 1 });
-  return true;
+  return tries && tries.place === brain.location ? tries.count : 0;
+}
+
+/**
+ * TRUE if the NPC may step clear once more in the room it is in. Stepping clear and finding itself
+ * still by a door, a janitor did it eight times in three minutes at a staff meeting: some rooms
+ * have a door by every tile it can stand on. Only reads: the try is counted when the step is sent
+ * (noteSteppedInside, from noteDone), since nextStep is asked on every update and most of those
+ * take no step.
+ */
+function canStepInside(brain: NpcBrain): boolean {
+  return stepInsideCount(brain) < STEP_INSIDE_MAX;
+}
+
+/** Counts a step clear that has just been sent. */
+function noteSteppedInside(brain: NpcBrain): void {
+  stepInsideTries.set(brain.id, {
+    place: brain.location,
+    count: stepInsideCount(brain) + 1,
+  });
 }
 /**
  * How many times running the same walk may be said to have got there before it is taken to be
@@ -523,7 +533,7 @@ export function nextStep(brain: NpcBrain): Step | null {
           brain.inDoorway &&
           !brain.shutIn &&
           !inBackoff(brain, STEP_INSIDE_KEY) &&
-          mayStepInside(brain)
+          canStepInside(brain)
         ) {
           return {
             key: STEP_INSIDE_KEY,
@@ -943,6 +953,9 @@ function noteDone(brain: NpcBrain, step: Step): void {
   // It steps aside once for one asking, whether or not it found anywhere to step to.
   if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
     brain.asideAsked.done = true;
+  }
+  if (step.key === STEP_INSIDE_KEY) {
+    noteSteppedInside(brain);
   }
 }
 
