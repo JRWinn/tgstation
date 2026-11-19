@@ -86,7 +86,7 @@ What must keep working: a body that picks something up must have its new tools i
 
 ## Check
 
-Confirmed as a real cost, read from the code; nothing was timed. The `ui_data` quotes are what `crew_brain_link.dm:76` to `:205` says today (`security_state` has drifted to `crew_npc_security.dm:1583`, its `view` line to `:1591`).
+Confirmed as a real cost, read from the code; nothing was timed. The `ui_data` quotes are what `crew_brain_link.dm:76` to `:205` says today (`security_state` begins at `crew_npc_security.dm:1583`; its `view` line is `:1591`).
 
 - `beyond_kinds_here`, `mess_places`, `workable_mess_places` (`crew_npc_cleaning.dm`) and `work_area_messes` (`crew_npc_cargo.dm`) each loop over `remembered_messes`; `beyond_kinds_here` and `workable_mess_places` resolve a weak reference and call `could_shift` per entry.
 - `people_on_pda`, `janitors_on_pda` and `door_keepers` each walk `GLOB.pda_messengers`, and each first calls `pda_messenger()`, which builds `get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD)`. `has_custodial_locator` builds it again.
