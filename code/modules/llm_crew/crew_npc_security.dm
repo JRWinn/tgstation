@@ -209,7 +209,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	GLOB.crew_npc_brig_cells = found
 	return found
 
-/// Puts brig cells in order of name: Cell 1, Cell 2, Cell 3.
+/// Puts brig cells in order of name: Cell 1, Cell 2, Cell 3. Only the order the list is shown in: free_cell() picks by room and distance.
 /proc/cmp_crew_npc_brig_cells(datum/crew_npc_brig_cell/first, datum/crew_npc_brig_cell/second)
 	return sorttext(second.name, first.name)
 
@@ -1211,7 +1211,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return TRUE
 
 /**
- * Returns the first brig cell with its timer stopped and nobody in it, other than this person.
+ * Returns the best brig cell with its timer stopped and nobody in it, other than this person: one
+ * in the Brig before a checkpoint's, and one in a prison or isolation room last, then the nearest.
+ * Not by name: on Tramstation "Cargo Cell", across the station, came before every other.
  * One the body lately could not get a prisoner into is passed over while there is another, and
  * is the one tried again, the longest left first, when there is not. Null if every cell is in use.
  */
@@ -1219,6 +1221,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/mob/living/carbon/human/body = pawn
 	var/datum/crew_npc_brig_cell/refused
 	var/refused_at = INFINITY
+	var/datum/crew_npc_brig_cell/best
+	var/best_rank = INFINITY
+	var/best_dist = INFINITY
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
 		if(isnull(timer) || timer.timing || timer.z != body.z || (timer.machine_stat & (NOPOWER|BROKEN)))
@@ -1227,11 +1232,22 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			continue
 		var/last_refused = cell_refused[cell.name]
 		if(isnull(last_refused) || world.time - last_refused >= CREW_NPC_CELL_SKIP)
-			return cell
+			var/area/room = get_area(timer)
+			var/rank = 1
+			if(istype(room, /area/station/security/brig))
+				rank = 0
+			else if(istype(room, /area/station/security/execution) || istype(room, /area/station/security/prison))
+				rank = 2
+			var/dist = get_dist(body, timer)
+			if(rank < best_rank || (rank == best_rank && dist < best_dist))
+				best = cell
+				best_rank = rank
+				best_dist = dist
+			continue
 		if(last_refused < refused_at)
 			refused_at = last_refused
 			refused = cell
-	return refused
+	return best || refused
 
 /// Notes that the body could not get its prisoner into this cell, and writes where it stuck to the round's game log.
 /datum/ai_controller/crew_npc/proc/cell_refuses(datum/crew_npc_brig_cell/cell, prisoner_name, why)
