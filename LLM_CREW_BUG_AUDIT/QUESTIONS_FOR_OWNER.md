@@ -15,3 +15,10 @@ Built: the engineer tries a stuck emitter twice, switches off the rest, and tell
 
 - A. Leave it so: the Captain is told and decides.
 - B. The Chief Engineer goes to the engine room itself and tries, once the engineer has said it cannot.
+
+## HAND-12: should anyone pry open large wooden crates?
+
+Built: crew no longer search or open a large wooden crate by hand; it is left alone, and a fetch says it is nailed shut. A player opens one only with a crowbar, which breaks the crate apart.
+
+- A. Leave them alone (as built).
+- B. Have cargo, or an engineer, pry them open with a crowbar from its locker when what is inside is wanted.

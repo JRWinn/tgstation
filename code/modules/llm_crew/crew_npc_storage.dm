@@ -12,6 +12,8 @@
 		/obj/structure/closet/body_bag,
 		/obj/structure/closet/cardboard,
 		/obj/structure/closet/crate/coffin,
+		// A large wooden crate does not open by hand: it is pried apart with a crowbar, which breaks it.
+		/obj/structure/closet/crate/large,
 		/obj/structure/closet/supplypod,
 	))
 	var/mob/living/carbon/human/body = pawn
@@ -104,6 +106,9 @@
 	// Already standing open: whatever it held is lying about in plain view.
 	if(container.opened)
 		return list("state" = "open", "contents" = list())
+	// A large wooden crate is pried apart with a crowbar, not opened by hand.
+	if(istype(container, /obj/structure/closet/crate/large))
+		return list("state" = "locked")
 
 	// Opening a container tips what it holds out onto its tile, and a container that has never been
 	// opened does not even have its contents until then. So note what is lying there first, open it,

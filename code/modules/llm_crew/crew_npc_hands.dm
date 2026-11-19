@@ -57,7 +57,8 @@
 		var/list/memory = storage_memory[container_ref]
 		var/datum/weakref/container_weakref = memory["container"]
 		var/obj/structure/closet/container = container_weakref?.resolve()
-		if(QDELETED(container) || container.z != body.z)
+		// A large wooden crate is not opened by hand, whatever is remembered of it.
+		if(QDELETED(container) || container.z != body.z || istype(container, /obj/structure/closet/crate/large))
 			continue
 		var/holds_one = FALSE
 		for(var/held_name in memory["items"])
@@ -273,6 +274,9 @@
 	for(var/obj/item/thing in spill)
 		already_there[thing] = TRUE
 	var/was_open = container.opened
+	if(!was_open && istype(container, /obj/structure/closet/crate/large))
+		storage_checked_at[REF(container)] = world.time
+		return list(FALSE, "The [container_name] is nailed shut. It would take a crowbar to pry it open.")
 	if(!was_open && !container.open(body))
 		storage_checked_at[REF(container)] = world.time
 		report_storage(container, "locked", null)
