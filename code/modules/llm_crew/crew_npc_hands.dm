@@ -87,6 +87,22 @@
  */
 /datum/ai_controller/crew_npc/proc/free_a_hand()
 	var/mob/living/carbon/human/body = pawn
+	var/obj/item/spare = spare_held_item()
+	if(isnull(spare))
+		return FALSE
+	var/spare_name = format_text(spare.name)
+	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
+		return FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
+	return !!length(body.get_empty_held_indexes())
+
+/**
+ * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
+ * spent spray, a rag beside a mop, or one of two alike. Null if it needs everything it holds.
+ * One rule in one place, so the window's wants_bucket and the freeing of a hand agree (DESK-10).
+ */
+/datum/ai_controller/crew_npc/proc/spare_held_item()
+	var/mob/living/carbon/human/body = pawn
 	var/list/trade_tools = trade_tool_types()
 	var/obj/item/spare
 	for(var/obj/item/held in body.held_items)
@@ -104,13 +120,7 @@
 		for(var/obj/item/other in body.held_items)
 			if(other != held && istype(other, held.type))
 				spare ||= held
-	if(isnull(spare))
-		return FALSE
-	var/spare_name = format_text(spare.name)
-	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
-		return FALSE
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
-	return !!length(body.get_empty_held_indexes())
+	return spare
 
 /// TRUE if a thing is used up and no good to anyone as it is: a spray bottle with nothing left in it.
 /datum/ai_controller/crew_npc/proc/is_spent(obj/item/thing)
@@ -393,7 +403,13 @@
 		return
 	if(tool != CREW_TOOL_CLEAN)
 		// Security's errands say why they came to nothing, and what came of them: see crew_npc_security.dm.
-		action_result(tool, outcome[1], outcome[2], CREW_NPC_SECURITY_TOOL(tool) ? security_details(tool, outcome) : null)
+		var/list/details = null
+		if(CREW_NPC_SECURITY_TOOL(tool))
+			details = security_details(tool, outcome)
+		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
+		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
+			details = outcome[3]
+		action_result(tool, outcome[1], outcome[2], details)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
 		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(proper_tool()) && sink_in_view)
@@ -522,6 +538,9 @@
 
 /// Says what the body is in the middle of, in words for the brain, or null if it is free.
 /datum/ai_controller/crew_npc/proc/describe_doing()
+	// Testing routes before a walk takes a while: the body is busy, not idle (LIFE-03).
+	if(choosing_where_to_explore || finding_door || finding_door_to_force)
+		return "working out the way"
 	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET))
 		switch(walk_tool)
 			if(CREW_TOOL_EXPLORE)
