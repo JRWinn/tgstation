@@ -114,8 +114,13 @@
 	if(isnull(room))
 		forcing_failure("no_door", "You do not know of anywhere aboard by that name.", null, asked_for, null, tell_now = TRUE)
 		return
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	// Already looking for a way to a door: the routes are still being tested, and that call will answer.
+	// This call is turned away, and handle_tool_call() did not count it as a newer one.
 	if(finding_door_to_force)
+		action_result(CREW_TOOL_FORCE_DOOR, FALSE, "You are still working out the way.")
 		return
 	var/turf/here = get_turf(body)
 	if(isnull(here) || !isturf(body.loc))
@@ -222,6 +227,9 @@
 		if(isnull(through) && outer != get_area(body) && (locked_out_of(outer) || hallway_locked_to(outer)))
 			through = format_text(outer.name)
 	finding_door_to_force = FALSE
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out which door of [room_name] to force, and had been given something else to do meanwhile.")
+		return
 	if(QDELETED(best))
 		// Every door it looked at leads to floor it can walk to: there is a way in already.
 		if(!QDELETED(leads_nowhere) && !length(no_way_to))
