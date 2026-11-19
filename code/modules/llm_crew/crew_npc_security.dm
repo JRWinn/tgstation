@@ -834,6 +834,15 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		var/atom/target = kit_target?.resolve()
 		if(!QDELETED(target))
 			kit_skipped[REF(target)] = world.time
+	// A cell whose timer it could not get to is passed over for the next one, as a cell it could not
+	// walk into is (put_in_cell). Not when it was knocked down itself: that is not the cell's doing.
+	if(tool == CREW_TOOL_JAIL && !isnull(jail_cell) && !QDELETED(pawn) && !knocked_down_itself())
+		var/mob/living/carbon/human/prisoner = arrested?.resolve()
+		var/prisoner_name = QDELETED(prisoner) ? null : prisoner.name
+		cell_refuses(jail_cell, prisoner_name || "its prisoner", "it could not get to the cell's timer")
+		details["cell"] = jail_cell.name
+		if(prisoner_name)
+			details["prisoner"] = prisoner_name
 	return details
 
 /// room_keepers() for a room, worked out afresh once a minute at most: it is asked for with every look the body takes.
@@ -1320,10 +1329,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
 		if(errand_over(serial))
 			return jail_broken_off(prisoner_name, cell)
+		cell_refuses(cell, prisoner_name, "its timer would not let it set the time")
 		return list(FALSE, "You cannot get at the timer of [cell.name]. It may have no power.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	if(errand_over(serial))
 		return jail_broken_off(prisoner_name, cell)
 	if(QDELETED(timer) || timer.timer_duration != wanted)
+		cell_refuses(cell, prisoner_name, "its timer would not take the time")
 		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	// In, to the tile furthest from the door, so that whoever trails a step behind is inside too.
 	var/turf/outside = get_turf(body)
@@ -1384,6 +1395,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!work_timer(timer, "start", null, serial) || QDELETED(timer) || !timer.timing)
 		if(errand_over(serial))
 			return jail_broken_off(prisoner_name, cell)
+		cell_refuses(cell, prisoner_name, "its timer would not start")
 		return list(FALSE, "The timer of [cell.name] will not start.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	// The door takes a moment to shut. Anyone who is out of the cell when it has is not in it.
 	sleep(1 SECONDS)
