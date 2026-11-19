@@ -30,10 +30,13 @@ export type Expected = {
 const EXPECTED_DS = 12000;
 
 let list: Expected[] = [];
+/** When each room was last let out of, by post and room (server time). See lastLetOutAt. */
+const letOutAt = new Map<string, number>();
 
 /** Forgets everyone. Called when the window closes. */
 export function clearExpected(): void {
   list = [];
+  letOutAt.clear();
   taken.length = 0;
 }
 
@@ -103,7 +106,38 @@ export function noteLetIn(
  * they have not yet been let into still stands: sent for to two rooms, they are not turned away
  * from the second for having finished in the first.
  */
-export function noteLetOut(post: string, name: string, room?: string): void {
+export function noteLetOut(
+  post: string,
+  name: string,
+  room?: string,
+  now?: number,
+  outOf?: string,
+): void {
+  // When someone was last let out of each room, so that a knock from inside that room from
+  // before then is spent for every technician, not only the one who opened it (LOGA-04): the room
+  // named, the room the door was opened out of, and every room they were down as inside.
+  if (now !== undefined) {
+    const rooms = new Set<string>();
+    if (room !== undefined) {
+      rooms.add(room);
+    }
+    if (outOf !== undefined) {
+      rooms.add(outOf);
+    }
+    for (const it of list) {
+      if (
+        it.post === post &&
+        it.name === name &&
+        it.inside &&
+        (room === undefined || it.room === room)
+      ) {
+        rooms.add(it.room);
+      }
+    }
+    for (const each of rooms) {
+      letOutAt.set(`${post}\n${each}`, now);
+    }
+  }
   // Out of one room, if it is said which: someone seen to have left the bay may still be in the
   // room beyond it, and striking them from both leaves them behind a door nobody knows to open.
   // Only the note that they are inside is struck. The call that brought them stands for as long
@@ -120,6 +154,11 @@ export function noteLetOut(post: string, name: string, room?: string): void {
       it.inside = false;
     }
   }
+}
+
+/** When (server time) this department last let someone out of this room, or -Infinity. */
+export function lastLetOutAt(post: string, room: string): number {
+  return letOutAt.get(`${post}\n${room}`) ?? -Infinity;
 }
 
 /**

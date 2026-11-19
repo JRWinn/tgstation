@@ -18,6 +18,7 @@ import {
   expectedAt,
   expectedCall,
   expectSomeone,
+  lastLetOutAt,
   noteLetIn,
   noteLetOut,
   stillInside,
@@ -1675,6 +1676,14 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       return { name: asked.name, room: asked.room, out: true };
     }
   }
+  // A knock from before anyone at the post last let someone out of that room is spent: a
+  // workmate has answered it already (LOGA-04). A knock after that still stands.
+  if (
+    brain.knockAt &&
+    lastLetOutAt(post, brain.knockAt.room) > brain.knockAt.at
+  ) {
+    brain.knockAt = null;
+  }
   // A knock says which door, and not who. If someone is expected there, or was let in there and
   // is still inside, it is them.
   const knock = brain.knockAt;
@@ -2366,7 +2375,7 @@ export const CARGO: Job = {
         if (wasInside) {
           // Out of a room that lies inside another, they are still in the outer one.
           const outer = brain.roomsThrough[task.place];
-          noteLetOut(brain.post, task.item);
+          noteLetOut(brain.post, task.item, undefined, brain.now, task.place);
           if (outer) {
             noteLetIn(brain.post, task.item, outer, brain.name, brain.now);
             // One asking takes them all the way out. The outer room is locked to them as well:

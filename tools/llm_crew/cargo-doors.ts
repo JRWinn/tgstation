@@ -69,6 +69,31 @@ add('the crew\'s own line, "I am done in the Cargo Bay ... let me out", by PDA',
   clearExpected();
 }
 
+// LOGA-04 (rest): a workmate letting someone out of a room spends every older knock on it, for
+// every technician at the post; a knock after that still stands.
+{
+  const { noteLetIn, noteLetOut, lastLetOutAt, clearExpected } = await import(ROOT + 'expected');
+  const knockedThenOut = (knockAfter: number) => {
+    clearExpected();
+    const b = tech(inBay);
+    noteLetIn('Cargo Bay', JAN.name, 'Cargo Bay', 'Maria Williams', b.now - 500);
+    // Maria lets Jan out at now - 100, out of the Cargo Bay.
+    noteLetOut('Cargo Bay', JAN.name, undefined, b.now - 100, 'Cargo Bay');
+    b.knockAt = { room: 'Cargo Bay', at: b.now - 100 + knockAfter, inside: true };
+    CARGO.syncTasks(b);
+    return [b.knockAt ? 'knock stands' : 'knock spent', b.tasks.filter((t: any) => t.kind === 'door' && t.state !== 'done').length];
+  };
+  add('a knock from before a workmate let Jan out is spent: no door for it', knockedThenOut(-50), ['knock spent', 0]);
+  add('a knock after the let-out still stands', knockedThenOut(20)[0], 'knock stands');
+  clearExpected();
+  noteLetOut('Cargo Bay', JAN.name, undefined, 500, 'Mining Office');
+  add('the let-out is stamped on the room it was out of', lastLetOutAt('Cargo Bay', 'Mining Office'), 500);
+  add('and not on another', lastLetOutAt('Cargo Bay', 'Cargo Bay'), null);
+  noteLetOut('Cargo Bay', JAN.name, 'Cargo Bay');
+  add('seen to have gone, with no time given, stamps nothing', lastLetOutAt('Cargo Bay', 'Cargo Bay'), null);
+  clearExpected();
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
