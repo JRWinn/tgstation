@@ -64,13 +64,24 @@ A bun script in the system temp folder importing `jobs/security.ts` called `read
 
 ## How to fix it
 
-1. In `readWarrant`, add to the cut pattern the words that end a name: `\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|now|again|-|–)\b`, and a lone dash.
+1. In `readWarrant`, add to the cut pattern the words that end a name, and a lone dash: `\s+(?:(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|again)\b|[-–](?:\s|$))`. Keep the dash out of the `\b` group: written as `(?:...|-|–)\b` it never matches "Pun Pun - theft", since there is no word boundary between a dash and a space (checked with bun). `[-–](?:\s|$)` leaves "Mary-Ann" whole. "now" need not be in the list: `FILLER` takes it out before this runs.
 2. When the line as written has capital letters, take the run of words from the start of `rest` that begin with a capital (allowing "of", "the", "van", "de" inside a run of two or more, and a lone capital such as "Pun Pun III"). Fall back to the cut words only for a line typed all in lower case.
 3. Keep at most four words, as now.
 4. Run the duplicate check in `deskTakes` with the name both ways round (`sameName(declared.name, it.name) || sameName(it.name, declared.name)`), so that a longer reading of a name already wanted is taken for the same person. Use the same test for `standingOne` just below it, or the time change finds nothing. The cost: an unknown "Dana" already wanted makes a later warrant on "Dana Smith" read as "already a warrant"; that is the safer mistake.
-6. Step 1 alone settles every case in the write-up; step 2 is the larger change and touches "Warrant for Bob the clown, for theft", which the table may hold. If time is short, build step 1 and step 4 first.
 5. The fix for the cancel wording (see SECT-04) stops "is withdrawn" reaching this code at all; this step is for every other wording.
+6. Step 1 alone settles every case in the write-up. Step 2 is the larger change and turns "Warrant for Bob the clown, for theft" (which reads as "Bob the clown" today; no case in the table holds it) into "Bob". If time is short, build steps 1 and 4 and leave step 2 for the owner to decide.
 
 ## How to test the fix
 
 Add each line above to the `readWarrant` cases in `tools/llm_crew/security.ts` with the name it should give ("Pun Pun", "Bob Smith"), and keep "Warrant for Bob the clown, for theft" reading as "Bob the clown" or decide with the owner that "Bob" is enough. In a round, grep `pda.log` for "I have that: a warrant for" and read each name.
+ Also keep "Arrest Pun Pun on site" reading as "Pun Pun" (the 18:05 case), "Mary-Ann Lee in the bar" reading as "Mary-Ann Lee", and through `deskTakes`, with a warrant on Pun Pun standing, "Arrest Pun Pun in the bar, 10 minutes" changing its time rather than adding a second warrant.
+
+## Check
+
+Read `readWarrant` from the match to the return (`jobs/security.ts:302` to `398`), `sameName` and `nameWords` (`security.ts:60` to `92`), `FILLER`, and the duplicate test in `deskTakes` (`jobs/desk.ts:511`). The quotes are what the code says today. For a name not in `known`, the only cuts are punctuation, " for ", "and/then/but" and a time; `closeName` against the known names finds nothing for Pun Pun, so the four words stand.
+
+Ran a throwaway bun script in the scratchpad: `readWarrant(line, ['Dana Reyes', 'Hale Stone'])` gave exactly the names in the write-up ("Pun Pun in the", "Pun Pun who wrecked", "Pun Pun because he", "Pun Pun - theft", "Bob Smith who is"); a capital "Bar." made no difference. Through `deskTakes` with a warrant on Pun Pun standing, "The warrant on Pun Pun is withdrawn." left `["Pun Pun","Pun Pun is withdraw"]` on the list: `CANCEL_WORDS` needs the cancel word before "warrant", and `mendWords` gave "withdraw". Also tested the proposed cut pattern: as first written it missed the dash case, so step 1 is mended.
+
+The changelog's 18:05 entry ("Three wordings") fixed "Arrest Pun Pun on site" with `FILLER` and the and/then/but cut. That was one case of this fault; the other words after a name were not touched, and nothing says they were left on purpose.
+
+Kept high: "Arrest Pun Pun in the bar" is an ordinary way to say it, and the warrant names nobody for the rest of the round. Effort raised to medium: the cut, the capital run and the both-ways duplicate test are two files and more than 20 lines.

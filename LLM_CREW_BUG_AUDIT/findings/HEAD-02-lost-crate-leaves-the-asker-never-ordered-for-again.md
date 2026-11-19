@@ -2,11 +2,12 @@
 id: HEAD-02
 title: A crate that is lost, or never unpacked, leaves whoever asked for it noted as ordered for good, so the Head of Personnel never orders for them again
 kind: bug
-severity: high
-effort: small
+severity: medium
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:222, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:663, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1279, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:594, tgui/packages/tgui/interfaces/CrewBrain/jobs/pickups.ts:259
 fix: Read Lost at cargo and the no-such-crate word in the head's readsMessage, drop that crate's pickup and set its askers back to not ordered, and give an ordered and untold ask an age limit after which it is dropped

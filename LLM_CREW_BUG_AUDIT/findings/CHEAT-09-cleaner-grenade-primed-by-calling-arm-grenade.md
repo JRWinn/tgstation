@@ -70,7 +70,7 @@ Read from the code and the base grenade code.
 
 - Server compile.
 - No simulator case reaches this: the sim stands in for the body, and `grenade_messes` is a plain number from the server (`tools/llm_crew/sim.ts` sends 0). Nothing on the window side changes.
-- A round: give a janitor a spent cleaner grenade casing and a big mess: it must not be offered as a grenade (the Crew Brain shows no grenade line). Give it a fresh one: the mess foams, and `attack.log` shows one "has primed a" / "primed a" line for it, not two. Give it one already primed: it is thrown at once, with no second priming line.
+- A round: give a janitor a spent cleaner grenade casing and a big mess: it must not be offered as a grenade (the Crew Brain shows no grenade line). Give it a fresh one: the mess foams, and `game.log` (where `log_bomber` writes) shows one "primed a" line for it, not two. Give it one already primed: it is thrown at once, with no second priming line.
 
 ## Check
 
