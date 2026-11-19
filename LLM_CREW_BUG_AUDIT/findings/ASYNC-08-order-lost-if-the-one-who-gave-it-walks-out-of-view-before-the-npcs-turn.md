@@ -3,10 +3,11 @@ id: ASYNC-08
 title: An order or word of work is lost if whoever gave it has walked out of sight by the time the NPC's turn with the model comes
 kind: bug
 severity: high
-effort: small
-confidence: likely
-status: found
+effort: medium
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/talk.ts:122, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:145, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1308, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1517, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1603, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1146
 fix: Keep who each speaker was (name, superior or not) when the line is heard, and have buildTalk and think go by that, not by who is in view when the model is asked
@@ -23,7 +24,7 @@ If the speaker has walked out of sight in between:
 - `feelAbout` is empty, so `told` is null: the model is not asked for `work` at all, and the net in `think` (`if (told && !tookWork)`) does not run.
 - With the model down, the `catch` runs `workInWords(brain, report, toldBy, !!superior)` with `superior` false, so an order is not read as an order; only the job's own kinds of work are caught, as "asked".
 
-The line still wakes the model, and it answers to an empty room (or it is dropped as `alone`). The work is never put on the list.
+The line still wakes the model. `alone` in `think` is `peopleInView.length === 0 && speakers.length === 0`, and `speakers` is not empty, so whatever the model answers is said aloud, to an empty room or to whoever else is there. The model has read the order in the report, so the answer is often "On my way, Captain" while nothing is put on the list: the NPC says yes and does not go.
 
 The wait is not rare. A line wakes the NPC at once only if the model is free **and** the NPC has neither just finished a call (1.5 s) nor spoken in the last 4.2 s (`SAY_COOLDOWN_MS`). The usual way the Captain gives an order breaks the second condition: the Captain walks up, the NPC greets him ("Morning, Captain"), and the Captain gives the order and walks on. The order arrives under 4.2 s after the greeting, so the NPC waits out the cooldown; by then a walking Captain is 10 tiles on, round a corner. Any other NPC's call in progress (with eight crew, a remark or a choice is being asked most of the time) adds its seconds too.
 
@@ -33,7 +34,7 @@ Concrete case:
 2. At t = 2 s the Captain says "Ann, go and check the Bar, I heard something", and walks out through the far door.
 3. `ingest`: `said_to` is `me`; `shouldWake` is TRUE; the janitor is queued; `startTalk` finds `wait` = 2.2 s and sets the retry timer.
 4. At t = 4.2 s `think` runs. The Captain left view at t = 3.5 s. In `buildTalk`, `brain.peopleInView.find((seen) => speakers.includes(seen.handle) && seen.superior)` finds nobody. `ordered` is null and `told` is null.
-5. The model is asked to answer a line with nobody there; `alone` is TRUE, so nothing is said. No `look Bar` task. The Captain's order has vanished.
+5. The model is asked to answer the line with nobody there. `alone` is FALSE (there was a speaker), so its answer is said to the empty Kitchen. No `look Bar` task. The Captain's order has vanished.
 
 ## Where
 
@@ -79,16 +80,28 @@ Read from the code: `ingest` (`hearSpeaker` keeps only the handle in `pendingSpe
 
 ## How to fix it
 
-1. Keep what is known of a speaker at the moment they are heard. In `hearSpeaker` (`brain.ts:1008`), besides `brain.pendingSpeakers.add(speaker)`, store `brain.speakerInfo.set(handle, { name, superior, job })` taken from `brain.peopleInView` at that moment (the speaker is in view then: the server only puts a `handle` on a line from someone the body has just seen). A new `Map` on `NpcBrain`, cleared in `think` where `pendingSpeakers` is cleared.
-2. In `think`, pass that map to `buildTalk` with `speakers`. In `buildTalk`, work out `superior`, `toldBy` and `feelAbout` from it, not from `peopleInView`. `feelAbout` may stay limited to those still in view (a feeling is about someone there), but `told` must not depend on it: ask for `work` whenever anyone spoke.
-3. The answer still goes only to those in view (`alone` stays as it is). If the speaker has gone, the body still takes the order on and carries it out; the report back already goes by name (`task.askedBy`) when they are next seen, or by PDA.
-4. The same in the `catch` path: use the kept `superior` and `toldBy`.
+1. Keep what is known of a speaker at the moment they are heard. In `hearSpeaker` (`brain.ts:1008`), besides `brain.pendingSpeakers.add(speaker)`, look the handle up in `brain.peopleInView` and, if found, store `brain.speakerInfo.set(speaker, { name, superior: !!seen.superior })`. `ingest` sets `brain.peopleInView` from the same update (`brain.ts:425`) before it reads that update's events (`brain.ts:730`), so the list is the one the line came with. A new `Map` on `NpcBrain` (`types.ts`, the new-brain block in `ingest`, and `makeBrain` in `tools/llm_crew/fixtures.ts`), cleared in `think` where `pendingSpeakers` is cleared.
+   - The server gives a line a `handle` when the body saw the speaker in the last 15 seconds (`recently_saw`, `crew_npc_senses.dm:439`), so someone already round the corner when they speak is not in `peopleInView` even then. To cover that too, the server can put `"superior" = answers_to(speaker)` beside `"handle"` on the speech event (the same proc `people_in_view` uses, `crew_npc_senses.dm:191`), and `hearSpeaker` can take it from `event.details` when the person is not in view. That makes it a server and window change; the window-only step is enough for the case above.
+2. Put the map on the `Moment` passed to `buildTalk` from `think`. In `buildTalk`, work out `superior` and `toldBy` from it first, falling back to `peopleInView` as now. `feelAbout` stays limited to those still in view (the `feel` tool looks the person up in `peopleInView` and drops anyone else), but `told` must not depend on it: ask for `work` whenever `speakers` is not empty.
+3. The answer still goes out as now. If the speaker has gone, the body takes the order on and carries it out; the report back goes by name (`task.askedBy`) when they are next seen, or by PDA.
+4. The `catch` path already uses `superior` and `toldBy` from the call, so it follows once `buildTalk` does.
 
-Nothing here lets anything be taken from someone the server did not mark as `superior`.
+Nothing here lets anything be taken from someone the server did not mark as `superior` at the moment they spoke.
 
 ## How to test the fix
 
 - Simulator: the Captain greets a janitor, then 2 s later gives it an order and steps out of its view on the next update, with the model's answer held back 3 s. The janitor must end up with a `look` task for the room and go there.
 - Same with the model down (`dead` mode): the order is still taken on.
+- A quick table case, as in the Check below: `janitor()` from `fixtures.ts`, the Captain (`superior: 1`) heard saying "Tolly, go and check the Bar", then `peopleInView` emptied before `buildTalk`. With the fix `call.ordered` is a `look` task for the Bar and `call.superior` is the Captain; with him still in view the result is the same as today.
 - Type check from `tgui/`.
-- Next round: give orders in passing, walking on at once. Each should show as a `work(...)` call in `crew_brain.log` and a walk in `game.log`.
+- Next round: give orders in passing, walking on at once. Each should show as a `work(...) [an order, made out from what was said]` call in `crew_brain.log` and a walk in `game.log`.
+
+## Check
+
+Confirmed, by Opus 5.5. Every quoted line is what the code says today (`talk.ts:122-151`, `brain.ts:1146-1150`, `1297`, `1308`, `1517`, `1603`).
+
+- Traced: `ingest` sets `peopleInView` from each update (`brain.ts:425`); `hearSpeaker` keeps only the handle (`brain.ts:1036`); `startTalk` holds the turn until `lastThinkEnd + 1.5 s` and `lastSayAt + 4.2 s` and until no other call is running; `think` calls `buildTalk` with the `peopleInView` of the latest update. Server side, `people_in_view` is `oview(7)` of this tick (`crew_npc_senses.dm:160`, `189`). `stopToTalk` holds only the NPC's own body, not the speaker.
+- Ran a throwaway script (bun, outside the repo) that builds a janitor with `fixtures.ts` and calls `buildTalk` on the Captain's line "Tolly, go and check the Bar, I heard something". Captain in view: `superior= Cap Tain`, `ordered= look Bar`, task taken. Captain gone from `peopleInView`: `superior= null toldBy= undefined ordered= null workTold= false`, no task.
+- Mended: the write-up said the answer is dropped as `alone`. It is not: `alone` needs `speakers` empty (`brain.ts:1359`), so the answer is said, often a yes to an order that is never taken. Effort raised to medium: the window fix touches `brain.ts`, `talk.ts`, `types.ts` and `fixtures.ts`.
+- Not a duplicate of ASYNC-05 (a line the NPC means to say struck off too soon); this is the order coming in. Searched the change log and plans for `pendingSpeakers`, `buildTalk` and out-of-sight orders: nothing fixes or chooses this.
+- How often a speaker is out of view by the turn was not measured; that it happens whenever they are is certain.

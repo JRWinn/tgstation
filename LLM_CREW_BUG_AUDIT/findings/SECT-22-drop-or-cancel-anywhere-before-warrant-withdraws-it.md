@@ -65,8 +65,17 @@ Not seen in a round.
 1. Replace the `CANCEL_WORDS` test with a reader that needs the verb's object to be the warrant or the person: "cancel the warrant (on|for) X", "cancel X's warrant", "withdraw the warrant", "drop the warrant on X", "call off the arrest of X", "take back the warrant", and the after-forms in SECT-04 ("the warrant on X is withdrawn"). At most two words ("the", "my", "that") between the verb and "warrant".
 2. Return no taking-back when a negation (`not`, `don't`, `dont`, `never`) stands before the verb.
 3. If the line does not read as a taking-back, go on to the pardon and warrant readers as now, so "Hale, drop what you are doing, warrant for Dana Reyes" is read as a warrant.
-4. When a line could be both, ask: "Captain, do you want the warrant on Pun Pun withdrawn?" is safer than either guess. The owner may prefer that the warrant reading win.
+4. When a line could be both, ask: "Captain, do you want the warrant on Pun Pun withdrawn?" is safer than either guess. That is a design choice for the owner; steps 1 to 3 alone are enough to stop the four cases above.
+
+Do not fix it by running `readWarrant` before the cancel test: "Cancel the warrant on Pun Pun." also reads as a warrant ("warrant on Pun Pun"), so the order alone cannot tell them apart. The verb must be bound to its object.
+
+Build this as one reader with SECT-04, and use it in all three places that test `CANCEL_WORDS`: `deskTakes` (desk.ts:359, reached from the Head of Security's `readsMessage` at headofsecurity.ts:219 and from an officer running the desk alone at officer.ts:448) and the officer's `sendOn` (officer.ts:381, which only decides whether to send the head on to the Head of Security). After the fix, "Don't cancel the warrant on Pun Pun, he did it" falls to `readWarrant` and is answered "there is already a warrant on Pun Pun", which is right.
 
 ## How to test the fix
 
-Add the four lines above to `tools/llm_crew/security.ts`: the first and third leave the warrant on Pun Pun standing; the second and fourth put a warrant on Dana Reyes. "Cancel the warrant on Pun Pun." still withdraws it.
+Add to the desk cases in `tools/llm_crew/security.ts`, using its `head()` and `said()`, the Captain sending by PDA:
+
+- With "Warrant for Pun Pun." standing: "Drop everything, the warrant on Pun Pun comes first", "Don't cancel the warrant on Pun Pun, he did it" and "Do not withdraw the warrant on Pun Pun" each leave `deskOf(b).warrants` as `['Pun Pun']` and no line says "withdrawn".
+- With nothing standing: "Hale, drop what you are doing, warrant for Dana Reyes, for theft" and "Call off your patrol, I have a warrant for Dana Reyes" each put a warrant on Dana Reyes, and the answer is the "I have that: a warrant for Dana Reyes" line.
+- Kept: "Cancel the warrant on Pun Pun." still withdraws it, and the two existing take-back cases (a head its own, not the Captain's) still pass.
+- Run `bun run security.ts` in `tools/llm_crew/` and check nothing else in it changed.

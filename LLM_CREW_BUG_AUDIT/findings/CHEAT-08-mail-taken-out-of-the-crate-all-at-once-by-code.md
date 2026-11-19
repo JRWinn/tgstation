@@ -3,13 +3,14 @@ id: CHEAT-08
 title: Every letter in a mail crate goes into the technician's bag at once by code, with no click on any letter, the crate or the bag
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
-files: code/modules/llm_crew/crew_npc_freight.dm:520, code/modules/llm_crew/crew_npc_freight.dm:551, code/modules/llm_crew/crew_npc_freight.dm:543
-fix: Open the crate with a click, then for each letter click it into an empty hand and click the bag with it, a click gap apart, and drop junk with the drop key
+files: code/modules/llm_crew/crew_npc_freight.dm:520, code/modules/llm_crew/crew_npc_freight.dm:551, code/modules/llm_crew/crew_npc_freight.dm:543, code/modules/mob/inventory.dm:735
+fix: For each letter in turn click it into an empty hand and click the bag with it by stow_in_bag, a click gap apart, dropping junk off the crate's tile, and stop if the errand ends or the crate is out of reach
 ---
 
 ## What is wrong
@@ -19,11 +20,11 @@ fix: Open the crate with a click, then for each letter click it into an empty ha
 - addressed to someone: `body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE)`, straight from the floor into the bag;
 - addressed to nobody: `body.put_in_hands(letter)` then `body.dropItemToGround(letter)`, or, if the body stands on the crate's tile or on the shuttle, `equip_to_storage` into the bag as well.
 
-Then `crate.close(body)`. A player does each letter by hand: click the letter with an empty hand (it is picked up), click the backpack with it (it goes in), and the click cooldown is 0.8 seconds a click. A mail crate holds one letter or more per crew member: with twelve letters a player is at it for about twenty seconds; the body is done in under one, and was never next to the bag's storage UI at all.
+Then `crate.close(body)`. A player does each letter by hand: click the letter with an empty hand (it is picked up), click the backpack with it (it goes in): two clicks a letter. The body's own clicks (`click_as_body`) wait `CREW_NPC_CLICK_GAP`, one second, each. A mail crate holds one letter or more per crew member: with twelve letters that is about twenty-four seconds; the body is done in under one, and its hands never touch a letter it bags.
 
-The base code skipped is real: picking a letter up goes through the item's pickup (`attack_hand` on an item, which can refuse), and a click on a backpack goes through the bag's own `atom_storage` insert checks with feedback. `equip_to_storage` with `indirect_action = TRUE` is the path the game uses for things like quick-equip, not for a hand putting things in a bag.
+The base code skipped is real: picking a letter up goes through the item's pickup (`attack_hand` on an item, which can refuse), and a click on a backpack goes through the bag's own `atom_storage` insert with its checks and feedback. `equip_to_storage` (`inventory.dm:735`) calls `attempt_insert(item, src, override = TRUE, force = STORAGE_SOFT_LOCKED, messages = FALSE)` when `indirect_action` is set: a soft-locked bag still takes it, and nothing is said. Its other callers in the base game are spawn and outfit code (`outfit.dm:260`, station traits, quirks), not a hand putting a thing in a bag.
 
-Not listed in `LLM_CREW_PLAN_NO_CHEATS.md`. KNA-04 lists `free_a_hand` and `hand_mail_over`, and GAP-07 lists `take_item` and `take_from_container`; `take_mail` is in neither.
+Not listed in `LLM_CREW_PLAN_NO_CHEATS.md`. KNA-04 lists `free_a_hand` and `hand_mail_over`. GAP-07's table now has a `take_mail` row, added by its checker, but GAP-07 is the gap of the missing read-through; this file is the fault itself, with the fix. LIFE-04 is about the same proc waking after its sleep somewhere else; step 3 below covers it for the new loop.
 
 ## Where
 
@@ -48,7 +49,7 @@ Not listed in `LLM_CREW_PLAN_NO_CHEATS.md`. KNA-04 lists `free_a_hand` and `hand
 
 ## How it was found
 
-Read from the code. Note also the comment "With both hands full it goes straight to the floor at its feet": a letter that cannot be put in a hand is counted as binned, though it never moved and still lies on the crate's tile, where `crate.close(body)` takes it back in. The crate then still holds that junk letter and is not empty (the shuttle will not fly with a letter aboard, change log entry (24)).
+Read from the code. (The first write-up also said that a junk letter that cannot go into a full hand stays on the crate's tile and is counted as binned wrongly. That is not so: `put_in_hands` that finds no free hand moves the item to the body's `drop_location()` (`inventory.dm:331` and `transferItemToLoc` at :366), its feet, and that branch is only taken when the feet are not the crate's tile. The comment in the code is right.)
 
 ## How to fix it
 
