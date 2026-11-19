@@ -621,6 +621,14 @@ add('a warrant read', S.readReading('{"kind":"warrant","name":"pun pun","minutes
 add('a name the message does not have in it is not taken', S.readReading('{"kind":"warrant","name":"Dana Reyes","minutes":0}', 'could you see that pun pun spends ten minutes behind bars'), null);
 add('"neither" is nothing', S.readReading('{"kind":"neither","name":"","minutes":0}', 'how are you'), null);
 add('nor is anything that is not JSON', S.readReading('Sure! I think that is a warrant.', 'how are you'), null);
+// BRAIN-11: the minutes are read from the message by code, never taken from the LLM.
+add('the LLM is not asked for minutes', [/minutes/i.test(S.buildReading('bring pun pun to me').user), 'minutes' in (S.buildReading('bring pun pun to me').schema as any).properties], [false, false]);
+add('a message with no time: the LLM\'s minutes are not taken', S.readReading('{"kind":"warrant","name":"Pun Pun","minutes":10}', 'Bring that clown Pun Pun to me when you get a chance, he took my hat'), { kind: 'warrant', name: 'Pun Pun', minutes: 0 });
+add('a message with a time in digits: that time, whatever the LLM says', S.readReading('{"kind":"warrant","name":"pun pun","minutes":3}', 'see that pun pun gets 7 minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 7 });
+add('a time in words, the LLM giving none', S.readReading('{"kind":"warrant","name":"pun pun"}', 'could you see that pun pun spends twelve minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 12 });
+add('an hour said: capped at the most a cell allows', S.readReading('{"kind":"warrant","name":"pun pun","minutes":60}', 'pun pun should sit in a cell for an hour'), { kind: 'warrant', name: 'pun pun', minutes: S.MINUTES_MOST });
+add('"an hour ago" is no time held', S.readReading('{"kind":"warrant","name":"pun pun","minutes":5}', 'pun pun took my hat an hour ago, sort him out'), { kind: 'warrant', name: 'pun pun', minutes: 0 });
+add('a pardon keeps no minutes the LLM made up', S.readReading('{"kind":"pardon","name":"pun pun","minutes":9}', 'pun pun has done enough, let him off'), { kind: 'pardon', name: 'pun pun', minutes: 0 });
 add('as an order', S.readingAsOrder({ kind: 'warrant', name: 'pun pun', minutes: 10 }), 'Warrant for pun pun, 10 minutes.');
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'could you see that pun pun spends ten minutes behind bars', 0, 'Captain');
