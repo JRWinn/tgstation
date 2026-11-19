@@ -1,0 +1,81 @@
+---
+id: TRUST-11
+title: What the model has a head say in passing is taken by the crew who hear it as that head's order, so any player who gets a head talking about an arrest gets a warrant
+kind: bug
+severity: high
+effort: medium
+confidence: likely
+status: found
+found_by: Opus 5.5
+area: brain
+files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1372, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:710, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:257, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:465, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2138
+fix: Before a line the model wrote is said, test it against the words other crew act on, and say the plain line instead when it would read as a warrant, pardon, order or summons that code did not decide
+---
+
+## What is wrong
+
+The rule is "code does the work; the model is only the voice". Each NPC keeps it for its own body: the model's words never become a tool call of its own. But other NPCs hear those words, and their code acts on what is said aloud by someone of rank: a head's "arrest Bob Hale" is a warrant to the Head of Security (`deskHears`, `readWarrant`), the Head of Security's "warrant: ... Bring them in" is a warrant to its officer (`readGiven`), the Quartermaster's "Sam, order 3: I need to order ..." is an order a technician places (`GIVEN_WORDS`), a technician's "crate #12 for X is lost" has the Quartermaster buy it again (`LOST_TOLD_WORDS`).
+
+Nothing stops the model putting those words into a line. The reply's `say` goes out as written (`brain.ts:1372`: only `withoutHandles` is applied). No head's prompt says anything about warrants at all. And `readWarrant` is built to catch loose wording: any "arrest", "lock up", "jail", "detain" or "is wanted" with a name after it.
+
+So the model of a head NPC is a way for anyone to issue that head's orders: ask it to.
+
+A throwaway script ran `readWarrant` on lines a model might well say, with Bob Hale, Ray Hoss and Jane Marsh known:
+
+    "Ray, please arrest Bob Hale."                          -> warrant on Bob Hale
+    "Ray, you should arrest Bob Hale for that mess!"        -> warrant on Bob Hale, for that mess
+    "Sure thing, I'll ask Ray to lock Bob Hale up."         -> warrant on Bob Hale
+    "Ray, Bob Hale is wanted for stealing my stapler."      -> warrant on Bob Hale, for stealing my stapler
+
+One concrete case:
+
+1. The Head of Personnel NPC, Jane Marsh, and the Head of Security NPC, Ray Hoss, are both in the Security Office (a staff meeting, or the head walking by).
+2. An assistant says to Jane: "Jane, Bob Hale stole my stapler. Can you get Ray to arrest him?"
+3. The model answers in Jane's voice: "Ray, please arrest Bob Hale." `tool_say` says it.
+4. Ray's brain hears it. `saidTo` gives `me` ("Ray" is its first name). `deskHears`: `jobOf("Jane Marsh")` is "Head of Personnel", not security. `deskTakes`: `declarer` is true, Bob Hale is not a head, so the warrant is taken, read back to Jane word for word, a copy sent to the Captain ("Jane Marsh has declared a warrant on Bob Hale"), and given to the officer.
+5. The officer finds Bob Hale, arrests him, and puts him in a cell for the usual minutes.
+
+The assistant never had any say; Jane's code never decided anything. The same works through the Quartermaster's model to a technician ("Sam, order 5: I need to order 4 crates of janitorial supplies, for Bob Hale." needs the exact shape, which a player can dictate), and through any technician's model to the Quartermaster. It can also happen with no player at all: crew pass remarks to each other unprompted (`passRemark`), and a head grumbling to the Head of Security about who made a mess can name someone.
+
+## Where
+
+`tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1371`, all the say text gets before it is said:
+
+    for (const action of replied) {
+      if (action.tool === 'say') {
+        action.text = withoutHandles(
+          String(action.text ?? ''),
+          brain.peopleInView,
+        );
+      }
+    }
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:257`, the words a warrant is read from:
+
+    const WARRANT_WORDS =
+      /\b(?:warrant\s+(?:out\s+)?(?:for|on)|apb\s+(?:out\s+)?(?:on|for)|wanted:|arrest|bring\s+in|lock\s+up|jail|detain|apprehend|capture)\s+(.+)/is;
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:710`, `deskHears`, which takes any head's line said to it.
+
+`officer.ts:465` (`takeWord` on the Head of Security's voice), `cargo.ts:2138` (`GIVEN_WORDS` on the Quartermaster's), `quartermaster.ts:1550` (`LOST_TOLD_WORDS` on a technician's).
+
+## How it was found
+
+Read from the code, and the four `readWarrant` results above from a throwaway bun script that imported `jobs/security.ts`. Not run against the model, and not seen in a round. Whether the small model says "arrest Bob Hale" when asked to is its own doing; that is why this is `likely`. Asked plainly by a player, it will do so more often than not.
+
+## How to fix it
+
+The hearer cannot be the one to tell a head's real order from its chatter: that would need it to know what another body's code decided, which no player could. So the speaker must not say orders it did not decide. Where the model's line is checked, in `think` after `parseReply`:
+
+1. Write one function, say `soundsLikeOrder(text, brain)`, in a new small module that imports the readers other crew use: `readWarrant` (with an empty known list), `PARDON_WORDS` together with "pardon"/"release" and a name, `CANCEL_WORDS`, `GIVE_WORDS`, `GIVEN_WORDS`, `LOST_TOLD_WORDS`, `NOT_PLACED_WORDS`, `DOCKED_WORDS`, the forcing lines' patterns, `CALL_WORDS` for meetings, and the HoS's `SEEN_WORDS` and `LET_GO_WORDS`. It returns TRUE if any of them reads the text as something.
+2. For a line the model wrote (not `mustSay` when `exact`): if `soundsLikeOrder` is TRUE, do not say it. Say `mustSay` if there is one, else nothing, and log `[sounded like an order: not said]` in the decision. A `withRemark` remark appended to an exact line gets the same test, and is dropped if it fails.
+3. Tell every job's prompt, in one shared rule: "You never declare a warrant, pardon anyone, order supplies, or call anyone to a meeting in your own words. Asked to, say who to ask. Your body does those things itself." The rule is short; the prompt budget can carry it.
+4. The words the code itself has a head say (`exact` lines) are unchanged: those are decided.
+
+Question for the owner: should a head NPC be able to declare a warrant at all, by its own code? Today none does, and with this fix none can be talked into one either.
+
+## How to test the fix
+
+- A table test of `soundsLikeOrder`: the four lines above are TRUE; "Ray, how are you?" and "Bob Hale was in the Bar earlier." are FALSE; each NPC's own fixed lines (`takenLine`, `giveLine`, the Quartermaster's `GIVEN` line) are TRUE, which is why `exact` lines skip the test.
+- Simulator, `chatty`: a player asks the Head of Personnel to have someone arrested, with the Head of Security in view. No warrant on `brain.desk.warrants`.
+- In a round, ask a head NPC standing by the Head of Security to have someone arrested. `crew_brain.log` should show the line dropped; `game.log` no arrest.
