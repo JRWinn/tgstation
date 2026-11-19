@@ -623,7 +623,11 @@
 /// Returns a cleaner grenade in the body's hands, or null.
 /datum/ai_controller/crew_npc/proc/held_grenade()
 	var/mob/living/carbon/human/body = pawn
-	return locate(/obj/item/grenade/chem_grenade/cleaner) in body.held_items
+	// A used casing stays after it goes off, and says so when looked at: it is not a grenade any more.
+	for(var/obj/item/grenade/chem_grenade/cleaner/grenade in body.held_items)
+		if(!(grenade.dud_flags & GRENADE_USED) && grenade.stage == GRENADE_READY)
+			return grenade
+	return null
 
 /**
  * Finds the spot in sight where a cleaner grenade would do the most good, if any is good enough.
@@ -679,11 +683,20 @@
 	if(isnull(grenade))
 		return list(FALSE, "You are not holding a cleaner grenade.")
 	var/turf/target = get_turf(mess)
-	var/grenade_hand = body.get_held_index_of_item(grenade)
-	if(grenade_hand && grenade_hand != body.active_hand_index)
-		body.swap_hand(grenade_hand)
+	if(!hand_to(grenade))
+		return list(FALSE, "You cannot get the cleaner grenade into your hand.")
 	body.face_atom(target)
-	grenade.arm_grenade(body)
+	// Primed as a player primes it: used in hand, with every check that brings (stuck to the hand, already live, a clumsy fumble).
+	if(!grenade.active)
+		sleep(1 SECONDS)
+		if(QDELETED(body) || QDELETED(grenade) || QDELETED(src) || body.get_active_held_item() != grenade)
+			return list(FALSE, "You no longer have the cleaner grenade in your hand.")
+		body.execute_mode()
+		if(QDELETED(grenade) || !grenade.active)
+			return list(FALSE, "The grenade will not prime.")
+		if(QDELETED(body) || body.get_active_held_item() != grenade)
+			return list(TRUE, "You prime the cleaner grenade, but it is no longer in your hand. Keep clear: the foam is slippery.")
+		body.face_atom(target)
 	if(!body.throw_item(target))
 		// Primed and still in hand: get rid of it where it will do least harm.
 		body.dropItemToGround(grenade)
