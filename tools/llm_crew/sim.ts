@@ -518,9 +518,11 @@ const RAG = 'damp rag';
 const cleaningTool = (body: Body) => toolOf(body) ?? (mopWorks(body) ? 'mop' : body.holding.includes(RAG) ? RAG : null);
 // A spray only washes, and a rag only wipes. Soap and a wet mop scrub as well.
 const canShift = (body: Body, m: Mess, held = cleaningTool(body) ?? (body.holding.includes('mop') ? 'mop' : null)) => !body.stubborn.has(m.id) && (held === null || (held !== 'space cleaner' && held !== RAG) || !m.scrub);
-// The kinds of crate cargo may order, and what comes in each.
+// The kinds of crate cargo may order, and what comes in each. The janitorial crate holds the
+// cleaning tools of the real pack (code/modules/cargo/packs/service.dm): one mop, one spray
+// cleaner and one rag, the rag a poor tool (TRA-01). Its buckets, signs, broom, bag and grenades are left out.
 const CRATES: Record<string, { box: string; contents: string[] }> = {
-  'Janitorial Supplies Crate': { box: 'janitorial supplies crate', contents: ['mop', 'space cleaner'] },
+  'Janitorial Supplies Crate': { box: 'janitorial supplies crate', contents: ['mop', 'space cleaner', RAG] },
   'Replacement Lights': { box: 'replacement lights crate', contents: ['light tube', 'light bulb'] },
   'Bureaucracy Crate': { box: 'bureaucracy crate', contents: ['paper bin'] },
 };
