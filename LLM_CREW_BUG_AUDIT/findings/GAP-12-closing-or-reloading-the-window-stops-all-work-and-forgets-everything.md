@@ -22,7 +22,7 @@ That was written when the model chose the goals. Since then the work has moved o
 
 Two things were built to survive this, which shows the need was seen: the Quartermaster's order book ("With nothing in its head and writing in the book, as after the brain window is closed and opened again, it reads the book and carries on", Quartermaster plan section 3) and the trail out of locked rooms ("kept on the server... A reload of the brain window must not lose it", secure areas plan section 2). Nothing else was.
 
-One case: the Captain declares a warrant on Pun Pun at 20:05. At 20:10 the owner runs the build with the server up, or closes the Crew Brain window by mistake and opens it again. The Head of Security's brain is new: `brain.warrants` is empty. The officer's is new too. Nobody is looking for Pun Pun, the heads go on reading out a list security no longer has, and sightings sent to the Head of Security are answered "there is no warrant on Pun Pun". If the officer had a prisoner by the arm at that moment, the server still has the pull, and no brain knows there is a prisoner.
+One case: the Captain declares a warrant on Pun Pun at 20:05. At 20:10 the owner runs the build with the server up, or closes the Crew Brain window by mistake and opens it again. The Head of Security's brain is new: `brain.desk.warrants` is empty (`DeskWork` in `types.ts:430`), and so is the officer's `BeatWork.warrants`. The officer's is new too. Nobody is looking for Pun Pun, the heads go on reading out a list security no longer has, and sightings sent to the Head of Security are answered "there is no warrant on Pun Pun". If the officer had a prisoner by the arm at that moment, the server still has the pull, and no brain knows there is a prisoner.
 
 ## Where
 
