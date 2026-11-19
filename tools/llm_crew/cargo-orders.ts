@@ -80,6 +80,20 @@ const calledFor = (b: any, lines: string[]) => [...lines].reverse().find((line) 
   const b = tech([HOP]);
   add('anything but an order is not looked at', CARGO.agrees(b, { tool: 'say' }, toMe(JAN, 'hello')), true);
 }
+// CARGO-07: with the model down, hears stands in. A line that names an order or a crate and asks
+// for none orders nothing, and the first crate on the list is never ordered by default.
+for (const line of ['Sam, has my order come in yet?', 'Where is my crate?', 'Cancel that order.', 'Do not order anything until I say.', 'Who left this mop here?']) {
+  add(`dead model, the head says "${line}": nothing ordered`, CARGO.hears(tech([HOP]), toMe(HOP, line)), null);
+  add(`model up, the head says "${line}": not agreed to`, agrees(tech([HOP]), toMe(HOP, line)), false);
+}
+add('dead model, the head asks for a crate of janitorial supplies: ordered', CARGO.hears(tech([HOP]), toMe(HOP, 'I need to order a crate of janitorial supplies for my staff, please.')), { tool: 'order', crate: 'Janitorial Supplies Crate' });
+add('dead model, the head asks for something cargo cannot get: nothing ordered', CARGO.hears(tech([HOP]), toMe(HOP, 'Could you order me a crate of rifles?')), null);
+add('dead model, the head asks someone else: nothing ordered', CARGO.hears(tech([HOP]), `${says(HOP, 'Maria, could you order a crate of soap?')}`.replace(/\)$/, ', speaking to Maria Lee)')), null);
+{
+  const b = tech([HOP]);
+  b.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+  add('dead model, the head asks for the second kind on the list: that kind', CARGO.hears(b, toMe(HOP, 'Could you order a crate of light bulbs?')), { tool: 'order', crate: 'Replacement Lights' });
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

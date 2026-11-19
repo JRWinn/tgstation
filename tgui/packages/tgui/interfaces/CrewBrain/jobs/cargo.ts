@@ -114,6 +114,20 @@ const TIDY = 'tidy';
  */
 const SUPPLY_WORDS =
   /order|crate|suppl|soap|cleaner|\bmops?\b|bucket|janitorial|broom|\brags?\b|grenade|purchase|\bbuy|stuff|gear|equipment/i;
+/**
+ * The words of an ask, and the words of a line about an order already made, or of one called off
+ * (CARGO-07). "Has my order come in yet?", "Where is my crate?" and "Cancel that order." name an
+ * order and ask for none. A bare "in" or "not" is no sign: "a crate of lights in for the bar" and
+ * "soap, not lights" are asks.
+ */
+const ASK_WORDS =
+  /\b(order|need|want|get|send|bring|could|can|please|requisition)\b/i;
+const NOT_AN_ASK =
+  /\b(my|the|that|this|your|an?) (order|crate)\b.*\b(come in|arrived|ready|yet|here)\b|\b(cancel|do not|don't|never mind)\b|\bwhere\b/i;
+/** TRUE if these words ask for something to be ordered, and are not about an order already made. */
+function asksToOrder(words: string): boolean {
+  return ASK_WORDS.test(words) && !NOT_AN_ASK.test(words);
+}
 /** A held crate to bring out to the lobby for whoever has come for it. The task's item is its manifest number. */
 const HANDOVER = 'handover';
 /** Going to see which crates are still waiting in the bay to be collected. */
@@ -2295,6 +2309,7 @@ export const CARGO: Job = {
       mayOrderFrom(brain, sayer) &&
       !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       SUPPLY_WORDS.test(words) &&
+      asksToOrder(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
       !COLLECT_WORDS.test(words) &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
@@ -2589,16 +2604,24 @@ export const CARGO: Job = {
       }
     }
   },
-  // Plain words for supplies, said to it, are an order for the crate, if it can take one.
+  // Plain words asking for a kind of crate it can order, said to it, are an order for that crate,
+  // if it can take one. Words that name no kind, or ask for nothing ("Has my order come in yet?"),
+  // order nothing: never the first crate on the list (CARGO-07).
   hears: (brain, heard) => {
-    const asker = brain.peopleInView.find(
-      (person) => person.name === speakerOf(heard),
-    );
+    const handle = heard.match(/\(person (\w+)/)?.[1];
+    const asker =
+      brain.peopleInView.find((person) => person.handle === handle) ??
+      brain.peopleInView.find((person) => person.name === speakerOf(heard));
+    const said = spokenIn(heard).toLowerCase();
+    const items = itemsAskedFor(said, brain.orderable);
     return asker &&
+      items.length > 0 &&
+      asksToOrder(said) &&
+      !COLLECT_WORDS.test(said) &&
+      !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       offers(brain, [asker]).length > 0 &&
-      /\b(order|crate|suppl\w*|soap|cleaner|mop)\b/i.test(heard) &&
       takeOrder(brain.post ?? '', asker.name, brain.name, brain.now)
-      ? { tool: 'order', crate: brain.orderable[0] }
+      ? { tool: 'order', crate: items[0].crate }
       : null;
   },
 };
