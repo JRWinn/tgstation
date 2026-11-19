@@ -519,9 +519,16 @@ export function deskTakes(
           'That is a head of department, and only the Captain can declare one on a head. You are telling them so.',
         ),
       );
-    } else if (desk.warrants.some((it) => sameName(declared.name, it.name))) {
-      const standingOne = desk.warrants.find((it) =>
-        sameName(declared.name, it.name),
+    } else if (
+      desk.warrants.some(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
+      )
+    ) {
+      // Either way round: "Pun Pun the monkey" is the Pun Pun already wanted.
+      const standingOne = desk.warrants.find(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
       );
       // Declared again with a time on it: the time is what is new.
       if (
@@ -543,7 +550,7 @@ export function deskTakes(
         reply(
           brain,
           from,
-          REFUSALS.already(to, declared.name),
+          REFUSALS.already(to, standingOne?.name ?? declared.name),
           aloud,
           why('There is one on them already, and you are telling them so.'),
         );

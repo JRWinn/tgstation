@@ -87,3 +87,7 @@ Ran a throwaway bun script in the scratchpad: `readWarrant(line, ['Dana Reyes', 
 The changelog's 18:05 entry ("Three wordings") fixed "Arrest Pun Pun on site" with `FILLER` and the and/then/but cut. That was one case of this fault; the other words after a name were not touched, and nothing says they were left on purpose.
 
 Kept high: "Arrest Pun Pun in the bar" is an ordinary way to say it, and the warrant names nobody for the rest of the round. Effort raised to medium: the cut, the capital run and the both-ways duplicate test are two files and more than 20 lines.
+
+## Fix note
+
+Steps 1 and 4 are built (the cut words and the lone dash in `readWarrant`; the both-ways duplicate test and `standingOne` in `deskTakes`). Step 2, the run of capitalised words, is not built: it would turn "Warrant for Bob the clown, for theft" into "Bob", and the finding leaves that to the owner. "Warrant for Bob the clown, for theft" still reads as "Bob the clown", and a table case holds it.

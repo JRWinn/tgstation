@@ -387,10 +387,11 @@ export function readWarrant(
   if (name) {
     after = rest.slice(name.length);
   } else {
-    // Anyone else is named by the words up to where the reason or the time begins.
+    // Anyone else is named by the words up to where the reason or the time begins, or a word
+    // that is no part of a name: "Pun Pun in the bar", "Pun Pun who wrecked it", "Pun Pun - theft".
     const cut = rest.search(
       new RegExp(
-        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min`,
+        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min|\\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|again)\\b|\\s+[-–](?:\\s|$)`,
         'i',
       ),
     );

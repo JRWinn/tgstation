@@ -52,6 +52,23 @@ for (const line of ['Could you arrest Pun Pun, please?', "Don't wait, arrest Pun
   add(`"${line}" is still a warrant`, S.readWarrant(line, KNOWN)?.name, 'Pun Pun');
 }
 
+// SECT-03: a name nobody knows stops at the first word that is no part of a name.
+const FEW = ['Dana Reyes', 'Hale Stone'];
+for (const [line, name] of [
+  ['Arrest Pun Pun in the bar', 'Pun Pun'],
+  ['Warrant for Pun Pun who wrecked the bar', 'Pun Pun'],
+  ['Arrest Pun Pun because he stole my id', 'Pun Pun'],
+  ['Warrant on Pun Pun - theft', 'Pun Pun'],
+  ['Lock up Pun Pun in the brig', 'Pun Pun'],
+  ['Arrest Bob Smith who is in the bar', 'Bob Smith'],
+  ['Arrest Pun Pun on site', 'Pun Pun'],
+  ['Arrest Mary-Ann Lee in the bar', 'Mary-Ann Lee'],
+  ['Warrant for Bob the clown, for theft', 'Bob the clown'],
+]) {
+  add(`"${line}" is a warrant on ${name}`, S.readWarrant(line, FEW)?.name, name);
+}
+add('and what follows the name is the reason', S.readWarrant('Arrest Pun Pun because he stole my id', FEW)?.reason, 'because he stole my id');
+
 // ---- names
 add('a warrant for Pun Pun names Pun Pun III', S.sameName('Pun Pun', 'Pun Pun III'), true);
 add('and not Pun Punch', S.sameName('Pun Pun', 'Pun Punch'), false);
@@ -187,6 +204,15 @@ for (const line of ['Pardon Pun Pun', 'Release Pun Pun', 'Let Pun Pun go', 'Set 
   w.toTell = [];
   deskTakes(w, 'Walker Wolfe', 'Head of Personnel', "Don't release Pun Pun until his time is up.", false);
   add('a head saying not to release someone is not told a pardon is the Captain\'s', said(w).filter((it: string) => /pardon/.test(it)), []);
+}
+{
+  // SECT-03: a longer reading of a name already wanted is the same person.
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', 'Arrest Pun Pun in the bar, 10 minutes', false);
+  add('"Arrest Pun Pun in the bar, 10 minutes" with Pun Pun wanted changes the time', [deskOf(w).warrants.map((it: any) => [it.name, it.minutes]), said(w)], [[['Pun Pun', 10]], ['PDA to Zim Fire: Captain, I have that: Pun Pun, 10 minutes.']]);
+  w.toTell = [];
+  deskTakes(w, 'Zim Fire', 'Captain', 'Warrant for Pun Pun the monkey.', false);
+  add('"Pun Pun the monkey" with Pun Pun wanted is no second warrant', [deskOf(w).warrants.length, said(w)], [1, ['PDA to Zim Fire: Captain, there is already a warrant on Pun Pun.']]);
 }
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
