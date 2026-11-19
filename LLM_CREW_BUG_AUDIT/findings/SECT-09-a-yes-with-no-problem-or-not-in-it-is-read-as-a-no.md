@@ -21,6 +21,8 @@ The workmate's answer is put in words by the model: `vouchStep` gives a plain li
 
 Concrete case. Donna Sholl asks her workmate Quin "Quin, did you ask Tolly to come in here?" Quin did, and the model says "Yes, Donna, I asked Tolly in to mop up. No need to worry." In Donna's `guardOverhears`, `yesOrNo` finds "no" and returns false. `settle(brain, 'Tolly Field', stranger, 'go')`. Donna is told that Quin did not send for Tolly, says "You have no business in here, Tolly. Out you go." and walks Tolly out. Every other workmate who heard it through `verifyHeard` reads the same line the same way (there a no is simply dropped, so they do not set 'stay').
 
+How often the ask is put at all. A guard does not ask about someone its department let in or called by `act.person`: those go on the shared list (`cargo.ts:2000`, `2026`, `2048`) and `sentFor` is true for every workmate. The ask comes when only the voucher's own `brain.sentFor` has them: a janitor other than the one called turns up while a call stands (`cargo.ts:771`), or the shared entry has run out. It also comes when the workmate asked is a player, whose own "yeah, no worries" is read the same way.
+
 ## Where
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:50`:
@@ -58,9 +60,11 @@ Read from the code. `yesOrNo("yes, donna, i asked tolly in to mop up. no need to
 
 ## How to fix it
 
-1. In `yesOrNo`, look first at how the answer begins, after an optional name and comma: `^\W*(?:\w+,\s*)?(yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b` is a yes; `^\W*(?:\w+,\s*)?(no|nope|never|i did not|i didn'?t|not me)\b` is a no.
-2. Only if it begins with neither, fall back to the whole-line test, and there take "no problem", "no worries", "no need" and "not yet" out before testing for `NO_WORDS`.
-3. Since the line comes from `vouchStep` with "Yes" or "No" required at the start (`has(answer)` only checks it is somewhere), make the needs check `^\W*Yes\b` or `^\W*No\b` so the model's line always begins with the answer.
+1. In `yesOrNo`, first take out the set phrases that carry a no-word and mean nothing of the kind: `\bno (?:problem|worries|need\b[^.]*|trouble|bother)\b`, `\bnot (?:yet|done|finished)\b`, `\bnot a problem\b`. Do this before both tests below, or "No problem, I asked him in." begins with "no".
+2. Then look at how the answer begins, after an optional name and comma. Test the no first: `^\W*(?:\w+,\s*)?(?:no|nope|never|i did not|i didn'?t|not me)\b` is a no; then `^\W*(?:\w+,\s*)?(?:yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b` is a yes. The order matters: "I did not ask him" begins with "i did", and the yes test alone would take it for a yes.
+3. Only if it begins with neither, fall back to the whole-line test as now (no-words first), on the line with the phrases of step 1 taken out.
+4. In `vouchStep`, make `needs` say the answer comes first: `needs: new RegExp(`^\\W*${answer}\\b`, 'i')` (a plain RegExp; `has()` checks for the word anywhere). The plain line already begins that way, so a model line that does not is dropped for it.
+5. This also mends `verifyHeard` (`guarding.ts:793`), which uses the same `yesOrNo`.
 
 ## How to test the fix
 
