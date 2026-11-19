@@ -473,6 +473,26 @@ function syncTasks(brain: NpcBrain): void {
   // A mess that what it holds will not shift cannot go on until it holds something else. The body
   // knows which those are: it remembers each mess, and what it has in its hands.
   const workable = new Set(brain.workablePlaces);
+  // What it did to be let in is for the call it did it for (DESK-02). Standing in the room, it has
+  // been let through that door; a call done with leaves nothing behind, so the next starts with a
+  // knock.
+  delete brain.letInAsks[brain.location];
+  const askingAt = new Set(
+    brain.tasks
+      .filter(
+        (task) =>
+          task.kind === CLEAN &&
+          task.state !== 'done' &&
+          !!task.via &&
+          !!task.place,
+      )
+      .map((task) => doorFor(brain, task.place ?? '')),
+  );
+  for (const door of Object.keys(brain.letInAsks)) {
+    if (!askingAt.has(door)) {
+      delete brain.letInAsks[door];
+    }
+  }
   for (const task of brain.tasks) {
     if (task.kind !== CLEAN || task.state === 'done' || !task.place) {
       continue;
