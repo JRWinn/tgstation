@@ -68,8 +68,8 @@ Read from the code, both sides. Not seen in a round. To look for it: in `game.lo
 ## How to fix it
 
 1. Add `var/list/pickup_unreached = list()` to the controller (`crew_npc_controller.dm`): `REF(item)` to `list(WEAKREF(item), world.time)`.
-2. In `crew_npc_fail_errand/perform`, when `errand_tool == CREW_TOOL_PICK_UP` and the target is an item, write it there.
-3. In `tool_pick_up`'s loop over `oview`, skip an item that is in `pickup_unreached` with the same object behind the weak reference and less than `CREW_NPC_TIDY_GIVE_UP` (5 minutes) ago. Drop older entries there.
+2. In `crew_npc_fail_errand/perform`, when `errand_tool == CREW_TOOL_PICK_UP`, write the target there, whether it is an item or a remembered container: a locker in a room the body cannot get into is gone for in the same way, every time, by the `storage_memory` loop. Do the same in `do_errand` when it returns "You could not get to it." for a pick up (the case of HAND-08, where the walk never ran).
+3. In `tool_pick_up`'s loop over `oview`, and in its loop over `storage_memory`, skip a thing or container that is in `pickup_unreached` with the same object behind the weak reference and less than `CREW_NPC_TIDY_GIVE_UP` (5 minutes) ago. Drop older entries there.
 4. Better still, also skip in that loop any item whose area the body is locked out of (`locked_out_of(get_area(candidate))`, the test `pick_somewhere_new` already uses). That saves the failed walk altogether. Keep step 3 for the counter and windoor cases, which `locked_out_of` does not see.
 5. With the thing in sight skipped, the loop over `storage_memory` runs and the remembered locker is gone to, as meant.
 6. `ways_reopened()` should empty `pickup_unreached`, as for the other lists of things not reached.
