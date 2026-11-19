@@ -46,7 +46,7 @@ import {
   withoutHandles,
 } from './prompt';
 import { describeFeeling, shiftFeeling } from './relationships';
-import { buildTalk, type Speaker, soundsLikeOrder } from './talk';
+import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
@@ -829,6 +829,11 @@ export function ingest(npcs: Npc[], now: number): void {
  * end of the hallway. It turns to whoever spoke to it, or failing that whoever is there.
  */
 function stopToTalk(brain: NpcBrain): void {
+  // A step aside it was asked for is taken first, and talked over: holding it would stop the walk
+  // with the asker still waiting to get by.
+  if (brain.lastAct?.act.tool === 'step_aside') {
+    return;
+  }
   const person =
     brain.peopleInView.find((seen) => brain.pendingSpeakers.has(seen.handle)) ??
     brain.peopleInView[0];
@@ -1105,15 +1110,16 @@ function hearSpeaker(brain: NpcBrain, event: SenseEvent): boolean {
   }
   brain.pendingSpeakers.add(speaker);
   // Who they are is kept now, from the view this line came with, in case they walk out of it
-  // before the NPC's turn comes.
-  const seen = brain.peopleInView.find((person) => person.handle === speaker);
+  // before the NPC's turn comes. One never in view as they spoke is known by what the server put
+  // on the line: see speakerHeard.
+  const seen = speakerHeard(brain, event.details);
   if (seen) {
     let known = heardFrom.get(brain);
     if (!known) {
       known = new Map();
       heardFrom.set(brain, known);
     }
-    known.set(speaker, { name: seen.name, superior: !!seen.superior });
+    known.set(speaker, seen);
   }
   // What they say next, with no name in it, is still for this NPC.
   brain.inTalkWith = {

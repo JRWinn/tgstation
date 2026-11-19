@@ -60,8 +60,13 @@ const AFTER_SAYING_MS = 2500;
 const IN_THE_WAY_MS = 30000;
 /** The steps record under which asking someone to step aside is kept. */
 const ASIDE_KEY = 'step-aside';
-/** What the body does without going anywhere. Everything else takes it off across the room, or out of it. */
+/**
+ * What the body does without going anywhere. Everything else takes it off across the room, or out of it.
+ * A step aside is a tile or three in the same room, and is done there and then: being asked for it
+ * is being spoken to, and holding it for the talk left it standing in the way six seconds more.
+ */
 const STAYS = new Set([
+  'step_aside',
   'clean',
   'message',
   'search',

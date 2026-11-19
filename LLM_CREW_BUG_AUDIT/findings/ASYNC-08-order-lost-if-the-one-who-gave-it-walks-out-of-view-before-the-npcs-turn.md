@@ -110,3 +110,7 @@ Confirmed, by Opus 5.5. Every quoted line is what the code says today (`talk.ts:
 ## Fix notes, second round
 
 Server half (`on_pre_hear` in `crew_npc_senses.dm`, branch `r2-server`): every speech event's details now carry `"superior"`, 1 or 0. It is `answers_to(speaker)` only when the line also gets a `handle`, that is when the body saw the speaker in the last 15 seconds (`recently_saw`), and 0 otherwise. `answers_to` goes by the ID the speaker carries, which a body knows only by looking, so a voice from someone it has not just seen is not marked superior (no cheat). That covers the case here: the speaker was in view and walked out before the NPC's turn. The window half, `hearSpeaker` reading `event.details.superior`, was done by another worker in the same round. Compile-checked only.
+
+## Fix, second round (window half)
+
+The window now reads the server's `superior` (1 or 0) on a heard line for a speaker who is not in view as they speak: `speakerHeard` in `talk.ts`, called from `hearSpeaker` in `brain.ts`. Who is in view still comes first; with neither the view nor the detail, nothing is kept, as before. The server half (putting `"superior" = answers_to(speaker)` on the speech event in `crew_npc_senses.dm`) is another worker's, in the same round. Eight new cases in `tools/llm_crew/brain-heard.ts`. Type check, the table, and the simulator scenarios `orders`, `captain` and `crew` twice each passed. Not played: until the server sends the key, the new path is never taken.
