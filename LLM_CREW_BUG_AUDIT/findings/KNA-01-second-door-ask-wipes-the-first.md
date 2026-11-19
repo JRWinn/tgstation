@@ -96,6 +96,8 @@ Seen in a round log: `data/logs/2026/11/19/round-20.00.21`, `game.log` and `crew
 5. `cargo.ts:2011` (the next door out for someone just let out of an inner room) pushes an entry for that name instead of assigning the slot.
 6. The other readers of `brain.doorAsked` need the entry for the person they are about: `plan` for a DOOR task (`cargo.ts:971`), the refusal at `cargo.ts:886`, the two cues at `cargo.ts:1760` and `cargo.ts:1776`, and `jobs/guarding.ts:375` (`brain.doorAsked?.name === name`). Give them a helper `askFrom(brain, name)`.
 7. Keep `brain.doorAsked` in `brain.ts:301` initialised to match.
+8. In the tick (`cargo.ts:843` to `:903`), `asked` is the one slot today. With a list: the "I am coming" promise goes to `askFrom(brain, wants.name)` (the entry being served), and the refusal walks every live `out: false` entry that `mayPass` turns down, each once. An asker who is waiting their turn is neither promised nor refused; if a word is wanted for them, make it "I will be with you after X", and only if the owner wants it.
+9. `cargo.ts:1967` drops the entry whether the door opened or not (`ok` false too). Keep that: an open that failed should not be retried for ever, and the asker asks again.
 
 A smaller stopgap, if the list is too much for one sitting: in `readsMessage` and `overhears`, do not overwrite a live ask with `out: true` from someone else; queue the newcomer in a second slot. I would do the list: three janitors make the two-slot version wrong again.
 
@@ -104,5 +106,17 @@ Keeps the rules: senses only (the asks are PDA messages and speech the body rece
 ## How to test the fix
 
 - Simulator: add a scenario to `tools/llm_crew/sim.ts` with two janitors let into two different cargo rooms who both send the let-out message to the same technician within five seconds. Pass when both doors are opened. The existing door scenarios (`nested`, `aside`, the janitor ones) must still pass.
+- A table of cases or a throwaway bun script on `CARGO.readsMessage` (`jobs/cargo.ts:1893`) and what the tick then wants (`CARGO.syncTasks`, the DOOR task it adds): two let-out asks from two names, then the first served and opened (`afterActing` with `ok`), then the second must be what is wanted next. Also a third ask from the first name again must replace its own entry, not add one.
 - Type check from `tgui/`.
 - Next round, `game.log`: every "was told by its brain to PDA X: X, I am coming to the ... door of the ... to let you out" should be followed within a minute or so by "opened ... to let X out of ...". Count the ones that are not.
+
+## Check
+
+Checked by Opus 5.5, 2026-11-19. Confirmed.
+
+- The quotes are what the code says today: `readsMessage` (`cargo.ts:2319`) and `overhears` (`cargo.ts:2281`) both assign `brain.doorAsked` whoever it is from; `doorSought` (`cargo.ts:1380`) reads only that slot; the promise at `cargo.ts:860` is sent as soon as the DOOR task is added; the loop at `cargo.ts:873` finishes any DOOR task not for `wants`.
+- Looked for what else could bring the first asker back. The knock (`brain.knockAt`, `cargo.ts:1404`) would name a janitor let in by this technician (`stillInside`), but it is read only after a live ask, and it lasts `DOOR_ASK_DS` (60 s): Collin's door was not opened until 84 s after his ask, so any knock from Marina had run out by then. The long stop (`cargo.ts:1475`) skips a room with a mess in it, and the Mining Office still had rubble. Nothing else names her.
+- Read the round log: `data/logs/2026/11/19/round-20.00.21/game.log` lines 628 to 691 are as the finding says. Jaden let Marina into the Mining Office at 02:12:51 ("opened Mining Dock Maintenance to let ... into Mining Office"), promised her the door at 02:14:05, overwrote the slot with Collin's ask four seconds later, and opened only Collin's at 02:15:29. `grep -c "to let *no key*/(Marina Shaffer) out"` gives 0.
+- No later change log entry touches `doorAsked`. Only the 15:00 entry's (2), which added `after`.
+- Severity high stands: it leaves a janitor shut in for good, and two janitors finishing in cargo within a few seconds is common. Effort medium: window only, but `types.ts`, `brain.ts`, `jobs/cargo.ts` and `jobs/guarding.ts`, about 60 to 80 lines.
+- Added steps 8 and 9 to the fix (the promise and the refusal in the tick also read the one slot) and a smaller test. No script was run.

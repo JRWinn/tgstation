@@ -5,14 +5,17 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: duplicate
 found_by: Opus 5.5
+duplicate_of: ASYNC-02
 area: core
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:945, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1512, code/modules/llm_crew/crew_npc_tools.dm:129, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1916, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:654
 fix: Send a step number with every tool call the driver makes, have action_result echo it in details, and have noteResult act only on a result that carries the number of lastAct
 ---
 
 ## What is wrong
+
+See also: ASYNC-02, written a few minutes before this by another reviewer, which keeps the write-up. The same fault and the same fix; nothing here adds to it beyond the late `order` results from `supply_run_step` and `order_arrived`, which ASYNC-02 also names.
 
 A tool call carries no id, and an `action_result` names only the tool. `noteResult` decides that a result is the outcome of the driver's last step by the tool name alone:
 

@@ -2,7 +2,7 @@
 id: API-04
 title: A PDA with a name and no job is sent to the window with job null, and a head's brain then throws on every update
 kind: bug
-severity: medium
+severity: high
 effort: small
 confidence: likely
 status: found
@@ -14,6 +14,8 @@ fix: Send "job" = candidate.computer.saved_job || "" from people_on_pda (and ski
 
 ## What is wrong
 
+See also: DRV-06, which shows what any error thrown in `ingest` costs (the React tree unmounts, `stopSession` empties every brain) and asks for a concrete throw. This is one: a field the server sends as null where the window calls a string method.
+
 `people_on_pda` lists every messenger on the station level that has a `saved_identification`, and sends its `saved_job` as the job. It never checks that the job is set. A modular computer can carry a name and no job: `imprint_id` sets `saved_job = job_name || stored_id?.assignment || saved_job`, so a PDA imprinted from an ID card whose `assignment` is empty (a card given a name at the ID console and no job, an agent card, a fresh PDA imprinted by its own "imprint" button from such a card) has a name and a null job. The base game's own messenger leaves such PDAs out of its contact list (`messenger_data.dm:12`: `if(!messenger_device.saved_identification || !messenger_device.saved_job)`); ours does not.
 
 DM sends a null var as JSON `null`. The window's type says `job: string`, and two places call a string method on it:
@@ -21,7 +23,7 @@ DM sends a null var as JSON `null`. The window's type says `job: string`, and tw
     person.job.toLowerCase().includes(job.toLowerCase()),      // head.ts staff()
     person.job.toLowerCase().includes(headJob.toLowerCase()),  // driver.ts nextToWrite()
 
-`staff()` is called for every head of staff (Head of Personnel, Quartermaster, Chief Engineer, Head of Security) while its tasks are brought up to date, on every state update. With one such PDA on the station, `staff()` throws a TypeError inside `ingest`, which runs in the window's `useEffect`. The loop over the NPCs stops at that head, so every NPC after it in the list gets no events and no step, on every update, for as long as the PDA is aboard. If the thrown error takes the React tree down, the effect cleanup `stopSession` runs and every brain is cleared.
+`staff()` is called for every head of staff (Head of Personnel, Quartermaster, Chief Engineer, Head of Security) while its tasks are brought up to date, on every state update. With one such PDA on the station, `staff()` throws a TypeError inside `ingest`, which runs in the window's `useEffect`. The loop over the NPCs stops at that head, so every NPC after it in the list gets no events and no step, on every update, for as long as the PDA is aboard. Worse, per DRV-06 the error leaves the effect, React (with no error boundary) unmounts the tree, the effect cleanup `stopSession` runs and every brain is cleared. Rare to set off, but it costs the whole crew's memory when it happens, so it is rated high.
 
 Concrete case: the Head of Personnel (a player) makes an ID with a name and no job yet and puts it in a spare PDA, which imprints the name only. The Head of Personnel NPC's next update throws.
 
