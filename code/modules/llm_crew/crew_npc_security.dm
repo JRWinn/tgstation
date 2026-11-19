@@ -92,8 +92,7 @@
 	var/arrested_by_name
 	/// Where it has got to: CREW_CUSTODY_ARREST, CREW_CUSTODY_CELL or CREW_CUSTODY_CUFFS. Null while it is free.
 	var/custody_phase
-	/// world.time it was arrested, and world.time whoever arrested it last had it by the arm.
-	var/arrested_at = 0
+	/// world.time whoever arrested it last had it by the arm, or began the arrest.
 	var/held_at = 0
 	/// The timer of the cell it is shut in, as a weak reference, and that cell's name.
 	var/datum/weakref/custody_timer
@@ -1706,6 +1705,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 /datum/ai_controller/crew_npc/proc/being_arrested(mob/living/carbon/human/by)
 	var/mob/living/carbon/human/body = pawn
 	if(custody_phase == CREW_CUSTODY_ARREST && arrested_by?.resolve() == by)
+		held_at = world.time
 		hold_in_custody()
 		return
 	var/was_held = in_custody()
@@ -1715,7 +1715,6 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	body.stop_pulling()
 	arrested_by = WEAKREF(by)
 	arrested_by_name = by.name
-	arrested_at = world.time
 	held_at = world.time
 	custody_phase = CREW_CUSTODY_ARREST
 	custody_timer = null
@@ -1769,8 +1768,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				// In cuffs with nobody's hand on it. Whoever arrested it may be back for it.
 				held = world.time - held_at < CREW_NPC_CUFFED_ALONE
 			else
-				// No cuffs and no hand: the arrest is still being made, or has come to nothing.
-				held = world.time - arrested_at < CREW_NPC_ARREST_GRACE && world.time - held_at < CREW_NPC_ARREST_GRACE
+				// No cuffs and no hand: the arrest is still being made, or has come to nothing. Counted
+				// from the last hand on its arm, not the start of the arrest: in the cell the officer lets
+				// go and takes the cuffs off before it steps out and starts the timer, most often well
+				// over the grace after the arrest began, and the prisoner was told it was free to go.
+				held = world.time - held_at < CREW_NPC_ARREST_GRACE
 		if(CREW_CUSTODY_CELL)
 			var/obj/machinery/status_display/door_timer/timer = custody_timer?.resolve()
 			held = !QDELETED(timer) && timer.timing
