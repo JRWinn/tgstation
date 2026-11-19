@@ -5,10 +5,11 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:65, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:106
+files: tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:65, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:101
 fix: In callsOn accept a name at the start with no comma after it only for someone in view, and for anyone not in view require the comma or colon
 ---
 
@@ -67,3 +68,11 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 
 - Add the four rows above to `tools/llm_crew/addressing.ts` (want `me`), plus "May, could you open the door?" with May Rees not in view (want `other:May Rees`) and with her in view (want `other:May Rees`). All existing rows must still pass.
 - Type check from `tgui/`.
+
+## Check
+
+Checked by Opus 5.5. The quotes in `addressing.ts` (`callsOn`, and the `known` loop in `saidTo` that runs before the "nobody else is there" rule) are what the code says today. The caller is `brain.ts` (about line 604), which passes `others = [...brains.values()].map((other) => other.name)`: every crew NPC aboard, wherever it is. NPC bodies are named by `randomize_human_normie` (`crew_npc_spawn.dm:11`), which draws from `strings/names/`; May, Grant, Mark, Hope, Grace, Faith, Bill, Art, Sue, Chase, Rose, Summer, Frank and Hunter are all in `first_male.txt` or `first_female.txt`. Nothing in the change log or the plans covers it.
+
+Ran a throwaway script (bun, in the scratchpad): `tech()` from the fixtures, the Captain one tile away and facing it, nobody else in view, `others` holding the one other name. The four lines in the table gave `other:May Rees`, `other:Grant Cole`, `other:Mark Fry`, `other:Hope Dunn`; "Can I come in, please?" with May Rees aboard gave `me`. Confirmed. Severity medium stands: it needs a crew member with one of a dozen or so word-like first names and a line that opens with that word, and then a line meant for the NPC goes unanswered.
+
+On the fix: steps 1 to 3 are sound and keep the owner's "josh do something" row, since Josh is in view there. Step 4 is the more general rule and would also cover someone in view called May; I would build both. PARSE-14 also reworks rule 2 of `saidTo` (full names); build them together so the two changes do not fight.

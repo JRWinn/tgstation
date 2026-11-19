@@ -3,12 +3,13 @@ id: MEM-08
 title: Any line from a superior with check, look or see if in it and a room named is an order to drop everything and go and look
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:266, tgui/packages/tgui/interfaces/CrewBrain/jobs/orders.ts:27, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:132
+files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:266, tgui/packages/tgui/interfaces/CrewBrain/jobs/orders.ts:27, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:132, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1517, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1603
 fix: Make out a look order by code only when the look word is said to the NPC as a request with the room as its object, and leave everything else to the model's work answer
 ---
 
@@ -69,11 +70,12 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 
 1. Narrow what code takes as a look order without the model: the look word must come before the room with only "at", "on", "in", "the" between (`\b(look at|check|check on|inspect|go and see|go see|see what is in|find out what is in)\s+(?:the\s+)?<room>`), the line must not have "I'll", "I will", "I'm going to", "myself", "don't", "do not", "no need" before it, and it must not be a question ("?" at the end of the sentence that holds it).
 2. Anything that does not pass step 1 is left to the model: `ordered` stays null, so `told` is set and the model is asked `work` with the order kinds on offer, as it is for anyone else. Its answer still goes through `takeToldWork` with `fromSuperior`, so a real order still comes before everything.
-3. The fall-back after the model (`if (told && !tookWork)` in `think()`) keeps using the narrow test of step 1, not the wide one, so a model that rightly said "nothing" is not overruled by the old net.
+3. The fall-back after the model (`if (told && !tookWork)` in `think()`, `brain.ts` about line 1517) keeps using the narrow test of step 1, not the wide one, so a model that rightly said "nothing" is not overruled by the old net. The same goes for the fall-back when the model fails (`if (speakers.length > 0 && !ordered)`, `brain.ts` about line 1603): it calls the same `workInWords`. Simplest is to change the `ORDER_SOUNDS` loop inside `workInWords` itself, so all three callers get the narrow test; `ORDER_SOUNDS` is used nowhere else.
+   A polite request put as a question ("Could you check on the Bar, Tolly?") then goes to the model, not to code. That is the intent (the owner approved the LLM as reader for loose wording), but with the model down it is lost; say so in the change log.
 4. This keeps "code does the work": code still takes a plain order on its own, and the model is the reader only for the doubtful lines, in the call it is already making.
 
 ## How to test the fix
 
-- A table of cases for `workInWords`: the four rows above give nothing; "Tolly, go and check the Bar", "Check on the Kitchen for me, Tolly", "Tolly, look at the Library and report back" each give `look` in that room.
+- A table of cases for `workInWords` (fixtures: `janitor()`, a Captain with `superior: true`, `says(captain, line)`, `fromSuperior` true): the four rows above give nothing; "Tolly, go and check the Bar", "Check on the Kitchen for me, Tolly", "Tolly, look at the Library and report back" each give `look` in that room. Add "Could you check on the Bar, Tolly?": null from `workInWords` (left to the model). Keep a janitor row such as "Check the Bar, there is blood everywhere": still `clean` Bar, since `job.soundsLike` runs before the order net and is not changed.
 - `bun tools/llm_crew/sim.ts quiet` on the scenarios that give look orders.
 - Type check from `tgui/`.

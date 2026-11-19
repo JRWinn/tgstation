@@ -66,7 +66,7 @@ Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANG
    - **Step round it.** In `mind_its_step`, refuse the step (`COMPONENT_MOVABLE_BLOCK_PRE_MOVE`) and take a side step instead onto a free tile that is next to both where it stands and where it was going, and is not itself slippery. One side step lets the path carry on from there; if no such tile exists, let it walk on and slip, as a player in a one-tile corridor would. Keep the side step out of a pull or a throw (CORE-06).
    - **Pick it up.** Report it to the brain as a thing in the way; janitors and anyone with a free hand pick it up and drop it to one side (the tidying tools exist). Slower, but it clears the hazard for everyone.
    I would take the side step: it is general, needs no brain change, and is what a player does without thinking. It is also the "way round" that plan 4.1 already accepted, built at the step rather than in the route, so it needs no new decision from the owner unless the pick-up way is wanted. The route planner itself cannot be told cheaply to keep off a remembered tile: `navmap_pathfind` takes only one `avoid` turf.
-   The side step must be refused while the body is being pulled, thrown or pushed (CORE-06's fix, which tests `body.pulledby` and that the move is the body's own), or it will slip out of a grip as CORE-06 describes.
+   The side step must be refused while the body is being pulled, thrown or pushed (CORE-06's fix: `moving_from_pull`, `throwing`, `pulledby`, `buckled`), or it will slip out of a grip as CORE-06 describes.
 3. Keep the walk for oil and blood as now.
 
 ## How to test the fix
