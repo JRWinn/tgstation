@@ -672,8 +672,9 @@ export function syncGuarding(brain: NpcBrain): void {
       ) {
         stranger.verdict = 'stay';
       }
-    } else if (waitedOut(stranger.askedAt, stranger.asks)) {
-      // Asked twice, and not a word.
+    } else if (waitedOut(stranger.askedAt, stranger.asks) && !seen?.down) {
+      // Asked twice, and not a word. Someone lying down, out cold or worse, cannot answer: that is
+      // no refusal, and the matter waits while they are down (SENSE-01).
       settle(brain, name, stranger, 'go');
     }
   }
@@ -862,6 +863,13 @@ export function planGuarding(brain: NpcBrain, task: Task): Plan | null {
       ready: false,
       wait: true,
       step: `You have asked ${name} why they are in ${room}, and are waiting for an answer.`,
+    };
+  }
+  // Someone lying down, out cold or worse, is not asked what they are doing in here (SENSE-01).
+  if (person.down) {
+    return {
+      ready: false,
+      step: `${name} is lying down in ${room} and cannot answer you.`,
     };
   }
   if (
