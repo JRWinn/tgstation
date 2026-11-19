@@ -14,6 +14,8 @@ fix: Keep the edit, but send it only after the combat-mode and pacifism checks a
 
 ## What is wrong
 
+Already in part on record: the change log entry of 19:38 to 20:00, "Added at 20:00", says "A monkey bitten by another monkey may now turn on it, where it did not before", and under "Seen and left alone", "A tackle is told to the brain as shoves you". What this file adds: the sparring match and the stealth suits, that the friendly touch is now sent too, a way to send it only for a real attack, and the answers to the two questions below.
+
 The scope asked two questions about the base-game edit in `human_defense.dm`. The answers, from the code:
 
 **Is anything now told of a paw attack twice?** No. `/mob/living/carbon/human/attack_paw` now sends `COMSIG_ATOM_ATTACK_PAW` first. On the bite path it calls `..()` into `/mob/living/carbon/attack_paw`, which calls `..()` into `/mob/living/attack_paw`, and that one does not call `..()`: `/atom/attack_paw`, the only other sender, is never reached from a human. The right-click (tackle) path and the non-combat path return before any `..()` that could send it again. An alien's attack goes through `attack_alien`, which sends its own `COMSIG_MOB_ATTACK_ALIEN` and does not reach `attack_paw`. So `relay_attackers` relays each paw attack once.
