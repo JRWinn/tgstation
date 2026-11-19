@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:169, code/modules/llm_crew/crew_npc_forcing.dm:108, code/modules/llm_crew/crew_npc_forcing.dm:453
 fix: In tool_force_door ask for the screwdriver, the multitool and the wire skill only when the door to be forced has power, and for the crowbar always
@@ -75,3 +76,14 @@ Question for the owner: should crew who are not engineers pry a dead door with a
 
 - Server compile.
 - `tools/llm_crew/` has no case for the server side of forcing. In a round: cut the power to a room (or wait for the station to lose it), take the engineer's multitool away, and have the Chief Engineer send it to force a door. `game.log` should show `forced open ... by prying it` and not `could not force ... (no_tools)`.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes are what the code says today: the tools loop and the `no_tools` / `no_knowledge` refusals in `tool_force_door` (`crew_npc_forcing.dm` about 167-179) run before any door is chosen and whatever state the doors are in; `force_door_open` (about 453) skips the panel and wires when `had_power` is FALSE; `try_to_crowbar` in `airlock.dm` opens a door with no power for anyone with a crowbar.
+- The drop is real: a shock that paralyses sets `TRAIT_HANDS_BLOCKED`, and `on_handsblocked_start` in `code/modules/mob/living/living.dm` (about 2748) calls `drop_all_held_items()`. `take_door_power` holds the multitool in hand when it clicks the door, and an electrified door shocks whoever goes into its wires, so an engineer can lose its multitool exactly there.
+- The skill half matters less than the write-up suggests: every body `works_in_engineering()` lets through (Station Engineer, Chief Engineer) gets `TRAIT_KNOW_ENGI_WIRES` from its job skill chip (`station_engineer.dm` and `chief_engineer.dm`, `skillchips = list(/obj/item/skillchip/job/engineer)`). In practice the fault is the tools check. Both engineers spawn with `/obj/item/storage/belt/utility/full`, which holds all three tools, so the case needs a tool lost first. That is why it stays medium and not high.
+- The change log entry of 18:50 ("An engineer forces a door security cannot get through") chose the skill-chip refusal for wire work and says "A door that already has no power is only pried": nothing there chose to refuse a dead door for want of a multitool.
+
+Notes for whoever fixes it: after the loop the door is `best`, so pass `best` and `labels[best]` to `forcing_failure`, not `first`. If power is back when the body arrives and it lacks the screwdriver or multitool, the failure says "you no longer have a ... on you", which is a little untrue (it never had one) but safe; a body without the skill chip gets "the wires window does not show you which wire is which" from `take_door_power`, also safe. No change needed in `forcing.ts`: `no_tools` stays a final reason there.

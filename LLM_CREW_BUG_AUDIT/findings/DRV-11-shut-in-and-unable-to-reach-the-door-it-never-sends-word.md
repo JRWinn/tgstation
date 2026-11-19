@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:360, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:320, code/modules/llm_crew/crew_npc_doors.dm:323, code/modules/llm_crew/crew_npc_doors.dm:343
 fix: Send the PDA word, worded for where it is, when go_to_door has failed and is held back, instead of only from the door
@@ -22,8 +23,8 @@ When the walk to the door fails, `go_to_door` is held back (20 seconds, then 40,
 
 - every door of the room has bad air on one side or the other: `tool_go_to_door` leaves out any door whose tile inside, or (going out) tile outside, is not `crew_npc_safe_turf`, and with none left answers "You cannot find the door out of X". A body shut in a room with the hallway outside open to space is the one that most needs to send word;
 - the door it picks cannot be walked to (DOOR-06: the same door every time);
-- the doorway is walled off by crates (KNA-13, KNB-01, the Warehouse);
-- the server is still testing routes from the last call (`finding_door`), and gives no answer at all, so the step is lost after 12 seconds and held back.
+- the doorway is walled off by crates (KNA-13, KNB-01, the Warehouse), when the walk stops more than two tiles from the door (`at_door_of` counts any spot within `CREW_NPC_AT_DOOR`, 2, by `get_dist`, walls and crates or not, so a body stopped close to the door is taken to be at it and does knock);
+- rarely: the server is still testing routes from an earlier `go_to_door` into a room (`finding_door`), and gives no answer at all, so the step is lost after 12 seconds and held back. (Going out, the loop takes the first door without testing a route, so `finding_door` is only up for a moment.)
 
 One concrete case: a janitor is let into the Warehouse to clean, the technician leaves, and the crates by the door leave no way to the airlock (KNA-13). The janitor is shut in. `go_to_door` fails, is held back, fails again, for the rest of the round. Nobody is in sight to ask. Its PDA works, and whoever let it in is on it, but `WORD_OUT_KEY` is never offered, and no keeper or head is written to. The janitor waits in the Warehouse until someone happens to walk in.
 
@@ -77,9 +78,17 @@ Read from the code. Not run, and not seen in a round log (a body shut in with no
 3. Word it for where it is: when not at the door, "I am shut in the X and cannot get to its door. Could you let me out, please?" (and the head form as it is). Keep "am at the X door" for a body that is there.
 4. Make the same change to the `nextToWrite` steps, which use `outAsks.wroteAt` from the knock: set `wroteAt` when the first word is sent without a knock as well (`noteDone` already does this for `WORD_OUT_KEY`), and let `nextToWrite` go on `messaged` or `wroteAt`, not on `knocked` alone.
 5. Nothing on the server has to change for this. DOOR-06's fix (try another door) is still wanted, and the two go together.
+6. Move `nextToWrite` out of the at-door block too, or it is never reached away from the door. With no `letInBy` (a body that walked in by itself and was shut in behind it), step 2 has nobody to write to first, so `nextToWrite` must be allowed to start on the same condition (failed walk to the door) rather than on `knocked`.
+7. Keep the words the readers look for. A head reads `^I am shut in the (.+?) and nobody has come to the door` (`jobs/head.ts:149`), the Quartermaster reads `\bI am shut in the (.+?) and\b` (`SHUT_IN_WORDS`, `jobs/supply.ts:240`), meetings read "I am shut in the" (`jobs/meetings.ts:89`) and cargo staff take any message with `\bout\b` as a let-out ask (`LET_OUT_WORDS`, `jobs/cargo.ts:158`). The wording in step 3 matches all but the head's, and the head form is kept as it is, so that is fine; do not reword the head form.
 
 ## How to test the fix
 
 - Type check from `tgui/`.
 - A table test with the fixture brain: shut in, `letInBy` set, `hasPda` true, nobody in view, `atDoorOf` null and `go_to_door` failed twice: `nextStep` must offer the `message` step, worded without "am at the door".
 - In the next round, for any body whose `game.log` shows `go_to_door` failing more than twice while shut in, `crew_brain.log` should show a "PDA message asking to be let out" record soon after.
+
+## Check
+
+Checked by Opus 5.5. The quotes match the code (`driver.ts:320`, `:360`, the `WORD_OUT_KEY` step, `nextToWrite` at `driver.ts:187`; `crew_npc_doors.dm:323` and `:343`). `brain.atDoorOf` comes from the server's `at_door_of` (`crew_npc_doors.dm:279`, set from `wanted_door` within 2 tiles) or, for a few seconds, from a `go_to_door` that reported success (`brain.ts:489-498`, `noteResult`). A `go_to_door` answered "You cannot find the door out of X" sets no `wanted_door`, so a body in a room whose every door has bad air beyond it is never "at the door", and the knock, the word to whoever let it in and `nextToWrite` (which needs `knocked`) are all out of reach. Nothing else in the window writes "let me out" for it; the head, Quartermaster and meeting readers only react to words this block sends.
+
+Ran a throwaway script with bun against the real `driver.ts` and the fixture brain: shut in the Warehouse, `atDoorOf` null, `letInBy` set, PDA on, nobody in view, `go_to_door` failed three times and held back: `nextStep` gave `explore`, no `message`. Confirmed. Two mends to the write-up: a walk stopped by crates within two tiles of the door does count as at the door, and the `finding_door` case hardly arises going out. Added fix steps 6 and 7: `nextToWrite` also has to come out of the block (and start without a `letInBy`), and the words must keep matching the head's, the Quartermaster's and cargo's readers. Effort stays small: one block of `nextStep` and `nextToWrite`, in `driver.ts`.

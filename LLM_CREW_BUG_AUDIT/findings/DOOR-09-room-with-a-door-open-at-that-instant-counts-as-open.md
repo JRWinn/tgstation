@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_cargo.dm:153, code/modules/llm_crew/crew_brain_rooms.dm:80, code/modules/llm_crew/crew_npc_cargo.dm:121
 fix: In the open-way test of crew_npc_room_is_closed pass over any tile that holds an airlock, a windoor or plastic flaps, so only a way with no door on it counts
@@ -73,3 +74,18 @@ Read from the code, not seen in a round.
 
 - Server compile.
 - Start a round, stand in the Cargo Bay doorway as the crew are spawned (or hold the door open with a crate), and open the Crew Brain window. The Cargo Bay must be in the window's locked rooms, and in each technician's `closed_rooms` (shown through what `cargo.ts` does with a knock: a janitor knocking is answered).
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quote at `crew_npc_cargo.dm` about 153-167 is today's code. `is_blocked_turf` (`code/game/turfs/turf.dm` about 302) looks only at `density`; an open airlock and an open windoor are not dense (`windowdoor.dm` sets `set_density(FALSE)` on open), and `plasticflaps.dm` has `density = FALSE`. Whether the airlock's own tile is in the room's area or the next one, the open airlock tile and the floor on the other side make an "open way in", and the proc returns FALSE.
+- It is worked out once: `learn_department` (cargo, engineering and security all call it, `crew_npc_cargo.dm` 60, `crew_npc_engineering.dm` 44, `crew_npc_security.dm` 136) fills `closed_rooms` when the body is set up and nothing fills it again; `crew_npc_find_closed_rooms` is begun once a round behind `crew_npc_closed_rooms_begun` (`crew_brain_rooms.dm` about 73-108). The change log (about line 499) chose "worked out once a round" for the window's list, but nothing chose to let a door's state at that instant decide it.
+- The window uses `closedRooms` as the write-up says (`jobs/cargo.ts` about 1198, 1437, 1516). One more place the same proc decides something: the Head of Personnel's meeting place (`crew_npc_cargo.dm` about 79) skips a room that is closed, so a locked lounge or bar whose door stood open at that moment could be chosen as where staff are called.
+- Not seen in a round; the chance that a door of a given room is open at that instant is small, which is why medium is right.
+
+Notes for whoever fixes it:
+
+- A closed windoor is dense and blocks the whole tile for `is_blocked_turf`; an open one does not. Skipping every tile with a windoor (step 1) is safe, but a windoor only stands on one edge of its tile; if a room is found wrongly closed by it, test the windoor's `dir` against the direction being looked along instead.
+- An airlock bolted open (`!door.density && door.locked`) really is open to everyone. Counting its tile as an open way keeps such a room out of the closed list; skipping it calls the room closed. Either is defensible; say which in the code.
+- Test as written, and also: with a closed-room tile check added, the Cargo Lobby is still taken off by `closed_rooms -= lobby`, so a technician still serves at the counter.

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_guarding.dm:24, code/modules/llm_crew/crew_npc_guarding.dm:40, code/modules/llm_crew/crew_npc_guarding.dm:45, code/modules/llm_crew/crew_npc_senses.dm:191
 fix: Judge belongs and command from the job title the card shows and the access that job is given, the way a player reading the card would

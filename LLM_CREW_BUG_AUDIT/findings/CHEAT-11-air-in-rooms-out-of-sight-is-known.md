@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_motor.dm:43, code/modules/llm_crew/crew_npc_tools.dm:370, code/modules/llm_crew/crew_npc_doors.dm:323, code/modules/llm_crew/crew_npc_quartermaster.dm:200, code/modules/llm_crew/crew_npc_forcing.dm:200
 fix: Test the air only on tiles the body stands on or can see, and judge unseen rooms by what shows from outside - shut fire doors, a door's pressure warning, an alarm in view

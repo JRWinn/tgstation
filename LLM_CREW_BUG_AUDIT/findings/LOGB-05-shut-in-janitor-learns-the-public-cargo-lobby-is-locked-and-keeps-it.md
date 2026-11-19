@@ -3,10 +3,11 @@ id: LOGB-05
 title: A janitor shut in a room learns that the Cargo Lobby and the Cargo Bay each open only from the other, keeps that for good, and makes for the door of the public lobby
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:388, code/modules/llm_crew/crew_npc_doors.dm:395, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:693, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:77
 fix: Send door_through from go_to_door only when a route to the outer room's own door was found, never from a body that is shut in, and have the brain refuse an entry that makes a loop and forget entries after a while

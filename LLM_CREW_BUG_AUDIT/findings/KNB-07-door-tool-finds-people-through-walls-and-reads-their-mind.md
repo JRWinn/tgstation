@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:433, code/modules/llm_crew/crew_npc_doors.dm:546, code/modules/llm_crew/crew_npc_doors.dm:561, code/modules/llm_crew/crew_npc_doors.dm:570
 fix: Open the door that was named by the knock, the PDA message or the speech, and learn who is there by seeing them once it is open
@@ -30,7 +31,7 @@ Since those entries two more of the four were added (3 and 4, in the 15:00 entry
 
 Concrete case: a player Captain (no controller, so case 1 does not apply) stands in the maintenance tunnel and knocks on nothing, saying nothing. A janitor NPC is waiting at the lobby door. A technician asked to open "the door" for the janitor by a message with no door named: `room_door_for` reads the janitor's `wanted_door` and opens the right one. Swap the janitor for a human player waiting at the same door and the tool falls to the scoring loop and may open another door. The crew are served better than a player is, because the code can read their minds.
 
-Second case, the wrong person: two janitors stand at two doors of the Cargo Bay. One knocks at the tunnel door. The brain passes a name it guessed. `person_at_room` fails, `shut_in_at_door` finds nobody inside, and `janitor_at_door` returns the first janitor found at *any* door of the room, which may be the one at the lobby door. The door opened is then the lobby's.
+Second case, the wrong person: two janitors stand at two doors of the Cargo Bay. One knocks at the tunnel door. The brain (`doorSought` in `jobs/cargo.ts`) puts the name of whoever it expects there, or `SOMEONE_INSIDE`, and the knock's door label (`knockAt.door`). The label wins in `room_door_for`, so the tunnel door is the one chosen, not the lobby's (corrected by the checker). But the person is found by name or by `janitor_at_door`, from anywhere at any door of the room: the expected janitor may be the one at the lobby door, or `janitor_at_door` may return the first janitor at *any* door. The tool then either fails ("You cannot see that person, and they are not at the door") and the knocker is left, or, if that janitor is in sight, opens the tunnel door "for" the one in the lobby and `watch_door` watches the wrong body. The door opened is the knocked one; who it is opened for is guessed.
 
 ## Where
 
@@ -88,3 +89,14 @@ Question for the owner: when a technician cannot tell which door a caller is at,
 - Server compile to a side copy.
 - Simulator: its `open_door` takes a person. It has to take a door as well. Then `nested`, `office`, `vouch`, `crew`, `qm`, and one new scenario: two janitors at two doors of one room, one knocks, and the door opened is the one knocked at.
 - A round: every "opened X to let Y into Z" in `game.log` should have X equal to the door Y's last message or knock named.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- Read `crew_npc_doors.dm` today: `room_door_for` (the `their_controller.wanted_door` branch at about line 433), `tool_open_door` (492), `person_at_room` (546), `shut_in_at_door` (561), `janitor_at_door` (570) and `hold_door_for` (579). Every quote is what the code says. No guard elsewhere stops it: `tool_open_door` waives `recently_saw` for anyone `inside` or within `CREW_NPC_AT_DOOR` of the door, which are exactly the people these helpers find through walls.
+- Read the window side: the only `open_door` step is in `jobs/cargo.ts` `plan()` (the `DOOR` task). It sends `name`, `place`, the handle if it has one, and `door` from `brain.doorAsked` or `brain.knockAt`. Its own comment says "the server finds whoever of that name is at the door", so the brain leans on the hidden lookup on purpose. `doorSought` sends `SOMEONE_INSIDE` for a knock from inside with nobody on record, which only `shut_in_at_door` can turn into a person.
+- The second concrete case was wrong in one step: when a knock is answered the label is sent and wins, so the knocked door is opened; it is who the door is opened for that is guessed. Mended above. The first case and the four breaches stand.
+- The change log lists it as known and not changed (09:40 entry, line 935; 12:00 entry "A knock is still answered by name", line 799) and the 15:00 entry (line 466) added `shut_in_at_door` and `janitor_at_door`. No later entry removes any of them. It is not an owner choice: the 12:00 entry says the plan was to open the door and look, and it was left only because the rewrite was big.
+- Severity medium, as the other knowledge findings (CHEAT-02, CHEAT-05). Effort large: the tool, `hold_door_for`, `watch_door`, the brain's DOOR step and the simulator's `open_door` all change. The fix is sound; step 1 should keep the label-first lookup that is there now, and step 4 needs `look_around` after the door opens, which KNB-04's rewrite of `hold_door_for` will also touch, so do them together as step 7 says.
+- Not run: nothing in this needed a script.

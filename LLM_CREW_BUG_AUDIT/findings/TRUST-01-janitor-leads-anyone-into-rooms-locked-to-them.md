@@ -3,13 +3,14 @@ id: TRUST-01
 title: A janitor asked the way leads anyone, by its own ID, into the Custodial Closet or the maintenance tunnels
 kind: bug
 severity: medium
-effort: small
+effort: large
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/options.ts:58, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1476, code/modules/llm_crew/crew_npc_tools.dm:200
-fix: Leave out of the lead offer every room that is locked to the asker, which the server already knows as closed rooms and from whether the asker belongs there
+fix: Have the server work out once per map which rooms the crew at large cannot walk into (maintenance included) and send them with places; leave those out of the lead offer unless the asker is command, a superior or of the NPC's own job
 ---
 
 ## What is wrong
@@ -54,8 +55,9 @@ Read from the code. Not seen in a round: in the rounds on disk the walk was take
 
 ## How to fix it
 
-1. Server: the window already gets, for each person in view, `belongs` for the body's own post. It needs to know whether a room is open to the asker. The plain way is to send, with the static `places` list, which rooms are locked to the crew at large (`crew_npc_room_is_closed`, already written in `crew_npc_cargo.dm`), as one list `closed_places`. It is worked out once per map, like `places`. Anyone could tell as much from the doors: they are the ones with access lights.
-2. Window, `availableOptions`: drop from `places` every room in `closed_places`, unless every asker is someone who would be let in anyway (`superior`, or `command`). With nothing left, the walk is not offered and the model answers in words.
+1. Server: the window gets `belongs` only for the body's own post, and `closed_rooms` only for the rooms of a post-holder's department (`learn_department` in `crew_npc_cargo.dm`); a janitor has neither. It needs, with the static `places` list (`crew_brain_link.dm:73`), one list `closed_places` of rooms the crew at large cannot walk into, worked out once per map like `places`. Anyone could tell as much from the doors: they are the ones with access lights.
+   Do **not** build it by calling `crew_npc_room_is_closed` on each room: that proc counts a room as open if any of its tiles meets an open tile of another station area with no door between, and maintenance areas run into each other along open corridors, so most of them would come out open. Either flood once from the hallways (`/area/station/hallway`) across open tiles and doors with no `req_access`/`req_one_access`, and list every station area never reached; or, simpler, take `crew_npc_room_is_closed` and add every `/area/station/maintenance` area by type. The flood is the general one and also catches rooms that lie inside other locked rooms.
+2. Window, `availableOptions`: drop from `places` every room in `closed_places`, unless every asker is someone who would be let in anyway (`superior`, `command`, or the same job as the NPC by the ID it can see). With nothing left, the walk is not offered and the model answers in words.
 3. Add to the janitor's `whenAsked` one line: asked to take someone into a room that is locked to them, say it is not yours to let them into and they should ask whoever works there.
 4. Keep: leading someone to an ordinary room, the Bar or Medbay, as now.
 
@@ -66,3 +68,9 @@ Question for the owner: should a janitor lead the Captain or a head into mainten
 - A table test of `availableOptions`: a janitor brain with `stationPlaces` holding "Custodial Closet" and `closed_places` holding it, an asker with no `command`, heard "show me the way to the Custodial Closet": no `go_to` in the options. The same with a `command` asker: `go_to` with "Custodial Closet".
 - Type check from `tgui/`.
 - In a round, as an assistant, ask a janitor the way to the Custodial Closet. `game.log` should show no `walk failed` or walk to the closet for that janitor, and the janitor should say it cannot let you in.
+- On the server side, log `closed_places` once at round start and check by eye on MetaStation that it holds the Custodial Closet and the maintenance areas (Port Maintenance, Aft Maintenance and the rest) and not the Bar, Medbay Lobby or the hallways.
+
+## Check
+
+Checked by Opus 5.5. The quote at `options.ts:58-67` is what the code says: the only room filters are the NPC's own location, its `blockedPlaces`, and its own via-tasks; `askers` goes only to `job.offers`. `keepsPost` is false only for the janitor (`jobs/janitor.ts:751`) and the fallback job (`jobs/index.ts:35`). The janitor has no `agrees` and no `offers`, so a picked `go_to` runs at `brain.ts` (the `calledFor` path) once any line was heard. `allPlaces` (`memory.ts:188`) is every station area name, so "Custodial Closet" (`code/game/area/areas/station/service.dm:178`) is matched from the line. The janitor trim (`code/datums/id_trim/jobs.dm:750`) gives `ACCESS_JANITOR` and `ACCESS_MAINT_TUNNELS`. A bumped airlock that opens stays open 8 seconds on normal speed (`airlock.dm`, `autoclose_in(normalspeed ? 8 SECONDS : 1.5 SECONDS)` in `open()`), so a follower a step behind gets through; `tool_go_to` (`crew_npc_tools.dm:200`) uses the ordinary walk, and nothing in it shuts a door behind the body (the door-shutting in `crew_npc_doors.dm:596` belongs to the post door tool only). The owner has asked for janitors to put trespassers out of the Custodial Closet (memory note, 2026-11-18), so leading them in is against the stated wish, not a design choice; nothing in `LLM_CREW_CHANGELOG.md` or the plans says otherwise. Confirmed.
+Corrected: the fix line said the server already knows these rooms; it does not for a janitor, and the proc it named would miss maintenance (step 1 rewritten). Effort raised to large, since the fix needs both the server and the window. Not checked: which MetaStation maintenance areas meet over open tiles; that they do is from the usual map layout, so the warning in step 1 is "likely", not run.

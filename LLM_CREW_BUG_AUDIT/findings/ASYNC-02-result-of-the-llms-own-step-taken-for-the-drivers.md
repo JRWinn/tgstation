@@ -3,10 +3,11 @@ id: ASYNC-02
 title: The answer to a step the LLM took is read as the answer to the driver's step, because answers are matched by tool name only
 kind: bug
 severity: medium
-effort: medium
+effort: large
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:943, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1512, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1766, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1915, code/modules/llm_crew/crew_npc_tools.dm:129, code/modules/llm_crew/crew_npc_hands.dm:161
 fix: Send a call number with every tool call, have the server put it on the action_result, and match noteResult on it, or at the least drop lastAct when the LLM sends a call of the same tool

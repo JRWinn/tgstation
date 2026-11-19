@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_forcing.dm:152, code/modules/llm_crew/crew_npc_forcing.dm:204, code/modules/llm_crew/crew_npc_forcing.dm:443, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:380
-fix: Tell the tool who the door is for, and force a door that opens only to the engineer's own ID so that it is left standing open, and do not count a door that will shut by itself as open
+fix: In tool_force_door and force_door_open force a door that opens to the engineer's own ID like any other, count an open door only if it will stay open, and test the way round with no ID, so that "open" is only answered when anyone can walk in
 ---
 
 ## What is wrong
@@ -78,7 +79,7 @@ The honest thing for an engineer to do with a door that opens to it, when the do
 1. **Server.** Give `tool_force_door` a third argument, `for_others` (the window sends `for: 'others'` in the act). When it is set:
    - a door that opens to the body's own ID is not a reason to stop. Skip the `door.allowed(body)` half of the test at line 152 and of the test at line 443. The rest of `force_door_open` already works on such a door.
    - a door standing open counts only if it will stay open: `!door.density && (!door.autoclose || !door.hasPower())`. A door that is open and will shut itself is forced like a shut one: by the time the body is there it has shut. (In `force_door_open`, if it is still open on arrival and has power, wait for it to shut, a few seconds at most, then go on.)
-   - the way-round test at line 209 is skipped. Whether someone else can walk that way is not something the engineer's own route shows.
+   - the way-round test at line 209 is kept, but run with no ID (`access = list()`) in place of `get_access()`. Do not skip it: it was added on purpose for the bar's kitchen door (change log, "An engineer does not force a door that leads only to floor it can walk to already"), and skipped, the engineer would force that door again and let nobody into the bar. With no ID only open ways count, and `route_by_open_door` still passes over a door that happens to stand open.
 2. Keep today's behaviour when `for_others` is not set, for a future case of an engineer forcing a door for its own use.
 3. **Window.** In `planForcing` add `for: 'others'` to the act. In `forcingAfterActing`, read `details.already_open`: with the server change it will only be set for a door that really stands open and will stay so, and the line "the door of the X is open" is then true.
 4. `still_forcing`, the answers and the log lines stay as they are.
@@ -93,3 +94,18 @@ Question for the owner: is a forced door meant to be left open for the rest of t
 - Add a case to the forcing scenario in `tools/llm_crew/sim.ts` (the simulator plays the server): the tool answers TRUE with `already_open`, and the engineer's message must not be sent unless the answer says the door will stay open. As the simulator plays the server, its stand-in for `force_door` needs the new argument too.
 - `tools/llm_crew/security.ts` (the chain end to end, 17 cases): a case where `force_door` comes back ok with `already_open` and each of the three wordings, checking what is sent to the Chief Engineer and on to the officer.
 - In a round: have security declare a warrant on someone standing in an engineering room (Atmospherics or Engineering). `game.log` should show `forced open ... by pulsing a main and a backup power wire and prying it`, and not `was told to force ..., and did not: it opens to its ID`.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- The quotes hold today: the early return at `crew_npc_forcing.dm` about 152-160 answers TRUE with `already_open` for `!door.density` or for a door `allowed(body)` with power and no bolt or weld; the way-round answer is at about 232-235 and its route uses `get_access()` (about 212); `force_door_open` repeats the first test at about 443.
+- `already_open` appears nowhere under `tgui/packages/tgui/interfaces/CrewBrain/` (searched). `forcingAfterActing` in `jobs/forcing.ts` (about 362-405) looks only at `ok` and sends `forceDoneLine` on any success.
+- The chain is real: `force_door` is sent from one place only, `planForcing` in `jobs/forcing.ts` (about 353), and that job only exists because security asked; and the change log's "Not built" list of 2026-11-18 (about line 333) says nobody but a cargo technician or the Captain opens a door for security, so an engineer whose ID opens the room is never asked earlier in the chain.
+- Airlocks have `autoclose = TRUE` (`airlock.dm` 84) and shut 8 seconds after opening at normal speed (`airlock.dm` about 1340), as the write-up says.
+
+Corrections to the fix:
+
+- Because `force_door` is only ever sent for someone else, the `for_others` argument is not needed today: the server can always behave that way, and the fix is then server only (medium). Steps 3 and 6 on the window side become optional.
+- The way-round test must not be skipped (see the mended step 1). Run with no ID, every door on a route it finds is one that stood open at that instant, so for this test pass over a route that crosses any airlock that is open and will shut itself (`!door.density && door.autoclose && door.hasPower() && !door.locked`), not only one the engineer's ID does not open, which is what `route_by_open_door` tests.
+- In `force_door_open`, a door still open on arrival with power: waiting for it to shut, as step 1 says, is right; give the wait a limit (the 8 seconds of the airlock's own timer and a little more) and fall through to the forcing after it.

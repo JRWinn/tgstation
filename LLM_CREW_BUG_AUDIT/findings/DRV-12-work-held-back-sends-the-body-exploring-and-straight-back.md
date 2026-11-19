@@ -3,10 +3,11 @@ id: DRV-12
 title: While a step of its work is held back the body goes exploring or to other work, and the walk back is let off before the step is, so it walks away and back every few seconds
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:582, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:1012, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:539
 fix: Offer no idle explore while work is only held back, and hold back any walk to a place where a step has just failed until that step is let off
