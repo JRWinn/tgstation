@@ -15,6 +15,8 @@ fix: When a warrant is served, have the desk strike it from its own beat and sen
 
 ## What is wrong
 
+See also: SECT-11 (a warrant declared while the officer is out hurt is never given to it after "try again"). Same handover, different fault and fix; SECT-11's fix keeps working with this one's.
+
 A warrant that is being served should be in one pair of hands. When the officer breaks off hurt, the Head of Security takes every warrant into its own hands, but the officer is never told to give them up, and it does not give them up of itself. From then on two crew hold one warrant, each in its own `beat.warrants`. When one of them puts the person in a cell, only the desk's list is struck: the other copy stays, and is served again on the first sight of the person after the cell opens.
 
 A hurt officer still makes arrests "for someone who stands for the cuffs" (arrests.ts header; `serveStep` only refuses force when hurt), and every crew NPC stands for the cuffs (`being_arrested`). So a crew member put in a cell by the Head of Security is cuffed again by the officer the next time it sees them free, and walked back to the brig for a second term on a warrant that was served.

@@ -14,6 +14,8 @@ fix: At the timer, stop it only if someone of that name is standing in the cell,
 
 ## What is wrong
 
+See also: ARR-17 (the `findtext` name match, item 4 of the fix here, frees the person in hand). It is the second fault named here, written up with a case that bites today; it can be fixed alone. Note ARR-17 would leave the order of the checks in `tool_free` as it is, where step 1 here moves the sight checks first: whoever builds both should take this order.
+
 The server keeps `jailed`: the name of everyone this body has put in a cell, with the cell. An entry is added in `put_in_cell` and taken away only when this same body lets them out (`set_free`) or finds nothing holding them (`tool_free`'s last lines). It is not taken away when the cell's time runs out, or when anyone else stops the timer. So after a prisoner's time is up the entry stays for the rest of the round, pointing at a cell that is then given to the next prisoner.
 
 `tool_free` goes by that entry before it looks at who is in front of it, and `set_free` then stops the timer of that cell whoever is inside:

@@ -14,6 +14,8 @@ fix: Give the body one general way to be arrested by anyone it answers to, read 
 
 ## What is wrong
 
+See also: HOLE-16 (a crew member jailed in a cell by a player does not know it is a prisoner). Not the same fault: that one is the cell, fixed in `look_around` from a running cell timer; this one is the arrest before it, read from words and cuffs. Each can be built alone.
+
 The security plan's rule for a crew member under arrest is "It never fights, runs or hides" (`LLM_CREW_PLAN_SECURITY.md:287`). The code keeps that rule only for arrests the crew's own officer makes. Then the officer's server tool calls `being_arrested` on the prisoner's controller directly (CHEAT-04 writes up that channel), which stops its errand and walk and holds it still.
 
 An arrest by a person is only words and handcuffs, and the crew code does very little with either:

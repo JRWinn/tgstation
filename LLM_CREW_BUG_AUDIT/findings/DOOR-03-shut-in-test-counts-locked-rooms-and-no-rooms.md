@@ -14,6 +14,8 @@ fix: In check_shut_in leave out rooms locked to the body, never conclude shut in
 
 ## What is wrong
 
+See also: KNA-28 (the round-start "no way out" of the Custodial Closet). Its last step is item 2 here, the shut-in test with no room to test, and it has the round log lines for it (round-13.32.16, "tested whether it is shut in Custodial Closet ... found no way out"); its main cause, a walk to a sealed part of a room picked by `place_spot`, is a separate fault.
+
 `check_shut_in` decides a body is shut in when it finds no route to the nearest three rooms in `visited_places`. Three things make that wrong.
 
 1. **The rooms it tests include rooms that are locked to the body.** `visited_places` holds every room the body has stood in, and rooms it was let into are among them (`door_opened_for` adds them, `note_place` adds them). A route to a locked room is never found. So a locked room among the nearest three is a wasted test, and three of them is a false "shut in".

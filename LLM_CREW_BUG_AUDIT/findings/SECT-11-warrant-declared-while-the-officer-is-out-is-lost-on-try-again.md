@@ -15,6 +15,8 @@ fix: In syncDesk, remember who was serving last time, and when it changes from n
 
 ## What is wrong
 
+See also: TRB-03 (while the officer is out hurt both it and the Head of Security hold each warrant, and the one that did not make the arrest arrests again). Same handover, different fault: here a warrant declared during the break is never given back after "try again"; there no word goes to the other holder when a warrant is served. Each has its own fix.
+
 While the officer is out hurt, the Head of Security serves the warrants itself. `syncDesk` takes each one into its own hands and marks it `given: 'taken'`, as if the officer had it. When the Captain says "try again", `officerOut` is cleared, the next `syncDesk` finds an officer to send and calls `handBack`, which drops the Head of Security's own copies. Nothing sets `given` back. The give task is opened only for `given === 'no'`, so a warrant declared while the officer was out is never given to the officer. Nobody serves it.
 
 Concrete case, run in a script:
