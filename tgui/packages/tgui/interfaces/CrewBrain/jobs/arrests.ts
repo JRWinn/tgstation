@@ -260,6 +260,7 @@ const OPENED_DS = 1800;
  * there, or in a room reached through there, is worth going for again, at once.
  */
 export function doorOpened(brain: NpcBrain, room: string): void {
+  const told = beatOf(brain).cannotTold ?? {};
   for (const warrant of beatOf(brain).warrants) {
     const shut = warrant.shutOut;
     const last = warrant.lastSeen;
@@ -269,6 +270,10 @@ export function doorOpened(brain: NpcBrain, room: string): void {
       last?.place === room ||
       (last && doorFor(brain, last.place) === room)
     ) {
+      // A room locked again after this is told of again.
+      for (const place of [room, shut?.door, shut?.place]) {
+        delete told[`${warrant.name}|nobody has opened the ${place} for security`];
+      }
       warrant.shutOut = undefined;
       warrant.opened = { place: room, at: brain.now };
       warrant.lookedAt = null;
@@ -462,6 +467,14 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   // get into. Left unsaid, the Captain waits on an arrest that is not coming.
   beat.cannotTold ??= {};
   const told = beat.cannotTold;
+  // Once a warrant, not once a round: what was told of a warrant now gone (served, pardoned,
+  // handed back) is forgotten, so a second warrant on the same person is told afresh.
+  for (const key of Object.keys(told)) {
+    const name = key.slice(0, key.indexOf('|'));
+    if (!beat.warrants.some((it) => it.name === name)) {
+      delete told[key];
+    }
+  }
   const cannot = (name: string, why: string) => {
     const key = `${name}|${why}`;
     if (told[key] === undefined) {

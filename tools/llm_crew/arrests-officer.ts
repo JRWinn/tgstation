@@ -237,6 +237,31 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add('TRB-02: a warrant handed back (not pardoned) does not let its prisoner go', A.beatOf(f.o).toFree, []);
 }
 
+// ---- TRB-09: why a warrant cannot be served is told once a warrant, not once a round
+{
+  const shutOut = (o: any) => {
+    A.beatOf(o).warrants[0].shutOut = { place: 'Bar', at: o.now, keepers: ['Zim Fire'], asked: ['Zim Fire'], askedAt: 0, door: 'Bar', gaveUp: true };
+  };
+  const f = wanted('Cargo Bay', 'Bar Lounge');
+  f.o.peopleInView = [];
+  shutOut(f.o);
+  A.syncBeat(f.o);
+  const why = [{ what: 'cannot', name: 'Pun Pun', why: 'nobody has opened the Bar for security' }];
+  add('TRB-09: a room nobody opened is told', A.takeOutcomes(f.o), why);
+  A.syncBeat(f.o);
+  add('TRB-09: once', A.takeOutcomes(f.o), []);
+  A.doorOpened(f.o, 'Bar');
+  shutOut(f.o);
+  A.syncBeat(f.o);
+  add('TRB-09: opened, then locked again: told again', A.takeOutcomes(f.o), why);
+  A.dropWarrant(f.o, 'Pun Pun', false);
+  A.syncBeat(f.o);
+  A.giveWarrant(f.o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  shutOut(f.o);
+  A.syncBeat(f.o);
+  add('TRB-09: a second warrant on the same person meets the same door: told again', A.takeOutcomes(f.o), why);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
