@@ -72,6 +72,12 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   hear(b, 'I am here to collect crate 12.');
   add('a number that is no crate: told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number.']);
 }
+{
+  const b = tech([{ number: 37, for: CAPTAIN.name }]);
+  hear(b, 'I am here to collect crate 9999.');
+  add('a wrong number from one with a crate held: not handed his own instead', b.pickupAsked?.number ?? null, null);
+  add('and told so by that number', b.toTell.map((it: any) => it.line), ['Sorry, Hedley, I am not holding a crate by that number.']);
+}
 
 {
   // CARGO-13, the technician's side: a collecting line said to a workmate lying at the counter.

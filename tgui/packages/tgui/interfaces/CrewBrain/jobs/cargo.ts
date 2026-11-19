@@ -463,9 +463,9 @@ function cratesWritten(numbers: number[]): string {
 /**
  * The held crate someone at the counter means. It goes by the number they gave. With no number, or
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
- * that name, and for a head their job will do as well. Failing those, the one crate held for
- * whoever is asking: "I'm here for my crate" from the one it is for (CARGO-08). With several held
- * for them and no number, it does not pick: they are asked which.
+ * that name, and for a head their job will do as well. With no number given, the one crate held
+ * for whoever is asking comes first: "I'm here for my crate" from the one it is for (CARGO-08).
+ * With several held for them and no number, it does not pick: they are asked which.
  */
 function crateMeant(
   brain: NpcBrain,
@@ -480,7 +480,8 @@ function crateMeant(
   if (named) {
     return named;
   }
-  const theirs = heldFor(brain, speaker);
+  // Only when no number was given: one who gave a wrong number is told so, not handed another.
+  const theirs = number === null ? heldFor(brain, speaker) : [];
   if (theirs.length === 1) {
     return theirs[0];
   }
