@@ -1145,6 +1145,8 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
         ready: true,
         step: `${by} is attacking you, and you have no baton to stop them with. You are getting out of their reach and going to the security lockers for one.`,
         act: { tool: 'get_kit' },
+        // Getting out of reach breaks off an arrest under way (ARR-08).
+        breaksIn: true,
       };
     }
     const post = brain.post ?? brigPlace(brain);
@@ -1153,6 +1155,7 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
         ready: true,
         step: `${by} is attacking you, and you cannot stop them${beat.hurt ? ': you are hurt' : ''}. You are getting out of their reach, back to the ${post}.`,
         act: { tool: 'go_to', place: post },
+        breaksIn: true,
       };
     }
     return {
