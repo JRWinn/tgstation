@@ -95,6 +95,8 @@ const PENDING_MAX_LINES = 30;
  * backstop for when it does not. A fellow NPC of this window gets one reply, then waits for quiet.
  */
 const MAX_REPLIES_PER_TALK = 6;
+/** How long the driver waits after a line its work asked for was not needed, before it asks again. */
+const DROPPED_LINE_PAUSE_MS = 2500;
 /** The span (deciseconds of server time) over which replies to someone who is not a fellow NPC are counted. */
 const REPLY_WINDOW_DS = 600;
 /** A speaker who has been quiet this long (deciseconds of server time) starts a fresh conversation. */
@@ -1436,6 +1438,14 @@ async function chooseJob(brain: NpcBrain): Promise<void> {
   pump();
 }
 
+/** Holds the driver off a while after a line its work asked for turned out not to be needed (BRAIN-03). */
+function holdDriverAfterDrop(brain: NpcBrain): void {
+  brain.driveAfter = Math.max(
+    brain.driveAfter,
+    Date.now() + DROPPED_LINE_PAUSE_MS,
+  );
+}
+
 /** Asks the LLM what one NPC does about its pending sense reports, then carries out its tool calls. */
 async function think(brain: NpcBrain): Promise<void> {
   const mySession = session;
@@ -1443,6 +1453,12 @@ async function think(brain: NpcBrain): Promise<void> {
   // workmate asked the question first, say. With nothing else to answer, it says nothing at all.
   if (brain.mustSay !== null && brain.mustSayIf && !brain.mustSayIf()) {
     brain.mustSay = null;
+    brain.mustSayNeeds = null;
+    brain.mustSayIf = null;
+    brain.mustSayExact = false;
+    // Its work would ask for the same line again on the next update, and the server sends one
+    // after every tool call: without a pause the two go round as fast as they can talk.
+    holdDriverAfterDrop(brain);
     if (brain.pending.length === 0 && brain.pendingSpeakers.size === 0) {
       brain.wake = false;
       brain.status = 'idle';
@@ -1549,6 +1565,10 @@ async function think(brain: NpcBrain): Promise<void> {
     const dropped = mustSay !== null && !!mustSayIf && !mustSayIf();
     if (dropped) {
       mustSay = null;
+      // Its work would ask for the same line again on the next update: it is left a while first.
+      if (speakers.length === 0) {
+        holdDriverAfterDrop(brain);
+      }
     }
     // Nor is a line said that is only the model's way of saying it has nothing to say.
     const unprompted = speakers.length === 0 && !mustSay;
