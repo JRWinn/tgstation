@@ -80,7 +80,7 @@ Read from the code. The memory loss on a tgui rebuild was seen by the owner befo
 
 ## How to fix it
 
-Three parts. The first is the one that matters.
+Six parts. The first is the one that matters; 4 is small and can go first on its own.
 
 1. **Keep each brain's lasting memory on the server, and give it back.**
    - In the window, write `snapshot(brain)` in a new file `persist.ts`: a plain object of the fields that are worth keeping across a restart. Keep: `tasks` and `nextTaskId`, `notes`, `feelings`, `places`, `people`, `desk`, `beat`, `wanted`, `ledger`, `asks`, `requisition`, `pickups`, `summons`, `meeting`, `nextMeetingAt`, `metOnce`, `workReported`, `lateWork`, `duties`, `sentToQm`, `givenOrder`, `engine`, `chief`, `keptOut`, `janitorCalls`, `toldHeadAt`, `suppliesAt`, `lastSeq`, `bornAt`. Drop everything that is about this second: `failures`, `lastAct`, `driveAfter`, `mustSay`, `pending`, `talks`, `choosing`, `status`. `Map` and `Set` fields are written as arrays.
@@ -112,3 +112,15 @@ Questions for the owner:
 - A test that calls `stopSession()` and then `ingest` again in the same module and checks the five stray maps are empty.
 - Type check and server compile.
 - In a round: declare a warrant, close the window while the officer is walking, open it with the verb. `game.log` should show the "closed" and "opened" lines, and `pda.log` the Head of Security's "in cuffs" word to the Captain.
+
+## Check
+
+Checked by Opus 5.5, read from the code, not tried in a round.
+
+- The quotes are what the code says today: `useEffect(() => stopSession, [])` at `index.tsx:93`, `brains.clear()` in `stopSession` (`brain.ts:198`), `lastSeq: npc.acked_seq` in the new brain made in `ingest` (`brain.ts:242`), `bornAt: now` and `nextMeetingAt: 0` (`brain.ts:363`, `369`), `workReported: {}` (`brain.ts:264`), and `brain.nextMeetingAt = brain.bornAt + way.firstAt` (`jobs/head.ts:528`).
+- Nothing keeps the brain anywhere else: no `localStorage`, snapshot or save action under `CrewBrain/`, and no `ui_close`, save action or reconnect hook in `code/modules/llm_crew/`. `ui_data` in `crew_brain_link.dm` sends the body's state, the last sense events and the order book, nothing that is the brain's own memory.
+- `/mob/Logout` calls `SStgui.on_logout` (`code/modules/mob/logout.dm:4`), which closes every window of that user (`code/controllers/subsystem/tgui.dm:370`). The only way back is the `Crew Brain` admin verb (`crew_npc_spawn.dm:150`).
+- The officer's arrest plan walks only `beat.warrants` (`jobs/arrests.ts`), so with a new, empty list it has nothing to do with a prisoner it already holds, as the write-up says.
+- Searched `LLM_CREW_CHANGELOG.md`, the plans and the brief: no entry fixes this or chooses it. The brief's decision 9 chose wandering for a dead model, not a blank memory on reopening.
+- Mended: the stray maps carry over only when the pooled page is used again, and `puttingBack` is keyed by task id. Added the chunk limit on `ui_act`, which the proposed 60,000-character cap would have passed. Folded in from GAP-12 the brief's wording, the plans that saw the need, the server-side "gone quiet" step, the paper warrant list question and its sim case.
+- Severity stays critical: FORMAT.md lists "the window ... loses its memory" as critical, and a client hiccup is enough to do it. Effort large: both sides.

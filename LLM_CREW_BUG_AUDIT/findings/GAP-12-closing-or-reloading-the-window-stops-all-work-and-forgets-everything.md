@@ -5,8 +5,10 @@ kind: gap
 severity: high
 effort: large
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: HOLE-02
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:198, code/modules/llm_crew/crew_brain_link.dm:76, code/modules/llm_crew/crew_npc_controller.dm:1, LLM_CREW_BRIEF.md:19
 fix: Keep on the server the few records that must outlive the window (warrants and who is in a cell, who is inside a locked room, orders in hand), hand them back when a brain is made, and have the server finish or let go of what a body is holding when its window goes quiet
@@ -74,3 +76,7 @@ Question for the owner: is a paper warrant list on the Head of Security's clipbo
 - Simulator: `tools/llm_crew/sim.ts` can call `stopSession()` and go on feeding the same server state. Add a scenario `reload`: a warrant is declared, the session is stopped and started, and the officer still goes for the wanted person; a janitor inside the bay when the session restarts is not questioned and is let out when it asks.
 - Type check, server compile.
 - In a round: close the Crew Brain window for a minute with an order in hand and a warrant standing, reopen it (the "Crew Brain" admin verb), and read `game.log` and `pda.log` for the next five minutes.
+
+## Check
+
+Checked by Opus 5.5, read from the code. The same fault as HOLE-02: one cause (every brain's plans and memory live only in the window's module state, emptied by `stopSession` in `brain.ts` or by a new page) and one change puts it right (keep the lasting memory on the server and give it back when a brain is made). HOLE-02 keeps the write-up. The quotes here were checked and hold (`crew_npc_controller.dm:4`, `brain.ts:197`, `ui_data` in `crew_brain_link.dm`, the plans' lines on the order book and the trail). What only this file had was copied into HOLE-02: the brief's decision 9 and its check at `LLM_CREW_BRIEF.md:105`, the trail plan line, "It is the only copy", the server-side "gone quiet" step, the paper warrant list question and the janitor-in-the-bay sim case. One correction not made here, since the body is left as it is: `puttingBack` (`jobs/janitor.ts:127`) is keyed by task id, not NPC id.
