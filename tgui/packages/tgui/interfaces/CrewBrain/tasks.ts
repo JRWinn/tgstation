@@ -47,6 +47,8 @@ const KEEP_DONE_DS = 6000;
 const GIVE_UP_DS = 18000;
 /** Most tasks listed to the LLM. */
 const TASKS_SHOWN = 4;
+/** How many of the latest lines of whoever told it of work are read for that work. */
+const ORDER_LINES = 2;
 /** What "work" says when the NPC was told of no work. */
 export const WORK_NOTHING = 'nothing';
 /** Where "work" says the work is when there is none, or it cannot tell which room was meant. */
@@ -238,14 +240,25 @@ export function workInWords(
   toldBy: string | undefined,
   /** TRUE if whoever said it is someone the NPC answers to. */
   fromSuperior = false,
+  /**
+   * The report lines that were said to this NPC, if known. Only those are read: an order the
+   * Captain gave someone else, heard a minute before he spoke to this one, is not its order.
+   */
+  forMe?: ReadonlySet<string>,
 ): Task | null {
   const job = jobFor(brain.job);
   // Only what people said, which the report gives in double quotes. And where it is known who
   // told it of the work, only what they said: a room someone else named in the same breath is not
   // the room it was sent to.
-  const spoken = report.filter((line) => line.includes('(person '));
+  const spoken = report.filter(
+    (line) => line.includes('(person ') && (!forMe || forMe.has(line)),
+  );
+  // Of what they said, only the latest: an order is what was just said, not something said a
+  // minute ago and let pass.
   const theirs = toldBy
-    ? spoken.filter((line) => line.includes(`] ${toldBy} says: `))
+    ? spoken
+        .filter((line) => line.includes(`] ${toldBy} says: `))
+        .slice(-ORDER_LINES)
     : [];
   const heard = (theirs.length > 0 ? theirs : spoken)
     .flatMap((line) => line.match(/"[^"]*"/g) ?? [])

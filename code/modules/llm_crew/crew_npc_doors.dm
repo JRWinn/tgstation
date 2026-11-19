@@ -589,18 +589,17 @@
 	if(isnull(room))
 		return list(FALSE, "You have lost track of which room the door was for.")
 	var/inside = get_area(person) == room
-	door.autoclose = FALSE
-	if(door.density && !door.open())
-		door.autoclose = TRUE
+	// Opened as a player opens it: a click with an empty hand, from beside it. The door makes its
+	// own checks, and shuts itself after its own few seconds. One standing open already is left
+	// open: a click would shut it.
+	if(door.density && !click_door(door, TRUE))
 		return list(FALSE, "The door will not open for you.")
-	// The door shuts behind them the moment they are through, so that nobody else walks in after.
-	// Failing that, it shuts when it has been held long enough. If it is being held for someone
-	// else as well, whoever has longest to go is the one it shuts behind.
+	// It stays by the door while it is wanted open, opens it again if it shuts too soon, and shuts
+	// it behind them once they are through. If it is being held for someone else as well, whoever
+	// has longest to go is the one it shuts behind.
 	var/held_until = world.time + CREW_NPC_DOOR_HELD
 	GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
 	watch_door(WEAKREF(door), WEAKREF(person), inside, held_until, room)
-	// Having opened it, the body gets out of the doorway and back to where it works.
-	addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) opened [door] to let [key_name(person)] [inside ? "out of" : "into"] [room_name].")
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
@@ -657,10 +656,15 @@
 		// Held for someone else too, who came to it later and is not through yet: one janitor going
 		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
 		if(GLOB.crew_npc_door_holds[REF(door)] > until)
+			addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 			return
 		GLOB.crew_npc_door_holds -= REF(door)
 		let_door_close(door_ref)
 		return
+	// The door has shut itself before they are through: it is opened again, from beside it. A body
+	// that has been called away from the door is no longer there to.
+	if(door.density && !door.operating && !QDELETED(pawn) && pawn.Adjacent(door))
+		INVOKE_ASYNC(src, PROC_REF(click_door), door, TRUE)
 	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room, extended), CREW_NPC_DOOR_WATCH)
 
 /// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
@@ -815,14 +819,47 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		return
 	start_walk(post_turf, CREW_TOOL_RETURN, post_place, CREW_NPC_WALK_TIMEOUT)
 
-/// Lets a door the body was holding open shut again.
+/**
+ * Shuts a door the body was holding open, with a click, if it is still beside it; and then the
+ * body gets back to where it works. Called away from the door, it leaves the door to shut itself,
+ * as it would for anyone.
+ */
 /datum/ai_controller/crew_npc/proc/let_door_close(datum/weakref/door_ref)
-	var/obj/machinery/door/airlock/door = door_ref?.resolve()
-	if(QDELETED(door))
+	if(QDELETED(src) || QDELETED(pawn))
 		return
-	door.autoclose = TRUE
-	if(!door.density)
-		INVOKE_ASYNC(door, TYPE_PROC_REF(/obj/machinery/door, close))
+	var/obj/machinery/door/airlock/door = door_ref?.resolve()
+	if(!QDELETED(door) && !door.density && !door.operating && pawn.Adjacent(door))
+		INVOKE_ASYNC(src, PROC_REF(click_door), door, FALSE)
+	addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 1 SECONDS)
+
+/**
+ * Clicks a door open or shut, with an empty hand, from beside it: the door makes its own checks of
+ * access, bolts and power. A door already as wanted is not clicked, since a click would undo it.
+ * Sleeps. Returns TRUE if the door ends up open (or shut) as wanted.
+ */
+/datum/ai_controller/crew_npc/proc/click_door(obj/machinery/door/airlock/door, open)
+	if(QDELETED(door) || door.operating)
+		return FALSE
+	if(door.density != open)
+		return TRUE
+	if(!empty_clicking_hand())
+		return FALSE
+	// A moment to reach for it. Looked at again after, in case it has moved by itself meanwhile.
+	sleep(0.5 SECONDS)
+	if(QDELETED(src) || QDELETED(door) || door.operating)
+		return FALSE
+	if(door.density != open)
+		return TRUE
+	if(!click_as_body(door, null, 0))
+		return FALSE
+	// The door takes a moment to open or shut.
+	for(var/i in 1 to 8)
+		if(QDELETED(door))
+			return FALSE
+		if(door.density != open && !door.operating)
+			return TRUE
+		sleep(0.25 SECONDS)
+	return !QDELETED(door) && door.density != open
 
 /// Someone has opened a door for this body and is holding it. It learns the way through and that it had better go now.
 /datum/ai_controller/crew_npc/proc/door_opened_for(mob/living/carbon/human/opener, place, turf/spot, obj/machinery/door/airlock/door)

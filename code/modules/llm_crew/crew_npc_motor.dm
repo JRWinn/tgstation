@@ -2,6 +2,9 @@
  * Behavior tree leaves for crew NPCs. These carry out actions and default behavior; they never choose goals.
  */
 
+/// How many times running a walking body walks into the same person from the same tile before it takes it that they are in its way.
+#define CREW_NPC_BLOCKED_BUMPS 4
+
 /// Default wandering for crew NPCs. Unlike the generic wander it will not walk the body into places that kill it.
 /datum/bt_node/ai_behavior/idle_random_walk/crew_npc
 
@@ -55,6 +58,9 @@
 /// Pathfinding for crew NPCs. Crew walk across the whole station, far beyond the reach AI mobs normally need.
 /datum/ai_movement/navmap_astar/crew_npc
 	maximum_length = CREW_NPC_MAX_PATH_LENGTH
+	// Straight steps only. People are got past by swapping places with them, and the game swaps
+	// only head-on: a diagonal step into someone just stops.
+	diagonal_flags = DIAGONAL_REMOVE_ALL
 
 /datum/ai_movement/navmap_astar/crew_npc/start_moving_towards(datum/ai_controller/controller, atom/current_movement_target, min_distance, delay_override)
 	var/datum/move_loop/loop = ..()
@@ -90,6 +96,10 @@
 	walking_to_ref = WEAKREF(controller.blackboard[target_key])
 	started_at = world.time
 	fail_reason = null
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	if(istype(crew_controller))
+		crew_controller.blocked_by = null
+		crew_controller.blocked_bumps = 0
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/atom/target = controller.blackboard[target_key]
@@ -129,6 +139,15 @@
 		// or the counter of a post, there is no better place to stop, and close is close enough.
 		else if(!crew_npc_clear_of_doors(target) || crew_npc_clear_of_doors(hauler))
 			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
+	// Someone it cannot get past is standing in its way: in combat mode, holding a prisoner, or the
+	// body is on walk intent. It is stopped, as a player would be, and it knows who by. The route
+	// planner does not see people, so planning again only walks it into them again.
+	var/mob/living/blocker = crew_controller.blocked_by?.resolve()
+	if(!QDELETED(blocker) && crew_controller.blocked_bumps >= CREW_NPC_BLOCKED_BUMPS && world.time - crew_controller.blocked_at < 2 SECONDS && get_turf(puller) == crew_controller.blocked_from && blocker != target && blocker != puller.pulling)
+		fail_reason = "[blocker.name] is standing in your way"
+		crew_controller.blocked_by = null
+		crew_controller.blocked_bumps = 0
+		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	if(movement_failed)
 		fail_reason = CREW_NPC_NO_WAY
 	return ..()
@@ -142,3 +161,5 @@
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	if(istype(crew_controller))
 		crew_controller.walk_finished(finished_target, succeeded, reason)
+
+#undef CREW_NPC_BLOCKED_BUMPS

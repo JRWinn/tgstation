@@ -14,6 +14,8 @@
 
 /// How long a body that has just cleared its way of a crate leaves it before it will clear its way again.
 #define CREW_NPC_WAY_CLEAR_AGAIN (1 MINUTES)
+/// Longest a body that has taken a crate up again waits for whoever it caught on to step aside. It sets off sooner if they do.
+#define CREW_NPC_WAY_WAIT (8 SECONDS)
 
 /// Writes what the body did about a crate to the round's game log.
 /datum/ai_controller/crew_npc/proc/log_haul(text)
@@ -116,8 +118,23 @@
 
 /// Having taken a crate up again, gives whoever it caught on a moment to get out of the way before setting off with it.
 /datum/ai_controller/crew_npc/proc/wait_for_way(obj/structure/closet/crate/crate)
-	if(haul_tries && !isnull(who_is_in_the_way(crate)))
-		stand_still(CREW_NPC_REGRIP_WAIT)
+	if(!haul_tries || isnull(who_is_in_the_way(crate)))
+		return
+	// Long enough to be asked and to move. It sets off as soon as they have.
+	var/held_until = world.time + CREW_NPC_WAY_WAIT
+	stand_still(CREW_NPC_WAY_WAIT)
+	if(talk_hold_until == held_until)
+		addtimer(CALLBACK(src, PROC_REF(watch_way), WEAKREF(crate), errand_serial, held_until), 0.5 SECONDS)
+
+/// Ends the wait for the way the moment nobody is in it. Only the wait it set: a hold for talk, set since, is left alone.
+/datum/ai_controller/crew_npc/proc/watch_way(datum/weakref/crate_ref, serial, held_until)
+	if(QDELETED(src) || QDELETED(pawn) || errand_serial != serial || talk_hold_until != held_until || world.time >= held_until)
+		return
+	var/obj/structure/closet/crate/crate = crate_ref.resolve()
+	if(QDELETED(crate) || isnull(who_is_in_the_way(crate)))
+		talk_hold_until = world.time
+		return
+	addtimer(CALLBACK(src, PROC_REF(watch_way), crate_ref, serial, held_until), 0.5 SECONDS)
 
 /**
  * Gives a haul up and sets about putting the crate where it is in nobody's way. Returns TRUE if
@@ -490,3 +507,4 @@
 	start_walk(target, tool, goal, timeout)
 
 #undef CREW_NPC_WAY_CLEAR_AGAIN
+#undef CREW_NPC_WAY_WAIT

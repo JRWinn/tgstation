@@ -119,6 +119,14 @@
 	var/checking_shut_in = FALSE
 	/// world.time until which the body stands still because it is talking with someone.
 	var/talk_hold_until = 0
+	/// Weak reference to whoever the body last walked into and did not get past.
+	var/datum/weakref/blocked_by
+	/// The tile the body walked into them from.
+	var/turf/blocked_from
+	/// How many times running it has walked into them from that tile.
+	var/blocked_bumps = 0
+	/// world.time it last walked into them.
+	var/blocked_at = 0
 	/// world.time until which a door someone opened for the body is being held open.
 	var/door_held_until = 0
 	/// world.time until which a door is being held open for the body to leave the room it is in.
@@ -288,19 +296,36 @@
 	var/mob/living/carbon/human/human_pawn = new_pawn
 	RegisterSignal(human_pawn, COMSIG_MOB_MOVESPEED_UPDATED, PROC_REF(update_movespeed))
 	movement_delay = human_pawn.cached_multiplicative_slowdown
-	// Routes are planned as if nobody were in the way, and bodies only swap places head-on, never on
-	// a diagonal. Several NPCs in one small room would jam solid. Letting them step past people fixes that.
-	human_pawn.pass_flags |= PASSMOB
+	// A body gets past people as a player does: by walking into them and swapping places, which the
+	// game allows only head-on (see the crew movement datum, whose routes have no diagonal steps),
+	// and not with someone in combat mode, holding a prisoner, or on walk intent. Who stops it is noted.
+	RegisterSignal(human_pawn, COMSIG_MOVABLE_BUMP, PROC_REF(on_bump))
 	start_senses(human_pawn)
 	return ..()
 
 /datum/ai_controller/crew_npc/UnpossessPawn(destroy)
 	if(!isnull(pawn))
-		UnregisterSignal(pawn, COMSIG_MOB_MOVESPEED_UPDATED)
-		var/mob/living/carbon/human/human_pawn = pawn
-		human_pawn.pass_flags &= ~PASSMOB
+		UnregisterSignal(pawn, list(COMSIG_MOB_MOVESPEED_UPDATED, COMSIG_MOVABLE_BUMP))
 		stop_senses(pawn)
+	blocked_by = null
 	return ..()
+
+/**
+ * Notes who the body walked into, and how many times running it has walked into them from the
+ * same tile: a swap that went through moves the body, so only being stopped counts up.
+ */
+/datum/ai_controller/crew_npc/proc/on_bump(datum/source, atom/bumped)
+	SIGNAL_HANDLER
+	if(!isliving(bumped))
+		return
+	var/turf/here = get_turf(pawn)
+	if(blocked_by?.resolve() == bumped && blocked_from == here)
+		blocked_bumps++
+	else
+		blocked_by = WEAKREF(bumped)
+		blocked_from = here
+		blocked_bumps = 1
+	blocked_at = world.time
 
 /datum/ai_controller/crew_npc/setup_able_to_run()
 	. = ..()

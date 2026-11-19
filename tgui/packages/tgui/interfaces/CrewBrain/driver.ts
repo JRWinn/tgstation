@@ -225,15 +225,22 @@ function wayOutOpen(brain: NpcBrain): boolean {
   );
 }
 
-/** TRUE if this step failed lately and is being left alone for now. */
-function inBackoff(brain: NpcBrain, key: string): boolean {
+/** The tools that take the body out of the room it is in, or may. */
+const WALKS = new Set(['go_to', 'go_to_door', 'explore']);
+
+/**
+ * TRUE if this step failed lately and is being left alone for now. `act` is what the step does,
+ * where it is known: null for a step that only says something.
+ */
+function inBackoff(brain: NpcBrain, key: string, act?: Action | null): boolean {
   // Shut in and seeing a door stand open, everything is worth trying again this instant.
   if (wayOutOpen(brain)) {
     return false;
   }
   // Likewise while someone is holding a door for it: that will not last, and a walk that failed
-  // a moment before the door opened says nothing about one made now.
-  if (brain.doorHeld) {
+  // a moment before the door opened says nothing about one made now. A clean that came to nothing
+  // in the room it stands in is no more worth trying for a door being opened across the room.
+  if (brain.doorHeld && (act === undefined || (!!act && WALKS.has(act.tool)))) {
     return false;
   }
   const failure = brain.failures.get(key);
@@ -468,18 +475,10 @@ export function nextStep(brain: NpcBrain): Step | null {
   }
 
   // Someone was standing where a crate could not get past them. They are asked to step aside.
-  const blocker =
-    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
-      ? brain.peopleInView.find(
-          (person) => person.handle === brain.inTheWay?.handle,
-        )
-      : undefined;
-  if (blocker && !inBackoff(brain, ASIDE_KEY)) {
-    return {
-      key: ASIDE_KEY,
-      text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. In "say", ask ${blocker.name} politely to step aside.`,
-      say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
-    };
+  // Most often this is asked while the body is still taking the crate up again: see "drive".
+  const askedAside = askAside(brain);
+  if (askedAside) {
+    return askedAside;
   }
 
   // Whoever asked for something is told when it is done, the next time they are in view.
@@ -536,18 +535,35 @@ export function nextStep(brain: NpcBrain): Step | null {
       continue;
     }
     const key = keyOf(task, plan.act, plan.say);
-    if (inBackoff(brain, key) || inBackoff(brain, jobKey(task.id))) {
+    const act = plan.act ?? null;
+    if (inBackoff(brain, key, act) || inBackoff(brain, jobKey(task.id), act)) {
       heldBack = true;
       continue;
     }
     ready.push({ task, plan, key });
   }
-  // A door being held open for it will not stay open. Whatever it was let in for comes first.
+  // A door being held open for it will not stay open. Whatever it was let in for comes first:
+  // work in the room the door is the door of, or the walk through it to a room beyond. It is not
+  // put to the LLM as a choice, either: the door would shut while it made up its mind.
   const through = brain.doorHeld
-    ? ready.findIndex(({ task }) => task.place === brain.doorHeldFor)
+    ? ready.findIndex(
+        ({ task, plan }) =>
+          task.place === brain.doorHeldFor ||
+          (plan.act?.tool === 'go_to' && plan.act.place === brain.doorHeldFor),
+      )
     : -1;
-  if (through > 0) {
-    ready.unshift(...ready.splice(through, 1));
+  if (through >= 0) {
+    const { task, plan, key } = ready[through];
+    return {
+      key,
+      text: plan.step,
+      act: plan.act,
+      say: plan.say,
+      needs: plan.needs,
+      sayIf: plan.sayIf,
+      exact: plan.exact,
+      task: task.id,
+    };
   }
   if (ready.length > 0) {
     // What will not wait is done in the code's own order. Which of its routine work comes first
@@ -621,6 +637,29 @@ export function nextStep(brain: NpcBrain): Step | null {
       inTheWay,
     act: idle,
     idle: true,
+  };
+}
+
+/**
+ * Asking whoever a crate caught on to step aside, if someone did lately and is still in view, and
+ * it has not just asked. Said word for word: the other body moves on hearing the words, and a
+ * line of the LLM's own about something else asks nobody to move.
+ */
+function askAside(brain: NpcBrain): Step | null {
+  const blocker =
+    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
+      ? brain.peopleInView.find(
+          (person) => person.handle === brain.inTheWay?.handle,
+        )
+      : undefined;
+  if (!blocker || inBackoff(brain, ASIDE_KEY)) {
+    return null;
+  }
+  return {
+    key: ASIDE_KEY,
+    text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. You are asking ${blocker.name} to step aside.`,
+    say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
+    exact: true,
   };
 }
 
@@ -722,6 +761,17 @@ export function drive(
       speak(quick.line, quick.needs, undefined, quick.exact);
       noteDone(brain, step);
       return step;
+    }
+  }
+  // Its crate caught on someone, and the body is already going back to take it up again: whoever
+  // it caught on is asked to step aside now, while there is still a haul to get past them.
+  if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
+    const aside = askAside(brain);
+    if (aside?.say) {
+      fail(brain, aside.key);
+      speak(aside.say, undefined, undefined, true);
+      noteDone(brain, aside);
+      return aside;
     }
   }
   // In the middle of something, it carries on, unless someone it answers to has ordered otherwise.
@@ -879,6 +929,11 @@ function noteDone(brain: NpcBrain, step: Step): void {
   }
   if (step.tells) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
+  }
+  // Once asked to step aside, they have been asked. A new lost grip on them notes them again;
+  // left standing, the note would be said again in the next haul, to someone in its way no more.
+  if (step.key === ASIDE_KEY) {
+    brain.inTheWay = null;
   }
   // It steps aside once for one asking, whether or not it found anywhere to step to.
   if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
