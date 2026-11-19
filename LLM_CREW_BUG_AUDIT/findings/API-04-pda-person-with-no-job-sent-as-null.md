@@ -2,21 +2,22 @@
 id: API-04
 title: A PDA with a name and no job is sent to the window with job null, and a head's brain then throws on every update
 kind: bug
-severity: high
+severity: low
 effort: small
 confidence: likely
-status: found
+status: refuted
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_cargo.dm:679, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:193, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:211, tgui/packages/tgui/interfaces/CrewBrain/types.ts:280
-fix: Send "job" = candidate.computer.saved_job || "" from people_on_pda (and skip PDAs the messenger itself would not list), and read person.job ?? '' in the window
+fix: None needed - GLOB.pda_messengers never holds a messenger whose PDA has no saved_job, so people_on_pda cannot send job null
 ---
 
 ## What is wrong
 
 See also: DRV-06, which shows what any error thrown in `ingest` costs (the React tree unmounts, `stopSession` empties every brain) and asks for a concrete throw. This is one: a field the server sends as null where the window calls a string method.
 
-`people_on_pda` lists every messenger on the station level that has a `saved_identification`, and sends its `saved_job` as the job. It never checks that the job is set. A modular computer can carry a name and no job: `imprint_id` sets `saved_job = job_name || stored_id?.assignment || saved_job`, so a PDA imprinted from an ID card whose `assignment` is empty (a card given a name at the ID console and no job, an agent card, a fresh PDA imprinted by its own "imprint" button from such a card) has a name and a null job. The base game's own messenger leaves such PDAs out of its contact list (`messenger_data.dm:12`: `if(!messenger_device.saved_identification || !messenger_device.saved_job)`); ours does not.
+`people_on_pda` lists every messenger on the station level that has a `saved_identification`, and sends its `saved_job` as the job. It never checks that the job is set. A modular computer can carry a name and no job: `imprint_id` sets `saved_job = job_name || stored_id?.assignment || saved_job`, so a PDA imprinted from an ID card whose `assignment` is empty (a card given a name at the ID console and no job, an agent card, a fresh PDA imprinted by its own "imprint" button from such a card) has a name and a null job. The base game's own messenger leaves such PDAs out of its contact list (`messenger_data.dm:12`: `if(!messenger_device.saved_identification || !messenger_device.saved_job)`); ours does not. **(Wrong, see Check: that line is in `add_messenger`, which is what puts a messenger into `GLOB.pda_messengers`, the very list `people_on_pda` walks. Such a PDA is never on it.)**
 
 DM sends a null var as JSON `null`. The window's type says `job: string`, and two places call a string method on it:
 

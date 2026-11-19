@@ -33,7 +33,22 @@ One concrete case:
 3. `think` runs with `speakers = [Captain]`, `mustSay = line`, `exact = true`. `buildTalk` takes the `aside` branch. The model adds "Busy morning!" or nothing.
 4. Sam says the Quartermaster's line and the remark. The Captain's reply count goes up, their line is marked reported, `pendingSpeakers` is empty. Sam does not answer and does not order the toolbox. The Captain has to ask again.
 
+A second way to the same end, for a line that is not word for word but has `needs`: the model is asked to answer the speaker and work the line in. If its answer lacks the needed words, the whole answer is thrown away for the plain line (`brain.ts:1409`, `action.text = mustSay`). The speaker's question goes unanswered in the same way, and is counted as replied to. The fix below covers both: in that case too, put the speakers back.
+
 ## Where
+
+`tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1409`, the second way:
+
+      if (mustSay && mustSayNeeds && !exact) {
+        for (const action of actions) {
+          if (
+            action.tool === 'say' &&
+            !mustSayNeeds.test(String(action.text ?? ''))
+          ) {
+            action.text = mustSay;
+          }
+        }
+      }
 
 `tgui/packages/tgui/interfaces/CrewBrain/talk.ts:157`, in `buildTalk`:
 
@@ -76,7 +91,7 @@ Read from the code. Not seen in a round: the brain log shows the aside prompt an
    - skip the `talk.replies++` loop for them.
    The NPC is then queued again at the end of `think` (`if (brain.wake && brain.awake)`), waits out the 4.2-second say cooldown in `startTalk`, and the next call is an ordinary "someone has just spoken to you" call.
 2. When the line is said to one of the speakers (a reading back of an order to whoever gave it, a report to the head who called for it), today's behaviour is right: that line is the answer. Keep it.
-3. Do the same in the `catch` of `think` if the line was exact: the plain line was said, the speakers were not answered.
+3. Do the same in the `catch` of `think` if the line was exact: the plain line was said, the speakers were not answered. And do the same when the `needs` loop at `brain.ts:1409` replaced the model's answer with the plain line while `speakers` was not empty.
 4. Owner's question: should a speaker's request instead be read in the same call (keep the `spokenTo` moment and say the exact line before the answer, as two lines 4 seconds apart)? That costs a longer prompt each time; the fix above costs one more call only when it happens.
 
 ## How to test the fix

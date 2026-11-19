@@ -69,13 +69,38 @@ Read from the code, both sides. Not seen in a round log.
 
 ## How to fix it
 
-1. In `crew_npc_guarding.dm`, give the real "would not go" answers a details field: in `put_out`, `action_result(CREW_TOOL_EVICT, FALSE, "...", list("would_not_go" = TRUE))`, but only when the hold was broken (the walk leaf's reason is "they got away from you", or `reason` is null). A walk out that failed for "there is no way through" or "it was taking too long" is the body's trouble, not the stranger refusing, and should not carry it either; in `take_hold_of`, return a third element or set a var so `finish_errand` adds `list("would_not_go" = TRUE)` for the cannot-get-a-hold case. The simplest is to have `take_hold_of` return `list(FALSE, "You cannot get a hold of [person.name].", list("would_not_go" = TRUE))` and have `finish_errand` pass `outcome[3]` as extra details when it is a list (it already does this for force_door).
-2. Pass `event.details` to `wantedAfterActing` (driver.ts line 972 already has `event`), and test `details.would_not_go` in place of `WOULD_NOT_GO.test(text)`.
-3. Delete `WOULD_NOT_GO`.
-4. Keep: a failure where the body could not reach them, or they had every right to be there, or they outrank it, must not reach `known.couldNot`.
+Two ways. The first is one line in one file; the second is sturdier and touches both sides.
+
+**A. Window only (small).** In `jobs/wanted.ts`, make the pattern match only the two lines that mean the stranger would not go:
+
+    const WOULD_NOT_GO = /\bcould not get .+ out of .+: they got away from you\b|\bcannot get a hold of\b/i;
+
+`put_out` builds its line as "You could not get [name] out of [post]: [reason || "they got away from you"]." The reason is "they got away from you" only when the hold was broken (`crew_npc_motor.dm:108`, the walk tool is `throw_out` and `pulling` is null) or no reason was given. "it was taking too long" (the walk's time limit, `crew_npc_motor.dm:103`) and the no-way reason are the body's trouble and are left out, as they should be. "You could not get to it." no longer matches.
+
+**B. A details field (medium, both sides).**
+1. In `put_out` (`crew_npc_guarding.dm`), when the reason is "they got away from you" or null, call `action_result(CREW_TOOL_EVICT, FALSE, "...", list("would_not_go" = TRUE))`.
+2. For the cannot-get-a-hold case, have `take_hold_of` return `list(FALSE, "You cannot get a hold of [person.name].", list("would_not_go" = TRUE))`, and in `finish_errand` (`crew_npc_hands.dm:349`) pass `outcome[3]` as the extra details when the tool is `CREW_TOOL_EVICT` and `outcome[3]` is a list. (`action_result` already takes `extra_details` and adds them to `details`.)
+3. In `driver.ts` `noteResult` (line 972, `event` is in hand) pass `event.details` to `wantedAfterActing`, test `details.would_not_go` there in place of `WOULD_NOT_GO.test(text)`, and delete `WOULD_NOT_GO`.
+
+I would take A now: it is one line, and B can follow if the wording of `put_out` is ever changed.
+
+Either way, keep: a failure where the body could not reach them, or they had every right to be there, or they outrank it, must not reach `known.couldNot`.
+
+A question for the owner: whether "cannot get a hold of" should count at all. `start_pulling` (`code/modules/mob/living/living.dm:391`) fails when the person cannot be pulled (anchored, buckled, too heavy for the pull force), when the body is being thrown or has no `MOBILITY_PULL`, or when a signal cancels it. Few of those are the stranger refusing. The trespass design in `LLM_CREW_CHANGELOG.md` ("A body that tries to put someone out of its room and cannot tells its head") does not settle it.
 
 ## How to test the fix
 
-- Add a case to `tools/llm_crew/security.ts` (or a small table) that calls `wantedAfterActing` with `act = { tool: 'throw_out', person: 'p1' }`, `ok = false`, and the text "You could not get to it." with no `would_not_go`: `brain.wanted.couldNot` must stay empty. With `would_not_go: true` it must get one entry.
-- Type check the window. Compile the server.
-- Next round: grep `game.log` for "walk failed (throw_out" and `pda.log` for "trespass": a trespass warrant should only follow a "took hold of" line for the same person.
+- `tools/llm_crew/security.ts` already has the would-not-go case at about line 211 (`wantedAfterActing(tech, ..., 'You could not get Pun Pun out of Cargo Bay: they got away from you.')`, then `syncWanted`). Beside it add, each on a fresh brain: "You could not get to it." must give `said(...)` `[]`; "You could not get Pun Pun out of Cargo Bay: it was taking too long." must give `[]`; "You cannot get a hold of Pun Pun." must give the word to the head (unless the owner says otherwise). With fix B, pass the details instead and test with and without `would_not_go: true`. The existing case must still pass.
+- Type check the window. Compile the server if B is taken.
+- Next round: grep `pda.log` for "trespass". Each such warrant should follow, in `game.log`, a "took hold of [person] to walk them out of" line for the same person. A failed reach logs no line of its own, so one with no "took hold of" before it is this fault.
+
+## Check
+
+Checked by Opus 5.5, read from the code and one throwaway script; not seen in a round.
+
+- The quotes are what the code says today: `WOULD_NOT_GO` at `wanted.ts:58`, the test in `wantedAfterActing` at `wanted.ts:342`, "You could not get to it." at `crew_npc_hands.dm:196` and `:425`, and the two lines in `crew_npc_guarding.dm` (175, 205).
+- The path holds: `tool_throw_out` starts an errand with tool `throw_out` (`CREW_TOOL_EVICT`, `_defines.dm:199`). In `crew_npc.bt.json` the errand selector runs `crew_npc_reach` then `crew_npc_do_errand`, and falls to `crew_npc_fail_errand` when the reach fails or times out. `do_errand` checks `can_reach_target_now` before its switch, so `take_hold_of` is never reached in that case. `finish_errand` calls `action_result(tool, FALSE, "You could not get to it.", null)` with `tool` still `throw_out`. `noteResult` in `driver.ts:972` hands `event.text` to `wantedAfterActing`, and no guard before it looks at the wording.
+- Ran a throwaway bun script (scratchpad, imports `tools/llm_crew/fixtures` and `jobs/wanted`): a technician given `ok = false`, "You could not get to it." gets `couldNot: [{name: "Pun Pun", ...}]` and `syncWanted` sends "PDA to Quin Master: Quin, I could not put Pun Pun out of the Cargo Bay."; a Quartermaster given the same sends "PDA to Joan Marsh: Warrant for Pun Pun, for trespass in the Cargo Bay."
+- Ran the narrowed pattern of fix A against the six server lines: it matches only the got-away line and the cannot-get-a-hold line.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this on purpose; the trespass entry says a warrant is for someone the body "tries to put out ... and cannot".
+- Mended: the write-up's case of a visitor who walks out on the way does not set it off (the reach follows a moving target and `take_hold_of` then answers TRUE); the real cases are someone the body cannot path beside. Fix rewritten with a one-line window fix first. Severity kept at high: it puts a warrant, and then an arrest, on someone who never refused, which is the wrong person acted on, though it needs a visitor the body cannot reach.
