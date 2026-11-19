@@ -244,7 +244,10 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }];
   qm.peopleInView = [{ handle: 'p2', name: 'Cora Tech', job: 'Cargo Technician' }];
   qm.ledger = { orders: readBook(['Order 3. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 3. Given to Cora Tech.', 'Order 3. Docked: crate #12 (Janitorial Supplies Crate).'], 5000, 'Ada Finch'), next: 4, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
-  const tell = (line: string) => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: 'Cora Tech', handle: 'p2', message: line, said_to: 'me' } } as any);
+  const tell = (line: string, saidTo = 'me') => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: 'Cora Tech', handle: 'p2', message: line, said_to: saidTo } } as any);
+  // KNB-10: the same word said to someone else by name is not told to it, and nothing is reordered.
+  tell('Hop, crate #12 for Hop Kins is lost: nobody can get to it.', 'other');
+  add('a loss said to Hop Kins, not to it: not ordered again', [qm.ledger.orders.map((order: any) => order.n), qm.toTell.length], [[3], 0]);
   tell('Ada, crate #12 for Hop Kins is lost: nobody can get to it.');
   add('the first loss is ordered again', qm.ledger.orders.map((order: any) => order.n), [3, 4]);
   const four = qm.ledger.orders.find((order: any) => order.n === 4);

@@ -1238,9 +1238,16 @@ export const HEAD_OF_PERSONNEL: Job = {
   overhears: (brain, event) => {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
-    // Anything said by someone from cargo once the order is put to them is its answer.
+    // Anything said by someone from cargo once the order is put to them is its answer, unless it
+    // was said to someone else by name: a technician telling its workmate something is no
+    // answer, and the head would never ask again (KNB-10).
     const order = brain.requisition;
-    if (order && order.askedAt !== null && isCargo(jobOf(brain, speaker))) {
+    if (
+      order &&
+      order.askedAt !== null &&
+      isCargo(jobOf(brain, speaker)) &&
+      event.details.said_to !== 'other'
+    ) {
       order.heardBack = true;
     }
     // At the meeting: a report from one of its staff is noted, whoever's turn it is.

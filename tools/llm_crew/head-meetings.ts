@@ -147,6 +147,16 @@ for (const [line, want] of [
   add('and the Captain is told it could not get there', hop.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line.split(';')[0]), [`I could not get to the ${room} for the staff meeting`]);
 }
 
+// KNB-10: at the counter, a technician telling its workmate something by name is no answer to the
+// head's order; said to the head, or to nobody, it is.
+for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', true]] as [string, boolean][]) {
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  hop.peopleInView = [{ handle: 't1', name: 'Sam Tech', job: 'Cargo Technician', distance: 2 }];
+  hop.requisition = { lines: [], askedAt: 100, heardBack: false, startedAt: 100 };
+  HEAD_OF_PERSONNEL.overhears(hop, { seq: 1, time: '', at: 150, kind: 'heard', text: '', details: { speaker: 'Sam Tech', message: 'Maria, the shuttle is in.', said_to: saidTo } });
+  add(`a technician's line said to ${saidTo}: ${want ? '' : 'not '}taken for the answer`, hop.requisition.heardBack, want);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -1918,6 +1918,12 @@ export const QUARTERMASTER: Job = {
       if (hearReport(brain, speaker, heard)) {
         return;
       }
+      // Said to someone else by name, it was not told to it, and it acts on none of it: a crate
+      // lost, waiting or come in, said to a head or a workmate, is not word to reorder, remind or
+      // note (KNB-10).
+      if (event.details.said_to === 'other') {
+        return;
+      }
       // Whatever a technician has come to tell it, it has now heard.
       ledger.cameOutAt = 0;
       // And says so, by name. The technician cannot tell being seen from being heard, and until
