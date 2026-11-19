@@ -115,7 +115,7 @@ Read from the code on both sides. Not seen in a round. Marked `likely` because I
 ## How to test the fix
 
 - `tools/llm_crew/security.ts`: `beatAfterActing` with an `arrest` result `{ reason: 'no_way', place: 'Fore Primary Hallway', keepers: [] }` should not set `warrant.shutOut`.
-- `serveStep` with a fresh sighting in a room in `blockedPlaces` and no entry in `security.keepers`: no `letInStep`, no PDA to the Captain.
+- `serveStep` with a fresh sighting in a room in `blockedPlaces` and an empty list for it in `security.keepers`: no `letInStep`, no PDA to the Captain. With no entry at all, the Captain is still asked, as now.
 - In the next round, grep `pda.log` for "Could you let me in, please?" naming a hallway, and `game.log` for engineering sent to force a hallway door.
 
 ## Check
