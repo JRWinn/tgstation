@@ -293,11 +293,51 @@ const MINUTES_SAID = new RegExp(
   'i',
 );
 
+/** A word that turns an order round: "do not arrest", "don't release", "no warrant for", "never". */
+const NEGATION = /\b(?:not|dont|never|no)\b|n't\b|\bhold\s+off\b/i;
+/** How a question begins: "Is there a warrant", "Why did you arrest", "Did your officer arrest". */
+const ASKING =
+  /^(?:is|are|was|were|did|does|has|have|had|why|who|when|where|how)\b/i;
+/** How an order is put politely as a question: "Could you arrest Pun Pun, please?" That is still an order. */
+const POLITE = /^(?:please\s+)?(?:can|could|would|will)\s+you\b/i;
+
+/**
+ * TRUE if the order words that begin at `at` in these words are not an order: a negation stands
+ * in the last few words before them in the same clause ("Joan, do not arrest Dana Reyes"), or
+ * the sentence they are in asks a question ("Is there a warrant for Dana Reyes?", "Why did you
+ * arrest Pun Pun?"). A polite "Could you arrest Pun Pun?" is an order. Only the clause they are
+ * in counts, so "Don't wait, arrest Pun Pun now" and "Don't worry, release Pun Pun" are orders.
+ */
+export function heldBack(text: string, at: number): boolean {
+  const before = text.slice(0, at);
+  const clause = before.slice(
+    Math.max(
+      ...[',', '.', ';', ':', '!', '?'].map((mark) => before.lastIndexOf(mark)),
+    ) + 1,
+  );
+  if (NEGATION.test(clause.trim().split(/\s+/).slice(-3).join(' '))) {
+    return true;
+  }
+  const start =
+    Math.max(...['.', '!', '?'].map((mark) => before.lastIndexOf(mark))) + 1;
+  const stop = text.slice(at).search(/[.!?]/);
+  const sentence = text
+    .slice(start, stop === -1 ? text.length : at + stop + 1)
+    .trim()
+    // Whoever it is said to, by name first: "Joan, is there a warrant ..."
+    .replace(/^[A-Za-z'-]+,\s*/, '');
+  if (POLITE.test(sentence)) {
+    return false;
+  }
+  return sentence.endsWith('?') || ASKING.test(sentence);
+}
+
 /**
  * Reads a warrant out of what was said or sent: who it is on, what for if that was said, and how
  * long in a cell if that was said. `known` is everyone the reader knows of by name, so that a
  * full name is taken whole and a first name alone finds its owner. Null if these words declare
- * no warrant.
+ * no warrant, and null if they say not to arrest someone or ask about a warrant: those are left
+ * to the LLM reader.
  */
 export function readWarrant(
   written: string,
@@ -308,6 +348,10 @@ export function readWarrant(
   const around = found ? null : text.match(LOCK_AROUND);
   const turned = found || around ? null : text.trim().match(WANTED_AFTER);
   if (!found && !around && !turned) {
+    return null;
+  }
+  // "Do not arrest Pun Pun", "Is there a warrant for Dana Reyes?": no warrant.
+  if (heldBack(text, found?.index ?? around?.index ?? text.search(/\S/))) {
     return null;
   }
   // "Pun Pun is wanted for theft" is read as "Pun Pun, for theft", and "lock Pun Pun up for 10

@@ -35,6 +35,23 @@ add('"is wanted for", said to someone by name', S.readWarrant('Joan, Dana Reyes 
 add('"Nobody is wanted" declares nothing', S.readWarrant('Nobody is wanted. The meeting is over, thank you.', KNOWN), null);
 add('nor does "Who is wanted?"', S.readWarrant('Who is wanted?', KNOWN), null);
 
+// SECT-01: saying not to arrest someone, or asking about a warrant, declares none.
+for (const line of [
+  'Do not arrest Pun Pun.',
+  "Joan, don't arrest Dana Reyes, she is with me.",
+  'Is there a warrant for Dana Reyes?',
+  'Why did you arrest Pun Pun?',
+  'Did your officer arrest Pun Pun yet?',
+  'No warrant for Dana Reyes, she is fine.',
+  'Joan, did your officer arrest Pun Pun yet',
+  "Don't lock Pun Pun up.",
+]) {
+  add(`"${line}" declares no warrant`, S.readWarrant(line, KNOWN), null);
+}
+for (const line of ['Could you arrest Pun Pun, please?', "Don't wait, arrest Pun Pun now.", 'Leave the bar and arrest Pun Pun', 'Warrant for Pun Pun. Did you get that?']) {
+  add(`"${line}" is still a warrant`, S.readWarrant(line, KNOWN)?.name, 'Pun Pun');
+}
+
 // ---- names
 add('a warrant for Pun Pun names Pun Pun III', S.sameName('Pun Pun', 'Pun Pun III'), true);
 add('and not Pun Punch', S.sameName('Pun Pun', 'Pun Punch'), false);
@@ -167,6 +184,12 @@ add('a message from the Captain that code can make nothing of waits for the LLM 
 add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.']]);
 HOS.readsMessage(b, 'Zim Fire', 'Hello?', 0, 'Captain');
 add('a second one straight after is not put to the LLM, and is not answered twice in a minute', [b.toTell.length, deskOf(b).unread.length], [1, 0]);
+for (const line of ['Joan, do not arrest Dana Reyes, she is with me.', 'Is there a warrant for Dana Reyes?', 'Did your officer arrest Pun Pun yet?']) {
+  b = head();
+  add(`SECT-01: "${line}" from the Captain is not taken by code`, deskTakes(b, 'Zim Fire', 'Captain', line, false), false);
+  HOS.readsMessage(b, 'Zim Fire', line, 0, 'Captain');
+  add('and waits for the LLM reader, with no warrant', [deskOf(b).warrants.length, (deskOf(b).unread ?? []).map((it: any) => it.text)], [0, [line]]);
+}
 b = head();
 HOS.readsMessage(b, 'Dana Reyes', 'How are things over there today', 0, 'Janitor');
 add('and not to someone who could not declare one anyway', b.toTell.length, 0);
