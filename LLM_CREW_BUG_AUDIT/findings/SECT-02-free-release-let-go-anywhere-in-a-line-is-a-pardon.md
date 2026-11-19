@@ -71,3 +71,14 @@ Not seen in a round.
 ## How to test the fix
 
 Add to `tools/llm_crew/security.ts`, with a warrant on Pun Pun and Pun Pun in `held`: none of "Don't release Pun Pun until his time is up.", "Do not let go of Pun Pun", "Pun Pun broke free of the cuffs, find him", "Keep Pun Pun locked up, don't let him go free" changes the list or `held`; "Pardon Pun Pun", "Release Pun Pun", "Let Pun Pun go" and "Set Pun Pun free" each pardon. In a round, grep `pda.log` for "is pardoned" and check each against what the Captain sent just before.
+ Also: "Don't worry, release Pun Pun" pardons; "Warrant for Pun Pun, for setting the slimes free, 10 minutes" with Pun Pun already wanted changes the time to 10 and pardons nobody; each of the refused lines from the Head of Personnel no longer gets "a pardon is the Captain's to give". The existing pardon cases in the table (`security.ts` around line 130) must still pass. Put Pun Pun in `held` the way the table does, by the officer's "Joan, Pun Pun is in Cell 1 for 10 minutes" line, not by writing `held` by hand.
+
+## Check
+
+Read `PARDON_WORDS` (`jobs/security.ts:778`), `nameIn` and `closeIn` (`security.ts:213` to `232`), and `deskTakes` from the cancel test to the warrant test (`jobs/desk.ts:357` to `463`), with `strike` (`desk.ts:260` to `284`). The quotes are what the code says today. The only guard before the pardon test is `CANCEL_WORDS`, which needs a cancel word followed by "warrant", so none of these lines are caught there. `PARDON_WORDS` is tested on the whole line and the name is looked for anywhere in it.
+
+Ran a throwaway bun script in the scratchpad with the table's Head of Security set-up. With a warrant on Pun Pun from the Captain, each of "Don't release Pun Pun until his time is up.", "Pun Pun broke free of the cuffs, find him", "Do not let go of Pun Pun" and "Warrant for Pun Pun, for setting the slimes free, 10 minutes" left the list empty and sent "Captain, Pun Pun is pardoned." From the Head of Personnel each got "a pardon is the Captain's to give". With Pun Pun put in Cell 1 by the officer's line, "Keep Pun Pun locked up, don't let him go free" emptied `held` and sent Hale "Pun Pun is to be let go: the Captain has pardoned them." All as the write-up says.
+
+Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this. The entry that built the pardon (around line 597) describes what a pardon does, not how loosely it is read.
+
+Kept high: a prisoner the Captain wanted kept in is let out, and a wanted person is struck off. Effort raised to medium: a new reader in `security.ts` and the change in `desk.ts`, two files and more than 20 lines with its cases. Fix step 2 now keeps the negation test to the clause, and step 6 notes that "Let Pun Pun go" is not read as a pardon today.

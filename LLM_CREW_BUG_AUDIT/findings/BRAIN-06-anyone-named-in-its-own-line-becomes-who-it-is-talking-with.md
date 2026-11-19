@@ -18,7 +18,7 @@ fix: After saying a line, set inTalkWith only to someone the line calls on (call
 
 - "Anywhere" is a plain word match, case-blind. Speaking of someone is not speaking to them ("I'll ask Ann to let me in"), and `addressing.ts` itself says so (`callsOn`: "Speaking of someone is not speaking to them"). Here it counts.
 - First names in the game's name lists are often ordinary words: `strings/names/first_female.txt` and `first_male.txt` have May, Hope, Grace, Faith, Mark, Bill, Rose, Art, Sue, Summer, Lane, Grant, Chase, Hunter and Sam. "I hope so", "I may need soap", "I'll mark it down" all name someone.
-- It overwrites the person the NPC was answering. The model rarely says that person's first name back (it says "Captain", "sir", or nothing), so the one who really is in talk with it loses it.
+- It overwrites the person the NPC was answering. The model often does not say that person's first name back (it says "Captain", "sir", or nothing), so whenever it names anyone else in the same line, the one who really is in talk with it loses it.
 
 `inTalkWith` decides a line only at the end of `saidTo` (`addressing.ts:128`), for a speaker who used no name, is more than a tile away (or turned away), and is not facing it from within 3 tiles as the nearest. That is the Captain speaking across a room with other people in it, which is common.
 

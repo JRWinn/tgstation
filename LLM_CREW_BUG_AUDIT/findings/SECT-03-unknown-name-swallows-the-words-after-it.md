@@ -3,10 +3,11 @@ id: SECT-03
 title: A warrant on someone the reader does not know by name takes up to four words as the name, so Arrest Pun Pun in the bar is a warrant on Pun Pun in the
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:346, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:72, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:511
 fix: For a name it does not know, stop the name at the first word that cannot be part of one (who, in, at, is, he, because, a dash) and prefer a run of capitalised words when the line has capitals
@@ -66,7 +67,8 @@ A bun script in the system temp folder importing `jobs/security.ts` called `read
 1. In `readWarrant`, add to the cut pattern the words that end a name: `\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|now|again|-|–)\b`, and a lone dash.
 2. When the line as written has capital letters, take the run of words from the start of `rest` that begin with a capital (allowing "of", "the", "van", "de" inside a run of two or more, and a lone capital such as "Pun Pun III"). Fall back to the cut words only for a line typed all in lower case.
 3. Keep at most four words, as now.
-4. Run the duplicate check in `deskTakes` with the name both ways round (`sameName(declared.name, it.name) || sameName(it.name, declared.name)`), so that a longer reading of a name already wanted is taken for the same person.
+4. Run the duplicate check in `deskTakes` with the name both ways round (`sameName(declared.name, it.name) || sameName(it.name, declared.name)`), so that a longer reading of a name already wanted is taken for the same person. Use the same test for `standingOne` just below it, or the time change finds nothing. The cost: an unknown "Dana" already wanted makes a later warrant on "Dana Smith" read as "already a warrant"; that is the safer mistake.
+6. Step 1 alone settles every case in the write-up; step 2 is the larger change and touches "Warrant for Bob the clown, for theft", which the table may hold. If time is short, build step 1 and step 4 first.
 5. The fix for the cancel wording (see SECT-04) stops "is withdrawn" reaching this code at all; this step is for every other wording.
 
 ## How to test the fix
