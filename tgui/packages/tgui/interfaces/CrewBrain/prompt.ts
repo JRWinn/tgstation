@@ -6,6 +6,7 @@
  * and its job (see jobs/).
  */
 import { jobFor } from './jobs';
+import { SAY_MAX_CHARS } from './limits';
 import { describePerson, type PersonCard, SPEAKING } from './person';
 import { WORK_NOTHING } from './tasks';
 import type { Action, Option } from './types';
@@ -200,8 +201,9 @@ export function inOwnVoice(text: string): string {
   return said.replace(/(^|[.!?] )you\b/g, '$1You');
 }
 
-/** The most a body says in one line: the server cuts anything longer (CREW_NPC_SAY_MAX_LENGTH). */
-export const SAY_MAX_CHARS = 200;
+// The most a body says in one line, kept in limits.ts so that jobs/reports.ts can share it.
+export { SAY_MAX_CHARS };
+
 /** A line cut back to its last whole sentence keeps at least this much, or it is cut at a word. */
 const SENTENCE_KEEP_MIN = 60;
 

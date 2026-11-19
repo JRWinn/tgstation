@@ -14,6 +14,8 @@
  * Both ends are here: the words a report is given in, and how those words are read back. Change
  * one and the other has to change with it.
  */
+// The most characters the server lets a body say at once. A remark that would run past it is left off.
+import { SAY_MAX_CHARS } from '../limits';
 import type { NpcBrain } from '../types';
 
 /** One kind of work that is counted, and the words for it. */
@@ -43,8 +45,6 @@ const TALLIES: Tally[] = [
 
 /** How many ways there are of wording the work done. Each NPC keeps to one for the length of a meeting. */
 export const WORDINGS = 3;
-/** The most characters the server lets a body say at once. A remark that would run past it is left off. */
-const SAY_MAX = 200;
 /** The most words a remark runs to. */
 const REMARK_MAX_WORDS = 16;
 /** Words for an amount. A remark with one in it could contradict the numbers it follows. */
@@ -228,7 +228,7 @@ export function withRemark(line: string, said: unknown): string {
     TAKEN_WORDS.test(remark) ||
     remark.includes('?') ||
     remark.split(' ').length > REMARK_MAX_WORDS ||
-    line.length + 1 + remark.length > SAY_MAX
+    line.length + 1 + remark.length > SAY_MAX_CHARS
   ) {
     return line;
   }
