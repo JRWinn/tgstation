@@ -552,12 +552,21 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 			continue
 		found[crate] = number
 		unmatched -= number
-	// A crate whose manifest has come off is known by what it is: its name starts with the name of
-	// the pack one of the numbers still unaccounted for was ordered as.
+	// A crate whose manifest has come off is known first by the number the shuttle writes on its name
+	// ("... - #12"), and with none there by what it is: its name starts with the name of the pack one
+	// of the numbers still unaccounted for was ordered as. A crate with its manifest on is someone
+	// else's order, as the first pass has said.
+	var/static/regex/name_number = regex(@"- #(\d+)")
 	for(var/obj/structure/closet/crate/crate as anything in aboard)
 		if(!length(unmatched))
 			break
-		if(found[crate] || crew_npc_held_entry(crate))
+		if(found[crate] || crew_npc_held_entry(crate) || !isnull(crew_npc_manifest_number(crate)))
+			continue
+		if(name_number.Find(crate.name))
+			var/named = text2num(name_number.group[1])
+			if(named in unmatched)
+				found[crate] = named
+				unmatched -= named
 			continue
 		for(var/number in unmatched)
 			var/datum/supply_pack/pack = SSshuttle.supply_packs[known[ordered_kinds["[number]"] || ordered_crate_name]]
@@ -566,6 +575,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 				unmatched -= number
 				break
 	ordered_numbers = list()
+	var/missing = length(unmatched) ? " [capitalize(crew_npc_numbers_written(unmatched))] did not come with it." : ""
 	if(!length(found))
 		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
 		return
@@ -592,7 +602,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/word = ""
 	if(order_for)
 		word = order_via ? " Tell [order_via], face to face, that it has come in." : " Send [order_for] a PDA message with the number[several ? "s" : ""]."
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[word]", list("numbers" = numbers))
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[missing][word]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)
