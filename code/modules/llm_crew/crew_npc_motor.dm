@@ -149,7 +149,19 @@
 		crew_controller.blocked_bumps = 0
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	if(movement_failed)
-		fail_reason = CREW_NPC_NO_WAY
+		// The move loop gives up on steps the body is not let take, as well as on a way that is shut.
+		// A body held, strapped in or shut in something knows that is what stopped it (CORE-11).
+		var/mob/living/walker = controller.pawn
+		if(!isturf(walker.loc))
+			fail_reason = "you are shut inside \the [walker.loc]"
+		else if(walker.buckled?.anchored)
+			fail_reason = "you are strapped into \the [walker.buckled]"
+		else if(walker.pulledby && INCAPACITATED_IGNORING(walker, INCAPABLE_STASIS))
+			fail_reason = "[walker.pulledby.name] has hold of you"
+		else if(!(walker.mobility_flags & MOBILITY_MOVE))
+			fail_reason = "you cannot move your legs"
+		else
+			fail_reason = CREW_NPC_NO_WAY
 	return ..()
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/finish_action(datum/ai_controller/controller, succeeded)
