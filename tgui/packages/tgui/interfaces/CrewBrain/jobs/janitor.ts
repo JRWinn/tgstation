@@ -216,9 +216,13 @@ const REFUSED_WORDS = /cannot let you in|can't let you in|nobody (here )?sent fo
 const NO_WAY_IN = 'you could not find a way in, and will try again later';
 /** What the LLM is given for the work a janitor takes on when told of it. */
 const A_MESS = 'a mess that needs cleaning';
-/** The words that mark what someone says or writes as telling of a mess. */
-const MESS_WORDS =
-  /\b(mess|messy|blood|bloody|vomit|threw up|thrown up|puke|spill|spilled|spilt|oil|dirt|dirty|filth|filthy|stain|grime|ash|ashes)\b/;
+/**
+ * The words that mark what someone says or writes as telling of a mess, or asking for cleaning.
+ * Tested on lower-case text. Stems that begin other words are matched whole: "mess" not
+ * "messages", "stain" not "stainless", "ash" not "ashley", "glass" not "glasses", "clean" not "cleaner".
+ */
+export const MESS_WORDS =
+  /\b(?:mess(?:y|es)?|clean(?:s|ing|ed)?|mop(?:s|ping|ped)?|wipe|scrub|tidy|sweep|stain(?:s|ed)?|ash(?:es)?|glass|threw up|thrown up|throwing up)\b|\b(?:vomit|puk|spill|spilt|blood|trash|garbage|litter|puddle|sticky|gross|filth|dirt|grime|oil)\w*/;
 
 /** What a janitor is told about its job, every time. The work itself needs no telling: the body does it. */
 const ABOUT =

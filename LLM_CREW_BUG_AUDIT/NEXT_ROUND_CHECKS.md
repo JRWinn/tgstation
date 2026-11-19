@@ -12,3 +12,4 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - HAND-12: no "look inside the large crate" in the brain log or `game.log`; a fetch that names one says it is "nailed shut".
 - KNA-29: with a pulled alarm in the next room, the body resets the alarm in its own room ("reset a fire alarm.") and walks on through the shared door, with no run of "Stopped at" lines on one square.
 - LOGA-01: a janitor sent to the Delivery Office alone and asking at the Cargo Bay door is answered "coming to ... let you in", never "nobody here sent for you" (`pda.log`).
+- PARSE-01: grep `crew_brain.log` for "your PDA says what you asked for has come" and check each follows only the head's fixed message in `pda.log`; a typed "clean the X" now makes a mess task.
