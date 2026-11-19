@@ -157,6 +157,21 @@
 			continue
 		reached_through[place_name] = (post_place in beyond) ? post_place : beyond[1]
 
+/**
+ * TRUE if nothing on this tile shuts a way: no airlock or windoor (which may only stand open for a
+ * moment, as someone walks through), and no plastic flaps that nobody on their feet gets through.
+ * Shutters that are up are left out: they are the open side of a counter.
+ */
+/proc/crew_npc_doorless(turf/spot)
+	for(var/obj/thing in spot)
+		if(istype(thing, /obj/machinery/door/airlock) || istype(thing, /obj/machinery/door/window))
+			return FALSE
+		if(istype(thing, /obj/structure/plasticflaps))
+			var/obj/structure/plasticflaps/flaps = thing
+			if(flaps.require_resting)
+				return FALSE
+	return TRUE
+
 /// TRUE if a room has doors and every one of them asks for access, so the crew at large cannot walk in.
 /proc/crew_npc_room_is_closed(area/room, z_level)
 	var/list/doors = crew_npc_doors_of(room, z_level)
@@ -164,13 +179,13 @@
 		return FALSE
 	// An open way in from the next room, with no door on it, is open to anyone.
 	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
-		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE))
+		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE) || !crew_npc_doorless(room_turf))
 			continue
 		for(var/direction in GLOB.cardinals)
 			var/turf/next = get_step(room_turf, direction)
 			if(isnull(next) || get_area(next) == room || !isopenturf(next) || !istype(get_area(next), /area/station))
 				continue
-			if(!next.is_blocked_turf(exclude_mobs = TRUE))
+			if(!next.is_blocked_turf(exclude_mobs = TRUE) && crew_npc_doorless(next))
 				return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		if(!length(door.req_access) && !length(door.req_one_access))
