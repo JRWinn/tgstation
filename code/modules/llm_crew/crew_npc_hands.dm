@@ -223,6 +223,11 @@
 		return make_arrest(target)
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
 		return list(FALSE, "You could not get to it.")
+	// A held crate reached is one that can be got to: the times nobody could get to it start again.
+	if(istype(target, /obj/structure/closet/crate))
+		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)
+		if(entry)
+			entry.unreachable = 0
 	body.face_atom(target)
 	switch(errand_tool)
 		if(CREW_TOOL_GET_KIT)
