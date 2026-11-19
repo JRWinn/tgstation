@@ -329,6 +329,18 @@ function supplyStep(brain: NpcBrain): Plan {
   }
   const supply = knownSupply(brain);
   if (supply) {
+    // Two of the same thing in its hands, a rag in each most often: one goes down first, or no
+    // hand is free for what it is getting (LOGA-05).
+    const twice = brain.holding.find(
+      (item, i) => brain.holding.indexOf(item) !== i,
+    );
+    if (twice && brain.holding.length >= 2) {
+      return {
+        ready: true,
+        step: `${lack(brain)}, but you know where there is ${supply}. Your hands are full, with a ${twice} in each, so you are putting one ${twice} down here to have a hand for the ${supply}.`,
+        act: { tool: 'put_down', item: twice },
+      };
+    }
     return {
       ready: true,
       step: `${lack(brain)}, but you know where there is ${supply}, and you are going to get it.`,
