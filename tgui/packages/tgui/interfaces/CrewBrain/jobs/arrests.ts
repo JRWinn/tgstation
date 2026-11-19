@@ -978,7 +978,22 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   // No sighting to follow. It walks the main hallways, one after the other, and looks.
   const halls = hallways(brain);
   const round = beat.round;
-  const walking = round.next > 0 || brain.now - round.at > BETWEEN_WALKS_DS;
+  let walking = round.next > 0 || brain.now - round.at > BETWEEN_WALKS_DS;
+  // A hallway it has just found no way into is passed over, and the round goes on to the next.
+  // The server lets the place go again after a while, or when the fire doors lift.
+  if (walking) {
+    while (
+      round.next < halls.length &&
+      brain.blockedPlaces.includes(halls[round.next])
+    ) {
+      round.next += 1;
+    }
+    if (halls.length > 0 && round.next >= halls.length) {
+      round.next = 0;
+      round.at = brain.now;
+      walking = false;
+    }
+  }
   if (halls.length > 0 && walking && round.next < halls.length) {
     const hall = halls[round.next];
     if (brain.location !== hall) {
@@ -1142,6 +1157,20 @@ export function beatAfterActing(
       noteShutOut(brain, warrant, seen.place);
     }
     return;
+  }
+  // A walk down the hallways that could not reach the one it was making for: the round goes on
+  // to the next, before the server's list of places it cannot get to comes in.
+  if (warrant && !ok && act.tool === 'go_to' && act.attempt === undefined) {
+    const halls = hallways(brain);
+    const round = beat.round;
+    if (halls[round.next] === act.place) {
+      round.next += 1;
+      if (round.next >= halls.length) {
+        round.next = 0;
+        round.at = brain.now;
+      }
+      return;
+    }
   }
   // A walk into a room engineering opened that came to nothing is counted.
   if (warrant?.opened && act.tool === 'go_to' && act.attempt !== undefined) {

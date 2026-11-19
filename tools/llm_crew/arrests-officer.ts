@@ -123,6 +123,31 @@ const wanted = (place = 'Bar', where = 'Bar') => {
   add('ARR-10: no baton once they would not stand still: it goes for one, and says so once', [!!open(f.o, 'security_kit'), A.takeOutcomes(f.o)], [true, [{ what: 'cannot', name: 'Pun Pun', why: 'no baton' }]]);
 }
 
+// ---- ARR-11: one hallway it cannot walk to does not stop the search
+const HALLS = ['Aft Primary Hallway', 'Central Primary Hallway', 'Fore Primary Hallway'];
+const searching = () => {
+  const o = officer();
+  know(o, ['Security Office', 'Bar', 'Brig', ...HALLS]);
+  A.giveWarrant(o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  at(o, 5000, 'Security Office', []);
+  A.beatOf(o).round = { next: 0, at: 0 };
+  A.syncBeat(o);
+  return { o, task: open(o, 'serve_warrant') };
+};
+{
+  const f = searching();
+  add('ARR-11: with no word of them it walks the first hallway', A.planBeat(f.o, f.task)?.act, { tool: 'go_to', place: 'Aft Primary Hallway' });
+  f.o.blockedPlaces = ['Aft Primary Hallway'];
+  add('ARR-11: a hallway it found no way into is passed over', A.planBeat(f.o, f.task)?.act, { tool: 'go_to', place: 'Central Primary Hallway' });
+}
+{
+  const f = searching();
+  A.beatAfterActing(f.o, { tool: 'go_to', place: 'Aft Primary Hallway' }, f.task, false, {});
+  add('ARR-11: a failed walk to it moves the round on before the server says so', A.planBeat(f.o, f.task)?.act, { tool: 'go_to', place: 'Central Primary Hallway' });
+  f.o.blockedPlaces = [...HALLS];
+  add('ARR-11: every hallway shut: the round ends, and it does not stand at one', [A.planBeat(f.o, f.task)?.act, A.beatOf(f.o).round.next], [undefined, 0]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
