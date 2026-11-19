@@ -42,6 +42,8 @@ with no caller (a search of `code/modules/llm_crew/` for `watch_for_harm` finds 
 
 `code/modules/llm_crew/crew_npc_senses.dm:127`, `look_around`, is where the header says the call belongs.
 
+One piece is half there: the server already marks each person in view as down or not (`"down" = crew_npc_person_down(person)` in `look_around`, `crew_npc_senses.dm:191`, typed as `down?: BooleanLike` at `types.ts:63`). It was added for the arrest code. Nothing in the window reads it: a search of `CrewBrain/` for `.down` finds only the type.
+
 ## How it was found
 
 Read from the code. The round lines are from the change log, not reread in the logs.
@@ -50,6 +52,7 @@ Read from the code. The round lines are from the change log, not reread in the l
 
 Keep it small and coded: no new prompt text for every NPC, and nothing asked of the model.
 
+0. **The cheapest way first.** Steps 2 to 4 can be built on the `down` flag that is already sent, with no server change at all: a person in view with `down` set, who is not cuffed (`cuffed` is sent beside it) and is not in a cell, is someone down. Do that first. Step 1 is only needed to tell "collapsed just now" from "lying dead", and who was standing over them.
 1. **Server.** In `look_around`, for each human in view call `watch_for_harm(person, in_sight)`, then `forget_old_looks()` once. Leave out the body itself for now (security has `on_struck`; the "You have just been hurt" line for everyone would wake every LLM in a fight). Keep only the kinds that matter for knowing: `CREW_HARM_DOWN`, `CREW_HARM_BODY`, `CREW_HARM_COLLAPSED`, `CREW_HARM_DIED`. Drop `CREW_HARM_HURT` for bystanders or it will fire on every baton hit of a lawful arrest. Someone cuffed and held by security, or asleep in a cell, is not "down": check `crew_npc_cell_holding(person)` and `person.pulledby`.
 2. **Window, a shared duty** (beside `jobs/wanted.ts`, which has the same shape: see something, send one PDA message, throttle by person and room). On a `danger` event for someone down: if they are one of its own department, tell its head; if they are a head or security, or it has no head aboard, tell the Captain. Fixed words: "Joan, Nova Hale is down in the Courtroom." Once for each person in ten minutes, not while the receiver is in sight, and never by the person who is holding them under arrest.
 3. **Readers.** `jobs/head.ts`: a head told one of its staff is down marks them so (not sent for crates, not called on at the meeting, named in the Captain's report: "Finn is down in the Bar"). `jobs/desk.ts`: the Head of Security told its officer is down treats it as it treats "I am hurt" (`outcome` hurt: it serves the warrants itself and tells the Captain).

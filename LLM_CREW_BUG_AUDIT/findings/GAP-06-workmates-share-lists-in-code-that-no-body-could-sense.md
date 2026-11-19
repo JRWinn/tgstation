@@ -64,6 +64,8 @@ The same lists are lost when the window reloads (the known memory wipe), while t
 
 `LLM_CREW_PLAN_SECURE_AREAS.md:108` is where the first of these was proposed ("kept on the department's shared list of who is expected") and the owner said go ahead to that plan as a whole. `LLM_CREW_PLAN_NO_CHEATS.md` 4.3 proposes widening the server one ("the server sends who called whom").
 
+The owner's own words on this, from the design notes of 2026-11-17: hand-offs between workmates are to be "said out loud, not settled silently", and, of two technicians, "the second must know who the first sent for". The answer given then was "the department keeps one shared list of who is expected and for which room, **and the caller also says it aloud to a workmate in view**". The owner said "build it". The shared list was built. The saying aloud was not, and the notes record that: "Not built: the caller saying it aloud to a workmate, which I had told the user would happen."
+
 ## How it was found
 
 Read from the code against the brief. The two-owner case is reasoned, not run: spawning is admin-only today and there has only ever been one owner.
