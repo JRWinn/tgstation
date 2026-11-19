@@ -30,7 +30,7 @@ The same holds for `chooseJob` (`brain.ts:1213`) and `readOrder` (`brain.ts:1093
 
 In the game this is worse than in the simulator: the owner sees a crew that talks less well and takes fewer orders, and there is no runtime error anywhere, only an `error` field in `crew_brain.log` that nobody greps for.
 
-Concrete case, as the code stands: if any job's `afterSaying` threw for one job only (the head's, say), every line the head's model gave in a `quiet` run would be followed by the catch: the fallback is said a second time (`runTool(brain, { tool: 'say', text: mustSay })` runs after the model's own `say` already went out), `pending` is refilled, and `pumpAfterSaying` hooks run twice. `sim.ts quiet crew` would still pass if the checks only count lines that match.
+Concrete case, as the code stands: suppose `ordersAfterSaying` threw for a technician whose `brain.orders` list had an entry missing a field. The model's line has already gone to the server (`runTool` ran in the loop above), so in the `catch` the fallback `mustSay` is said a second time, `hears` may place the order a second time, and `pending` is refilled with the report. A scenario whose checks count "at least one" line or order passes; one that counts exactly one may or may not, depending on the timing. Nothing in the output says why.
 
 I ran an instrumented copy of `sim.ts` (kept outside the repo, with `BRAIN=` pointed at the real window code) that collects every `brain_log` decision with a non-empty `error`, over `quiet qm`, `chatty crew`, `chatty warrant` and `quiet engine`. Each printed `ERRCOUNT 0`, so nothing is being hidden today. The finding is that the simulator would not notice if there were.
 
