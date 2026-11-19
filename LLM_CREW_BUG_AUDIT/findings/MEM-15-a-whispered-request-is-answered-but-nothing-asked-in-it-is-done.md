@@ -5,7 +5,8 @@ kind: bug
 severity: low
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: PARSE-12
 found_by: Opus 5.5
 area: memory
 files: tgui/packages/tgui/interfaces/CrewBrain/talk.ts:93, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:140, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:248, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1483, code/modules/llm_crew/crew_npc_senses.dm:450

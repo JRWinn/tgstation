@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: JAN-01
 found_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:515, code/modules/llm_crew/crew_npc_hands.dm:392, code/datums/components/cleaner.dm:129, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:733

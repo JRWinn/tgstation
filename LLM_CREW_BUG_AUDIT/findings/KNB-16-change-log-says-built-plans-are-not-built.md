@@ -5,7 +5,8 @@ kind: bug
 severity: low
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: GAP-26
 found_by: Opus 5.5
 area: logs
 files: LLM_CREW_CHANGELOG.md:1124, LLM_CREW_PLAN_NO_CHEATS.md:3, LLM_CREW_PLAN_DROPPED_CRATES.md:9

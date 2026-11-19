@@ -8,11 +8,15 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: brain
-files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1483, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:93, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1626, code/modules/llm_crew/crew_npc_senses.dm:442
+files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1483, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:93, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1626, code/modules/llm_crew/crew_npc_senses.dm:442, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:140, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:248
 fix: Treat says and whispers alike in every report filter, through one helper isSpeechLine, or have describeEvent write every heard line with says
 ---
 
 ## What is wrong
+
+Also written up as: MEM-15
+
+What MEM-15 adds, kept here: with a whisper, `tasks.ts:248` `workInWords` finds none of the speaker's own lines (`] ${toldBy} says: `) and falls back to **everyone's** quoted lines in the report, so the work is read from what others said. Its concrete case: the Captain, beside a cargo technician, whispers "Order me a crate of soap." The technician is woken, the model replies `{"say": "Right away, Captain.", "move": {"tool": "order", ...}}`, `heardLines` in `think()` is empty, `calledFor` is undefined, and the order is logged "[nothing said called for it: not done]". No order is placed. MEM-15 also proposes a larger fix that would serve MEM-05 too: keep speech in the report as records with `speaker`, `message`, `saidTo` and `whispered`, and render them to text only when the prompt is built, so no reader has to parse text back. Its round test: whisper an order to a technician, and the order is placed.
 
 The server words a whispered line differently: `"[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\""` (`crew_npc_senses.dm:442`). The window's readers of what was said all look for the text `' says: '`, so a whisper is never one of them:
 

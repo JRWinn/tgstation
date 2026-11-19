@@ -70,20 +70,25 @@ A stun just before the click has the same end: `ClickOn` refuses an incapacitate
     	if(!QDELETED(crew_controller) && crew_controller.errand_serial == serial)
     		crew_controller.finish_errand(outcome)
 
-`code/datums/components/cleaner.dm:146`, the base game's scrub:
+`code/datums/components/cleaner.dm:129`, the base game's scrub:
 
     	if(do_after(user, cleaning_duration, target = target))
     		clean_succeeded = TRUE
 
+`tgui/packages/tgui/interfaces/CrewBrain/driver.ts:733`, the window breaking off work on purpose:
+
+      // Likewise asked to step aside: scrubbing on at the spot it was asked to move from is no answer.
+      const dropToMove = busy && !!brain.asideAsked && !brain.asideAsked.done;
+
 ## How it was found
 
-Read from the code, with the base game's `cleaner.dm` and `timed_actions.dm` read to see what stops a scrub. Not seen in a round log: `clean_mess` writes nothing to `game.log` when it writes a mess off, so a round would not show it either (see the test section).
+Read from the code, with the base game's `cleaner.dm` and `timed_actions.dm` read to see what stops a scrub. Not seen in a round log: `clean_mess` writes nothing to `game.log` when it writes a mess off, so a round would not show it either (see the test section). What a round would show (from LIFE-02): a `step_aside` or `go_to` sent within a few seconds of a `clean` errand starting, followed later by "What is left there will not come off" for that room.
 
 ## How to fix it
 
 1. In `clean_mess`, note `var/serial = errand_serial` and `var/turf/stood = get_turf(body)` before the click.
 2. Inside the wait loop, stop waiting (return at once) if `errand_serial != serial`: the body has been given something else to do. Return `list(FALSE, "You stopped cleaning the [mess_name].")` and do not touch `stubborn_messes` or `stubborn_kinds`.
-3. After the loop, before the write-off, return the same plain "could not finish" answer, with no write-off, if any of these hold: `get_turf(body) != stood`, `body.incapacitated` (or `INCAPACITATED_IGNORING(body, NONE)`), `body.body_position == LYING_DOWN`, `!can_reach_target_now(mess)`, or the tool is no longer in the body's active hand (`body.get_active_held_item() != tool`).
+3. After the loop, before the write-off, return the same plain "could not finish" answer, with no write-off, if any of these hold: `get_turf(body) != stood`, `body.incapacitated` (or `INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS|INCAPABLE_GRAB)`, the controller's own test in `get_able_to_run`), `body.body_position == LYING_DOWN`, `!can_reach_target_now(mess)` for a mess cleaned from beside it (or the body not on its tile for one cleaned from on top), or the tool is no longer in the body's active hand (`body.get_active_held_item() != tool`).
 4. Keep the write-off only for the case the comment describes: the body stood there, fit and holding the tool, for the whole time, and the mess is still there.
 5. `finish_errand` counts a two-item failure as `clean_failed_count++`. That is fine for a scrub cut short by a shove; for step 2 it is never reached, because the serial has changed.
 6. Write one `log_game` line when a mess is written off (kind, room, tool), so the next round shows how often it happens. The fix for RT-01 touches the same lines: build both together.
@@ -91,5 +96,5 @@ Read from the code, with the base game's `cleaner.dm` and `timed_actions.dm` rea
 ## How to test the fix
 
 - Server compile to a side copy (see the README). The simulator runs none of this code.
-- In a round: spawn a janitor with a wet mop by some vomit, and while it scrubs, give it a `go_to` from the brain window, or pull it one tile. Then send it back with `clean`: it should clean the vomit, not say it will not come off.
+- In a round: spawn a janitor with a wet mop by some vomit, and while it scrubs, give it a `go_to` from the brain window, or pull it one tile. Then send it back with `clean`: it should clean the vomit, not say it will not come off. Also (from LIFE-02): have it scrub a cobweb with a rag and say "excuse me" to it mid-scrub, then tell it to clean the room again: it should go back to the cobweb.
 - Grep `game.log` for the new write-off line. Each one should be a mess that really did not shift (a cobweb under a mop), never a common floor mess.

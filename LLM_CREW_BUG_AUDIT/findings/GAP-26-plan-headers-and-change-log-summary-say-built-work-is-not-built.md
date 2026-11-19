@@ -14,6 +14,10 @@ fix: Give the no-cheats plan a Status section at the top that says what is built
 
 ## What is wrong
 
+Also written up as: KNB-16
+
+What KNB-16 adds, kept here: the no-cheats plan's line 3 also says "**Do not start until the project owner says it is this plan's turn.**", though the owner's go-ahead was given ("all eleven decisions accepted 2026-11-18"); strike that too and say in the new Status that the go-ahead was given. The dropped-crates plan was built at 09:20 the same day (the entry "crates that get away, and crates in the way", the commit that added `crew_npc_grip.dm`). Concrete case of harm already done: earlier findings in this audit took the change log's last line at its word. KNB-04, KNB-05 and KNB-06 each quote it as "Planned and not built ... (all but the mail chute)", and KNB-06 has to add by hand that the water cheat was taken out in the 13:30 entry. Before writing the corrected summary line, check each item against the code: KNB-04, KNB-05 and KNB-06 say which cheats are still in.
+
 `CLAUDE.md` sends every new session to the plans, "each with a Status section", and to the change log. Those are what a fixer reads first to learn what is built. Three of the places they would look say the wrong thing.
 
 1. **The no-cheats plan has no Status section and says nothing is built.** Its third line is "**Planning only: nothing here is built.**" Since then, by the change log and the code:

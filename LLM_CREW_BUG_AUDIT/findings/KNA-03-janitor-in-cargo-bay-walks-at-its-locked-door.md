@@ -115,4 +115,4 @@ Keeps the rules: the body learns only what it would find by trying the door. No 
 
 - Server compile to a side copy (see `README.md`).
 - The simulator runs no server code. On the window side, add a case to a janitor scenario in `tools/llm_crew/sim.ts` where the server answers a `go_to` with the new "the door Y is locked to you" result, and check the janitor then goes to that door and knocks.
-- Next round, `game.log`: "was routed through" lines say which doors the planner wrongly takes for open, which settles the unproven part. "Stopped at Cargo Bay (77,146,2)" should be gone, or should come within a second of the walk's start.
+- Next round, `game.log`: "was routed through" lines say which doors the planner wrongly takes for open, which settles the unproven part. "Stopped at Cargo Bay (77,146,2)" should be gone, or should come within a second of the walk's start. `grep 'Stopped at Cargo Bay (77,146'` should show no `go_to` walk with "last route planned" (51 such walks in the logs of 2026/11/18 and 19 before the fix). If the new line names (78,146) for a janitor, the planner fault is proven.
