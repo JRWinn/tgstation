@@ -1267,6 +1267,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) had [prisoner_name] get out of [cell.name] as the door shut, and stopped the timer.")
 		return list(FALSE, "[prisoner_name] got out of [cell.name] as the door shut.", got_away_details(prisoner, prisoner_name))
 	arrested = null
+	// One cell, one prisoner: whoever it put in this cell before is not in it now.
+	for(var/name in jailed)
+		if(jailed[name] == cell)
+			jailed -= name
 	jailed[prisoner_name] = cell
 	if(istype(their_controller))
 		their_controller.put_in_custody(cell, jail_minutes, body)
@@ -1320,6 +1324,18 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 /datum/ai_controller/crew_npc/proc/is_named(mob/living/person, wanted)
 	return !!findtext(LOWER_TEXT(person.name), wanted)
 
+/// The names in the list of who it put in a cell that are the one asked for: the whole name if any is, or else those the name asked for is part of.
+/datum/ai_controller/crew_npc/proc/jailed_names(wanted)
+	var/list/whole = list()
+	var/list/part = list()
+	for(var/name in jailed)
+		var/lower = LOWER_TEXT(name)
+		if(lower == wanted)
+			whole += name
+		else if(findtext(lower, wanted))
+			part += name
+	return length(whole) ? whole : part
+
 /**
  * Tool: let someone go. Security staff only.
  *
@@ -1341,32 +1357,37 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!QDELETED(held) && is_named(held, wanted) && (body.pulling == held || recently_saw(held)))
 		start_errand(held, CREW_TOOL_FREE, held.name)
 		return
-	// In a cell: one it put them in, or one it can see them in.
+	// What it can see goes before what it remembers. Its list of who it put where is not kept up
+	// when a time runs out or someone else lets them out, and the cell is given to the next one:
+	// gone by first, it opened a cell on somebody else.
+	// In a cell it can see them in.
 	var/list/in_sight = view(CREW_NPC_VISION_RANGE, body)
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
 		if(isnull(timer) || !timer.timing)
 			continue
-		var/theirs = FALSE
-		for(var/name in jailed)
-			if(jailed[name] == cell && findtext(LOWER_TEXT(name), wanted))
-				theirs = TRUE
-		if(!theirs)
-			for(var/mob/living/carbon/human/person as anything in cell.occupants())
-				if(is_named(person, wanted) && (person in in_sight))
-					theirs = TRUE
-		if(theirs)
-			jail_cell = cell
-			start_errand(timer, CREW_TOOL_FREE, person_name)
-			return
+		for(var/mob/living/carbon/human/person as anything in cell.occupants())
+			if(is_named(person, wanted) && (person in in_sight))
+				jail_cell = cell
+				start_errand(timer, CREW_TOOL_FREE, person_name)
+				return
 	// Standing about in cuffs, in sight.
 	for(var/mob/living/carbon/human/person in in_sight)
 		if(person != body && person.handcuffed && is_named(person, wanted))
 			start_errand(person, CREW_TOOL_FREE, person.name)
 			return
-	for(var/name in jailed)
-		if(findtext(LOWER_TEXT(name), wanted))
-			jailed -= name
+	// In a cell it put them in, out of sight. It goes to the timer, and looks in before it stops it.
+	var/list/remembered = jailed_names(wanted)
+	for(var/name in remembered)
+		var/datum/crew_npc_brig_cell/cell = jailed[name]
+		var/obj/machinery/status_display/door_timer/timer = cell?.timer_ref?.resolve()
+		if(isnull(timer) || !timer.timing)
+			continue
+		jail_cell = cell
+		start_errand(timer, CREW_TOOL_FREE, person_name)
+		return
+	for(var/name in remembered)
+		jailed -= name
 	action_result(CREW_TOOL_FREE, TRUE, "Nothing is holding [person_name] that you know of.", list("freed" = person_name, "nothing" = TRUE))
 
 /**
@@ -1386,6 +1407,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				prisoner = person
 				freed = person.name
 				break
+		// Nobody of that name is in there now: their time ran out, or someone let them out, and the
+		// cell may hold somebody else. The timer is left alone, and what it remembered is put right.
+		// Someone whose face is hidden in there is not known by it either, and is left too.
+		if(isnull(prisoner))
+			for(var/name in jailed_names(wanted))
+				jailed -= name
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) came to let [freed] out of [cell?.name || "a cell"] and found [freed] not in it.")
+			return list(TRUE, "[freed] is not in [cell?.name || "the cell"] any more.", list("freed" = freed, "nothing" = TRUE))
 		if(timer.timing && !work_timer(timer, "stop"))
 			return list(FALSE, "You cannot get at the timer of [cell?.name || "the cell"]. It may have no power.", list("reason" = "timer", "freed" = freed))
 		if(QDELETED(timer) || timer.timing)
