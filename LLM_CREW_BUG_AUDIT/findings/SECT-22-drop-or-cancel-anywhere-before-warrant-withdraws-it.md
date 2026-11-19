@@ -2,14 +2,15 @@
 id: SECT-22
 title: Drop, call off or cancel anywhere before the word warrant takes a warrant back, even Don't cancel the warrant, and a new warrant in the same line is lost
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:779, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:359
-fix: Take a warrant back only when the cancel verb has the warrant or the person as its object, with no negation in front, and read a new warrant first when one is in the line
+fix: Take a warrant back only when the cancel verb has the warrant (or "the arrest of" the person) as its object within two words, with no negation in front; otherwise fall through to the pardon and warrant readers as now
 ---
 
 ## What is wrong
