@@ -330,6 +330,9 @@ function openCell(cell: (typeof cells)[number], why: string) {
   const npc = bodies.find((other) => other.name === name);
   if (npc) { custody.delete(name); npc.inHandUntil = 0; emit(npc, 'knowledge', 'You are free to go.', { set_free: 1 }); }
   if (punPun?.name === name) { punPun.cell = null; punPun.cuffed = false; punPun.room = punPun.route[0] ?? 'Bar'; punPun.movedAt = clock; }
+  // TRB-03: in the scenario where the Head of Security served the warrant, the monkey, let out, goes where the hurt officer is.
+  const officer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && punPun?.name === name && officer) punPun.room = officer.room;
 }
 
 // ---- the engine: its room's machines as the server names them to engineering staff, how each is set, and the crystal.
@@ -1291,7 +1294,7 @@ function spawnSecurity() {
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' ? 480 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' ? 480 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
@@ -1308,6 +1311,8 @@ function securityTick(second: number) {
   if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
   // SEC-05: once the Head of Personnel's time is up, the monkey is wanted and put in the same cell; then the Captain pardons the Head of Personnel.
+  const hurtOfficer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && pun && hurtOfficer && !pun.cell && walkedFree.some((it) => it.who === pun.name && it.why === 'time up') && inSight(hurtOfficer, pun.room)) freedInSight++;
   if (VARIANT === 'recell') {
     const out = walkedFree.find((it) => it.who === 'Hop Kins' && it.why === 'time up');
     if (out && !recell.warrantAt && clock - out.at >= 5000) { recell.warrantAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, for theft.'); }
@@ -1317,6 +1322,8 @@ function securityTick(second: number) {
   }
 }
 const recell = { warrantAt: 0, seenAt: 0, inAt: 0, pardonAt: 0 };
+// TRB-03: how many seconds the hurt officer has had the monkey in sight since it was let out.
+let freedInSight = 0;
 const FULL = !VARIANT || VARIANT === 'crew' || VARIANT === 'shutout' || VARIANT === 'qm' || VARIANT === 'qmgone';
 const HOP_ORDERS_AT = 90;
 const CAPTAIN_ORDERS_AT = 150;
@@ -2037,6 +2044,13 @@ if (SECURITY && VARIANT !== 'recell') {
     check('the Head of Security tells the Captain, once', sentTo(joan, SEC_CAPTAIN, /Captain, Hale could not take Pun Pun and is hurt\. I am serving the warrants myself\./).length === 1);
     check('fetches a baton of its own', secWork.some((work) => work.tool === 'get_kit' && work.who === joan!.name));
     check('and makes the arrest itself', jailings[0]?.who === joan!.name, listed(secWork.filter((work) => work.who === joan!.name)));
+    // TRB-03: the officer gives up its copy of the warrant the Head of Security served, so the monkey let out is not arrested again.
+    check('the officer is told the warrant is served', told(joan, hale.name, /Hale, Pun Pun is in a cell: the warrant is served\./) >= 1);
+    const out = walkedFree.find((it) => it.who === 'Pun Pun' && it.why === 'time up');
+    check("let out when its time is up, the monkey is in the officer's sight for a while", !!out && freedInSight >= 10, out ? `${freedInSight} s in sight` : 'never let out');
+    const again = secWork.filter((work) => work.tool === 'arrest' && work.target === 'Pun Pun' && !!out && work.at > out.at);
+    const toldAgain = saidBy(hale.name, /^Pun Pun, you are under arrest/).filter((line) => !!out && line.at > out.at);
+    check('and nobody arrests it again', !!out && again.length === 0 && toldAgain.length === 0 && jailings.length === 1, listed(again) || `${toldAgain.length} told`);
   }
 }
 const tooSoon = crew.reduce((total, body) => total + body.setOffTooSoon, 0);
