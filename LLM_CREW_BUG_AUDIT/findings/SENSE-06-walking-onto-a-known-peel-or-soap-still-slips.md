@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_senses.dm:70, code/modules/llm_crew/crew_npc_senses.dm:29, code/game/turfs/open/_open.dm:589, code/game/objects/items/clown_items.dm:35, code/modules/hydroponics/plant_genes.dm:292, code/game/objects/effects/effect_system/fluid_spread/effects_foam.dm:46
 fix: Walk only for a slippery thing whose lube_flags hold NO_SLIP_WHEN_WALKING, and for the rest refuse the step and go round the tile (or pick the thing up), the owner to choose
@@ -56,7 +57,7 @@ Also: `careful` is dropped for a body with `TRAIT_NO_SLIP_WATER` (galoshes). Gal
 
 ## How it was found
 
-Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANGELOG.md` (the entry at about line 913) lists "Oil, a peel, soap, foam" as what the body walks for; it does not say walking does not help for three of them.
+Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANGELOG.md` (the entry at about line 913) lists "Oil, a peel, soap, foam" as what the body walks for; it does not say walking does not help for three of them. `LLM_CREW_PLAN_NO_CHEATS.md` section 4.1 has the accepted design: walk onto a tile that would slip a runner, and "where a way round the tile costs only a few steps, the route takes it". Its Status line says the way round was not built. This finding adds why that matters: for peels, soap and foam the walk alone does nothing.
 
 ## How to fix it
 
@@ -64,7 +65,8 @@ Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANG
 2. For one walking does not help with, the body has to keep off the tile. Two ways, for the owner to choose:
    - **Step round it.** In `mind_its_step`, refuse the step (`COMPONENT_MOVABLE_BLOCK_PRE_MOVE`) and take a side step instead onto a free tile that is next to both where it stands and where it was going, and is not itself slippery. One side step lets the path carry on from there; if no such tile exists, let it walk on and slip, as a player in a one-tile corridor would. Keep the side step out of a pull or a throw (CORE-06).
    - **Pick it up.** Report it to the brain as a thing in the way; janitors and anyone with a free hand pick it up and drop it to one side (the tidying tools exist). Slower, but it clears the hazard for everyone.
-   I would take the side step: it is general, needs no brain change, and is what a player does without thinking.
+   I would take the side step: it is general, needs no brain change, and is what a player does without thinking. It is also the "way round" that plan 4.1 already accepted, built at the step rather than in the route, so it needs no new decision from the owner unless the pick-up way is wanted. The route planner itself cannot be told cheaply to keep off a remembered tile: `navmap_pathfind` takes only one `avoid` turf.
+   The side step must be refused while the body is being pulled, thrown or pushed (CORE-06's fix, which tests `body.pulledby` and that the move is the body's own), or it will slip out of a grip as CORE-06 describes.
 3. Keep the walk for oil and blood as now.
 
 ## How to test the fix
@@ -72,3 +74,7 @@ Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANG
 - Compile.
 - A DM unit test or a round: drop a banana peel in a corridor in sight of a crew body, then send it walking past. Before the fix `game.log` and `attack.log` show `slipped on the banana peel`; after, the body steps round.
 - Check the walk still reaches its goal after the side step (no `walk failed` line).
+
+## Check
+
+Checked by Opus 5.5. The quotes at `crew_npc_senses.dm:29` and `:70` to `:83` are what the code says: `crew_npc_slippery_thing` asks only for a slippery component, and `mind_its_step` sets walk and nothing else. In the base, `handle_slip` (`_open.dm:589`) lets a walker off only when the lube flags hold `NO_SLIP_WHEN_WALKING`, and `/datum/component/slippery/Slip` (`slippery.dm:174`) checks walking nowhere else. Soap (`clown_items.dm:35`, no flags), the slip gene on peels (`plant_genes.dm:292`, `NONE`) and slippery foam (`effects_foam.dm:46`, no flags) all slip a walker, so a body that knows of one still falls on it. Nothing in the crew code steers the route off the tile; the changelog and `LLM_CREW_PLAN_NO_CHEATS.md` 4.1 list the way round as not built, which is the known gap, and the cause added here is new. Severity medium (a fall of a few seconds, the work goes on, rare things on the floor) and effort medium stand. Added the plan's accepted design to the write-up and the CORE-06 caution to the fix. Nothing was run.

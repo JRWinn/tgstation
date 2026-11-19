@@ -5,10 +5,11 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/memory.ts:103, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:56, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:45
+files: tgui/packages/tgui/interfaces/CrewBrain/memory.ts:108, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:56, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:45
 fix: When a new note is the same as an old one, put the new note in the old one's place instead of dropping the new one
 ---
 
@@ -62,9 +63,16 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 2. If there are two or more existing notes that match, remove them all and keep the new one.
 3. Keep the length cap and the `NOTES_MAX` shift as they are.
 4. Do not try to detect negation: replacing on "same" covers it and keeps the code small.
+5. One refinement worth the extra line: if the new note's `noteKey` is wholly inside an old note's key (a shorter copy of it, the case the model makes most when it repeats itself), keep the old one and drop the new, as now, so a full note is not cut down to a fragment of itself. None of the five pairs above is a containment of that kind ("bob is allowed in the bar" is not inside "bob is not allowed in the bar"), so they are still replaced.
 
 ## How to test the fix
 
 - A small table like `tools/llm_crew/addressing.ts` for `addNote`: the five pairs above each end with only the later note; a note offered twice in the same words is kept once; two unrelated notes are both kept.
 - Type check from `tgui/`.
 - In a round: tell an NPC a fact, then the opposite; ask it about it; the answer follows the second.
+
+## Check
+
+Checked by Opus 5.5. The quotes in `memory.ts` (`tellingWords`, `sameNote`, `addNote`) and the caller in `brain.ts` (`if (!addNote(...)) { continue; }`) are what the code says today. `addNote` is the only way a note is kept (`brain.notes` is written nowhere else), and the reply schema has no way to take a note back or change one, so there is no other path by which a correction could land. Nothing in `LLM_CREW_CHANGELOG.md` or the plans speaks of it.
+
+Ran a throwaway script (bun, in the scratchpad) on a fresh `janitor()` from `tools/llm_crew/fixtures.ts`: all five pairs in the table drop the later note, and so does "Cargo has no soap left." then "Cargo got soap in, ask Donna." (two of three telling words shared). "The Captain is away." then "The Captain is back on the station." is kept, so the fault needs most of the long words to be shared, which a correction nearly always does. Confirmed. Severity medium stands: the NPC keeps saying a stale fact out loud, but no job stops. Effort small. Added step 5 so a shorter copy does not replace the full note.

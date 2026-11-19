@@ -39,7 +39,7 @@ and her steps, all from inside the Head of Personnel's Office:
 
 Once let out, she would still have gone to "the door of the Cargo Lobby" for every mess in a cargo room: nothing clears `reachedThrough`. And `go_to_door("Cargo Lobby")` from anywhere aims at the Cargo Bay side of the bay's airlock (the far side of the lobby's only door), which is a spot inside the locked bay.
 
-Other bodies learnt true entries the same way in these rounds ("door into Bitrunning Den: it opens from Mining Office", "door into Delivery Office: it opens from Cargo Bay"), so the tool's answer is right when the body is free to walk. It is the shut-in case and the doorless lobby that poison it.
+Other bodies learnt true entries the same way in these rounds ("door into Bitrunning Den: it opens from Mining Office", "door into Delivery Office: it opens from Cargo Bay"), so the tool's answer is right when the body is free to walk. It is the shut-in case and the doorless lobby that poison it. The two halves are not alike (checker's note): "Cargo Bay opens from Cargo Lobby" comes only from a shut-in body, since a free janitor finds a route to the lobby side of the bay's airlock through the doorless hallway side. But "Cargo Lobby opens from Cargo Bay" comes to a free janitor too: the lobby's only airlock has its outer spot inside the bay, so no janitor can walk to it. Once the first entry is in, the loop closes whether or not the body is still shut in.
 
 ## Where
 
@@ -85,7 +85,7 @@ Seen in a round log, quoted above, then the cause read in the current code, unch
 
 ## How to fix it
 
-1. Server, `tool_go_to_door`: when the body `is_shut_in()`, or when no route to any spot was found at all and the body has not left its room in the last attempts, do not send `door_of`/`door_through`. Say "You cannot get out of here to get to X." instead, which is the truth and which the brain already handles as shut in.
+1. Server, `tool_go_to_door`: when the body `is_shut_in()`, or when no route to any spot was found at all and the body has not left its room in the last attempts, do not send `door_of`/`door_through`. Say "You cannot get out of here to get to X." instead, which is the truth. (Checker: `shut_in` is only set after `check_shut_in` has run, a few failed walks in, so the "no route to any spot and still in the same room" test is the one to rely on; and check what the janitor's mess step does with that failure before counting on it, since the brain matches the result text, not a flag.)
 2. Server: only blame the outer room when a route to some door of the outer room itself was tried and it is locked; better, test a route to the outer room's middle (`get_path_to` with the body's access) and send `door_through` only if that fails too.
 3. Brain, `brain.ts`: do not store an entry that makes a loop (follow `door_through` outwards; if it comes back to `door_of`, drop it). Give entries a time and forget them after some minutes, or when the body is next seen in the outer room.
 4. DOOR-02's fix (`locked_out_of` false for a room with a doorless way in) stops the Cargo Lobby being called locked in the first place.
@@ -96,3 +96,15 @@ Seen in a round log, quoted above, then the cause read in the current code, unch
 - A small table in `tools/llm_crew/` for `doorFor` with a looped map: want the first locked room, not the far end of the loop.
 - Type check and server compile.
 - Next round, `crew_brain.log`: no "You cannot get to the door into Cargo Lobby".
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- Read `tool_go_to_door` in `crew_npc_doors.dm` (298 to 409): the quotes match. With no route to any door, the first door whose far side is `locked_out_of` sets `outer_name`, and the failure carries `door_of`/`door_through` with nothing asking whether the body could walk anywhere. `is_shut_in()` is not consulted. For the Cargo Lobby, `crew_npc_doors_of` gives one airlock whose outer spot (`sides[2]`) is in the Cargo Bay, so `go_to_door("Cargo Lobby")` aims inside the locked bay for any janitor, shut in or not.
+- Read `locked_out_of` (`crew_npc_guarding.dm:118`): a room is locked if no airlock of it opens for the body; a doorless way in is not looked at (DOOR-02, still `found`).
+- Read `brain.ts:693`: the entry is written whatever it is; `grep reachedThrough` finds only the write, the empty start in `brain.ts:293`, the type, and the read in `doorFor`. Nothing deletes or checks for a loop.
+- Ran `doorFor` from `jobs/janitor.ts` with bun (script in the scratchpad, importing `jobs/index.ts` first to get past a circular import) on `{Cargo Bay: Cargo Lobby, Cargo Lobby: Cargo Bay, Delivery Office: Cargo Bay}` from the HoP's Office. It printed `Delivery Office -> Cargo Lobby`, `Cargo Bay -> Cargo Bay`, `Mining Office (with an entry to Cargo Bay) -> Cargo Lobby`. So the loop is followed to its depth limit and the answer depends on how many steps it took: the lobby, or the bay itself.
+- Round log `data/logs/2026/11/18/round-17.48.05`: all the "door into Cargo Lobby: it opens from Cargo Bay" lines in `crew_brain.log` are Arleen Fleming's, from inside the HoP's Office; "reached through the Cargo Lobby" appears 29 times in that log; `pda.log` has her "there is no way in for me" at 00:16:27. `game.log` line 964 has "Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it."
+- Not in the change log or plans as known. KNB-14 is a sibling (walks failed while shut in written off against the destination) but a different path: not a duplicate.
+- Severity medium stands: it needs a shut-in janitor first, but then it lasts the round. Effort raised to medium: the smallest whole fix is a few lines in `tool_go_to_door` and a few in `brain.ts`, both sides of the line, plus a table of cases. Of the fix steps, 3 (refuse a looping entry) alone stops the far-end lobby, 1 or 2 stops the false first entry, and DOOR-02 stops the false second one; all three are wanted.

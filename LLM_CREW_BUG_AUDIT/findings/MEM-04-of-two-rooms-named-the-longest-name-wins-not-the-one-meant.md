@@ -3,13 +3,14 @@ id: MEM-04
 title: Of two rooms named in one line the longest name is taken, not the one meant, so orders go to the wrong room
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: memory
-files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:294, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:254, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:132
-fix: In placeNamedIn drop matches that lie inside a longer match, then take the first room named that is not set aside by not, forget, leave or instead of, rather than the longest name
+files: tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:294, tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:246, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:132
+fix: In placeNamedIn drop matches that lie inside a longer match, then take the first room named that is not set aside by not, forget, leave, instead of or from, falling back to the first match if all are set aside
 ---
 
 ## What is wrong
@@ -64,7 +65,7 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 
 1. In `placeNamedIn`, find every room that matches, with the index where it matches (`RegExp.exec` gives `index`). Drop any match whose span lies inside a longer match's span: that is the "Medbay Central" against "Medbay" case the sort was for.
 2. Drop a match preceded, within the three words before it, by a word that sets it aside: `not`, `forget`, `leave`, `instead of`, `from` (for "ran from the X into the Y", "come back from the X"). Keep the list short and general; it is a net, not a parser.
-3. Of what is left, return the **first** by position. Most orders name the room they are about first ("Check the Bar, then come back to the Library").
+3. Of what is left, return the **first** by position. Most orders name the room they are about first ("Check the Bar, then come back to the Library"). If step 2 set aside every match, return the first match all the same rather than none: "I came from the Bar, there is blood there" names only the Bar, and a line that names one room must still find it.
 4. In `workInWords`, read the room from the **last** line the speaker said that names a room and has the job's words or an order's words in it, not from all their lines joined. Test `job.soundsLike` and `ORDER_SOUNDS` against that same line.
 5. Every other caller keeps calling `placeNamedIn` as now and gets the better answer for free.
 6. A question for the owner: when a superior's line names two rooms and step 2 does not settle it, should code still take the first, or leave the order to the model's `work.where` answer (that is, skip the code path and let the model fill `work` as it does for anyone else)? I would take the first and let the model's line say which room it is going to, so a wrong pick is heard and can be corrected.
@@ -74,3 +75,11 @@ Read from the code, then run: a throwaway script in the scratchpad imported `too
 - A table of cases for `placeNamedIn` and `workInWords` (in the style of `tools/llm_crew/addressing.ts`): the four rows above want Bar; "Medbay Central is a mess" still wants Medbay Central over Medbay; "Pun Pun ran from the Kitchen into the Bar" wants Bar.
 - Run `bun tools/llm_crew/sim.ts quiet` on the scenarios that give orders (see the list at the top of `sim.ts`) to see nothing else moved.
 - Type check from `tgui/`.
+
+## Check
+
+Checked by Opus 5.5. The quotes are what the code says today: `placeNamedIn` at `tasks.ts:294` sorts `allPlaces` longest first and returns the first that matches anywhere; `workInWords` at `tasks.ts:246` joins every quoted line of the speaker's before calling it; `buildTalk` at `talk.ts:132` makes out a superior's order by code. The callers listed (`wanted.ts`, `officer.ts`, `meetings.ts`, `pickups.ts`, `janitor.ts:808`, `head.ts:1284`, `desk.ts`) all call `placeNamedIn` and so share the fault. Nothing in the change log or the plans covers it.
+
+Ran a throwaway script (bun, in the scratchpad) with `janitor()` from the fixtures in the Central Primary Hallway and a Captain in view, calling `workInWords(b, [says(captain, line)], name, true)`. The four lines in the table gave `clean Kitchen`, `look Kitchen`, `look Library`, `look Chapel`, all `emergency`. "Pun Pun ran from the Kitchen into the Bar." gives Kitchen from `placeNamedIn`. "There is blood in the Bar." gives `clean Bar`, so only lines naming two rooms go wrong. Confirmed; severity medium stands.
+
+Changes: effort raised to medium (the new matcher, the set-aside words, the last-line change in `workInWords` and a table of cases are well over 20 lines, though one file); the `files` line number for `workInWords` corrected to 246; step 3 now falls back to the first match when every match is set aside, else "came from the Bar, blood there" would find no room. Related, not duplicates: PARSE-02 also rewrites `placeNamedIn` (shorthand names) and PARSE-09 skips negated clauses in `workInWords`; build the three together so one matcher comes out of it.

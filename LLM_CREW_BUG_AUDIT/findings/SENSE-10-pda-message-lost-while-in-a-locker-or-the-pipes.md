@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_cargo.dm:803, code/__HELPERS/turfs.dm:116, code/modules/llm_crew/crew_npc_senses.dm:138
 fix: In on_pda_message test that the PDA is somewhere inside the body by walking up its loc to the body, not that the topmost thing on the turf is the body
