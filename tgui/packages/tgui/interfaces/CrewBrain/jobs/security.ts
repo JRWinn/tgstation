@@ -146,7 +146,8 @@ export function closeName(raw: string, known: string[]): string | undefined {
       name,
       apart: Math.min(
         lettersApart(want, squash(name)),
-        want.length >= 4 ? lettersApart(want, squash(firstName(name))) : 99,
+        // A first name of three letters ("Bob") is taken only when spelt right: its slack is 0.
+        want.length >= 3 ? lettersApart(want, squash(firstName(name))) : 99,
       ),
     }))
     .filter((it) => it.apart <= slack(want.length))
@@ -264,7 +265,7 @@ const SENTENCE_WORDS =
   /^(?:and\s+|then\s+)?(?:lock|keep|hold|jail|detain|put|throw|leave|brig|arrest|cuff)\s+(?:him|her|them|it)\b/i;
 /** Words that say how soon or how politely, and are no part of anyone's name. */
 const FILLER =
-  /\b(?:right\s+now|right\s+away|at\s+once|on\s+site|on\s+sight|on\s+the\s+spot|thank\s+you|now|please|immediately|asap|quickly|thanks|today)\b/gi;
+  /\b(?:right\s+now|right\s+away|at\s+once|on\s+site|on\s+sight|on\s+the\s+spot|thank\s+you|now|please|pls|plz|pl0x|thx|immediately|asap|quickly|thanks|today)\b/gi;
 /** The other way round: "Pun Pun is wanted", "Joan, Dana Reyes is wanted for theft". Who it is on comes first. */
 const WANTED_AFTER =
   /^(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|are)\s+wanted\b[\s,]*(.*)$/is;

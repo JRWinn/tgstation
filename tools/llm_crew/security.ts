@@ -69,6 +69,26 @@ for (const [line, name] of [
 }
 add('and what follows the name is the reason', S.readWarrant('Arrest Pun Pun because he stole my id', FEW)?.reason, 'because he stole my id');
 
+// PARSE-03: a known first name of three letters is found with more words after it.
+const SHORT = ['Bob Hale', 'Dana Reyes', 'Ann Moss', 'Tom Reed', 'Eli Moor', 'Joe Bloggs'];
+for (const [line, name, reason] of [
+  ['arrest bob pls', 'Bob Hale', ''],
+  ['arrest bob in the bar', 'Bob Hale', 'in the bar'],
+  ['arrest ann in the bar', 'Ann Moss', 'in the bar'],
+  ['arrest tom he stole my id', 'Tom Reed', 'he stole my id'],
+  ['arrest eli who is in the bar', 'Eli Moor', 'who is in the bar'],
+  ['warrant for ann - theft', 'Ann Moss', '- theft'],
+  ['arrest ann stole my id', 'Ann Moss', 'stole my id'],
+  ['arrest dana pls', 'Dana Reyes', ''],
+  // A first name alone is the one known person who has it, as for longer first names: the owner should know.
+  ['arrest joe smith', 'Joe Bloggs', 'smith'],
+]) {
+  const read = S.readWarrant(line, SHORT);
+  add(`"${line}" is a warrant on ${name}`, [read?.name, read?.reason], [name, reason]);
+}
+add('a three-letter first name two people share is nobody in particular', S.closeName('bob', ['Bob Hale', 'Bob Stone']), undefined);
+add('nor is one a letter out', S.closeName('bab', ['Bob Hale']), undefined);
+
 // ---- names
 add('a warrant for Pun Pun names Pun Pun III', S.sameName('Pun Pun', 'Pun Pun III'), true);
 add('and not Pun Punch', S.sameName('Pun Pun', 'Pun Punch'), false);
