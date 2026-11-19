@@ -236,10 +236,19 @@ function lacksTool(brain: NpcBrain): boolean {
   return !brain.cleaningTool || brain.poorTool;
 }
 
-/** The cleaning gear it knows the whereabouts of that would be worth going for: anything, or with a rag in hand, anything better. */
+/**
+ * The cleaning gear it knows the whereabouts of that would be worth going for: a proper tool if it
+ * knows of one, else, with nothing in hand, a rag. With a rag in hand, only something better.
+ * Taking the rag first would leave it short and send it back for the mop, so that one janitor held
+ * two of a crate's tools and the next had only the rag (TRA-01).
+ */
 function knownSupply(brain: NpcBrain): string | undefined {
-  const worthHaving = brain.poorTool ? PROPER_SUPPLY : CLEANING_SUPPLY;
-  return allKnownItems(brain).find((item) => worthHaving.test(item));
+  const known = allKnownItems(brain);
+  const proper = known.find((item) => PROPER_SUPPLY.test(item));
+  if (proper || brain.poorTool) {
+    return proper;
+  }
+  return known.find((item) => CLEANING_SUPPLY.test(item));
 }
 
 /**

@@ -49,6 +49,18 @@ function twoRags(holding: string[]) {
 add('two rags: one is put down for the mop', twoRags(['damp rag', 'damp rag']), { tool: 'put_down', item: 'damp rag' });
 add('one rag and a free hand: it takes the mop', twoRags(['damp rag']), { tool: 'pick_up', item: 'mop' });
 
+// ---- TRA-01: a janitor with nothing takes a proper tool when it knows of one, the rag only when it knows of nothing better
+function emptyHanded(items: string[]) {
+  const b: any = janitor(null);
+  b.stowed = [];
+  know(b, ['Custodial Closet']);
+  store(b, 'Custodial Closet', items);
+  return JANITOR.plan(b, { id: 52, kind: 'supplies', state: 'open', urgency: 'asked', source: 'own' } as any)?.act;
+}
+add('nothing in hand, a rag and a mop known: it takes the mop', emptyHanded(['damp rag', 'mop']), { tool: 'pick_up', item: 'mop' });
+add('nothing in hand, a rag and a spray known: it takes the spray', emptyHanded(['damp rag', 'space cleaner']), { tool: 'pick_up', item: 'space cleaner' });
+add('nothing in hand, only a rag known: it takes the rag', emptyHanded(['damp rag']), { tool: 'pick_up', item: 'damp rag' });
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
