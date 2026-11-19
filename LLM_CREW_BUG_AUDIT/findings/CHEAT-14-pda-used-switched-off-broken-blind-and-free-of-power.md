@@ -32,6 +32,8 @@ Concrete cases:
 
 `unsent_messages` (kept and retried) only covers a refusal from the network, so none of these produce a "would not send".
 
+The same holds for the other PDA programs the crew read, each of which only tests that the program is installed: the engine monitor (`engine_reading` in `crew_npc_engineering.dm`, which does test the network but not that the PDA is on, whole and readable), the budget program (`cargo_budget` and `crate_costs` in `crew_npc_quartermaster.dm`), and the custodial locator (`tool_locate` in `crew_npc_cleaning.dm`). The same helper should gate them.
+
 ## Where
 
 `code/modules/llm_crew/crew_npc_cargo.dm:683`, `pda_messenger`:

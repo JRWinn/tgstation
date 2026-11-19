@@ -22,6 +22,8 @@ Concrete case: a round with janitors, the Head of Personnel and the Captain, and
 
 The same happens when a technician is in view but cannot answer: a body lying down or dead at the counter is "a technician" to `requisitionStep` (`peopleInView` lists every human in sight, with `down` set, and the step does not look at it). The head says its order, waits `ANSWER_WAIT_DS` (30 seconds), sets `askedAt` back to null and says it again, every 30 seconds, for good. Since `askedAt` is reset each time, `ORDER_OVERDUE_DS` never fires either.
 
+The same hold, for good, comes from `requisitionStep`'s "You do not know the way to the cargo counter." (not ready, nothing changed): a map with no room called `Cargo Lobby` (`CARGO_LOBBY` is a fixed name in `memory.ts`) leaves every order, and so every meeting after the first need, stuck.
+
 It also makes the head lie to the Captain. Told aloud to hold a meeting, `whenAsked` has the LLM say "Your body is calling a staff meeting for that now", and `meetingOrderedBy` is set. `syncMeeting` moves `nextMeetingAt` to now, but `!held` still stops the call, so no meeting comes and no report follows.
 
 ## Where
