@@ -95,3 +95,9 @@ Checked by Opus 5.5, from the code. Confirmed.
 - Added: an empty remark does not count towards `REMARKS_UNANSWERED_MAX`, so the stops keep coming.
 - Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers it.
 - Mended the fix: a flag set once at queue time goes stale when someone speaks to the NPC while it waits, so the steps now work it out when needed and say where to send `hold` in that case. Step 4 stays a question for the owner. Severity medium and effort small stand.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 80666a4be5b.
+
+- ASYNC-07: part done. - **ASYNC-07 (window, part): a remark the NPC may or may not make no longer stops its body while the model is asked.** No hold is sent when it is queued or thinking only for a remark. If someone speaks to it or it is given a line while it waits, hold is sent then (`remarkOnly`, `heldToTalk` in `brain.ts`). `brain.remarking` is set while the model is asked for a remark only. Left: driver.ts, drive(): the `talking` test should not count a remark-only queue. Change `brain.wake || brain.status !== 'idle'` to `(brain.wake || brain.status !== 'idle') && !remarkOnly(brain) && !brain.remarking`. remarkOnly is exported from brain.ts; if importing it is circular, inline `brain.remarkDue && brain.pendingSpeakers.size === 0 && brain.mustSay === null`.

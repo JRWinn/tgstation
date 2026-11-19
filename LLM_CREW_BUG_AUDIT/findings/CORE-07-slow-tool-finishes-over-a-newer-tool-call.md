@@ -81,3 +81,9 @@ Read from the code: `handle_tool_call`, `tool_explore`, `pick_somewhere_new`, th
 ## Check
 
 Checked by Opus 5.5. The quotes match the code. `tool_explore` and `tool_force_door` are started with `INVOKE_ASYNC` (`crew_npc_tools.dm:34`, `:63`); `pick_somewhere_new` and the loops in `tool_force_door` (`crew_npc_forcing.dm`) and `tool_go_to_door` (`crew_npc_doors.dm`, `get_path_to` in the door loop) sleep in `get_path_to`'s `UNTIL` (`path.dm:29`); `ui_act` runs from a queued verb callback (`tgui.dm:360`, `on_act_message`), so a second `tool_call` is handled while the first sleeps. `start_walk` replaces the walk target and `walk_finished` returns at once for a replaced target, so the newer walk is never reported. Nothing in the change log or plans covers it. The write-up's case was too easy, though: `drive()` in `driver.ts` will not issue any step, `step_aside` and the drops included, until `driveAfter` (2.5 s after a step, 5 s after an idle explore), and route tests on the pathfinder (`SSpathfinder`, `wait = 0.5`) normally finish well inside that. The real ungated way in is `runTool` in `brain.ts`, which sends a tool the model agreed to (a `go_to` to lead someone) as soon as the answer arrives. Mended the case, the test and the fix's details. Kept medium (a request or a lead lost without a word, rarely); confidence lowered to likely because the timing was not measured.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 4cf71442a2a.
+
+- CORE-07: part done. New tool_serial (crew_npc_controller.dm) goes up in handle_tool_call for every call carried out except say and hold, and except a repeat call to a tool still testing routes. explore and go_to_door do nothing more if it moved while they tested routes (shared with LIFE-03). Left: crew_npc_forcing.dm tool_force_door: the same guard, as written under LIFE-03 item (1).

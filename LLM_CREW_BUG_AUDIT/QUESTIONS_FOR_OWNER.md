@@ -113,3 +113,144 @@ Built in the second round: the engine monitor is read only on a PDA that is whol
 
 - A. Keep it so (as built).
 - B. Read the engine only when the PDA is already on, and leave switching it on to when the body means to look.
+
+---
+
+# From the medium small-fix bugs (2026-11-19, branch `crew-bug-fixes-medium`)
+
+These came up while fixing the medium bugs marked "Small fix". Where nothing was built, the finding says "Fix so far" with what is left.
+
+## DESK-05: with no Head of Security and two officers, how do they share warrants?
+
+Nothing built. Today the second officer's warrants are lost to the first.
+
+- A. Each officer that keeps the list serves the warrants declared to it itself (about 10 lines in `jobs/desk.ts`).
+- B. Officers pass warrants to each other: one is chosen to keep the list, and each reads the other's give, seen and let-go lines (larger, touches `jobs/officer.ts`).
+
+## DESK-03: a janitor with a dry mop and a rag, no water in sight, and a mess in another room
+
+Nothing built; today it stalls.
+
+- A. It goes to the mess and cleans with the rag, and wets the mop later.
+- B. It walks to a sink it knows of to wet the mop first, then goes to the mess (the finding's proposal).
+
+## SECT-08: a stranger in a post says the Captain or a head sent them
+
+Nothing built.
+
+- A. Take the word of anyone known to be the Captain or a head, without asking (as is done for a workmate who is not there to ask).
+- B. Ask that person, face to face or by PDA, and wait for a yes. This needs head NPCs to note whom they send, or they would answer "no" and the janitor would be put out.
+
+## ARR-10: short of kit with the person in sight, should the officer leave them to fetch it?
+
+Built: it tells whoever keeps the list at once that it is short. Not built: going for the kit while the person is in sight, which goes against plan H2 ("do not leave them") and the `nobaton` scenario.
+
+- A. It goes for its kit even with them in sight, at most KIT_TRIES times (`nobaton`'s checks change).
+- B. It stays and calls, as now.
+
+## ARR-09: how much more must a hurt officer lose before it breaks off again after "try again"?
+
+Built with a margin of 15 health and a floor of 20, which are guesses.
+
+- A. Keep 15 and 20.
+- B. Other values, or no floor.
+
+## ARR-08: should stopping an attacker with no warrant break in on an arrest?
+
+Built: a walk after someone getting away breaks in; other emergency work does not drop an arrest under way.
+
+- A. Yes, stopping an attacker breaks in too.
+- B. No.
+
+## ARR-03: may an officer get away from a head of staff who keeps hitting it?
+
+Built: no baton on a head of staff with no warrant; it is reported instead. The finding's step 5 is yours.
+
+- A. It stands and reports (as built).
+- B. It gets away from them, as it does with no baton (allow `AWAY` when the attacker is command).
+
+## MAP-04: may a crew officer use a department checkpoint's cell?
+
+Built: checkpoint cells are used, ranked after Brig cells.
+
+- A. Yes, as built.
+- B. No, Brig cells only. On Tram the officer would then have no cell.
+
+## QM-05: with no other technician about, should the Quartermaster let its shut-in technician out itself?
+
+Built: the Quartermaster sends another technician to let it out (finished in the second round). With none about, nothing happens.
+
+- A. Yes, it goes to the door itself (may need `open_door` changed, CARGO-04).
+- B. No, as built.
+
+## CARGO-08: a head comes in person with several crates waiting and gives no number
+
+Built: the technician brings none and asks which number.
+
+- A. Bring them all out, one after another.
+- B. Bring one, and ask which next.
+- C. As built.
+
+## JOBS-04: mail nobody comes for, once the technician's bag is full
+
+Built: the mail step is put off, not retried for good.
+
+- A. Leave it on the counter or in a locker.
+- B. Send the recipient a second PDA message.
+- C. As built.
+
+## ASYNC-07: should a body on its way somewhere be offered remarks at all?
+
+Built: a remark no longer stops other work in the window. Step 4 is yours.
+
+- A. Only when it is not walking, or is working on the spot beside its company.
+- B. Keep offering them, but never stop the walk for one.
+
+## BRAIN-09: read a speaker's request in the same model call as an exact line?
+
+Built: when an exact line is due and someone else speaks in the same update, a second call answers them.
+
+- A. Keep the second call.
+- B. One call with a longer prompt (exact line, then the answer).
+
+## KNA-06: should an officer greet someone after arresting them?
+
+Built: the person is noted as met, and is not greeted.
+
+- A. Greet them later, from a short list of names to greet.
+- B. Not at all (as built).
+
+## MEM-11: should whoever asked be told when work is given up after an hour blocked?
+
+Built: work blocked an hour is given up. Nothing is sent.
+
+- A. Send word ("I could not get into the Cargo Bay about the mess").
+- B. Nothing, as built.
+
+## MULTI-03: is a face seen to belong enough to know a workmate without a card?
+
+Built: yes, as a person would (someone in their clothes would pass).
+
+- A. Keep it.
+- B. Also ask for the card in some cases.
+
+## TRC-03: may the Captain call a meeting by PDA in free words?
+
+Built: only the head's set words call a meeting.
+
+- A. No, as built.
+- B. Yes, through a reader of its own (the model as last-resort reader, as GAP-15 proposes).
+
+## ENG-06: should the driver drop any set phrase the model says that the job did not ask for?
+
+Built: each reader matches its set words strictly.
+
+- A. Yes, one general check where the driver takes the model's line, for every job's set words.
+- B. No, the stricter readers are enough.
+
+## Smaller questions noted by the fixers
+
+- **HAND-07, step 4:** should a crew member who finds someone out cold in a locker raise the alarm?
+- **KNA-05:** should an officer put down what it holds for the cuffs too, or only for the baton (as now)?
+- **CHEAT-10:** a card whose title is no job at all ("Bartender's mate") shows no job. Should such a person count as a stranger to every post (as now), or be asked their business?
+- **MAP-06:** should a cargo post be the room with the counter window to the lobby, whatever console stands there? On MetaStation both answers are the Cargo Bay.

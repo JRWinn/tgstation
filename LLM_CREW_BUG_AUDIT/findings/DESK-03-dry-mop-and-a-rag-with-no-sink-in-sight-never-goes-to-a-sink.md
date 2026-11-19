@@ -108,3 +108,9 @@ With a dry mop and a rag and no water in sight: `working_tool` gives the rag, so
 Ran a throwaway bun script (scratchpad, not in the repo) that ingests a janitor holding a mop and a damp rag with `mop_needs_water` 1, `sink_in_view` 0, `dry_mop` 1, a sink remembered in the Custodial Closet and a CLEAN task for the Bar. `syncTasks` opened no SUPPLIES task, and `plan` gave: `{"ready":true,"step":"Your mop is dry and there is a sink right here. You are wetting it before you set off for the mess in Bar.","act":{"tool":"clean"}}`. The server side was not run.
 
 Nothing in `LLM_CREW_CHANGELOG.md` fixes it. The "(16) A dry mop is not only a rag" entry made `has_poor_tool` FALSE on purpose, which is right; the window just has no step for that state. The fix is window-only and keeps the rules.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: none.
+
+- DESK-03: waits on the owner (QUESTIONS_FOR_OWNER.md). 

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 2b149bcfeb1, 4c105dd0c43
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo

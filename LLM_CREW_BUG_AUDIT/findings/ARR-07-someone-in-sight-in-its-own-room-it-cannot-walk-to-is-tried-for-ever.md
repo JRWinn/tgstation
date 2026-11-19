@@ -85,3 +85,9 @@ Checked by Opus 5.5, from the code. Nothing was run.
 - Fire doors are see-through (`opacity = FALSE`, `firedoor.dm:11`), so the concrete case can happen. Step 4 of the fix said the driver's alarm reset would open them; it would not, because no `fire_doors` detail reaches the window from an approach or an arrest. Step 4 is rewritten.
 - Change log: the 14:15 entry's M8 added `no_way` on purpose and H9 the let-in steps, both for a room other than its own. Nothing covers the same-room case.
 - Confidence raised to sure: every step of the loop was read end to end. Severity medium stands (needs a split room or a fire door with the person in sight). Effort small: one branch in `arrests.ts`, plus the optional line in `security_details`.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 6138e377a3f.
+
+- ARR-07: part done. A no_way from an arrest that noted no shut-out room (the officer's own room, or nobody to ask) now counts as a try. After three it rests 30 s and tells once 'I cannot bring in X: they are in sight, but there is no way through to them.' The arrest line is not said again before every try. See NO_WAY_TO_THEM and beatAfterActing in jobs/arrests.ts. Left: crew_npc_security.dm, security_details: in the no_way branch for an arrest, call fire_door_report(details) so that the driver's reset_alarm step can open fire doors (step 4 of the finding). sim.ts: a scenario where arrest always answers {ok:false, reason:'no_way', place:<the officer's room>}.

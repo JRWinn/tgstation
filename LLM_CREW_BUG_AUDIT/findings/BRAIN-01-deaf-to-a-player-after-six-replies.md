@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a207be6b0e0
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: brain

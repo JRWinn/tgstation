@@ -100,3 +100,9 @@ Not chosen on purpose. The change log entry "(5) A mop does not scrub" (`LLM_CRE
 On the fix: step 1 is right; reading `cleaning_strength` off the tool's component is better than a constant. Step 3: if the two words are simply taken out of `SCRUB_KINDS`, a janitor holding only a spray who is called to garbage will take the call and then report it as beyond the spray. That is still a true report, so it is acceptable, but the better way is the one the finding names: let the server's `beyondKinds` decide. Effort stays small: one line in `can_clean_mess` and one regex in `janitor.ts` (two files, but no design change). Severity medium: garbage is common in maintenance and some rooms, and the wrong tool swap costs a walk to the closet and back.
 
 Read only. Nothing was run.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 8379468dc7c.
+
+- JAN-02 (server part): part done. JAN-02: a wet mop now counts as shifting what it scrubs up. can_clean_mess judges a mop by its cleaner component's strength (CLEAN_SCRUB) and is_mopped, not by CLEAN_WASH, so decomposing garbage and a gooey grey mass are cleaned with the mop (crew_npc_cleaning.dm). Left: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts: take `decomposing garbage` and `gooey grey mass` out of SCRUB_KINDS (line `const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;` becomes `/^(cobweb|rubble)$/i`), or better, use the server's beyondKinds in changeForScrubbing instead of the fixed list. Simulator (sim.ts / fixtures.ts, owned by nobody this round): a scenario where a janitor holding a wet mop is called to a room with a "decomposing garbage" mess; pass if it cleans it and does not go for a rag.

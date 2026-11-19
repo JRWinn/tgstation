@@ -88,3 +88,9 @@ Corrections to "How to fix it":
 
 - Step 1: dropping `leaving ||` sends a door out through the rest of the loop, which was written for a door in. Gate the `outer_locked` / `route_by_open_door` lines and the `outer_name` short cut on `!leaving` (for a door out the far room being locked is not a reason to pass the door over, and "it opens from X, which is locked to you as well" would be untrue), and word the log line "a door out of" for a door out. With the route test in, a door that cannot be reached is passed over on every call, so nothing needs remembering.
 - Step 4: `tool_knock` needs `at_door_of()`, so a knock cannot be let run away from the door. Only the PDA steps (`WORD_OUT_KEY`, `WRITE_OUT_KEY`) can, and their text says "am at the ... door"; a body that never reached it needs a line without that, for instance "I am shut in the X and cannot get to its door." That is a window change, so this step makes the fix medium if it is taken; steps 1 to 3 alone are small.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: a7bc8ccd30d.
+
+- DOOR-06: part done. tool_go_to_door (crew_npc_doors.dm) now tries a door out of a room for a route to its inside tile before choosing it, as it does for a door in. A door it cannot reach is passed over with 'found no way to ... a door out of X'. The locked-outer-room and open-door tests stay for doors in only. A bolted or welded door scores +300, both ways. Left: Step 4 is in tgui/packages/tgui/interfaces/CrewBrain/driver.ts (the shut-in steps, WORD_OUT_KEY and WRITE_OUT_KEY): when the last go_to_door failed with 'You cannot find a way to the door out of X', let the PDA steps run away from the door, with a line that does not say 'am at the door', e.g. 'I am shut in the X and cannot get to its door.'. That makes it a medium fix. Step 5 is in crew_npc_doors.dm at_door_of (mine), but I did not do it: it also changes try_random_step and room_door_for, and needs its own look.

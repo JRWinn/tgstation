@@ -87,3 +87,9 @@ Confirmed. Read `syncTasks` (`tasks.ts:137-156`, `GIVE_UP_DS = 18000` at line 47
 The case does not survive as first written: a crate handed over at minute 38 of a task made at minute 10 is 28 minutes old, not past 30. Corrected to the drop at minute 40, mid-haul, and a note added on how narrow the window is: before the crate is out the task is open between tries, so anything not out by the 30th minute is dropped at the counter instead (CARGO-13). Severity medium kept: the case is not common, but when it comes the head's cue is stuck for the rest of the round and the empty crate is never taken back.
 
 Effort: kept small. The change is a few lines in `types.ts`, `tasks.ts` and `pickups.ts`, window only. The `keepUntil` fix works: the haul result then finds the task, `unpacked` is set, and the tail has its own half hour. Better still, set it in `planPickups` when it returns the `collect_crate` act as well as in `syncPickups`, since `syncPickups` and `planPickups` see the same `out` and either order works. Build it with MEM-11's `openSince` if that is taken, so the filter is changed once. Nothing was run; not seen in a round.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 9f42272152a.
+
+- JOBS-02: part done. A crate errand sets Task.keepUntil to half an hour on, both when the crate is first seen put out (syncPickups) and when collect_crate works (pickupsAfterActing). Nothing reads it yet. Look in jobs/pickups.ts (KEEP_HAULING_DS). Left: tasks.ts, syncTasks give-up filter: keep a task while `brain.now < (task.keepUntil ?? task.createdAt + GIVE_UP_DS) || task.state === 'blocked'`. Build it with MEM-11. sim.ts: a pickup scenario where the head's message is 29 minutes old when the crate is put out, checking for the haul, an 'is unpacked in' message and a take_back.

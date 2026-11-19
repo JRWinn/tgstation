@@ -78,3 +78,9 @@ Read `readOrder` (`brain.ts:1082`), `callOllama` (`brain.ts:1693`, one `temperat
 I ran a throwaway bun script (outside the repo) that imports `readReading` and `readingAsOrder` by absolute path. For the message "Bring that clown Pun Pun to me when you get a chance, he took my hat" and the reply `{"kind":"warrant","name":"Pun Pun","minutes":10}`, it returns `minutes: 10` and the order "Warrant for Pun Pun, 10 minutes.". So minutes the message never gave are taken. `deskUnread` sends every head's message that code could not read to the reader, so the case can happen. How often 0.7 flips the kind was not measured (that would need the model), so the confidence stays `likely`.
 
 The changelog entry (M5, line 324) that built the reader says nothing about temperature or minutes, so neither was chosen on purpose. One thing limits the harm: `deskRead` sends the sender the fixed words back, so a wrong reading can be seen and pardoned. Medium and small stand. Fix 2 was mended to read the minutes from the message with `MINUTES_SAID` and stop taking the model's number at all.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: d7cbcae93c7.
+
+- BRAIN-11: part done. - **BRAIN-11 (part): the reader of last resort for orders is asked at temperature 0** (`callOllama` takes a temperature; `readOrder` passes `READING_TEMPERATURE` 0, in `brain.ts`). Talk and the job choice stay at 0.7. Left: jobs/security.ts, readReading: do not take the model's minutes. Read text.match(MINUTES_SAID) as readWarrant does (digits, or NUMBER_WORDS.indexOf(word)+1, capped at MINUTES_MOST), and use 0 when there is no match. Drop minutes from the schema and prompt in buildReading. Add table cases: replies with minutes for messages with and without a time; only those with a time keep it.

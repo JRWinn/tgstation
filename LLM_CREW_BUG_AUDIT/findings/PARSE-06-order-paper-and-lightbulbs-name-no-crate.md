@@ -94,3 +94,9 @@ Opus 5.5, 2026-11-19. Confirmed.
 - Nothing in `LLM_CREW_CHANGELOG.md` or the plans touches these words. "Loose wording for orders" (an LLM as last-resort reader) is approved but not built, so nothing catches the miss today.
 - Severity medium stands: the reply names "Bureaucracy Crate", so the head can ask again and the work gets done, but a player would notice. Effort small: one table and one shared constant.
 - Added to step 5: `askWhatWasMeant` is a caller that does not need an order word, so wider words change it slightly. `readAnswer` runs before it (`quartermaster.ts:1446` and `1605`), so a plain yes or no is not affected.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: edb6d9ee2bd.
+
+- PARSE-06: part done. Every kind of crate cargo can get has words it is asked for by. The Bureaucracy Crate takes paper, stationery, pens, clipboards, office supplies and folders (PAPER_WORDS, exported). Lights take lightbulbs, light tubes and tubes. Janitorial supplies take jani, custodial, buckets, brooms and rags. Look in jobs/cargo.ts: CRATE_ASKED_AS, PAPER_WORDS. Left: quartermaster.ts: replace PAPER_CRATE with `import { PAPER_WORDS } from './cargo'` so the two lists cannot drift. book.ts: a case where the Captain says 'yes, the paper one' to an order waiting on its say, still read as a yes.

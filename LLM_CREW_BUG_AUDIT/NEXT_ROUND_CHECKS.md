@@ -57,3 +57,129 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - TRC-01 (take_from_container): `game.log` "left the X open in Y: someone is on it." when something is taken from a locker or crate with someone on its tile.
 - ASYNC-08 (both halves): the Captain gives an order in passing and walks out of view at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk.
 - DRV-03: the step-aside line in `crew_brain.log` ("has asked you to step aside") comes within a second or two of the ask in `game.log`, and the body is out of the way at once.
+
+## From the medium small-fix bugs, round one (branch `crew-bug-fixes-medium`)
+
+- PARSE-03: pda.log: 'I have that: a warrant for': each name should be a whole crew name
+- SECT-04: pda.log: 'the warrant on .* is withdrawn' and 'I did not follow that' sent to heads
+- SECT-05: pda.log: 'I have that: a warrant for .*minutes' with a reason that holds a time
+- SECT-11: pda.log: after 'you are to make arrests again', a 'warrant: X. Bring them in' line to the officer for each warrant still standing
+- SECT-12: pda.log: 'I have that: .*, N minutes.' and check each answers a line about how long someone is held
+- SECT-13: pda.log: 'Warrant for Unknown', 'put Unknown out', 'someone with their face hidden would not leave'
+- SECT-15: pda.log: 'there is no warrant on' and check each against the wanted list at the time
+- SECT-21: pda.log: 'I have that: a warrant for' with a reason of 'on the bridge', 'in the kitchen' or 'the night shift'
+- SECT-22: pda.log: 'the warrant on .* is withdrawn' and check the line before it asked for that
+- ARR-03 (window part): game.log: no 'hit ... with its baton ... (stop)' on a head of staff; pda.log: 'X attacked NAME. There is no warrant on them.' after a head shoves the officer.
+- ARR-07: pda.log: 'there is no way through to them'; crew_brain.log: the arrest line said once, not before each failed try.
+- ARR-09: pda.log: 'we will try again' followed in game.log by an arrest ('hit X with its baton'), not by a second 'is hurt. I am serving the warrants myself'.
+- ARR-10: pda.log: 'I cannot bring in X: no cuffs' or 'no baton', sent soon after the officer meets them.
+- ARR-11: game.log: after 'walk failed (go_to, X Primary Hallway)' by the officer, its next go_to is to a different hallway.
+- ARR-12: pda.log: 'carry a Captain's ID'; crew_brain.log: no arrest line said again and again to the same person.
+- ARR-14: pda.log: 'Could you let me in, please?' from security; game.log: no walk by the officer in the 90 s after it, unless the door was opened.
+- ARR-19: pda.log: 'Could you let me in, please?' after an officer is bitten; game.log: the same arrest line said no more than twice.
+- TRB-01 (window part): Once the server half is in: game.log 'took hold of NAME' after the Captain cuffs a wanted crew NPC and lets go beside the officer.
+- TRB-02: game.log: 'arrested NAME' followed by 'took the cuffs off' for the same name after a pardon.
+- TRB-09: pda.log: a second 'I cannot bring in Pun Pun: nobody has opened the ...' on a second warrant, and a second engineering ask.
+- ARR-08 (window part): game.log: no approach or arrest of a second wanted person while the officer's arrest of the first is under way.
+- ARR-13: game.log: when the Head of Security 'arrested' someone, a 'put ... in Cell' line follows.
+- KNA-32 (arrests part): Once wired: in game.log, no 'was told by its brain to say' line from a security body that names a wanted person, outside the arrest line.
+- ASYNC-07: crew_brain.log: a remark with no say should no longer be followed by a stop in game.log; watch janitors walking with company
+- BRAIN-01: game.log: talk to one NPC for a minute without pause; a 'was told by its brain to say' after each line
+- BRAIN-03: grep -c "too many things" crew_brain.log should be 0; no two ROUTINE records for one NPC in the same second with the same text
+- BRAIN-05: crew_brain.log: no reply with "tool": "go_to" in move unless the report has someone asking the way
+- BRAIN-07: crew_brain.log: '[the line in it is no longer needed: not said]' and '[whoever spoke is still to be answered]' records, and any '[the LLM gave none]' checked against the state just before it
+- BRAIN-09: crew_brain.log: '[whoever spoke is still to be answered]' followed within a few seconds by a call answering that speaker; no double order
+- BRAIN-12: game.log: with two people owed word in view, one done line to each, 4 or more seconds apart
+- CHK-07: crew_brain.log: 'is not in sight to be called to it' records should have the meeting room as their room
+- GAP-23: grep game.log for 'was told by its brain to say:' lines of 199+ characters not ending in . ! ? or a quote: should print nothing
+- KNA-06: game.log: between 'you are under arrest' and 'arrested' for one suspect, no officer say other than the arrest line
+- HOLE-25 (window part): crew_brain.log: no 'your greeting' moment whose trigger line has 'lying on the floor'; report lines show '(lying still)' or '(in cuffs)'
+- DRV-01: crew_brain.log: ROUTINE (no LLM) lines ending "stepping clear to wait", for bodies at a staff meeting that arrived in a doorway
+- DRV-11 (window part): game.log: "walk failed (go_to_door" two or more times for a shut-in body, then in crew_brain.log "cannot get to its door" and pda.log "I am shut in the ... and cannot get to its door"
+- ENG-04: pda.log: each "I am sending X to open the Y" should be followed by "is open", "could not open", or "nobody from engineering has said it is open" for the same room
+- JOBS-06: game.log: "nowhere here to step aside", then the next ask to the same body within two minutes should be followed by a step_aside
+- PARSE-04: game.log: each step_aside, checked against what was said to that body just before it
+- LOGB-04: crew_brain.log: "Someone is knocking at the door of your office" should come once for each technician knock() step
+- QM-04: game.log: "open_own_crate" repeated for the same crate number
+- QM-12: pda.log: "Lost at cargo" for an order that was itself a reorder should say "It will have to be ordered again", with no new order number
+- TRUST-07: pda.log: an order told "did not go through" by a technician other than the one it was given to should not be given again
+- CARGO-07: game.log: with the model down (decision.error in crew_brain.log), no '[made out without the LLM]' order after a head's line with no crate kind in it, or with 'where'/'yet'/'cancel' in it.
+- CARGO-08: game.log: 'I am holding no crate for you. Which number is it?' or 'Which number is it?' said at the counter; no 'not holding a crate by that number' said to someone who had a crate held for them and gave no number.
+- CARGO-11: pda.log: a janitor call from the technician who does not have the rooms, after the keeper was taken to the Brig; crew_brain.log: no lasting 'has the rooms this shift, and sends for a janitor' step while the keeper is out of sight.
+- CARGO-12: crew_brain.log: no lasting 'That is X's to see to' step while X is in cuffs or down in the bay.
+- CARGO-13: pda.log: 'Cargo has not brought out crate #' from a collector; game.log: no collector asking the same technician more than three times running.
+- CARGO-14: game.log: an order line naming Replacement Lights after a head or the Captain asks for 'light bulbs for the janitors'.
+- JOBS-02: Once tasks.ts honours keepUntil: in game.log, a take_back after every 'is unpacked in' PDA line in pda.log.
+- KNB-10: game.log: no 'orders go through the Quartermaster' said to a head or the Captain who was standing in the Quartermaster's Office.
+- PARSE-06: game.log: an order for a Bureaucracy Crate after someone says 'order paper'.
+- PARSE-08: game.log: no 'opened ... to let X out of Y' straight after X asked to be let in from outside (for example 'I'm stuck out here').
+- TRA-03: pda.log: no 'Cargo says there is no crate #N' from a collector whose crate N was then brought out or still held.
+- JOBS-04: game.log: after 'no room in your bag' or 'The supply shuttle is not here to send back' three times, the same body goes on to tidy, look-in walks or go_to its post; crew_brain.log: 'it has failed three times running'.
+- LOGA-04: game.log: no 'opened ... to let X out of Y' by one technician within half a minute of the other's 'opened ... to let X into Y'. If one is seen, check the technician's crew_brain.log prompt for 'knocking ... from inside' first.
+- DESK-01: crew_brain.log: every "your PDA says what you asked for has come" step follows a "what you asked for has come" line in pda.log to that janitor.
+- MULTI-03: game.log: "took hold of ... to walk them out of" a post with workmates of the same department on both sides; crew_brain.log: "I work here".
+- PARSE-07: game.log: a stranger's answer naming the guard at the start or after a comma followed at once by "You have no business in here".
+- SECT-09: game.log: a workmate's "Yes ..." answer to "did you ask X to come in" followed by "You have no business in here, X".
+- DESK-02: crew_brain.log: "nobody let you in" steps; each should follow a real knock in game.log for that same call.
+- DESK-10 (window part): game.log: "Your hands are full of things you need" from a janitor repeated; after it, a go_to the mess.
+- LOGA-05 (window part): crew_brain.log: no janitor "holding damp rag, damp rag" for more than a minute, a "putting one damp rag down here" step, and no run of go_to between the same two rooms.
+- ENG-05: In pda.log, a Captain's line to the Chief Engineer with light/relight/restart in it, then in game.log the Chief Engineer's "the engine is yours. Light it now, please." to its engineer.
+- ENG-08: game.log or pda.log: "The engine has been lit again." to the Captain, and a second "losing integrity" afterwards if integrity is still under 95.
+- ENG-09: pda.log: "I cannot reach" from the Chief Engineer to the Captain; crew_brain.log: no Chief Engineer step "You are looking for" lasting more than a minute.
+- ENG-11: pda.log: "I have no engineer to switch the emitters off"; a Chief Engineer's meeting close saying "I have ordered the emitters off, and have not heard that they are".
+- LOGA-02: crew_brain.log: a head step "You are waiting for X, who is on the way or somewhere in the"; pda.log: "the staff meeting is over. Send me your report by PDA" from a Quartermaster or Chief Engineer to a staff member who was never called on.
+- TRA-01: pda.log: the Head of Personnel's "I need to order 2 crates of janitorial supplies" after a meeting where three janitors reported a need.
+- TRA-06: game.log: no "could you get it ordered" said to the Captain while a Head of Personnel is aboard.
+- TRC-03: pda.log: no "On my way to the" answering a Captain message that did not begin "Staff meeting in the".
+- ENG-06: game.log: no emitter "switch_on" before the last cooling step of the lighting list; crew_brain.log: the Chief Engineer's "I have that" only after a line that begins "<name>, the engine is lit."
+- HEAD-03: game.log: call-on lines with a full name ("Alex Moor, your report, please.") where two staff share a first name; the Captain's copy "3 of 3 there".
+- HEAD-06: pda.log: the time from a head's "Staff meeting in the" to its "the staff meeting is over" is never more than about four minutes once its staff have arrived; "I could not get to the" in the HoP's copy to the Captain.
+- HEAD-07: game.log: two reports said within a few seconds of one call-on; there should be none.
+- ARR-03 (server part): game.log: no 'hit <head> with its baton ... (stop)' for a head of staff; the brain log should have an arrest result with reason command if a head attacks an officer
+- ARR-17: game.log: 'let ... go at' lines; the name should match the pardon in pda.log
+- KNA-30: game.log: from 'put on the security belt' to the first 'with its baton' should be about 0.4 s longer per storage, and the counts should not change; engineers' 'forced open' lines as before; attack.log and the Crew Brain hands should show no belt taken off and no box out of a bag; draw_stopped 'it could not open what it was kept in' should not appear
+- MAP-04: game.log 'put X in Cell N': on MetaStation it should be the nearest free cell; on Tram it should not be 'Cargo Cell' unless that is the nearest
+- SEC-04: game.log: one 'could not put X in Cell 1: it could not get to the cell's timer' (or 'its timer would not start' / 'would not take the time'), then 'put X in Cell 2'
+- TRB-05: game.log: 'got <name> up from the <chair>' before 'arrested <name>'; there should be no 'got away from you on the way to the cell' after arresting someone who was seated
+- TRB-07: crew_brain.log or game.log for a jailed crew NPC: no 'You are free to go.' and no 'walked out of Cell N before you could shut it' between 'took the cuffs off' and 'put ... in Cell N'
+- TRB-08: game.log: 'could not put X in Cell N: its door is broken' after a cell's windoor is smashed, and no 'put X in' that cell
+- DOOR-04: game.log after power fails: an engineer without a multitool should still 'force open' a dead door; there should be no 'no_tools' with only multitool missing for a door with no power
+- DOOR-01: game.log: 'opened .* to let' followed by a second 'opened' line for the same room within a minute means someone was shut in again.
+- DOOR-03: game.log: 'tested whether it is shut in'. Each line now says 'N way(s) tried'. 'found no way out' should come only for a room whose doors are all locked to that body, bolted or dead, and 'nowhere to test' should appear in place of the old false 'no way out' (the Custodial Closet at round start, KNA-28).
+- DOOR-11 (server part): game.log: 'reset the fire alarm in' should come only when the doors really opened. Look for the results 'has no power. It will not reset' and 'would not reset'.
+- HAND-03 (server part): game.log: grep 'told by its brain to say:.*\*' should find nothing, and no GAME-SAY line should show a custom say emote from a crew NPC.
+- KNA-31: pda.log: an officer after someone in the Bar Backroom should not say 'I am at the Bar Storage door' unless it has service access. game.log: 'found no way to ... a door into' lines for doors behind a Service Hallway door that stands open.
+- LIFE-01: game.log: 'walk failed (go_to' followed by 'you were knocked off your feet'. After one, the next go_to to the same room should be sent within a minute, not five.
+- LIFE-03: game.log: 'had been given something else to do meanwhile'.
+- CORE-07: game.log: 'had been given something else to do meanwhile'. A step aside or a lead asked while a janitor explores should be carried out, not replaced by the explore walk.
+- CORE-11: game.log: 'walk failed (' with 'has hold of you', 'strapped into' or 'cannot move your legs'.
+- DOOR-06: game.log: 'a door out of' in 'found no way to' lines, followed by a walk to another door of the same room.
+- KNB-14 (server part): game.log: 'walk failed (go_to' for a janitor let into a cargo room. Once let out it should go straight to its next call, and no 'I could not get in' report should follow a time shut in.
+- MAP-07 (server part): After 'Gravity Generator Blackout' in game.log: 'you are floating, with nothing to push off from' on walk failed lines. Crew in open floor should not move.
+- MAP-11: Only on Tramstation, IceBox, NebulaStation or CatwalkStation: no walk failed line to a spot on /turf/open/openspace. On MetaStation nothing should change.
+- HAND-07: game.log: "found .* inside the"; crew_brain.log: storage_seen with "you find"
+- JAN-01: game.log: "wrote off the" (each should be a mess that really would not shift, such as a cobweb under a mop); crew_brain.log: "You stopped cleaning" / "could not finish cleaning"
+- JAN-02 (server part): game.log: a janitor with a wet mop near decomposing garbage reports "You clean up 1 mess in ..."; no tool change to a rag for garbage
+- JAN-05: game.log: "to put things on it: passed over for a while" should appear once for each place, not once for each thing
+- JAN-09: game.log: after an NPC's "worked the emitter ... switch_off", no emitter "turned ON by" that NPC; crew_brain.log: "is off already" / "is connected already"
+- KNA-05: game.log: "found a .* in its hand that it did not pick up" during an arrest, then "put down the"; no "put away its X to free a hand" for a beer or circuit board
+- LIFE-05: game.log: one "hit ... with its baton" per swing, never two lines a fraction of a second apart for one errand
+- LOGA-05 (server part): crew_brain.log: no janitor "holding damp rag, damp rag" for more than a minute; game.log: "put away its damp rag to free a hand"
+- RT-05: game.log: "stopped on an error" (each one is a runtime that would have frozen a body) and "gave up its"
+- MULTI-04: crew_brain.log at round start: no "standing open with nothing left inside" for a janitorial locker that holds things; the three janitors list the same things for the closet's lockers
+- PERF-06: Hard to see in logs: a mess put down by an admin in the bay late in a long round should still get a technician to call a janitor
+- SUP-15: game.log: no "nobody can get to it" for a crate that was reached since its last failed walk
+- CHEAT-10: grep game.log for 'has every right to be in' and 'outranks you' and check each against the person's card title
+- CORE-06: grep game.log for 'got away from you' during custody walks and throw_out, and check whether a slippery thing was on the tile
+- CORE-09: watch the Crew Brain window's job for a technician carrying a picked-up ID; grep game.log for tidy steps with an ID card
+- CORE-10: grep game.log for 'Crew Brain window of' ... 'closed' near round start; the owner should see 'The Crew Brain window opens when you join or observe.' in chat if in the lobby
+- DOOR-09: compare the Crew Brain window's locked rooms list with the map; check a technician answers knocks at the Cargo Bay door
+- MAP-05: grep game.log for 'nowhere on the station to stand'; on a multi-level map check each body's spawn room
+- MAP-06: grep crew_brain.log or the start prompts for 'Your technicians work from the' and 'Your post is the' and check they name the same room
+- SENSE-01: grep game.log for 'is down and cannot walk', 'already has hold of', 'is in cuffs. That is security'
+- SENSE-05: after station power fails, grep game.log for throw_out results: 'walk X out of' and 'You cannot see a door to walk'
+- SENSE-10: grep pda.log for messages to a crew NPC while game.log has it in a locker or disposals, then crew_brain.log for the message arriving
+- SENSE-11: after the keycard emergency maintenance access is swiped, grep game.log for 'has every right to be in' for people with no job there
+- SUP-03: grep game.log for 'order book, sheet' items dropped, and for 'Your hands are full, so you cannot get your'
+- SUP-13: grep crew_brain.log or game.log for 'did not come with it'
+- SUP-04: grep game.log for STOW hauls of the same crate twice in a row; on MetaStation check crates still end on the bot_white squares

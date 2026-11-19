@@ -104,3 +104,9 @@ Confirmed, on Opus 5.5.
 - Not fixed in the change log. `LLM_CREW_PLAN_NO_CHEATS.md` 4.2 is about this function for another fault, and its kept ask uses the same supply-words test, so building 4.2 as written would carry this fault over: the fix here should go in first or with it.
 - Added to the write-up: the lines order only while no order is on the go, which for "has my order come in" is the time just after it docked. Step 3's exclusion pattern narrowed (a bare `in` and `not` would turn real asks away), and step 4 now also sets who the order is for from the line, not from the first speaker in view.
 - Severity medium is right: it needs a dead or timed-out model, which happens (the GPU busy), and costs the budget a crate each time.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: a9e3aa3cb29.
+
+- CARGO-07: part done. With the model down, a technician orders only a kind of crate it was asked for, in words that ask (order, need, could, please...), and never on a line about an order already made or called off (has my order come in, where is, cancel, do not). It never falls back to the first crate on the list, and a line said to someone else is ignored. With the model up, agrees uses the same ask test. Look in jobs/cargo.ts: hears, agrees, asksToOrder, ASK_WORDS, NOT_AN_ASK. Left: brain.ts, in the catch of the talk call (where hears is called): set request.for from the handle in `heard` (heard.match(/\(person (\w+)/)?.[1]), not from the first of `speakers` in view.

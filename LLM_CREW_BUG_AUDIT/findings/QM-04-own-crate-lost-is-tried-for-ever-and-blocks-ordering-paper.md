@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: d3f8d025e58
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: quartermaster

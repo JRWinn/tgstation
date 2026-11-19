@@ -113,3 +113,9 @@ Checked by Opus 5.5, from the code. Nothing was run.
 - `put_in_cell` leaves the cuffs on anyone who is not a crew NPC (`crew_npc_security.dm:1140`, `cuffs_left`), so being short of cuffs right after a jailing is ordinary.
 - Change log, 14:15 entry: H2 built `onLead` against trips to the lockers that came to nothing; its plan (`LLM_CREW_PLAN_ROUND_1428_SECURITY.md`, H2) says "Mostly moot once C1 is fixed". It did not weigh having nothing to make the arrest with. The same entry's "Known and not fixed" says the officer with no baton "tries the cuffs once and then stands by the suspect. It now says so, and stays." It no longer says so: the word waits on `kitTries >= 1`, and any trip that got something, or the arrest's own `no_baton` answer, sets `kitTries` to 0. The finding adds the cause and the fix to that known fault, as FORMAT.md rule 4 allows.
 - The fix keeps the rules: the kit comes from the security lockers by the body's own `get_kit`. A recharger in the Security Office would be the other honest way to mend a flat baton; nothing uses one today, so the lockers are the way. Severity medium and effort small stand.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 59091897b45.
+
+- ARR-10: part done. With the person in sight, security now tells whoever keeps the list at once, once, 'no cuffs', and 'no baton' once force is called for, without waiting on a failed trip to the lockers (syncBeat in jobs/arrests.ts). It still does not leave them to fetch kit (H2 kept). Left: If the owner picks A: in wantsKit (arrests.ts) allow the trip while onLead when !has_cuffs, or !has_baton with a force warrant, while kitTries < KIT_TRIES; and in sim.ts, nobaton's checks 'no more than three trips' and 'stays with it' must be changed to fit.

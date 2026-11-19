@@ -85,3 +85,9 @@ Seen in a round log (the two lines above). The cause read from the code: grep of
 ## Check
 
 Checked by Opus 5.5 on 2026-11-19, from the code, while fixing. Confirmed. The only place the rule lives is the prompt line in `beatCues` ("A warrant is security business. You do not bring it up ..."). The reply filter in `brain.ts` (after `withoutHandles`) screens handles, filler, repeats and, since TRUST-11, lines that sound like an order (`soundsLikeOrder` in `talk.ts`); none of it looks at `beat.warrants` or a desk's warrants. `jobs/job.ts` has no hook that sees a line before it is said. So a model that names the warrant in a greeting is heard as it wrote it, as in round-19.33.50. Severity medium and effort small stand, but the fix spans `jobs/job.ts`, `brain.ts`, `jobs/officer.ts` and `jobs/headofsecurity.ts`.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 81beaacdfb2.
+
+- KNA-32 (arrests part): part done. New warrantTalk in jobs/arrests.ts checks a model-written line of a security body. If it names someone it has a warrant on and does not hold (whole name, or a first name of 3+ letters), or a name passed in from the desk, and it is said to anyone but security, the Captain or a head, it returns the plain line to say instead ('I am NAME, security.' for a greeting, else 'I am on security business.'). Nothing calls it yet. Left: jobs/job.ts: add an optional hook vetsSay?: (brain: NpcBrain, text: string, to: string | null) => string | null. brain.ts: right after withoutHandles in the reply filter, for each say action that is not the exact mustSay line, call jobFor(brain.job).vetsSay?.(brain, text, to) and say the returned line in its place when not null (to = saidTo from addressing.ts, else the speaker being answered). jobs/officer.ts (this group's file, next round): vetsSay: (b, t, to) => warrantTalk(b, t, to). jobs/headofsecurity.ts: vetsSay: (b, t, to) => warrantTalk(b, t, to, deskOf(b).warrants.map(w => w.name)).

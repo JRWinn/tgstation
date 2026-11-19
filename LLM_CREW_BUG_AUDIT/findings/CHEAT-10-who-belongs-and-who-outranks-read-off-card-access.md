@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 510294d54e9
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: senses

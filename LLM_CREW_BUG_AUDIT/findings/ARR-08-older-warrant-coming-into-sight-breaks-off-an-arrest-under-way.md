@@ -110,3 +110,9 @@ Checked by Opus 5.5, from the code. Nothing was run.
 - Searched the change log for `orderToDrop`: only H5 (`dropsWalk`, 14:15 entry), which is about walks. Nothing chose this.
 - The fix: step 1 is the right place and is general. It changes every job's emergencies, which is why the whole scenario set has to be run; step 4 asks of `STOP` what the write-up asked of `AWAY`. Step 2 on its own is enough for the security case and is the smaller change; it needs the task id passed into `serveStep`. Step 3's "See also ARR-11" was the wrong number (ARR-11 is the hallway search); corrected to ARR-13.
 - Confidence left at likely: the timing (A must come into view during the few seconds of an arrest) was not seen in a round. Severity medium and effort small stand.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: a5bc3977401.
+
+- ARR-08 (window part): part done. With two warrants, the other person coming into sight no longer breaks off an arrest under way. planBeat's serve branch waits ('You are in the middle of arresting someone else. X waits.') while brain.lastAct is an arrest for another task, so orderToDrop finds nothing to drop it for. Left: driver.ts, orderToDrop: return null when brain.lastAct's task is itself an emergency task, unless the found plan has breaksIn. types.ts Plan: add breaksIn?: boolean. arrests.ts planBeat AWAY branch: set breaksIn: true (this group's file, next round). Step 3 (drive remembering a dropped arrest, so a suspect it cuffed is taken as its own) is not done. sim.ts: two warrants, the first person coming into view while the arrest of the second is held back 5 s.

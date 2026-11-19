@@ -100,3 +100,9 @@ Read `tool_pick_up` and `free_a_hand` (`crew_npc_hands.dm:9-108`), `trade_tool_t
 Why it holds: `/obj/item/rag` is in `janitor_tools`, so neither rag is "not a trade tool"; neither is a spent spray; and the rag rule needs a mop already in hand. `spare` stays null, `free_a_hand` returns FALSE, and `tool_pick_up` gives the "hands are full" refusal before it looks for the mop. Nothing in the janitor's window code puts a rag down outside `changeForScrubbing`, which only puts down a mop or bucket. Nothing in the change log or plans covers two of one tool in hand. Distinct from KNA-05 (how the second rag got there) and DESK-10 (mop and soap, bucket).
 
 Changes: confidence to sure (the refusal is the only answer `free_a_hand` can give here, though HOLE-12 means it is not logged); the fix narrowed to the server rule, which alone mends the case and keeps effort small; the "rag beside any trade tool" part marked as a design change; the Central Maintenance branch explained from `allKnownItems`. Severity medium kept: two of one tool in hand needs someone to push one on the janitor, which is not every round. Not run: nothing.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 09cfd55eff1, 5155b38e027.
+
+- LOGA-05 (window part): part done. - **LOGA-05, window part: a janitor with two of a thing in its hands (a damp rag in each) puts one down before picking up the supply it knows of**, so a hand is free for the mop (`supplyStep` in `jobs/janitor.ts`). Cases in `tools/llm_crew/janitor-hands.ts`. Left: code/modules/llm_crew/crew_npc_hands.dm free_a_hand (being done by the other worker this round). sim.ts: scenario starting a janitor with two rags, a mop on the closet floor and word by PDA that supplies came; pass if its pick_up mop succeeds and it never walks back to the closet twice running.

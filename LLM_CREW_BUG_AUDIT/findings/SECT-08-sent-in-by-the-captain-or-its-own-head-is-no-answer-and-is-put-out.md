@@ -73,3 +73,9 @@ Simulator: a scenario with a janitor whose clean task is `askedBy` the Captain, 
 ## Check
 
 Read `guardOverhears` (`guarding.ts:663` to 830), `workmateNamedIn` (294), `syncGuarding` (343 to 405), `explainStep`, `vouchStep` and the stranger steps of `planGuarding` (466 to 610), `sentFor` and `expected.ts`, the cargo calls that write `noteSentFor` and `noteLetIn` (`cargo.ts:771`, 1976, 2000, 2026, 2046), and `belongs_in_post` (`crew_npc_guarding.dm:24`). The quotes match. Traced: a janitor told by the Captain gets a clean task with `askedBy` the Captain (`tasks.ts:218`, `janitor.ts:844`); asked why, `reasonToBeHere` finds it and `explainStep` names him; `workmateNamedIn` looks only at `brain.workmates`; `NO_REASON_WORDS` does not match the answer; after two asks `waitedOut` settles "go" and the guard says "You have no business in here" and uses `throw_out`. Nothing stops it unless the Captain is among the guard's workmates or a cargo body let the janitor in. No entry in the change log or plans chose this. Confirmed. Step 1 named `brain.people`, which holds no jobs, and step 2 missed that a head NPC asked would answer "No" by its own `sentFor`; both are mended. Not run.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: none.
+
+- SECT-08: waits on the owner (QUESTIONS_FOR_OWNER.md). 

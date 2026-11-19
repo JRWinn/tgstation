@@ -109,3 +109,9 @@ Read on 2026-11-19 against `crew-bug-audit` at 2501deacd0c. Every quote is what 
 - No changelog entry or plan makes this deliberate; the 16:50 note about crew who are down is about helping them.
 
 Confirmed. How long it lasts depends on whether the body lies inside the other technician's view from where it works, which was not checked on any map; the logic itself is sure. The side point that `isCargo` counts the Quartermaster in the knock rule is right (`isCargo` is `/cargo|quartermaster/`; the Quartermaster's brain answers only a knock at its own office, `quartermaster.ts:886`), but that part is MULTI-09's finding: build it there, not twice. The fix is right; the `ableAt` map in step 2 is the important half, since without it the "seen not long since" test keeps the body "about". The simulator cannot test it until `sim.ts:1092` lets a body set `down` (it is hard-coded to 0): add a `down` field to the sim's person and send it there.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 9c4e1a5fc59.
+
+- CARGO-12: part done. A workmate counts as about only when on its feet and free. ableInView needs the person in view to be neither down nor cuffed, and it is used in leftTo, doorIsMine and the knock rule. 'Seen not long since' now goes by brain.ableAt, which syncTasks writes only for people on their feet, so a body lying in the bay does not keep it fresh. The knock rule and visitorToMind now count technicians only, not the Quartermaster (this is also the MULTI-09 half). Look in jobs/cargo.ts: ableInView, noteAble, leftTo, doorIsMine, doorSought, visitorToMind. Left: jobs/rounds.ts, `workmate` (about line 176): require the workmate in view to be !person.down && !person.cuffed, so a technician does not count the post as kept by a body on the floor. sim.ts: a qm variant that sets down:1 on one technician after the shuttle has docked, and checks the other one unloads.

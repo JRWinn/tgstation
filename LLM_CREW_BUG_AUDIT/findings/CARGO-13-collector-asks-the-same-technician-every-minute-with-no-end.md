@@ -101,3 +101,9 @@ Opus 5.5, 2026-11-19. Confirmed.
 - The collector stays at the counter between asks: the waiting plan has `wait: true`, and `drive` holds a waiting plan whose urgency is not routine (`driver.ts:513`); a COLLECT task from `readPickup` is `urgency: 'asked'`.
 - Not in the change log or plans. JOBS-02 and MEM-11 are about the same 30-minute rule from other sides; this file is the counter's own fault (who is asked, and no count), so not a duplicate.
 - Severity medium and effort small stand (steps 1 to 3 are in `pickups.ts`). Mended step 3: blocking with `retryAt` does not save an errand already 30 minutes old (MEM-11).
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: d403dbf015f.
+
+- CARGO-13: part done. A collector at the counter asks only a technician who is neither down nor cuffed, and asks a different one than last time when one is there. After three asks with nothing brought out, it sends whoever sent it 'Cargo has not brought out crate #N: I asked 3 times at the counter. I will try again later.' and puts the errand off (retryAt, blocked with its own reason). On the counter side, a collecting line said to a technician who is down, cuffed or gone is taken by the technician who heard it. Look in jobs/pickups.ts (planPickups, pickupsAfterSaying, syncPickups) and jobs/cargo.ts (overhears, toUnableWorkmate). Left: tasks.ts, syncTasks give-up filter: (MEM-11) count age from when a task was last opened, not from createdAt; and for a dropped task with askedBy, at least log it (brain.lastJob). sim.ts: a pickup scenario with two technicians, the first marked down, checking the crate is asked of the second; and one where the technician never answers, checking for a PDA to the head after the third ask.

@@ -92,3 +92,9 @@ How a janitor gets a mop and soap: `changeForScrubbing` with one hand free goes 
 Ran a throwaway bun script (scratchpad, not in the repo): a janitor ingested holding a mop and soap, `wants_bucket` 1, a bucket remembered in a locker in the Custodial Closet, a CLEAN task for the Bar. `plan` gave `{"ready":true,...,"act":{"tool":"pick_up","item":"bucket"}}`. The server side was not run.
 
 Nothing in the change log fixes it; entry "(7)" built the bucket step and `free_a_hand`'s rag rule. The fix keeps the rules. LOGA-05 is a sibling (two rags), not the same fault.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 44493665320.
+
+- DESK-10 (window part): part done. - **DESK-10, window part: a bucket that could not be picked up is not tried again before setting off.** A failed `pick_up` of a bucket for a mess sets `task.noBucket` and `plan` skips the bucket step for that task, so the janitor goes to the mess (`afterActing`, `plan` in `jobs/janitor.ts`; new optional `noBucket` on `Task` in `types.ts`). Cases in `tools/llm_crew/janitor-hands.ts`. Left: code/modules/llm_crew/crew_npc_hands.dm: split the choosing loop of free_a_hand into spare_held_item() (returns what free_a_hand would give up, moving nothing) and have free_a_hand call it. code/modules/llm_crew/crew_brain_link.dm: "wants_bucket" = mop held, no bucket held, and (length(body.get_empty_held_indexes()) || spare_held_item()). sim.ts: scenario as in not_tested.

@@ -106,3 +106,9 @@ Checked by Opus 5.5, read from the code; the finder's bun script was not run aga
 - No guard against it: neither the change log nor the plans speak of two officers with no Head of Security, other than LLM_CREW_PLAN_SECURITY.md:392 saying a second officer is a later stage.
 - How often: the standing test crew has one officer and a Head of Security (change log, "The test crew has a Head of Security and one security officer"), so it takes a second officer spawned by hand with the Head of Security gone or its PDA off the station level (`people_on_pda`, crew_npc_cargo.dm:677). Less often than most rounds, so medium is right. With a human officer instead of a second NPC, the NPC's give goes to a human who can read it, which is not this fault.
 - The fix: fix 1 works and is small, but it missed that `strike` and the "try again" branch call `officerAboard` directly; added to the fix.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: none.
+
+- DESK-05: waits on the owner (QUESTIONS_FOR_OWNER.md).  Left: Option B needs jobs/officer.ts (readsMessage and overhears to call takeWord for a fellow officer when no Head of Security is aboard). Option A is in jobs/desk.ts only.

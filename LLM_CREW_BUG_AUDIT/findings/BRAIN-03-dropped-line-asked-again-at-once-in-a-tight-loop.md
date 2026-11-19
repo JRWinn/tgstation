@@ -137,3 +137,9 @@ Confirmed, by Opus 5.5, from the code and the round log. Nothing was run.
 - Not in `LLM_CREW_CHANGELOG.md` or the plans (searched `sayIf`, `mustSayIf`, "too many things", "Slow down", `stopToTalk`, `doorHeld`, "no longer needs").
 - Severity lowered to medium: the loop needs a person in view and a door hold on the body, and ends when the hold does (15 seconds, plus any extensions) or at the ninth call. It costs a few seconds of dropped tool calls and some wasted model calls; the work goes on afterwards.
 - The fix was reordered: 3 (one line) removes this cause, 1 stops any other `sayIf` from looping; 1 now also covers the `dropped` path, which the first version said could not loop and does, slowly. Fix 5 got a warning: without the call limit nothing ends the fast loop. The sim test was mended: the sim ingests once a second, not after each tool call, so it cannot show the fast loop.
+
+## Fix so far (round one, branch crew-bug-fixes-medium)
+
+Commits: 1608bc590d4.
+
+- BRAIN-03: part done. - **BRAIN-03 (part): a line its work no longer needs is not asked for again at once.** `think` holds the driver off 2.5 s when it drops such a line (`holdDriverAfterDrop`, `DROPPED_LINE_PAUSE_MS` in `brain.ts`), before the call and after it, and clears the line's state. Left: jobs/janitor.ts, letInStep: change `sayIf: () => !brain.doorHeld` to `sayIf: () => !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door)`, the same test as the top of the function (finding step 3). Optional steps 2, 4 and 5 are in driver.ts and on the server.

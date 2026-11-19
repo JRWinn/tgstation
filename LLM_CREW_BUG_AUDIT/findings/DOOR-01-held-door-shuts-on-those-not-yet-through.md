@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a4ccc62019a
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: doors
