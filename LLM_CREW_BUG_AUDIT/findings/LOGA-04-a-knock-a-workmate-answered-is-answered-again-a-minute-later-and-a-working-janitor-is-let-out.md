@@ -5,11 +5,12 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: logs
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1404, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:615, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1970
-fix: In doorSought take a knock from inside only if it came after the knocker was last let into that room, and drop a knock once anyone has let that person through that room's door
+fix: Stamp each let-out per room on the department list in expected.ts and drop any knock on that room older than the stamp, and take a knock from inside only for someone let in before it
 ---
 
 ## What is wrong
@@ -63,7 +64,7 @@ So that round belongs to PARSE-08. Fixing this finding would not have changed it
             return { name: inside.name, room: knock.room, out: true };
           }
 
-`mine(letIn?.by)` is TRUE for Marshall because Tamika, who let her in, was not in Marshall's view.
+`mine(letIn?.by)` is TRUE for the other technician once the one who let them in is out of its view (or, with the work divided, once `KEEPER_WAIT_DS` has passed with the keeper out of view).
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1970`: the only place a knock is dropped, on this technician's own door task.
 
@@ -73,16 +74,27 @@ So that round belongs to PARSE-08. Fixing this finding would not have changed it
 
 ## How it was found
 
-Seen in a round log: `data/logs/2026/11/19/round-19.33.50`, `crew_brain.log` for Penelope, Tamika and Marshall from 01:43:30 to 01:44:50, `game.log` "opened ... to let" lines, `pda.log` 01:44:50. That Marshall's step at 01:44:29 came from the knock, and not from an ask, is worked out from the code: the asks Marshall had heard from Penelope by then were one to Tamika by name (`said_to` "other", so not kept) and one to Marshall at 01:44:17 to be let **into** the Delivery Office, which `mayPass` answers with nothing once she is standing in it. The second opening, at 01:44:32 ("out of Delivery Office"), was not traced.
+First put down as seen in `data/logs/2026/11/19/round-19.33.50`. On checking, that round shows a different cause (PARSE-08, above). The stale knock itself is read from the code, not seen in a round. The second opening there, at 01:44:32 ("out of Delivery Office"), was not traced.
 
 ## How to fix it
 
 1. In `doorSought`, for a knock from inside, take `letIn` only if `knock.at > letIn.at`: the knock has to have come after they were let into that room (`noteLetIn` sets `at` to the time they were let in, through `expectSomeone`). The same for `seen`: skip anyone this technician or the list has as let in after the knock.
-2. When a technician lets someone out of a room, any technician's knock on that room older than the let-out is spent. The simplest way that keeps to the senses rule: drop `knockAt` in `syncTasks` when this technician can see that the knocker's room has had its door opened since (the server already tells the window of a door opened in view), or when the person it would pin the knock on is seen outside the room.
-3. Keep: a knock from someone who walked back into a room unseen (the case the comment at `cargo.ts:1434` was written for) must still be answered.
+2. When a technician lets someone out of a room, any technician's knock on that room older than the let-out is spent. The simplest way: in `expected.ts`, have `noteLetOut` stamp the time per post and room (`lastLetOut[post + room] = now`; the cargo.ts caller has `brain.now`, so pass it in). In `doorSought`, before the knock branch, drop `knockAt` when its `room` has a let-out stamp later than `knock.at`. This list is already the department's shared clipboard by the counter (`expected.ts` header), which is how the second technician knows who is inside at all, so it adds no new channel. This also covers the second form, where the stale knock sends the other technician to the door for `SOMEONE_INSIDE` after the knocker has gone. Step 1 alone does not cover that.
+3. Keep: a knock from someone who walked back into a room unseen (the case the comment at `cargo.ts:1434` was written for) must still be answered. A knock that comes after the let-out is newer than the stamp and still stands.
+4. Fix PARSE-08 as well. It is what let Penelope out mid-scrub in round-19.33.50, and this fix does not touch it.
 
 ## How to test the fix
 
 - Type check and lint.
 - Simulator: `cargo` with two technicians and a janitor called to a room inside the bay: the janitor knocks to be let out, technician A lets it out and then in again within a minute, technician B can hear the knock. Pass if B does not open a door for it, and the janitor finishes its scrub.
-- Next round, `game.log`: no "opened ... to let X out of Y" within half a minute of "opened ... to let X into Y" by the other technician.
+- Simulator, second form: A lets the knocker out and walks out of B's view within the minute. Pass if B makes no door task for the room.
+- Next round, `game.log`: no "opened ... to let X out of Y" within half a minute of "opened ... to let X into Y" by the other technician. Before you blame this fault for one, check that technician's `crew_brain.log` prompt for a "Someone is knocking ... from inside" line. Without one, the cause is an ask (PARSE-08, CARGO-10), not a knock.
+
+## Check
+
+Checked by Opus 5.5. Confirmed: the fault can happen as the code stands. But the round case given for it is wrong, and I rewrote it.
+
+- The quotes are what the code says today. `brain.ts:615` keeps every knock heard in one slot per brain. `doorSought` (`cargo.ts:1375`) reads it for `DOOR_ASK_DS` (600 ds). It is cleared only at `cargo.ts:1970`, on this brain's own DOOR task, and nowhere else in cargo (`grep knockAt`: lines 975, 1404, 1970). `doorWanted`'s `lastOpened` guard is per technician (`lastOpened.get(brain.id)`), so it does not see the other's let-out. `stillInside` reads the shared `expected.ts` list, which `noteLetIn` puts back to `inside` with `at` set to the let-in time. Traced step by step, B's stale knock gives `{ name, room, out: true }` once A, who let them back in, is out of B's view. Without a re-entry it gives `SOMEONE_INSIDE` through the `closedRooms` branch. I added that second form.
+- The round: Marshall never had the 01:43:36 knock. His LLM prompt at 01:44:25 (`crew_brain.log`) lists all nine pending events since 19:42:58. Nothing was dropped: `PENDING_MAX_LINES` is 30, `REPORT_MAX_LINES` is 10, and `brain.ts` skips no event before `pending.push`. None of them is a knock from inside. Only Reuben Shirey's log has that knock. Penelope's "Marshall, I'm stuck out here; could you open the door" (game.log 01:44:22) was taken as a let-out by `LET_OUT_WORDS`. Marshall's `duties` held only his own share ("Yours: the counter", with no "Tamika has ..."), so `roomsKeeper` was undefined and `doorIsMine` TRUE. `mayPass` then saw her standing in the Cargo Bay and let her out. That is PARSE-08 (confirmed).
+- No round shows the stale knock itself, so confidence stays likely. Severity medium stands for when it happens: a janitor walked out mid-scrub. It is rarer than the old case made it look. Effort small: a stamp in `expected.ts` and one check in `doorSought`.
+- Nothing in `LLM_CREW_CHANGELOG.md` covers a knock kept by the other technician. LOGB-04 is the Quartermaster's own knock and a different place (`quartermaster.ts`).
