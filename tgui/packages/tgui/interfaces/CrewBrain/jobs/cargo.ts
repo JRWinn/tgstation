@@ -194,9 +194,22 @@ const DOOR_WATCH_DS = 350;
 /** How long (deciseconds) after seeing them through it stays, for the door to be shut behind them. */
 const DOOR_WATCH_SETTLE_DS = 20;
 /** The words that mark what someone says as asking for a door to be opened. */
-const DOOR_WORDS = /\bdoor\b|let (me|us) (in|out|through)|open up/i;
-/** The words that mark a request for a door as wanting out, not in. */
-const LET_OUT_WORDS = /\bout\b|\bdone in\b/i;
+const DOOR_WORDS =
+  /\bdoor\b|let (me|us) (in|out|through|leave)|get (me|us) out|i want out|open up/i;
+/**
+ * The words that mark a request for a door as wanting out, not in. Not the bare word "out": "I'm
+ * locked out" and "I'm out here at the door" want in (PARSE-08).
+ */
+const LET_OUT_WORDS =
+  /let (me|us) out|\bleave\b|get (me |us )?out|outta here|\bdone in\b|\b(i'?m|i am) (done|finished)\b|\b(shut|locked|stuck) in\b|\bi want out\b|\b(need|have|got) to go\b/i;
+/** The words that mark a request for a door as wanting in, which win over the words for out. */
+const LET_IN_WORDS =
+  /let (me|us) in\b|locked out|\b(i'?m|i am) (out here|outside)|\bcome in\b|\bget in\b/i;
+
+/** TRUE if the words of an ask for a door want out: words for out, and none for in (PARSE-08). */
+function wantsOutByWords(text: string): boolean {
+  return LET_OUT_WORDS.test(text) && !LET_IN_WORDS.test(text);
+}
 /** How long (deciseconds) after a door is opened for someone before seeing them outside it means they are out. */
 const GONE_THROUGH_DS = 300;
 /** How long (deciseconds) a request to be let out stands. Longer: they ask once, and cannot leave until it is answered. */
@@ -1420,13 +1433,13 @@ function mayPass(
   const already =
     !!person &&
     (wanted === post ? !!person.in_post : seenInside(brain, person) === wanted);
-  if (out || already || (inside && !person && inside.room === wanted)) {
-    return null;
-  }
+  const there = already || (!!inside && !person && inside.room === wanted);
   // Security at the door, asking to be let in: it has a warrant on someone inside, and the
   // warrant is the permission. It was left standing in the lobby calling an arrest through the
-  // counter until the Captain came and opened the door.
+  // counter until the Captain came and opened the door. Whatever words it asked in: one not seen
+  // inside is let in (PARSE-08).
   if (
+    !there &&
     isSecurity(
       person?.job ??
         brain.pdaPeople.find((known) => known.name === name)?.job ??
@@ -1434,6 +1447,9 @@ function mayPass(
     )
   ) {
     return { name, room: wanted, out: false };
+  }
+  if (out || there) {
+    return null;
   }
   // Sent for to a room further in, which has no way to it but through this one.
   const beyond = boundBeyond(brain, name, wanted);
@@ -2678,6 +2694,18 @@ export const CARGO: Job = {
     // unless they ask to be let out.
     const workmateTalk =
       isCargo(asker?.job ?? '') && !LET_OUT_WORDS.test(heard);
+    // In or out goes by where the asker stands, when it can see them: inside one of its rooms is
+    // out, unless they name a room further in, reached through the one they stand in. Out of
+    // sight, by the words (PARSE-08).
+    const standsIn = asker ? seenInside(brain, asker) : undefined;
+    const out = asker
+      ? !!standsIn &&
+        !(
+          askedRoom &&
+          askedRoom !== standsIn &&
+          brain.roomsThrough[askedRoom] === standsIn
+        )
+      : wantsOutByWords(heard);
     if (
       speaker &&
       event.details.said_to !== 'other' &&
@@ -2692,7 +2720,7 @@ export const CARGO: Job = {
         // The room they named, if they named one of the department's. Said aloud, an ask used to
         // carry no room, and was taken for the post whatever room it named.
         room: askedRoom,
-        out: LET_OUT_WORDS.test(heard),
+        out,
         // The door they named, or failing that the door they were standing at when they said it.
         door:
           doorNamed(heard) ??
@@ -2734,7 +2762,8 @@ export const CARGO: Job = {
       at,
       room: roomAskedIn(brain, text),
       byPda: true,
-      out: LET_OUT_WORDS.test(text),
+      // By PDA, only the words say which way (PARSE-08).
+      out: wantsOutByWords(text),
       door: doorNamed(text),
     });
   },

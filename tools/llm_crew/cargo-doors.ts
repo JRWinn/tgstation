@@ -1,0 +1,63 @@
+// In or out, when someone asks a cargo technician about the door of its post (PARSE-08). Seen, it
+// goes by where they stand; by PDA, or out of sight, by the words, never the bare word "out".
+// No model is called (CrewBrain/jobs/cargo.ts, overhears and readsMessage).
+//
+//   bun run cargo-doors.ts
+const { ROOT, makeBrain } = await import('./fixtures');
+const { CARGO } = await import(ROOT + 'jobs/cargo');
+
+const cases: [string, string, string][] = [];
+const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
+
+const JAN = { handle: 'p3', name: 'Jan Mopp', job: 'Janitor' };
+let at = 10_000;
+const tech = (people: any[]) => {
+  const b: any = makeBrain('Sam Tech', 'Cargo Technician');
+  b.id = `doors-${at}`;
+  b.post = 'Cargo Bay';
+  b.location = 'Cargo Bay';
+  at += 5000;
+  b.now = at;
+  b.closedRooms = ['Cargo Bay', 'Mining Office'];
+  b.roomsThrough = { 'Mining Office': 'Cargo Bay' };
+  b.peopleInView = people;
+  b.pdaPeople = [{ name: JAN.name, job: JAN.job }];
+  b.toTell = [];
+  b.heldCrates = [];
+  b.doorAsks = [];
+  return b;
+};
+const asked = (b: any) => (b.doorAsks ?? []).map((ask: any) => !!ask.out);
+const aloud = (people: any[], message: string) => {
+  const b = tech(people);
+  CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: JAN.name, message, said_to: 'me' } });
+  return asked(b);
+};
+const byPda = (message: string) => {
+  const b = tech([]);
+  CARGO.readsMessage(b, JAN.name, message, b.now, JAN.job);
+  return asked(b);
+};
+const inLobby = [{ ...JAN, place: 'Cargo Lobby', distance: 2 }];
+const inBay = [{ ...JAN, place: 'Cargo Bay', in_post: 1, distance: 2 }];
+
+for (const line of ["I'm locked out, can you open the door", 'donna im out here at the door, let me in', 'can you open the door so i can get my crate out', 'let me in']) {
+  add(`in the lobby: "${line}" wants in`, aloud(inLobby, line), [false]);
+  add(`by PDA: "${line}" wants in`, byPda(line), [false]);
+}
+for (const line of ['i want to leave, open the door', 'im done, can you open the door', 'can I leave? the door is shut', 'let me leave', 'get me out of here']) {
+  add(`in the bay: "${line}" wants out`, aloud(inBay, line), [true]);
+  add(`by PDA: "${line}" wants out`, byPda(line), [true]);
+}
+add('in the bay: "let me into the Mining Office" wants in, further in', aloud(inBay, 'let me into the Mining Office door'), [false]);
+add('in the bay: "I\'m already at the door; step aside" is no ask', aloud(inBay, "I'm already at the door; step aside"), []);
+add('the crew\'s own line, "I am done in the Cargo Bay ... let me out", by PDA', byPda('I am done in the Cargo Bay. Could you let me out, please?'), [true]);
+
+let failed = 0;
+for (const [label, got, want] of cases) {
+  const ok = got === want;
+  if (!ok) failed++;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${ok ? '' : `\n       got  ${got}\n       want ${want}`}`);
+}
+console.log(`\n${cases.length - failed} of ${cases.length} cases right`);
+process.exit(failed ? 1 : 0);
