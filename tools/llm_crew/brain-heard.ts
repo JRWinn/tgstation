@@ -61,6 +61,27 @@ const lookTasks = (b: any) => b.tasks.filter((task: any) => task.state !== 'done
   add('seen as no superior: no order', call.ordered, null);
 }
 
+// ---- MEM-05: an order the Captain gave someone else is not taken on when he next speaks to it
+{
+  const ann = { handle: 'p8', name: 'Ann Moss', job: 'Head of Personnel' };
+  const toAnn = `${says(captain, 'Ann, go and check the Kitchen and report back.', 2).slice(0, -1)}, speaking to Ann Moss)`;
+  const toAll = `${says(captain, 'Someone check the Kitchen.', 2).slice(0, -1)}, speaking to everyone there)`;
+  const toTolly = `${says(captain, 'Tolly, stay here for now.', 2).slice(0, -1)}, speaking to you)`;
+  const toTollyGo = `${says(captain, 'Tolly, go and check the Kitchen.', 2).slice(0, -1)}, speaking to you)`;
+  const heardCaptain = new Map([['p9', { name: 'Cap Tain', superior: true }]]);
+  const run = (report: string[], forMe: string[]) => {
+    const b: any = janitor();
+    at(b, 3000, 'Bar', [captain, ann]);
+    const call = buildTalk(b, { report, speakers: ['p9'], mustSay: null, remark: false, heardFrom: heardCaptain, forMe: new Set(forMe) });
+    return { ordered: call.ordered ? [call.ordered.kind, call.ordered.place] : null, looks: lookTasks(b) };
+  };
+  add('to Ann, then "stay here" to Tolly: no order', run([toAnn, toTolly], [toTolly]), { ordered: null, looks: [] });
+  add('"stay here" to Tolly alone: no order', run([toTolly], [toTolly]), { ordered: null, looks: [] });
+  add('"go and check the Kitchen" to Tolly: look Kitchen', run([toTollyGo], [toTollyGo]).ordered, ['look', 'Kitchen']);
+  add('"someone check the Kitchen", Tolly not the nearest, then "stay here": no order', run([toAll, toTolly], [toTolly]), { ordered: null, looks: [] });
+  add('"someone check the Kitchen", Tolly the nearest, then "stay here": look Kitchen', run([toAll, toTolly], [toAll, toTolly]).ordered, ['look', 'Kitchen']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

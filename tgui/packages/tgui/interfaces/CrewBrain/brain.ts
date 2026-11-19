@@ -146,6 +146,12 @@ const brains = new Map<string, NpcBrain>();
  * Cleared with pendingSpeakers in "think".
  */
 const heardFrom = new WeakMap<NpcBrain, Map<string, Speaker>>();
+/**
+ * The lines of an NPC's pending report that were said to it: to it by name, or to several people
+ * of whom it was the nearest (the same test that wakes it). A line said to someone else stays in
+ * the report for the LLM to know of, but nothing is taken on, agreed to or ordered from it.
+ */
+const linesForMe = new WeakMap<NpcBrain, Set<string>>();
 /** Ids of NPCs waiting for the LLM. One GPU serves one request at a time, so they take turns. */
 const queue: string[] = [];
 /** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
@@ -736,9 +742,28 @@ export function ingest(npcs: Npc[], now: number): void {
       noteResult(brain, event);
       const line = describeEvent(event, brain);
       brain.pending.push(line);
+      if (
+        event.kind === 'speech_heard' &&
+        event.details.source === 'person' &&
+        (event.details.said_to === 'me' ||
+          (event.details.said_to === 'group' && event.details.nearest_bot))
+      ) {
+        let forMe = linesForMe.get(brain);
+        if (!forMe) {
+          forMe = new Set();
+          linesForMe.set(brain, forMe);
+        }
+        forMe.add(line);
+      }
       // What nobody has been told about by the time more has happened is old news.
       if (brain.pending.length > PENDING_MAX_LINES) {
-        brain.pending.splice(0, brain.pending.length - PENDING_MAX_LINES);
+        const dropped = brain.pending.splice(
+          0,
+          brain.pending.length - PENDING_MAX_LINES,
+        );
+        for (const old of dropped) {
+          linesForMe.get(brain)?.delete(old);
+        }
       }
       const stale = now - event.at > STALE_EVENT_DS;
       if (!stale && shouldWake(event, brain, line)) {
@@ -1304,6 +1329,10 @@ async function think(brain: NpcBrain): Promise<void> {
     }
   }
   const everything = brain.pending.splice(0);
+  // Which of what it heard was said to it. Nothing is left in "pending" now, and what goes back
+  // into it after a failed call is never a line said aloud, so the set is done with.
+  const forMe: ReadonlySet<string> = linesForMe.get(brain) ?? new Set();
+  linesForMe.delete(brain);
   // A long backlog is mostly things that no longer matter. Only the latest of it is sent.
   const report =
     everything.length > REPORT_MAX_LINES
@@ -1330,6 +1359,7 @@ async function think(brain: NpcBrain): Promise<void> {
     remark,
     exact,
     heardFrom: heardFrom.get(brain),
+    forMe,
   });
   const { messages, trigger, superior, toldBy, ordered } = call;
   const { feelAbout, workTold: told } = call.parts;
@@ -1505,8 +1535,12 @@ async function think(brain: NpcBrain): Promise<void> {
         // What it agrees to has to be something that was asked for: by the last thing said in
         // its hearing, or failing that by something said just before it. Two people speak at
         // once often enough, and whoever spoke last may only have talked over the one who asked.
+        // Only what was said to it: a line to someone else asks nothing of it.
         const heardLines = report.filter(
-          (line) => line.includes('(person ') && line.includes(' says: '),
+          (line) =>
+            line.includes('(person ') &&
+            line.includes(' says: ') &&
+            forMe.has(line),
         );
         const job = jobFor(brain.job);
         const calledFor = job.agrees
@@ -1541,7 +1575,7 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // If it was told of work in so many words and did not say so, the work goes on its list anyway.
     if (told && !tookWork) {
-      const caught = workInWords(brain, report, toldBy, !!superior);
+      const caught = workInWords(brain, report, toldBy, !!superior, forMe);
       if (caught) {
         tookWork = true;
         decision.calls.push(
@@ -1605,7 +1639,12 @@ async function think(brain: NpcBrain): Promise<void> {
     // Only the last thing said counts. Anything before it was either dealt with or let pass.
     const heard =
       report
-        .filter((line) => line.includes('(person ') && line.includes(' says: '))
+        .filter(
+          (line) =>
+            line.includes('(person ') &&
+            line.includes(' says: ') &&
+            forMe.has(line),
+        )
         .at(-1) ?? '';
     const request =
       speakers.length > 0 ? jobFor(brain.job).hears?.(brain, heard) : null;
@@ -1627,7 +1666,7 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // Likewise work it was plainly told of, or ordered to do, still goes on its list.
     if (speakers.length > 0 && !ordered) {
-      const caught = workInWords(brain, report, toldBy, !!superior);
+      const caught = workInWords(brain, report, toldBy, !!superior, forMe);
       if (caught) {
         decision.calls.push(
           `work(${describeTask(brain, caught)}) [made out without the LLM]`,

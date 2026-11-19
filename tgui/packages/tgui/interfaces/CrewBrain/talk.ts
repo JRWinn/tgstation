@@ -59,6 +59,11 @@ export type Moment = {
    * out of view since, and what they said is still theirs.
    */
   heardFrom?: Map<string, Speaker>;
+  /**
+   * The report lines that were said to it, by name or as the nearest of several. If given, only
+   * these are read for orders and for what was asked of it; the rest is only for the LLM to know.
+   */
+  forMe?: ReadonlySet<string>;
 };
 
 /** Someone who spoke to the NPC, as it saw them at the time. */
@@ -100,9 +105,14 @@ function needsNoAnswer(said: string): boolean {
 }
 
 /** What people said in the NPC's hearing in a report, in their own words. */
-function wordsHeard(report: string[]): string[] {
+function wordsHeard(report: string[], forMe?: ReadonlySet<string>): string[] {
   return report
-    .filter((line) => line.includes(' says: ') && line.includes('(person '))
+    .filter(
+      (line) =>
+        line.includes(' says: ') &&
+        line.includes('(person ') &&
+        (!forMe || forMe.has(line)),
+    )
     .flatMap((line) => line.match(/"[^"]*"/g) ?? [])
     .map((quoted) => quoted.slice(1, -1));
 }
@@ -146,8 +156,10 @@ export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const toldBy = superior ?? heardFrom[0]?.name;
   // An order from someone it answers to is made out by code before the LLM is asked anything.
   // Whether it goes is not for the LLM to decide, and what it says is said knowing it is going.
-  const ordered = superior ? workInWords(brain, report, toldBy, true) : null;
-  const heard = wordsHeard(report);
+  const ordered = superior
+    ? workInWords(brain, report, toldBy, true, moment.forMe)
+    : null;
+  const heard = wordsHeard(report, moment.forMe);
   const meeting = report.some((line) =>
     line.includes('you have not seen them before'),
   );
