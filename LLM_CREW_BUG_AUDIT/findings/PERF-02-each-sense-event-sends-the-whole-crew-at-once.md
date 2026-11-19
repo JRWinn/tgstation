@@ -22,7 +22,7 @@ See also: HOLE-09 (the whole picture, unmeasured) and CORE-05 (the ack). This fi
 - The whole crew's looks fire in the same tick each second (PERF-03), so every "comes into view" event of that second lands in one tick as well.
 - Each send carries every body's last 30 events in full (`"events" = npc.sense_events`), though the window skips every event at or below its own `lastSeq` (`brain.ts:566`). Only one or two of the thirty are ever new.
 
-**How many updates.** In `data/logs/2026/11/19/round-20.43.32` (11 crew, 1,066 seconds from the first to the last brain log line), the highest `seq` in each body's acks adds up to 1,262 sense events, and `href.log` has 1,262 acks: one ack, so one update, for every event, never two events in one update. Every update the window gets then makes it send an ack, and every ack and every tool call returns TRUE from `ui_act`, which makes one more full update each (CORE-05). With the tgui subsystem's own update every 0.9 seconds:
+**How many updates.** In `data/logs/2026/11/19/round-20.43.32` (11 crew, 1,066 seconds from the first to the last brain log line), the highest `seq` in each body's acks adds up to 1,262 sense events, and `href.log` has 1,262 acks: every event was acked on its own, so no update the window took in ever held two new events of one body. That fits the code: each `emit_sense` sends at once, before the next event exists. Every update the window gets then makes it send an ack, and every ack and every tool call returns TRUE from `ui_act`, which makes one more full update each (CORE-05). With the tgui subsystem's own update every 0.9 seconds:
 
 | cause | count in the round |
 | --- | --- |
