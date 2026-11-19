@@ -534,6 +534,15 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     beat.outcomes.push({ what: 'attacked', name: beat.attacker.name });
   }
   const attacker = beat.attacker;
+  const attackerSeen = attacker
+    ? brain.peopleInView.find((person) => person.name === attacker.name)
+    : undefined;
+  // Nobody lays a hand on the Captain or a head of staff with no warrant. It stands, and whoever
+  // keeps the list is told at once, so that the Captain can declare one.
+  if (attacker && attackerSeen?.command && !attacker.told) {
+    attacker.told = true;
+    beat.outcomes.push({ what: 'attacked', name: attacker.name });
+  }
   keep(
     brain,
     STOP,
@@ -541,7 +550,8 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
       !attacker.stopped &&
       !beat.hurt &&
       !!security?.has_baton &&
-      brain.peopleInView.some((person) => person.name === attacker.name),
+      !!attackerSeen &&
+      !attackerSeen.command,
     'emergency',
   );
   return beat.warrants.length > 0 || beat.toFree.length > 0 || kit || away;
@@ -1024,6 +1034,12 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
     const seen = attacker
       ? brain.peopleInView.find((person) => person.name === attacker.name)
       : undefined;
+    if (seen?.command) {
+      return {
+        ready: false,
+        step: `${seen.name} attacked you, but they are a head of staff. With no warrant you do not lay a hand on them.`,
+      };
+    }
     return seen
       ? {
           ready: true,
@@ -1123,7 +1139,10 @@ export function beatAfterActing(
       const attacker = beat.attacker;
       if (attacker) {
         attacker.stopped = true;
-        if (ok && !attacker.told) {
+        // Refused because they are the Captain or a head of staff: still word for the list.
+        const spared =
+          details.reason === 'captain' || details.reason === 'command';
+        if ((ok || spared) && !attacker.told) {
           attacker.told = true;
           const about = beat.warrants.find(
             (it) => target(brain, it) || holds(brain, it),
