@@ -57,7 +57,7 @@ The concrete case for 1: the change log's "the janitor gives up at the door too 
 
 ## How it was found
 
-A check that was run, from `tgui/`: `../tools/bootstrap/.cache/bun-v1.3.5-x64/bun.exe x tsc --noEmit --noUnusedLocals --noUnusedParameters`, filtered to `CrewBrain` (the two lines above are all it printed for our folder). Then the file was read at both places, and `grep -rn WAIT_AT_COUNTER` over the folder finds only the declaration. The plain `tsc --noEmit` the README lists is clean, and `biome lint` does not report unused names in this setup. Not seen in a round: it changes nothing a round would show.
+A check that was run, from `tgui/`: `../tools/bootstrap/.cache/bun-v1.3.5-x64/bun.exe x tsc --noEmit --noUnusedLocals --noUnusedParameters`, filtered to `CrewBrain` (the two lines above are all it printed for our folder). Then the file was read at both places, and `grep -rn WAIT_AT_COUNTER` over the folder finds only the declaration. The plain `tsc --noEmit` the README lists is clean, and `biome lint` as CI runs it does not report unused names. Run with every correctness and suspicious rule on (`bun x biome lint --only=suspicious --only=correctness packages/tgui/interfaces/CrewBrain`), biome reports the same two (`noUnusedVariables` at `janitor.ts:48`, `noUnusedFunctionParameters` at `janitor.ts:625`) and nothing else of note: the rest are import-extension and import-cycle notes (the cycle is CHK-04), two array-index React keys in `Details.tsx`, and a false "react has no export named Fragment". Not seen in a round: it changes nothing a round would show.
 
 ## How to fix it
 

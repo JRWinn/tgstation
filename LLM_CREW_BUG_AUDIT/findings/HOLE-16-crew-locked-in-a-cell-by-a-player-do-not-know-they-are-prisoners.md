@@ -14,6 +14,8 @@ fix: In look_around, when the body stands in a brig cell whose timer is running 
 
 ## What is wrong
 
+See also: CHEAT-04 (the crew's own prisoner is told of its arrest and its cell by a direct call). Its fix, learning of custody from what the body senses, is the same direction as this one; this write-up is the case it does not name, a jailing by a player, and gives the small server change that covers it.
+
 The crew have a full idea of being a prisoner, but only when their own security made the arrest. `custody_phase` is set in two places, `being_arrested` and `put_in_custody`, and both are called only by the crew officer's arrest and jail tools. Once it is set, the body is told "X has put you in Cell 2 for 5 minutes", every tool but `say` is refused with "You are in Cell 2 until your time is up.", the prompt gets "Security has locked you in Cell 2 in the brig. You cannot leave, or work, until your time is up or the Captain pardons you" (`wantedCues`), and `custody_tick` lets it go when the cell's timer stops.
 
 The Captain is the human player, and the base game gives him, and any player security officer, a brig to use. Someone the Captain cuffs, drags into a cell and puts on the timer is, to the crew code, a free person who happens to be in a small room:
