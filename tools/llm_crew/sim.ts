@@ -46,6 +46,7 @@
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
 //   bun run sim.ts quiet tryagain    the officer starts the shift hurt and says it can make no arrests; a warrant is declared, then the Captain says "Try again": the officer is given it and makes the arrest (SECT-11)
 //   bun run sim.ts quiet hallfail    no word of where the monkey is, and the officer cannot walk to the first main hallway: it goes on to the next one at once, finds it there and brings it in (ARR-11)
+//   bun run sim.ts quiet badtimer    as badcell, but the first cell's timer will not start: the officer tries another cell at once, not the same one again (SEC-04)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -303,7 +304,7 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // ARR-11: each time the officer's walk to the hallway it could not get to came to nothing.
@@ -1009,6 +1010,8 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!cell) { note(false, { reason: 'no_cell' }); return result(body, 'jail', false, 'Every cell is in use.', { reason: 'no_cell' }); }
       // In one scenario the first cell will not take anyone, as in the round of 15:52: its door did not open in time.
       if (process.argv[3] === 'badcell' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'no_way', cell: cell.name }); result(body, 'jail', false, `You cannot get into ${cell.name} with ${name}.`, { reason: 'no_way', prisoner: name, cell: cell.name }); });
+      // SEC-04: in its twin the first cell's timer will not start. The server passes a cell over for that as well (cell_refuses in put_in_cell).
+      if (process.argv[3] === 'badtimer' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'timer', cell: cell.name }); result(body, 'jail', false, `The timer of ${cell.name} will not start.`, { reason: 'timer', prisoner: name, cell: cell.name }); });
       return busy(body, 10, `taking ${name} to the brig`, true, () => {
         const minutes = Math.min(15, Math.max(1, Number(args.minutes) || 5));
         const npc = bodies.find((other) => other.name === name);
@@ -1944,7 +1947,7 @@ if (SECURITY && VARIANT !== 'recell') {
   const reason = onHead ? 'theft' : VARIANT === 'loose' ? '' : 'wrecking the Custodial Closet';
   const forWhat = reason ? `, for ${reason}` : '';
   const term = VARIANT === 'loose' ? 10 : 5;
-  const cellFor = VARIANT === 'badcell' ? 'Cell 2' : 'Cell 1';
+  const cellFor = VARIANT === 'badcell' || VARIANT === 'badtimer' ? 'Cell 2' : 'Cell 1';
   const saidBy = (who: string, words: RegExp) => spoken.filter((line) => line.who === who && words.test(line.text));
   const sentTo = (body: Body | undefined, person: string, words: RegExp) => (body?.log ?? []).filter((line) => / message /.test(line) && line.includes('"person":"' + person + '"') && words.test(line));
   const told = (body: Body | undefined, person: string, words: RegExp) => (body ? saidBy(body.name, words).length : 0) + sentTo(body, person, words).length;
@@ -1971,11 +1974,12 @@ if (SECURITY && VARIANT !== 'recell') {
     check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === cellFor, listed(secWork));
   }
   const minutes = VARIANT === 'fight' ? 10 : term;
-  if (VARIANT === 'badcell') {
+  if (VARIANT === 'badcell' || VARIANT === 'badtimer') {
     const tries = secWork.filter((work) => work.tool === 'jail');
     const refused = tries.find((work) => !work.ok);
     const put = tries.find((work) => work.ok);
     check('the first cell refuses, and the officer has them in the next within half a minute', !!refused && !!put && put.at - refused.at <= 30_000, listed(tries));
+    if (VARIANT === 'badtimer') check('the cell whose timer would not start is tried once, and the next try is at another cell', tries.filter((work) => work.cell === 'Cell 1').length === 1 && !!put && put.cell !== 'Cell 1', tries.map((work) => `${work.ok ? 'ok' : work.reason} ${work.cell ?? '?'}`).join('; '));
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
     const strayed = hale.log.filter((line) => !!refused && !!put && line.slice(0, 8) > clockAt(refused.at) && line.slice(0, 8) < clockAt(put.at) && / (go_to|get_kit|explore|approach) /.test(line));
     check('with a prisoner by the arm it goes nowhere but the cells', strayed.length === 0, strayed.join(' | '));
