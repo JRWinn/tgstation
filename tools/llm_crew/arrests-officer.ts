@@ -214,6 +214,29 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   add('TRB-01: in the Captain\'s hold: it leaves them, and says whose, once', [A.planBeat(f.o, f.task)?.ready, A.takeOutcomes(f.o), (A.syncBeat(f.o), A.takeOutcomes(f.o))], [false, [{ what: 'cannot', name: 'Pun Pun', why: 'Zim Fire has them in cuffs' }], []]);
 }
 
+// ---- TRB-02: a pardon while the cuffs are going on lets them go once the cuffs are on
+{
+  const f = wanted('Bar');
+  A.dropWarrant(f.o, 'Pun Pun', true);
+  add('TRB-02: pardoned while the arrest runs: nobody to let go yet', A.beatOf(f.o).toFree, []);
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, true, { cuffed: 1 });
+  add('TRB-02: the cuffs went on: it lets them go', A.beatOf(f.o).toFree, [{ name: 'Pun Pun', pardoned: true, tries: 0 }]);
+  A.syncBeat(f.o);
+  add('TRB-02: and a let-go task is open', open(f.o, 'let_go')?.item, 'Pun Pun');
+}
+{
+  const f = wanted('Bar');
+  A.dropWarrant(f.o, 'Pun Pun', false);
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'moved' });
+  add('TRB-02: taken back and the arrest failed: nobody to let go', A.beatOf(f.o).toFree, []);
+}
+{
+  const f = wanted('Bar');
+  A.handBack(f.o);
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, true, { cuffed: 1 });
+  add('TRB-02: a warrant handed back (not pardoned) does not let its prisoner go', A.beatOf(f.o).toFree, []);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

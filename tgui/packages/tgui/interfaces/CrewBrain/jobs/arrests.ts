@@ -87,6 +87,8 @@ const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
 const CAPTAIN_CARD = "they carry a Captain's ID, and nobody lays a hand on the Captain";
 /** How long (deciseconds) someone the server would not let it arrest is passed over. They may take the card off. */
 const REFUSED_DS = 3000;
+/** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
+const DROPPED_DS = 600;
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -205,6 +207,14 @@ export function dropWarrant(
   const beat = beatOf(brain);
   const had = beat.warrants.some((it) => sameName(name, it.name));
   beat.warrants = beat.warrants.filter((it) => !sameName(name, it.name));
+  // An arrest under way when the word came may yet put the cuffs on: kept a minute, so that
+  // its answer lets them go.
+  if (had) {
+    beat.dropped = [
+      ...(beat.dropped ?? []).filter((it) => brain.now - it.at < DROPPED_DS),
+      { name, pardoned, at: brain.now },
+    ];
+  }
   const holding = brain.security?.holding;
   const inCell = Object.keys(beat.jailed).some((it) => sameName(name, it));
   const cuffed = brain.peopleInView.some(
@@ -1250,6 +1260,27 @@ export function beatAfterActing(
         }
       }
       return;
+    }
+    // The warrant was pardoned or taken back while the cuffs were going on, and they went on:
+    // they are let go, as a pardon of someone already by the arm is.
+    const dropped =
+      task?.kind === SERVE
+        ? (beat.dropped ?? []).find(
+            (it) =>
+              it.name === task.item && brain.now - it.at < DROPPED_DS,
+          )
+        : undefined;
+    if (
+      !warrant &&
+      dropped &&
+      (ok || details.cuffed) &&
+      !beat.toFree.some((it) => sameName(it.name, dropped.name))
+    ) {
+      beat.toFree.push({
+        name: dropped.name,
+        pardoned: dropped.pardoned,
+        tries: 0,
+      });
     }
     if (!warrant) {
       return;

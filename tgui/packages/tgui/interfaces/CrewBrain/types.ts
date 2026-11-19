@@ -586,6 +586,8 @@ export type BeatWork = {
   cannotTold?: Record<string, number>;
   /** Its health (percent) when it was last told to try again, hurt: it breaks off again only a good deal under it. */
   againAt?: number;
+  /** Warrants pardoned or taken back lately, by name, and when: an arrest still under way for one lets them go. */
+  dropped?: { name: string; pardoned: boolean; at: number }[];
 };
 
 /**
