@@ -18,6 +18,7 @@ import {
   expectedAt,
   expectedCall,
   expectSomeone,
+  lastLetOutAt,
   noteLetIn,
   noteLetOut,
   stillInside,
@@ -69,6 +70,7 @@ import {
   QM_SILENT_WORDS,
   quartermasterAboard,
   SEE_TO_WORDS,
+  SEND_TO_LET_OUT_WORDS,
   TAKEN,
   THROUGH_QM,
   WAITING_TOLD,
@@ -1674,6 +1676,14 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       return { name: asked.name, room: asked.room, out: true };
     }
   }
+  // A knock from before anyone at the post last let someone out of that room is spent: a
+  // workmate has answered it already (LOGA-04). A knock after that still stands.
+  if (
+    brain.knockAt &&
+    lastLetOutAt(post, brain.knockAt.room) > brain.knockAt.at
+  ) {
+    brain.knockAt = null;
+  }
   // A knock says which door, and not who. If someone is expected there, or was let in there and
   // is still inside, it is them.
   const knock = brain.knockAt;
@@ -2365,7 +2375,7 @@ export const CARGO: Job = {
         if (wasInside) {
           // Out of a room that lies inside another, they are still in the outer one.
           const outer = brain.roomsThrough[task.place];
-          noteLetOut(brain.post, task.item);
+          noteLetOut(brain.post, task.item, undefined, brain.now, task.place);
           if (outer) {
             noteLetIn(brain.post, task.item, outer, brain.name, brain.now);
             // One asking takes them all the way out. The outer room is locked to them as well:
@@ -2525,6 +2535,39 @@ export const CARGO: Job = {
             )?.name;
       if (name) {
         brain.duties[name] = duty.duties;
+      }
+      return;
+    }
+    // The Quartermaster sending it to let out a workmate who is shut in: "Sam, Cora is shut in the
+    // Warehouse. Could you let them out, please?" It is noted as a let-out ask by PDA from Cora
+    // for that room, so it walks to that door, and opens it only if Cora is found inside (QM-05).
+    // Read before the see-to line and before any talk of a door, which it would otherwise be.
+    const sendToLetOut = isQuartermaster(speakerJob)
+      ? heard.trim().match(SEND_TO_LET_OUT_WORDS)
+      : null;
+    if (sendToLetOut) {
+      if (
+        sendToLetOut[1].toLowerCase() === firstName(brain.name).toLowerCase()
+      ) {
+        const first = sendToLetOut[2].trim().toLowerCase();
+        const who =
+          [...brain.peopleInView, ...brain.pdaPeople].find(
+            (person) =>
+              person.name !== brain.name &&
+              firstName(person.name).toLowerCase() === first,
+          )?.name ?? sendToLetOut[2].trim();
+        const said = sendToLetOut[3].trim();
+        const room =
+          ownRooms(brain).find(
+            (own) => own.toLowerCase() === said.toLowerCase(),
+          ) ?? said;
+        putAsk(brain, {
+          name: who,
+          room,
+          out: true,
+          byPda: true,
+          at: brain.now,
+        });
       }
       return;
     }

@@ -52,6 +52,22 @@ add('the keeper just knocked down, on their feet a moment ago: left to them a mi
   try { CARGO.syncTasks(b); } catch {}
   add('seeing the keeper lying there does not count as seeing them about', b.ableAt[MARIA.name], b.now - 1200);
 }
+// CARGO-12 (rest, jobs/rounds.ts): off to look round, it says so to a workmate at the post, not
+// to one lying there or in cuffs.
+{
+  const { planRounds } = await import(ROOT + 'jobs/rounds');
+  const going = (workmate: any) => {
+    const b: any = makeBrain('Sam Tech', 'Cargo Technician');
+    b.post = 'Cargo Bay';
+    b.location = 'Cargo Bay';
+    b.peopleInView = [{ ...MARIA, in_post: 1, belongs: 1, distance: 2, ...workmate }];
+    const plan = planRounds(b, { id: 1, kind: 'look_in', place: 'Warehouse', state: 'open', urgency: 'routine', source: 'own', createdAt: 0 });
+    return plan?.say ? 'says so' : plan?.act?.tool;
+  };
+  add('a workmate on their feet at the post: it says where it is going', going({}), 'says so');
+  add('a workmate lying at the post: it just goes', going({ down: 1 }), 'go_to');
+  add('a workmate in cuffs at the post: it just goes', going({ cuffed: 1 }), 'go_to');
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

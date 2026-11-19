@@ -39,7 +39,7 @@ import type {
   SenseEvent,
   Task,
 } from '../types';
-import { itemsAskedFor } from './cargo';
+import { itemsAskedFor, PAPER_WORDS } from './cargo';
 import {
   captainName,
   hearReport,
@@ -68,6 +68,7 @@ import {
   isQuartermaster,
   isTechnician,
   LOST_TOLD_WORDS,
+  letOutLine,
   NOT_PLACED_WORDS,
   NOTED,
   ORDERING,
@@ -165,11 +166,24 @@ const ABOUT_ORDER_WORDS =
   /\b(orders?|crates?|purchase|buy|supplies|budget|credits)\b/i;
 /** How many times the Captain is asked what they meant about one order. */
 const UNCLEAR_ASKS = 2;
-/** The kind of crate that has paper in it, by the words in its name. */
-const PAPER_CRATE = /bureaucracy|paper|stationery/i;
 
 function firstName(name: string): string {
   return name.split(' ')[0];
+}
+
+/**
+ * The kinds of crate a line asks for, and how many, read as a technician reads them: "for <name>"
+ * of anyone on its PDA list is who it is for, not a kind of crate (CARGO-14).
+ */
+function kindsAskedFor(
+  brain: NpcBrain,
+  text: string,
+): { crate: string; count: number }[] {
+  return itemsAskedFor(
+    text.toLowerCase(),
+    brain.orderable,
+    brain.pdaPeople.map((person) => person.name),
+  );
 }
 
 /** Writes a short list the way it is said: "a", "a and b", "a, b and c". */
@@ -419,7 +433,7 @@ function takeOrder(
   said: string,
 ): void {
   const ledger = ledgerOf(brain);
-  const items = itemsAskedFor(said.toLowerCase(), brain.orderable);
+  const items = kindsAskedFor(brain, said);
   if (items.length === 0) {
     // Only an outright order for something it cannot get is answered. Anything else is talk, and
     // so is a line about an order in the book by its number: "no to order 3".
@@ -563,10 +577,16 @@ function readAnswer(
     text,
   );
   const words = text.split(/\s+/).filter(Boolean).length;
-  if (
-    (!namesIt && words >= ANSWER_WORDS) ||
-    itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0
-  ) {
+  // A crate named is a new order, unless it is only the kind the order asked about is for, in a
+  // line that orders nothing: "yes, the paper one" is a yes to the paper order (PARSE-06).
+  const named = kindsAskedFor(brain, text);
+  const newKind =
+    named.length > 0 &&
+    (sortLine(text) === 'order' ||
+      named.some(
+        (item) => !order.items.some((theirs) => theirs.crate === item.crate),
+      ));
+  if ((!namesIt && words >= ANSWER_WORDS) || newKind) {
     return false;
   }
   const answer = yesOrNo(text);
@@ -621,7 +641,7 @@ function askWhatWasMeant(
     !order ||
     (!plainly &&
       (!ABOUT_ORDER_WORDS.test(text) ||
-        itemsAskedFor(text.toLowerCase(), brain.orderable).length > 0)) ||
+        kindsAskedFor(brain, text).length > 0)) ||
     (order.unclear ?? 0) >= UNCLEAR_ASKS
   ) {
     return false;
@@ -698,9 +718,7 @@ function ordersMeant(
   const captain = /captain/i.test(job);
   const theirs = (order: LedgerOrder) => captain || order.from === from;
   const named = numbersNamed(text);
-  const kinds = itemsAskedFor(text.toLowerCase(), brain.orderable).map(
-    (item) => item.crate,
-  );
+  const kinds = kindsAskedFor(brain, text).map((item) => item.crate);
   let found: LedgerOrder[];
   if (named.length > 0) {
     found = ledger.orders.filter((order) => named.includes(order.n));
@@ -776,7 +794,7 @@ function answerAbout(
   if (
     !/\border/i.test(text) &&
     numbersNamed(text).length === 0 &&
-    itemsAskedFor(text.toLowerCase(), brain.orderable).length === 0
+    kindsAskedFor(brain, text).length === 0
   ) {
     return;
   }
@@ -1864,15 +1882,21 @@ export const QUARTERMASTER: Job = {
     // goes by PDA. It sends another technician to see what is shutting the way.
     const shutIn = isTechnician(job) ? text.match(SHUT_IN_WORDS) : null;
     if (shutIn) {
-      const other = technicians(brain).find((name) => name !== from);
+      // One it can see lying there or in cuffs is not sent (QM-05).
+      const other = technicians(brain).find(
+        (name) =>
+          name !== from &&
+          !brain.peopleInView.some(
+            (person) => person.name === name && (person.down || person.cuffed),
+          ),
+      );
       if (other) {
+        // Its own line, which the one sent reads as an ask to let the workmate out, and goes to
+        // that door (QM-05). The see-to line only had it take on the shuttle and the rooms.
         ledgerOf(brain).sendFor = {
           to: other,
-          line: seeToLine(
-            firstName(other),
-            `${firstName(from)} is shut in the ${shutIn[1].trim()}`,
-          ),
-          why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to see what is shutting the way.`,
+          line: letOutLine(firstName(other), firstName(from), shutIn[1].trim()),
+          why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
         };
       }
@@ -1892,6 +1916,12 @@ export const QUARTERMASTER: Job = {
     if (isTechnician(job)) {
       // At its meeting, a report is a report, whoever's turn it is.
       if (hearReport(brain, speaker, heard)) {
+        return;
+      }
+      // Said to someone else by name, it was not told to it, and it acts on none of it: a crate
+      // lost, waiting or come in, said to a head or a workmate, is not word to reorder, remind or
+      // note (KNB-10).
+      if (event.details.said_to === 'other') {
         return;
       }
       // Whatever a technician has come to tell it, it has now heard.
@@ -2051,7 +2081,8 @@ export const QUARTERMASTER: Job = {
     // in it, through its own technician, like any other order.
     if (act.tool === 'get_paper' && !ok) {
       ledger.paperRetryAt = brain.now + PAPER_AGAIN_DS;
-      const crate = brain.orderable.find((kind) => PAPER_CRATE.test(kind));
+      // The kind of crate that has paper in it, by the same words anyone asks for paper by (PARSE-06).
+      const crate = brain.orderable.find((kind) => PAPER_WORDS.test(kind));
       if (crate) {
         orderForItself(brain, crate);
       }
