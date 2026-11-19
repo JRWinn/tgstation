@@ -818,7 +818,10 @@ export function drive(
   const leaving = brain.toldToLeave;
   const dropToLeave = busy && !!leaving && !leaving.dropped;
   // Likewise asked to step aside: scrubbing on at the spot it was asked to move from is no answer.
-  const dropToMove = busy && !!brain.asideAsked && !brain.asideAsked.done;
+  // Only when that step can be given: with it held back, the step the driver would send in its
+  // place is the body's own work, sent again over what it is already doing.
+  const asideNow = busy ? asideStep(brain) : null;
+  const dropToMove = !!asideNow && !inBackoff(brain, asideNow.key);
   if (
     !brain.awake ||
     (busy && !dropFor && !dropToLeave && !dropToMove) ||
@@ -972,7 +975,7 @@ function noteDone(brain: NpcBrain, step: Step): void {
     brain.inTheWay = null;
   }
   // It steps aside once for one asking, whether or not it found anywhere to step to.
-  if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
+  if (step.key.startsWith(ASIDE_STEP_KEY) && brain.asideAsked) {
     brain.asideAsked.done = true;
   }
   if (step.key === STEP_INSIDE_KEY) {

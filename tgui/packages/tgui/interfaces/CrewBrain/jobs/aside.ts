@@ -17,7 +17,10 @@ const ASIDE_WORDS =
   /\bstep aside\b|\b(stand|move|shift) aside\b|\bout of (the|my) way\b|\bmake way\b|\blet me (past|through|by)\b|\b(could|can|would|will) you (please )?move\b|\bplease move\b|\bmove over\b|\bmove,? please\b|\bget (this |it )?past you\b/;
 /** How long (milliseconds) being asked to step aside stands. After that the moment has passed. */
 const ASIDE_STANDS_MS = 20000;
-/** Names the step of getting out of the way. */
+/**
+ * Names the step of getting out of the way. Each asking adds its own time to it, so that a step
+ * aside that found nowhere to go holds back only the asking it answered, not the next one.
+ */
 export const ASIDE_STEP_KEY = 'stepping-aside';
 /** How long (milliseconds) it stays where it stepped to, so that it does not walk straight back into the way. */
 export const ASIDE_HOLD_MS = 15000;
@@ -59,7 +62,7 @@ export function asideStep(
     return null;
   }
   return {
-    key: ASIDE_STEP_KEY,
+    key: `${ASIDE_STEP_KEY}:${asked.at}`,
     text: `${asked.by} has asked you to step aside: you are in their way. You are stepping clear of them, and will get on with your own work once they are past.`,
     act: { tool: 'step_aside', person: asked.handle },
   };
