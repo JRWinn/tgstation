@@ -105,8 +105,27 @@ add('"I am here to collect crate 12" is still no order', agrees(tech([HOP]), toM
   b.toTell = [];
   b.heldCrates = [];
   b.sentToQm = {};
-  CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: HOP.name, message: "Sam, order a crate of soap, I'll send someone to pick it up.", said_to: 'you' } });
+  CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: HOP.name, message: "Sam, order a crate of soap, I'll send someone to pick it up.", said_to: 'me' } });
   add('Quartermaster aboard, an order with "pick it up": told to send it to the Quartermaster', b.toTell.map((it: any) => /Quartermaster/.test(it.line)), [true]);
+}
+// KNB-10: the Captain in the Quartermaster's Office, seven tiles off, says to the Quartermaster
+// "order it for yourself", heard as said to nobody. The technician is not at the counter with them.
+{
+  const CAPT = { handle: 'p8', name: 'Ada Stone', job: 'Captain', command: 1 };
+  const heard = (place: string, distance: number) => {
+    const b = tech([]);
+    b.peopleInView = [{ ...CAPT, place, distance }, { ...QM, place: 'Quartermaster\'s Office', distance: 7 }];
+    b.pdaPeople = [{ name: QM.name, job: QM.job }];
+    b.toTell = [];
+    b.heldCrates = [{ number: 12, for: CAPT.name, what: null, place: 'Cargo Bay', out: false, takenBy: null, waited: 100 }];
+    b.sentToQm = {};
+    CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: CAPT.name, message: 'The Bureaucracy Crate, order it for yourself.', said_to: 'nobody' } });
+    const told = b.toTell.length;
+    CARGO.overhears(b, { seq: 2, time: '', at: b.now + 5, kind: 'heard', text: '', details: { speaker: CAPT.name, message: 'I am here for my crate.', said_to: 'nobody' } });
+    return [told, b.pickupAsked?.number ?? null];
+  };
+  add('said to nobody in the Quartermaster\'s Office, seven tiles off: no "orders go through", no crate', heard('Quartermaster\'s Office', 7), [0, null]);
+  add('said to nobody at the counter in the lobby: "orders go through" and the crate', heard('Cargo Lobby', 5), [1, 12]);
 }
 // CARGO-14: who an order is for is no kind of crate.
 {

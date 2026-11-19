@@ -24,6 +24,7 @@ import {
   takeOrder,
 } from '../expected';
 import { isHead } from '../hierarchy';
+import { CARGO_LOBBY } from '../memory';
 import { addTask, blockTask, findTask, finishTask } from '../tasks';
 import type {
   Action,
@@ -33,6 +34,7 @@ import type {
   Option,
   PersonInView,
   Plan,
+  SenseEvent,
   Task,
 } from '../types';
 import {
@@ -317,6 +319,33 @@ function leftTo(brain: NpcBrain, duty: string | null): string | null {
         ableInView(brain, name) ||
         brain.now - (brain.ableAt?.[name] ?? -Infinity) < HOLDER_ABOUT_DS,
     ) ?? null
+  );
+}
+
+/** How near (tiles) someone stands to be at the counter with it, as addressing.ts's FACING_RANGE. */
+const COUNTER_REACH = 3;
+
+/**
+ * TRUE if a line was put to this technician, or to nobody in particular by someone standing at its
+ * counter (KNB-10). The Captain in the Quartermaster's Office, speaking to the Quartermaster, is
+ * heard across the bay as speaking to nobody, and is not at the counter.
+ */
+function atMyCounter(
+  brain: NpcBrain,
+  event: SenseEvent,
+  speaker: string,
+): boolean {
+  const to = event.details.said_to;
+  if (to === 'me') {
+    return true;
+  }
+  if (to === 'other') {
+    return false;
+  }
+  const seen = brain.peopleInView.find((person) => person.name === speaker);
+  return (
+    !!seen &&
+    (seen.place === CARGO_LOBBY || (seen.distance ?? 99) <= COUNTER_REACH)
   );
 }
 
@@ -2526,7 +2555,8 @@ export const CARGO: Job = {
       speakerSeen &&
       !isCargo(speakerJob) &&
       (!!speakerSeen.command || isHead(speakerJob)) &&
-      event.details.said_to !== 'other' &&
+      // Said to it, or at its counter: not the Captain across the bay telling the Quartermaster (KNB-10).
+      atMyCounter(brain, event, speaker) &&
       ORDERING_WORDS.test(heard) &&
       !comeForCrate(heard, crateNumberIn(heard))
     ) {
@@ -2570,7 +2600,7 @@ export const CARGO: Job = {
     if (
       speaker &&
       !isCargo(theirJob) &&
-      (event.details.said_to !== 'other' || toUnableWorkmate) &&
+      (atMyCounter(brain, event, speaker) || toUnableWorkmate) &&
       // An order that says who will come for it is an order, not someone come for one (CARGO-15).
       comeForCrate(heard, number) &&
       takeOrder(

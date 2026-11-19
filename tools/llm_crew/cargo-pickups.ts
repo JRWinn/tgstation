@@ -49,7 +49,7 @@ const tech = (held: any[]) => {
   b.toTell = [];
   return b;
 };
-const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: CAPTAIN.name, message, said_to: 'you' } });
+const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: CAPTAIN.name, message, said_to: 'me' } });
 {
   const b = tech([{ number: 37, for: CAPTAIN.name }]);
   hear(b, "I'm here for my crate.");
