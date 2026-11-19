@@ -26,6 +26,7 @@ Two smaller faults in the same branch:
 
 - With only the one technician (the one who is shut in), `other` is undefined and nothing at all is done, though the Quartermaster's own ID opens every cargo room.
 - `other` is the first technician in view or on the PDA list who is not the sender: it may be dead or a human player (see QM-02), and it may not be able to open that room.
+- Anyone else shut in one of the department's rooms (a janitor in the Warehouse, say) who writes to the Quartermaster because its ID opens the door (`nextToWrite` writes to door keepers before the head) gets nothing at all: the branch reads only messages from technicians, and the Quartermaster has no step that goes to a door.
 
 ## Where
 
