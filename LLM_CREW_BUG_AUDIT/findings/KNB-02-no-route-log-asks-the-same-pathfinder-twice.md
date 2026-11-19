@@ -44,7 +44,12 @@ The same holds for every other `get_path_to` in the crew code (`check_shut_in`, 
 
 ## How it was found
 
-Read from the code. Backed by the logs: `grep -c "finds one of" data/logs/2026/11/1[89]/round-*/game.log` would be the proof, and across the rounds read for this finding no such line was seen (every "found no route" line read says "finds none either").
+Read from the code, and counted in the logs. Over every round under `data/logs/2026/11/18` and `data/logs/2026/11/19`:
+
+    cat data/logs/2026/11/1[89]/round-*/game.log | grep -c 'pathfinder finds one of'   ->   0
+    cat data/logs/2026/11/1[89]/round-*/game.log | grep -c 'finds none either'         ->   186
+
+186 times asked, 186 times the same answer as the walk.
 
 ## How to fix it
 
