@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_doors.dm:372, code/modules/llm_crew/crew_npc_guarding.dm:119, code/modules/llm_crew/crew_npc_forcing.dm:78, code/modules/llm_crew/crew_npc_doors.dm:286
 fix: In tool_go_to_door test every route with route_by_open_door, whatever room the door opens from, and in particular treat a hallway with doors of its own as locked by hallway_locked_to
@@ -64,10 +65,10 @@ Read from the code, with the timings from the round's `game.log` named above. Wh
 
 ## How to fix it
 
-1. In `tool_go_to_door`, test every route found with `route_by_open_door`, not only those to a door of a locked outer room. `route_by_open_door` already asks the right question of each airlock on the route (`!door.allowed(body)`, so a door the body could open itself is fine). A route that needs a door someone else happens to have open is no route to stand at a door by.
+1. In `tool_go_to_door`, test every route found with `route_by_open_door`, not only those to a door of a locked outer room. `route_by_open_door` already asks the right question of each airlock on the route (`!door.allowed(body)`, so a door the body could open itself is fine). A route that needs a door someone else happens to have open is no route to stand at a door by. **But first teach `route_by_open_door` to let through a door that stands open for good**, or this breaks the project's own way in: an engineer forces a door by cutting its power and prying it (`tool_force_door`), and that door stays open, unpowered, so it can be walked through by anyone, the officer it was forced for above all. Skip a door on the route when it is open (`!door.density`) and cannot shut by itself: `!door.hasPower() || door.locked || (door.obj_flags & EMAGGED)`. As the code stands this hole is already there for the Cargo Bay and its offices; widening the test to every route makes it bite far more often.
 2. If the owner wants hallways kept apart from rooms elsewhere (for janitors cleaning, say), at least make `outer_locked` use `locked_out_of(outer) || hallway_locked_to(outer)`, as `tool_force_door` does for `through`. Then the answer for the Bar Backroom becomes "it opens from the Service Hallway, which is locked to you as well", which is what the engineer is already told.
 3. The same hole is in every other walk: `tool_go_to` plans with `get_path_to` and the airlock's own `CanAStarPass`, which takes any open door. ARR-06 and KNB-03 discuss that. This finding is only that the one place built to stop it misses the case it was built for.
 
 ## How to test the fix
 
-Server compile to a side copy. In a round, with a janitor holding a Service Hallway door open, send the officer after someone in the Bar Backroom: `pda.log` should read "I have a warrant for Pun Pun, who is in the Bar Backroom. I cannot get to its door." (the far line) or the Service Hallway named as locked, not "I am at the Bar Storage door".
+Server compile to a side copy. An airlock shuts itself after a few seconds, so to make the case at will, as an admin set `autoclose` to 0 on the "Service Hall" airlock at (129,118) with View Variables and open it (it stays open, powered and unbolted: "open this minute"). Then, in a round, with a janitor holding a Service Hallway door open, send the officer after someone in the Bar Backroom: `pda.log` should read "I have a warrant for Pun Pun, who is in the Bar Backroom. I cannot get to its door." (the far line) or the Service Hallway named as locked, not "I am at the Bar Storage door".

@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_guarding.dm:118, code/modules/llm_crew/crew_npc_places.dm:41, code/modules/llm_crew/crew_npc_tools.dm:370, code/modules/llm_crew/crew_npc_cleaning.dm:366, code/modules/llm_crew/crew_npc_tools.dm:506
 fix: Work out which part of a room the body can get into from the doors that open for it, and pick the spot to walk to, and the messes that are its to clean, from that part only
@@ -23,7 +24,7 @@ The Research Division on MetaStation is one. Read from the map file (`_maps/map_
 - The main hall is x 126 to 139, y 91 to 93.
 - At (140,92) is the airlock "Xenobiology Access" and at (143,92) the airlock "Xenobiology Entrance". Both stand on Research Division floor, both take science access only (`/obj/effect/mapping_helpers/airlock/access/all/science/general`).
 - Between them is a pocket of six tiles, (141..142, 91..93), which is also Research Division.
-- The maintenance door at (141,90) opens into that pocket. It takes science or maintenance access (`access/any/science/maintenance`, which is `ACCESS_SCIENCE, ACCESS_MAINT_TUNNELS` in `code/modules/mapping/access_helpers.dm:247`). A janitor has maintenance access.
+- The maintenance door at (141,90) opens into that pocket. It takes science or maintenance access (`access/any/science/maintenance`, which is `ACCESS_SCIENCE, ACCESS_MAINT_TUNNELS` in `code/modules/mapping/access_helpers.dm:247`). A janitor has maintenance access. (Checked: there is a second door of the same kind at (141,94), from Lesser Starboard Maintenance, where one of the janitors stood. The log line lists only six doors, so it was cut off there. All four doors round the pocket are cycle-linked, `sci-maint-passthrough`: opening one shuts the others.)
 
 So a janitor can get into six tiles of the Research Division and no more. The two inner airlocks are not "doors of the room" to `crew_npc_doors_of`, because both sides of them are the same room, so nothing ever looks at them.
 
@@ -96,7 +97,7 @@ The map was read with a throwaway script that prints the tiles and areas round (
 
 ## How to fix it
 
-1. Add a helper in `crew_npc_doors.dm`, say `open_part_of(area/room)`: the tiles of the room the body can get into. Start from the inside tile (`sides[1]`) of every door of `crew_npc_doors_of(room, z)` for which `door.allowed(body)` is true and which is not bolted or welded. Spread over the room's own open tiles, a step at a time in the four directions, and do not step onto a tile that holds an airlock or a windoor that does not open for the body (`!door.allowed(body)`). A room with no doors at all, or one the body is standing in, starts from every tile (or from the body's own tile). Keep the answer for a minute by room name, as `locked_place_cache` already does. This is a look at doors and floor the body knows, not a pathfinder call, so it need not sleep.
+1. Add a helper in `crew_npc_doors.dm`, say `open_part_of(area/room)`: the tiles of the room the body can get into. Start from the inside tile (`sides[1]`) of every door of `crew_npc_doors_of(room, z)` for which `door.allowed(body)` is true and which is not bolted or welded. Also start from every tile of the room that borders, with no wall or door between, a tile of another station area: maintenance areas and hallways run into each other with no door at all, and a fill from doors alone would miss what is entered that way. Spread over the room's own tiles, a step at a time in the four directions, using the pathfinder's own test for a step, `turf.LinkBlockedWithAccess(next, pass_info)` (`code/__HELPERS/paths/path.dm:223`) with `pass_info = new /datum/can_pass_info(body, get_access())`, so walls, girders, grilles, crates and dense fittings stop it as they stop a walk. On top of that, do not step onto a tile that holds an airlock or windoor that does not open for the body (`!door.allowed(body)`), even if it stands open just now. A room the body is standing in starts from the body's own tile. Keep the answer for a minute by room name, as `locked_place_cache` already does. No pathfinder call is made, so it need not sleep. The same helper is what KNA-28 (a sealed part with no door at all) and KNB-01/KNA-13 (the Warehouse pocket walled off by crates) need: build it once for all three.
 2. In `place_spot` (and so `tool_go_to`), for a room the body has not stood in, pass that list to `safe_spot_in` in place of the room's whole floor. If the list is empty, answer as for a room it cannot work out the way to.
 3. In `safe_spot_in`, when nothing in the list is clear of doors, a tile beside a door is already allowed (`best_clear || best`), so the pocket works as it is.
 4. In `mess_places`, `workable_mess_places` and `remembered_mess_in` (`crew_npc_cleaning.dm`), pass over a remembered mess whose tile (`memory[3]`) is not in `open_part_of` its room, the same way a room that is locked to the body is passed over. It then goes there only when someone who can open the inner door sends for it.
@@ -111,3 +112,13 @@ KNA-13 proposes trying the tile inside each door when the first spot has no rout
 - Server compile to a side copy.
 - The simulator runs no server code, so this cannot be shown there. In the next round on MetaStation, grep `game.log` for "to Research Division" and "found no route to Research Division": there should be none from a janitor. If a mess is in the pocket at (141..142, 91..93) a janitor should walk in by the maintenance door at (141,90) and clean it.
 - To force the case: as the Captain, spill something in the pocket and something in the main hall, and watch which one a janitor goes to.
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed.
+
+- Code read as it is today: `locked_out_of` (`crew_npc_guarding.dm:118`), `place_spot` (`crew_npc_places.dm:32`), `safe_spot_in` (`crew_npc_tools.dm:370`), `walk_finished` (`crew_npc_tools.dm:409`, the shut-in count at :506), `crew_npc_doors_of` (`crew_npc_doors.dm:241`), `mess_places` (`crew_npc_cleaning.dm:366`), `crew_npc_clear_of_doors` (`crew_npc_cargo.dm:271`). The quotes match.
+- The map, read with a throwaway parser of `MetaStation.dmm` kept in the scratch folder: the pocket (141..142, 91..93) is walled on x 140 and x 143 except the two science-only airlocks, and has two maintenance doors, (141,90) and (141,94), both `access/any/science/maintenance`. Every pocket tile is within one tile of a door, so `crew_npc_clear_of_doors` is false for all of them and `safe_spot_in` takes a main-hall tile whenever one is in its sample, as the log's (138,91) shows.
+- The round: `data/logs/2026/11/18/round-15.09.26/game.log` has both janitors' walks to (138,91) ending "no route could be found", as quoted.
+- `locked_out_of` returns FALSE on the first door that `allowed()` the body, and `crew_npc_doors_of` skips the two inner airlocks because both their sides are Research Division (`get_area(next) == room`). Nothing in the change log after 16:15 on 2026-11-18 touches this.
+- Fix step 1 widened: seed from open area boundaries as well as doors, and use `LinkBlockedWithAccess` for each step so it serves KNA-28 and KNB-01 too. Severity and effort left as they were.

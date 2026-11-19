@@ -10,7 +10,7 @@ found_by: Fable 5.2
 checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_guarding.dm:118, code/modules/llm_crew/crew_npc_cargo.dm:153, code/modules/llm_crew/crew_npc_cleaning.dm:347, code/modules/llm_crew/crew_npc_doors.dm:42
-fix: Have locked_out_of answer FALSE for a room that has an open doorless way in, using the test crew_npc_room_is_closed already makes, kept for a minute per room
+fix: Have locked_out_of answer FALSE for a room with an open doorless way in from a hallway or a room open to the body, using the open-way test of crew_npc_room_is_closed with the DOOR-09 correction, kept for a minute per room
 ---
 
 ## What is wrong
@@ -69,20 +69,33 @@ The change log (top entries, "the kitchen, which anyone can walk into by its ope
 
 ## How it was found
 
-Read from the code. That the kitchen is such a room on this map is taken from the change log and the code comment, not checked against the map file here. Whether the janitor's ID opens a kitchen airlock on this map was not checked against the map's access helpers: if one does, the janitor is not affected and the officer and the engineer still are. Not seen in a round log.
+Read from the code. The finder took the kitchen from the change log and a code comment without checking the map; the reviewer checked the map and found the kitchen is not such a room but the Cargo Lobby is (see Check). A round log shows the Cargo Lobby taken as locked to a janitor (round-15.52.18, quoted above).
 
 ## How to fix it
 
-1. In `crew_npc_cargo.dm`, lift the first loop of `crew_npc_room_is_closed` into its own proc, `crew_npc_open_way_into(area/room, z_level)`, returning TRUE if some open floor tile of the room touches an open floor tile of another station area with nothing solid on either. Call it from `crew_npc_room_is_closed` so that proc is unchanged.
+1. In `crew_npc_cargo.dm`, lift the first loop of `crew_npc_room_is_closed` into its own proc, `crew_npc_open_way_into(area/room, z_level)`, returning TRUE if some open floor tile of the room touches an open floor tile of another station area with nothing solid on either. Call it from `crew_npc_room_is_closed` so that proc is unchanged. Build DOOR-09's correction into it at the same time (pass over any tile holding an airlock, a windoor or plastic flaps): without it a locked room whose door a worker has just opened counts as open, and with the cache in step 2 it stays open to the body for a minute.
 2. The loop walks every tile of the room, and `locked_out_of` is called often (once per door in `tool_go_to_door` and `room_door_for`, on every change of room in `note_place`). So keep the answer: a global list `"[REF(room)]-[z]" -> list(answer, world.time)`, good for about a minute. Shutters go up and down, so do not keep it for the round.
-3. In `locked_out_of`, after the "no doors" check and before the loop over doors, return FALSE if `crew_npc_open_way_into(room, here.z)` (through the cache).
+3. In `locked_out_of`, after the "no doors" check and before the loop over doors, return FALSE if `crew_npc_open_way_into(room, here.z)` (through the cache). **The open way must lead from somewhere the body may be.** On MetaStation Cytology and Xenobiology are open to each other with no door between, and the Engineering break room to the atmospherics gas storage; both of each pair have only airlocks to the rest of the station. A bare adjacency test makes each of them "not locked" because of the other, and a janitor would then go for messes seen through their windows, and its failed walks there would count toward being shut in (`walk_finished` at `crew_npc_tools.dm:506` stops counting them only for a locked room). So have the new proc return the neighbouring areas it found open, and count the way in only if one of them is a hallway, a maintenance tunnel, or a room with a door that opens to the body (the doors-only part of `locked_out_of`, not called recursively).
 4. Leave `tool_go_to_door` and `tool_force_door` as they are: they test real routes and stay right. Their comments about the kitchen can then be shortened.
-5. Note that `is_blocked_turf` does not count plastic flaps (not dense) as shut, so a room joined to the next only by a flapped conveyor opening counts as open. A standing body cannot walk through flaps. In the new proc, treat a tile holding `/obj/structure/plasticflaps` with `require_resting` as blocked. (This is a fault in `crew_npc_room_is_closed` today as well: see DOOR-08.)
+5. Note that `is_blocked_turf` does not count plastic flaps (not dense) as shut, so a room joined to the next only by a flapped conveyor opening counts as open. A standing body cannot walk through flaps. In the new proc, treat a tile holding `/obj/structure/plasticflaps` with `require_resting` as blocked. (This is a fault in `crew_npc_room_is_closed` today as well: see DOOR-09, which also covers an airlock standing open.)
 
-Question for the owner: is a room whose airlocks are locked but whose shutters are up a room the crew may walk into to work (clean, look round)? The existing rule in `crew_npc_room_is_closed` says yes. If the answer is no for some rooms (a bar counter is service, not an invitation), then the fix is narrower: only `out_of_bounds`, the trail and `shut_in` should use the new test, so that a body is never "shut in" a room it can walk out of, and `mess_places` stays as it is.
+Question for the owner: is a room whose airlocks are locked but whose open side stands open (the Cargo Lobby's shutters) a room the crew may walk into to work (clean, look round)? The existing rule in `crew_npc_room_is_closed` says yes. If the answer is no for some rooms (a bar counter is service, not an invitation), then the fix is narrower: only `out_of_bounds`, the trail and `shut_in` should use the new test, so that a body is never "shut in" a room it can walk out of, and `mess_places` stays as it is.
 
 ## How to test the fix
 
 - Server compile (see README).
-- In a round on MetaStation: make a mess in the kitchen in sight of a janitor in the hallway and see that it goes in by the open side and cleans it. In `game.log` there should be no `walk failed (go_to_door` for the Kitchen.
-- Walk a crew body into the kitchen and give it one `go_to` that cannot succeed. In the Crew Brain window `shut_in` and `wants_out` must stay off.
+- In a round on MetaStation: make a mess in the Cargo Lobby in sight of a janitor in the Storage Wing and see that it walks in by the open side and cleans it without being sent for. In `game.log` there should be no "Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it" for a walk that failed, and no `walk failed (go_to_door` from the Cargo Lobby.
+- Walk a janitor into the Cargo Lobby and give it one `go_to` that cannot succeed. In the Crew Brain window `shut_in` and `wants_out` must stay off.
+- Check the other side: a janitor must still take Xenobiology and Cytology as locked (no walk at either from a mess seen through the window), and the Cargo Bay itself, with a worker holding its lobby door open, must still be locked to it.
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed, with the example changed.
+
+- Read `locked_out_of` (`crew_npc_guarding.dm:118`), `crew_npc_room_is_closed` (`crew_npc_cargo.dm:153`), `place_locked_to_body` and `mess_places` (`crew_npc_cleaning.dm:347-379`), `pick_somewhere_new` (`crew_npc_tools.dm:325`), `note_place` (`crew_npc_senses.dm:240`), `note_way_out_failed` (`crew_npc_doors.dm:42`), `crew_npc_doors_of` (`crew_npc_doors.dm:241`). The quotes match. `locked_out_of` asks only the airlocks; nothing in it or its callers asks about a doorless way in.
+- Ran a throwaway Python reader over `_maps/map_files/MetaStation/MetaStation.dmm` (kept in the scratchpad, not the repo) that lists, for each station room, the doorless edges where neither square holds a wall, table, window, airlock, closet or dense machine, and the access helpers on each airlock touching the room. Results:
+  - Kitchen and Bar: no such edge. The squares under the kitchen shutters at (137..143,128) hold the food smartfridge and reinforced tables; (136,128) is the kitchen airlock (`any/service/bar`, `any/service/kitchen`). So the change log's "open shutters" kitchen is wrong, and the finder's example with it.
+  - Cargo Lobby: open at (84,145..147) onto the Storage Wing, only airlock (78,146) `all/supply/general`. This is a real case, and `round-15.52.18/game.log:455` prints "Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it".
+  - Also open edges with airlocks: Medbay Lobby and Science Lobby (but their airlocks include public ones, so not locked), Cytology with Xenobiology and the Engineering break room with atmospherics gas storage (both rooms of each pair locked to a janitor). The last two are why the fix must ask where the open way leads.
+- The flaps cross-reference was to DOOR-08, which is about door names; it is DOOR-09 (open-way test counts an open airlock or flaps).
+- Changed: confidence to sure, the example to the Cargo Lobby, "How it was found", fix step 1 (take DOOR-09's correction along) and step 3 (the open way must lead somewhere the body may be), the tests. Severity medium and effort medium stand.

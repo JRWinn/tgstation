@@ -4,12 +4,13 @@ title: Baton, cuffs and an engineer's tools are drawn by clicking them where the
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
-files: code/modules/llm_crew/crew_npc_security.dm:324, code/modules/llm_crew/crew_npc_forcing.dm:300, code/game/objects/items.dm:564
-fix: In draw_item, when the thing is inside a storage that is not open to the body, click that storage first to open it, then click the thing
+files: code/modules/llm_crew/crew_npc_security.dm:324, code/modules/llm_crew/crew_npc_forcing.dm:300, code/game/objects/items.dm:564, code/_onclick/click.dm:294
+fix: In draw_item, when the thing is inside a storage other than the body, right-click each storage it is in first (outermost first), the open click a player makes, then click the thing
 ---
 
 ## What is wrong
@@ -52,11 +53,17 @@ Read from the code. Not seen in a round: the logs say only that the baton came o
 
 ## How to fix it
 
-1. In `draw_item`, before the click on the thing, find the storage it is in: `var/obj/item/holder = thing.loc` while `holder.atom_storage` and `holder != body`. If that storage is not open to the body (`!(body in holder.atom_storage.is_using)`; check the var name in `code/datums/storage/storage.dm`), click the holder first, with the empty hand, and wait the kit gap. For a worn belt or a backpack that click opens it (`open_storage`), as it does for a player. For a box inside the bag, open the bag, then the box.
-2. Leave pockets alone: a thing in a pocket slot is on screen and is clicked straight out by a player.
-3. Close what it opened when done is not needed (a player often leaves it), but the open window does nothing for a body with no client, so either is fine.
-4. Keep the log lines as they are; add "it could not open its X" as a reason for `draw_stopped`.
+1. In `draw_item`, before the click on the thing, list the storages it is in: walk `thing.loc` up while it is an item with `atom_storage` and is not the body. Then, outermost first, make the open click on each with the empty hand and wait the kit gap: `click_as_body(holder, "right=1", gap)`. A right click reaches `COMSIG_ATOM_ATTACK_HAND_SECONDARY`, which every storage registers to `open_storage_on_signal` (`storage.dm:245`), so it is the open click for a worn belt, a held belt, a backpack and a box inside the backpack alike. The handler stops the click there only when the storage has `display_contents` (it returns `COMPONENT_NO_AFTERATTACK`, the same bit as `COMPONENT_CANCEL_ATTACK_CHAIN`); a storage without it lets the right click fall through to `attack_hand`, so skip those (a player cannot open them either).
+   - Do **not** use a left click. A left click on a box inside the bag takes the box out (`on_attack`, `storage.dm:924`, only opens what is in the body's own slots or hands), and a left click on a worn thing whose storage has `attack_hand_interact = FALSE` (shoe and clothing pockets, `pockets.dm:24`, `:30`, `:82`) takes the worn thing off (`attempt_pickup`, `loc == user && outside_storage`).
+   - Do **not** check whether it opened. `show_contents` returns FALSE for a mob with no client (`storage.dm:1073`), so `is_using` never holds the body, and it is `VAR_PRIVATE` besides. The click is the step a player makes; for a body with no client it shows nothing and changes nothing.
+2. Things in the pocket slots (`l_store`, `r_store`) have the body as their `loc`, so step 1 finds no storage and they are clicked straight out, as a player does.
+3. Nothing needs closing afterwards: no window was opened.
+4. Keep the log lines as they are. The right click on a locked storage (`locked` in `open_storage`) does nothing, and the click on the thing then still takes it out; whether a locked storage should stop the draw is out of scope here.
 
 ## How to test the fix
 
-Server compile to a side copy. Next round, `game.log` for the officer's first locker trip and first arrest: the time from "put on the security belt" to the first "with its baton" will be 0.4 seconds longer; the counts should not change. For an engineer, "forced open" lines as before.
+Server compile to a side copy. Next round, `game.log` for the officer's first locker trip and first arrest: the time from "put on the security belt" to the first "with its baton" will be 0.4 seconds longer; the counts should not change. For an engineer, "forced open" lines as before. Also check that no body is seen taking off its belt or a box coming out of its bag when it draws (`attack.log` and the hands shown in the Crew Brain window): that is what a left click in step 1 would do.
+
+## Check
+
+Checked by Opus 5.5. The quoted `draw_item` loop is what `crew_npc_security.dm:311-333` says today, and its callers are the seven named (`grep draw_item(`). Traced the click: `click_as_body` (`crew_npc_machines.dm:259`) calls `ClickOn`; `/mob/living/DirectAccess` is `..() + get_all_contents()` (`code/_onclick/click.dm:294`), so a baton in a worn belt, or anything nested in the backpack, counts as in direct reach and goes to `UnarmedAttack`, `attack_hand`, `attempt_pickup` and `remove_single` (`items.dm:564-570`), with no step that asks whether the storage was open. A player cannot click it: it is on screen only once the storage is opened. The 16:50-17:35 change log entry lists it as known and not fixed (`LLM_CREW_CHANGELOG.md:341`); no later entry fixed it. Confidence raised to sure: the `ClickOn` step the finder had not traced is `DirectAccess`, which settles it. The fix was mended: the finder's `is_using` test can never be true for a body with no client (`show_contents`, `storage.dm:1073`), and a left click on the holder takes a nested box out or a pocketed worn item off, so the open click is a right click and its result is not checked. Severity medium stands: it is a skipped click, not a change to the world outside the game's handlers, and costs 0.4 seconds a storage. Effort small, about 10 lines in one proc.

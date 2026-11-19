@@ -110,6 +110,8 @@ Points from KNB-03 for steps 1 to 3:
 - Must keep working: a technician whose ID opens the door is not stopped (`door.allowed(body)` is true), and a body hauling a crate is handled by the grip code first (`CREW_NPC_HAULS`), which is above this check in `perform`.
 - KNB-03's last step left the ask by the door it came in by as built; step 3 here (ask by the door that stopped it) is the better one, by the Collin Archibald case above.
 
+Point from the checker, for step 1 and `log_walk_failed`: also write the first three tiles of the newest plan into the failure line, whatever is on them, when a walk fails with a route in hand. A five-step plan from (77,146) to (82,147) fits the airlock at (78,146) and also a diagonal through (78,145), the ore redemption machine's tile (two windoors, the west one with cargo access, and a fire door: all of them doors, so all checked live by the planner). If the airlock test of step 1 never fires in the next round, those tiles say where the planner did send the body, and steps 2 and 3 can then be pointed at that tile instead.
+
 Keeps the rules: the body learns only what it would find by trying the door. No door is opened by code.
 
 ## How to test the fix
@@ -117,3 +119,14 @@ Keeps the rules: the body learns only what it would find by trying the door. No 
 - Server compile to a side copy (see `README.md`).
 - The simulator runs no server code. On the window side, add a case to a janitor scenario in `tools/llm_crew/sim.ts` where the server answers a `go_to` with the new "the door Y is locked to you" result, and check the janitor then goes to that door and knocks.
 - Next round, `game.log`: "was routed through" lines say which doors the planner wrongly takes for open, which settles the unproven part. "Stopped at Cargo Bay (77,146,2)" should be gone, or should come within a second of the walk's start. `grep 'Stopped at Cargo Bay (77,146'` should show no `go_to` walk with "last route planned" (51 such walks in the logs of 2026/11/18 and 19 before the fix). If the new line names (78,146) for a janitor, the planner fault is proven.
+
+## Check
+
+Checked by Opus 5.5, read from the code, the map and the round logs; not seen live.
+
+- The quotes are what the code says today: `route_planned` (`crew_npc_motor.dm:68`) keeps only `length(path)`; `route_by_open_door` (`crew_npc_doors.dm:286`) is used only by `tool_go_to_door`; the `note_way_out_failed()` test at `crew_npc_tools.dm:506`; `note_way_out_failed` (`crew_npc_doors.dm:39`) sets `shut_in` on one failure when there is a trail.
+- The logs bear it out: `grep 'Stopped at Cargo Bay (77,146'` over every `game.log` of 2026/11/18 and 19 gives 54 lines in 11 rounds, 51 of them with "last route planned". Collin Archibald's lines in `round-20.00.21` are as quoted (game.log lines 306, 339, 530, 541, 581).
+- The map, read with a throwaway Python script over `MetaStation.dmm`: (78,146) is `/obj/machinery/door/airlock/mining` "Cargo Bay" with `access/all/supply/general` and a fire door, in `/area/station/cargo/lobby`; (77,146) is Cargo Bay floor; (78,147) and (78,148) are windows; (78,145) is the ore redemption machine between two windoors, the west one `req_access = list("cargo")`. So no other way from the bay to the lobby is open to a janitor.
+- The game side of the planner, read to try to clear it: `nav_classify_atom` (`turf.dm:1053`) makes every `/obj/machinery/door` a live blocker, `nav_blocker_can_pass` calls the door's `CanAStarPass` with the walker's `pass_info`, `repath_incoming` refreshes the access from `get_access()` before each plan, a dirtied turf is set to 0 in the DLL until rebaked (`turf.dm:902`), and a restored station bake rebakes every tile with a live blocker and its neighbours (`navmap.dm:567`). RETA grants go onto the ID card, so `allowed` and `CanAStarPass` see the same access. Nothing in DM explains the route, so the cause is still not proven; it is in `navmap_pathfinder.dll` or a door state the logs do not show. Confidence kept at likely for the cause; the effect is sure.
+- Not fixed since: `LLM_CREW_CHANGELOG.md` lists it at line 100 ("not looked into") and line 1043 ("Cause not found"), and no `route_locked_door`, `route_shut_by` or "routed through" is in the code.
+- The fix keeps the rules: it ends a walk on a door the body cannot open, which it would find by trying it, and opens nothing. Added one point: log the first tiles of the plan whatever is on them, since the five steps also fit a diagonal through (78,145). Severity kept at medium (seen in every round with janitors in cargo, but the janitor is let out in the end and the work gets done late); effort kept at medium.

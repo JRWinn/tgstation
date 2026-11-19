@@ -1,12 +1,13 @@
 ---
 id: HAND-08
-title: An errand target one tile off through a wall or a window counts as reached at once, so the body gives up on it without a step, every time
+title: An errand target one tile off across a windoor, a thin window or a wall corner counts as reached at once, so the body gives up on it without a step, every time
 kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
 files: code/modules/llm_crew/crew_npc_storage.dm:200, code/datums/ai/generic_behaviors/move_to_target.dm:50, code/modules/llm_crew/crew_npc_hands.dm:195, code/modules/llm_crew/crew_npc_hands.dm:429
 fix: In crew_npc_reach count arrival only when can_reach_target_now is true, and when get_dist is within reach but a wall or window is between, walk to an open tile beside the target from which it can be reached
@@ -16,18 +17,18 @@ fix: In crew_npc_reach count arrival only when can_reach_target_now is true, and
 
 Every errand walk and every storage walk uses the leaf `crew_npc_reach`, a `move_to_target`. That leaf counts the walk as done the moment `get_dist(pawn, target) <= required_dist`. `get_dist` counts tiles and nothing else: a wall, a window, a grille or a windoor between the two makes no difference to it. `required_dist` is 1 for everything but a mess on open floor.
 
-So when the target is one tile off on the far side of a wall or a window (or diagonally past a wall corner), the walk ends on its first tick without a step. `do_errand` then finds `can_reach_target_now` false (it uses `Adjacent`, which does respect walls and windows) and returns "You could not get to it." The body has not looked for a way round. Asked again, it is standing in the same spot, and the same happens. The storage leaf does the same: `look_inside` returns `"unreached"` and the locker is skipped.
+So when the target is one tile off on the far side of something that sits on the edge between two tiles, the walk ends on its first tick without a step. (Corrected on check: a wall or a full-tile window fills a tile of its own, so anything on the far side of one is two tiles off and the walk goes on. What cuts off a target one tile away is a border object, `ON_BORDER_1`: a windoor, a thin directional window, a border firelock that has shut. Or two dense tiles at a corner, diagonally. Windoors are common: the desks of the Head of Personnel, the kitchen, cargo, medbay and the brig front all have one, with things and people on both sides.) `do_errand` then finds `can_reach_target_now` false (it uses `Adjacent`, which does respect walls and windows) and returns "You could not get to it." The body has not looked for a way round. Asked again, it is standing in the same spot, and the same happens. The storage leaf does the same: `look_inside` returns `"unreached"` and the locker is skipped.
 
-The errands this hits: `pick_up` of a thing just the other side of glass, `give` and `hand_mail` to someone across a window, every crate haul (`unload`, `recycle`, `stow`, `release`, `collect`, `take_back`, `put_clear`) for a crate on the other side of a wall or the shuttle's hull, `reset_alarm`, `door`, `tidy`, `machine`, and a mess on a blocked tile (a mess under a table or a rack is reached from beside it). A crate errand that fails this way does not even count against the crate (`entry.unreachable` is only raised in `crew_npc_fail_errand`, which does not run).
+The errands this hits: `pick_up` of a thing just the other side of a windoor or a thin window, `give` and `hand_mail` to someone across a desk windoor, a crate haul for a crate on the other side of a windoor or diagonally past a corner, `reset_alarm`, `door`, `tidy`, `machine` or `order` at a console behind a desk windoor, and a mess on a blocked tile (a mess under a table or a rack is reached from beside it). A crate errand that fails this way does not even count against the crate (`entry.unreachable` is only raised in `crew_npc_fail_errand`, which does not run, and even there only for `check_held`, `release` and `stow`).
 
-One concrete case. A janitor wants its bucket (`pick_up bucket`). The bucket was left on the floor of a room, on the tile just inside a full-tile window, and the janitor is standing in the hallway on the other side of that window. The room's door, four tiles along the hallway, opens for it.
+One concrete case. A janitor wants its bucket (`pick_up bucket`). The bucket was left on the kitchen side of the kitchen's counter windoor, and the janitor is standing on the hallway side of that windoor, on the next tile. The kitchen's door, four tiles along the hallway, opens for it.
 
 1. `tool_pick_up("bucket")`: the bucket is in `oview`, nearest. `start_errand(bucket, ...)`.
 2. `crew_npc_reach/setup`: `required_dist = 1`. First `perform`: `get_dist(janitor, bucket)` is 1. `AI_BEHAVIOR_SUCCEEDED`.
-3. `crew_npc_do_errand` → `do_errand`: `can_reach_target_now(bucket)` → `body.Adjacent(bucket)` is FALSE (the window is in between). "You could not get to it."
+3. `crew_npc_do_errand` → `do_errand`: `can_reach_target_now(bucket)` → `body.Adjacent(bucket)` is FALSE (`ClickCross` finds the shut windoor on the border). "You could not get to it."
 4. The brain retries after its backoff. The janitor has not moved. Same again.
 
-A player would have walked round through the door.
+A player would have walked round through the door. The body need not be standing there to start with: the walk itself can bring it there, since the path is asked only for a tile within one of the target (`minimum_distance` = 1), and the nearest such tile may be on the wrong side of the windoor. Which tile the navmap pathfinder picks was not read (it is native code); JPS (`jps.dm:201`) tests only `diagonally_blocked`, not border objects.
 
 ## Where
 
@@ -75,4 +76,14 @@ Keeps the rules: the body only walks.
 ## How to test the fix
 
 - Server compile to a side copy.
-- In a round: leave a bucket just inside a window, stand a janitor outside it, and give it `pick_up bucket`. `game.log` must show it walk round through the door and pick the bucket up, not "could not get to it" at once.
+- In a round: leave a bucket on the far side of a desk windoor (the kitchen counter or the Head of Personnel's desk), stand a janitor on the near side, on the next tile, and give it `pick_up bucket`. `game.log` must show it walk round through the door and pick the bucket up, not "could not get to it" at once. A full-tile window does not test this: the bucket is then two tiles off and the walk already goes round.
+- The same with a person: a technician told to `give` something to someone standing behind the cargo desk windoor should walk round, or fail with "could not get to it" after a walk, not at once.
+- A target with no open tile beside it that can reach it (an item in a sealed windoor booth) must fail at once through `crew_npc_fail_errand`, so a crate is counted as unreachable.
+
+## Check
+
+Confirmed, with the case mended. Read `crew_npc_reach` (`crew_npc_storage.dm:186`), its base `move_to_target/perform` (`code/datums/ai/generic_behaviors/move_to_target.dm`: arrival is `get_dist(...) <= required_dist` and nothing else), `do_errand` and `can_reach_target_now` (`crew_npc_hands.dm:183`, `:428`) and `reach_distance` (`:439`). The quotes are what the code says. Read the base `Adjacent` (`code/_onclick/adjacent.dm`): orthogonally it fails only on a dense `ON_BORDER_1` object between the tiles (`ClickCross`), diagonally when both corner tiles are blocked.
+
+What was wrong in the write-up: a wall and a full-tile window each fill a tile (`/obj/structure/window/fulltile` has `flags_1 = PREVENT_CLICK_UNDER_1`, not `ON_BORDER_1`), so a target on the far side of either is two tiles off and the walk goes on. The janitor's case through a full-tile window could not happen. The fault is real for windoors, thin windows and a shut border firelock, and for a diagonal past two dense tiles. Desk windoors are on every map, so severity medium stands. I mended the title, the case and the test.
+
+Nothing in the change log or the plans covers it (the "could not get to it" cases in `LLM_CREW_PLAN_ROUND_1428_SECURITY.md` and `LLM_CREW_PLAN_ROUND_0912.md` have other causes). The fix keeps the rules: the body only walks. Note for whoever builds step 2: `turf.Adjacent(target)` tests from the turf, and `ClickCross` treats a door the body has access to as shut, which is what a player sees too, so a windoor the body could open is still walked round, not through. That is fine. Effort medium stands.

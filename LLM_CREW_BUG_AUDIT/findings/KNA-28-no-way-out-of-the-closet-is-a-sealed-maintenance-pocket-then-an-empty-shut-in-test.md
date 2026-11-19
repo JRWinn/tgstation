@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
 files: code/modules/llm_crew/crew_npc_tools.dm:231, code/modules/llm_crew/crew_npc_places.dm:44, code/modules/llm_crew/crew_npc_doors.dm:199
 fix: Pick the spot to walk to in a room only from the squares joined by floor to a door the body can open, and do not count shut in from a test that tried no route
@@ -22,7 +23,7 @@ What happens, every time it was seen:
 
 1. A janitor in the Custodial Closet is sent to **Lesser Starboard Maintenance** (to explore, or to look for something) early in the round.
 2. It has never stood there, so `place_spot` takes `safe_spot_in(room, get_turf(pawn))`: the nearest safe square of that whole area to where the body stands.
-3. The nearest squares of Lesser Starboard Maintenance to the closet are four tiles south, through the closet's back wall: (146..149, 98..104), an abandoned surgery room. Read from the map, it has no door. Its one gap, (144,101), holds a girder and a grille spawner. It is part of the same area, so it counts as the room.
+3. The nearest squares of Lesser Starboard Maintenance to the closet are a few tiles south, through the closet's back wall: (146..149, 98..104), an abandoned surgery room. Read from the map, it has no door. (Checked and mended: its west wall has two gaps, (145,99) and (145,100), each with a girder spawner at 80 in 100 and a barricade spawner at 50, onto the strip (144,98..100). That strip is shut off from the rest of the tunnel by a fixed `/obj/structure/girder` at (144,101), with a grille spawner. So the room and the strip are sealed in every round, whatever the spawners do.) It is part of the same area, so it counts as the room.
 4. No route can reach it. "no route could be found", and `log_no_route` adds "The game's other pathfinder finds none either", which is true.
 5. Once a second walk has failed, the body tests whether it is shut in. At round start a janitor has stood in no room but the closet, so `check_shut_in` has no spot to test, `way_out` stays FALSE, and it logs "found no way out" and sets `shut_in`.
 
@@ -77,7 +78,7 @@ Seen in round logs (the lines above, from `game.log` in each folder named), and 
 
 ## How to fix it
 
-1. For each room, work out once a round (or on first use, and keep it) its reachable parts: flood-fill the room's floor from the inside square of each of its doors (`crew_npc_doors_of`), crossing only open floor without walls, girders, grilles, windows or dense anchored fittings. Squares not reached from any door are not walked to.
+1. For each room, work out on first use (and keep it for a minute or so: crates move, girders are built and taken down) its reachable parts: flood-fill the room's floor from the inside square of each of its doors (`crew_npc_doors_of`), and also from every square of the room that borders another station area with nothing between. Maintenance areas run into each other and into hallways with no door at all, so a fill seeded from doors alone would miss whole stretches of a tunnel. For each step use the pathfinder's own test, `turf.LinkBlockedWithAccess(next, new /datum/can_pass_info(body, get_access()))` (`code/__HELPERS/paths/path.dm:223`), so that what stops a walk (walls, girders, grilles, windows, crates, dense fittings) stops the fill too. Squares not reached are not walked to. This is the same helper KNA-19 asks for: build one.
 2. In `place_spot` (and so `tool_go_to`), for a room the body has not stood in, give `safe_spot_in` only squares in parts that are reached from a door that opens to the body (`door.allowed(body)`), or from a door of the room it is standing in. This is KNA-19's fix, with the flood fill.
 3. In `check_shut_in`, if there was no spot to test, test the doors of the room itself instead: a route to the outside square of any door that opens to the body is a way out. Never set `shut_in` from zero routes tried (DOOR-03, item 2).
 4. In `log_no_route`, when the goal square is in no part reached from any door, say so ("that square is in a part of X with no door to it"), so the next round's log names this case at once.
@@ -85,3 +86,13 @@ Seen in round logs (the lines above, from `game.log` in each folder named), and 
 ## How to test the fix
 
 Server compile to a side copy. The simulator does not run the server. Next round on MetaStation, `game.log`: no walk from the Custodial Closet "heading for" any of (144..149, 98..104), and no "tested whether it is shut in Custodial Closet ... found no way out" in the first minutes.
+
+## Check
+
+Opus 5.5, 2026-11-19. Confirmed.
+
+- Code read as it is today: `place_spot` (`crew_npc_places.dm:32`), `safe_spot_in` (`crew_npc_tools.dm:370`), `walk_finished` (`crew_npc_tools.dm:409`; the count at :506 is made because `locked_out_of` is FALSE for any maintenance area), `note_way_out_failed` (`crew_npc_doors.dm:42`, `CREW_NPC_SHUT_IN_AFTER` is 2), `check_shut_in` (`crew_npc_doors.dm:184`). With only the closet in `visited_places` (a janitor's post; `crew_npc_cleaning.dm:609` only adds the supply room, which is the closet), `spots` is empty, the loop never runs, `way_out` stays FALSE and `shut_in` is set.
+- The map, read with a throwaway parser of `MetaStation.dmm` in the scratch folder: (143..151, 97..108). The surgery room is sealed as mended above. The "Storage Room" airlock at (156,115) is `access/all/engineering/maintenance` and `abandoned`, with (156,117) north of it.
+- The rounds: `grep` over `data/logs/2026/11/*/round-*/game.log` finds far more than five walks from the Custodial Closet to a square of (146..149, 98..104) with "no route could be found": also 06:43, 07:55, 14:28, 15:14, 16:48 (two), 17:10 (two) and 18:25 (three) in log time on 2026-11-18. In `round-13.32.16` the line "tested whether it is shut in Custodial Closet ... found no way out" follows 0.05 seconds after the second failure, as quoted.
+- Not checked: how often the second failed walk comes within the first minutes in other rounds; in some rounds the janitor had already stood elsewhere and the test found a way out.
+- The plan's guess ("people in the way") is wrong: the pathfinder plans on objects only. Fix step 1 widened to seed from open boundaries and use `LinkBlockedWithAccess`. Fix step 3 is DOOR-03's item 2; whoever builds one should build both.
