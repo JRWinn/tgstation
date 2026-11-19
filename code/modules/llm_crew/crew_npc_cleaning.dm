@@ -206,8 +206,12 @@
 	var/washes_off = !!(mess.clean_type & CLEAN_WASH)
 	if(istype(tool, /obj/item/reagent_containers/spray))
 		return washes_off
+	// A mop does not wash: it scrubs the floor, at its cleaner's strength, and takes up whatever on
+	// that floor a mop reaches and that strength shifts (decomposing garbage among them).
 	if(istype(tool, /obj/item/mop))
-		return washes_off && mess.is_mopped
+		var/datum/component/cleaner/cleaner = tool.GetComponent(/datum/component/cleaner)
+		var/strength = cleaner ? cleaner.cleaning_strength : CLEAN_SCRUB
+		return mess.is_mopped && !!(mess.clean_type & strength)
 	return TRUE
 
 /// Returns the thing in the body's hands to use on this mess, or null if nothing it holds will shift it. A proper tool before a rag; a rag where only scrubbing will do.
