@@ -5,14 +5,17 @@ kind: gap
 severity: high
 effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: tools
 files: LLM_CREW_PLAN_NO_CHEATS.md:174, code/modules/llm_crew/crew_npc_cargo.dm:283, code/modules/llm_crew/crew_npc_quartermaster.dm:238, code/modules/llm_crew/crew_npc_hands.dm:308, code/modules/llm_crew/crew_npc_freight.dm:590
 fix: Add tools/llm_crew/cheats.ts that greps the crew code for a short list of calls against an allowed list, and put the list below to the owner
 ---
 
 ## What is wrong
+
+See also: KNA-04 (the helper's list, checked, with a fix for each), GAP-01, GAP-02, GAP-03, GAP-04, GAP-05, KNB-04, KNB-05, KNB-06 (single rows of the table below, written up on their own).
 
 `LLM_CREW_PLAN_NO_CHEATS.md` section 4.9, accepted by the owner ("A check script that fails on new cheats? Yes."):
 
@@ -36,7 +39,10 @@ This finding is the list. It is from a pattern search plus reading the procs nam
 | `nearest_paper_bin` `crew_npc_quartermaster.dm:192` | `for(var/obj/item/paper_bin/bin in world)`: knows every bin on the level | know the ones it has seen | none |
 | `hand_over` `crew_npc_hands.dm:320-323`; `hand_mail_over` `crew_npc_freight.dm:600` | `person.put_in_hands(...)` on someone else, then `forceMove` to their feet | offer it and wait for them to take it (the game's give), or put it down | none |
 | `take_item` `crew_npc_hands.dm:263`; `take_from_container` `:295` | `body.put_in_hands(item)` | click the item (`attack_hand`, which runs the item's own checks) | none: named in the 18:05 change log entry |
-| `free_a_hand`, spawn | `equip_to_storage(..., indirect_action = TRUE)` | click the bag with the item | none: named in the 19:38 change log entry |
+| `free_a_hand`, spawn | `equip_to_storage(..., indirect_action = TRUE)` | click the bag with the item | KNA-04; also named in the 19:38 change log entry |
+| `take_mail` `crew_npc_freight.dm:543-551` (added by the checker) | `put_in_hands` on each letter lying on the open crate's tile, and `equip_to_storage` straight from the floor into the bag | click each letter, then click the bag with it | none |
+| `tidy_step` `crew_npc_tidying.dm:244`; `take_in_hand` `crew_npc_quartermaster.dm:91` (added by the checker) | `body.put_in_hands(thing)`, the first off the floor | click it | KNA-04 step 3 names both |
+| `hand_mail_over` (added by the checker) | the letters handed over come from `mail_carried()`, which is everything in the bag (`crew_npc_freight.dm:252`), so they go from the courier's backpack to the other's hand | take each into the hand first | KNA-04 |
 | `take_cuffs_off`, `work_timer`, `work_wires`, `work_window` | send a machine or strip window's payload as the body | use the window | allowed: the owner decided this for machine windows on 2026-11-18. The cuffs were never put to the owner |
 
 One concrete case for a row with no finding of its own: a janitor NPC is told to give a player a mop. `hand_over` runs `person.put_in_hands(held)` on the player. The mop is in the player's hand with no offer and no accept. If the player's hands are full the mop is moved to the player's tile by `forceMove`, from wherever the janitor stands within reach.
@@ -69,7 +75,11 @@ A grep of `code/modules/llm_crew/` for `forceMove`, `new /`, `SSshuttle`, `autoc
 
 ## How to fix it
 
-1. **The check script** (small, do it first, it stops the list growing). `tools/llm_crew/cheats.ts`: read every `.dm` under `code/modules/llm_crew/`, and fail if a line matches one of `forceMove(`, `add_reagent(`, `new /obj`, `new /mob` (other than in `create_crew_npc`), `moveShuttle(`, `.autoclose =`, `put_in_hands(`, `equip_to_storage(`, `equip_to_slot`, ` in world)`, `qdel(` unless `file:proc` is on an allowed list kept at the top of the script with one line of reason each. Start the allowed list with today's hits, each marked with the finding that will remove it, so the script passes today and fails on anything new. Add it to the list of checks in `LLM_CREW_BUG_AUDIT/README.md` and in `CLAUDE.md`.
+1. **The check script** (small, do it first, it stops the list growing). `tools/llm_crew/cheats.ts`: read every `.dm` under `code/modules/llm_crew/`, and fail if a line matches one of `forceMove(`, `add_reagent(`, `new /obj`, `new /mob` (other than in `create_crew_npc`), `moveShuttle(`, `.autoclose =`, `put_in_hands(`, `equip_to_storage(`, `equip_to_slot`, ` in world)`, `qdel(` unless `file:proc` is on an allowed list kept at the top of the script with one line of reason each. Start the allowed list with today's hits, each marked with the finding that will remove it, so the script passes today and fails on anything new. Add it to the list of checks in `LLM_CREW_BUG_AUDIT/README.md`, and ask the owner before adding it to `CLAUDE.md`.
+   - Two of those patterns miss what they are for. `new /obj` finds only the galoshes: `label_crate` writes `var/obj/item/label/note = new(null, words)`, with the type on the variable. `new /mob` finds nothing, though `create_crew_npc` makes the body by `var/mob/living/carbon/human/npc = new(spawn_turf)`. Match `var/(obj|mob)/[^=]*=\s*new\b` as well as `new /(obj|mob)`. Do not use a bare `= new(`: it also hits the datums (`crew_npc_held_crate`, `crew_npc_brig_cell`, the stand-in `tgui` windows), which are not cheats.
+   - Add `.open(` and `.close(` (six and five hits today) and `ui_act(` (two, both in the owner-allowed stand-ins), each with its reason on the allowed list.
+   - Today's counts under `code/modules/llm_crew/*.dm`, for sizing the allowed list: `forceMove(` 11, `put_in_hands(` 11, `equip_to_storage(` 7, `moveShuttle(` 4, `qdel(` 4, `.autoclose =` 3, ` in world)` 1, `equip_to_slot` 1, `add_reagent(` 0.
+   - Allow by `file:proc`, not by line number, or the list breaks on every edit. A small DM proc-header scan (the last line starting with `/datum/` or `/proc/` before the hit) is enough.
 2. **The rule in the brief.** Add the three-part rule from the plan's section 4 ("standing where a player would stand; through the code a click reaches, with the body as the user; crew code creates, fills, moves and switches nothing") at the top of `LLM_CREW_BRIEF.md` section 2.
 3. **The read-through.** One sitting: every proc reached from `handle_tool_call` and `do_errand` (the two switch statements in `crew_npc_tools.dm:27` and `crew_npc_hands.dm:198` are the whole list of entry points). For each, write one line: honest, stand-in the owner allowed, or cheat. Put the cheats to the owner before changing them.
 4. **The rows above with no finding**, in the order I would take them:
@@ -80,5 +90,5 @@ A grep of `code/modules/llm_crew/` for `forceMove`, `new /`, `SSshuttle`, `autoc
 
 ## How to test the fix
 
-- `bun tools/llm_crew/cheats.ts` passes on today's tree with the allowed list, and fails when a line such as `thing.forceMove(get_turf(pawn))` is added to any crew file.
+- `tools/bootstrap/.cache/bun-v1.3.5-x64/bun.exe tools/llm_crew/cheats.ts` (bun is not on PATH) passes on today's tree with the allowed list. It must fail when a line such as `thing.forceMove(get_turf(pawn))` is added to any crew file, and when `var/obj/item/x = new(loc)` is added. It must still pass after a blank line is put above an allowed hit, which shows the list is keyed by proc and not by line.
 - For each row mended: server compile, and a watched round, since the simulator runs no server code.
