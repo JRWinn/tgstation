@@ -38,6 +38,8 @@ and exits 1. In a dry run the list of prompt sizes is only printed at the end, s
 
 So the one fixed set of cases "every change to the prompt, and every model, is judged on" (the head of `voice.ts`) cannot be run at all at this commit. Any entry in the change log after the 13:32 round that says a prompt change was checked with `voice.ts` could not have been.
 
+The two kept runs in `tools/llm_crew/runs/` (`before.json`, `after.json`) are both dated 2026-11-17 and hold 34 cases each. `voice.ts` has 39 cases now, so five cases have no kept result, and the last run that can be shown to have finished is from the day before the crash was introduced.
+
 `choose.ts` with `DRY=1` still runs (42 lines, exit 0), and the five tables (`security.ts`, `addressing.ts`, `engine.ts`, `reports.ts`, `book.ts`) all pass, because none of their cases reaches the unguarded reads. That is luck, not design: `brain.stowed.find(...)` in `jobs/janitor.ts:132` and `brain.waterFrom` at `:566` are one new test case away from the same crash.
 
 ## Where
