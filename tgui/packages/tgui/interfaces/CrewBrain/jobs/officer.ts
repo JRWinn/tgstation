@@ -57,7 +57,7 @@ import { describeRounds, planRounds, roundsInHand, syncRounds } from './rounds';
 import {
   AGAIN_WORDS,
   addressOf,
-  CANCEL_WORDS,
+  cancelAsked,
   firstName,
   HEARD_WORDS,
   isHeadOfSecurity,
@@ -387,7 +387,7 @@ function sendOn(
     !isHead(fromJob) ||
     !(
       readWarrant(text, []) ||
-      CANCEL_WORDS.test(text) ||
+      cancelAsked(text) ||
       /\bpardon\b/i.test(text) ||
       (PARDON_WORDS.test(text) &&
         beatOf(brain).warrants.some((it) =>
