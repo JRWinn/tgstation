@@ -360,13 +360,17 @@
 		// The door it came in by is the one it goes back to: that is the way it knows leads out.
 		if(leaving && came_in_by == door)
 			score -= 100
+		// A bolted or welded door is seen to be one, and is the last to make for (DOOR-06). One with
+		// no power is not passed over: it can be pried.
+		if(door.locked || door.welded)
+			score += 300
 		scores[door] = score
 		spots[door] = spot
 	var/goal = "the door [leaving ? "out of" : "into"] [room_name]"
 	if(!length(scores))
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find [goal].")
 		return
-	// The best of them, and for a door into a room, the best of them that it can walk up to. A door
+	// The best of them that it can walk up to, for a door in or a door out. A door
 	// may open from somewhere it has no way to: the far side of a security post, say. Making for
 	// that one gets it nowhere, however near it lies, so each is tried for a way to it, best first.
 	var/obj/machinery/door/airlock/best
@@ -386,7 +390,9 @@
 				nearest = door
 		scores -= nearest
 		var/turf/spot = spots[nearest]
-		if(leaving || get_dist(body, nearest) <= CREW_NPC_AT_DOOR)
+		// A door out is tried for a way to it too: the best-scored one may be past a counter it
+		// cannot cross, and it was sent back to it every time (DOOR-06).
+		if(get_dist(body, nearest) <= CREW_NPC_AT_DOOR)
 			best = nearest
 			best_spot = spot
 			break
@@ -395,7 +401,7 @@
 		// the kitchen, by its open shutters, and the bar's own door is in there.
 		var/list/nearest_sides = doors[nearest]
 		var/area/outer = get_area(nearest_sides[2])
-		var/outer_locked = outer != get_area(body) && locked_out_of(outer)
+		var/outer_locked = !leaving && outer != get_area(body) && locked_out_of(outer)
 		var/list/route = get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
 		if(QDELETED(src) || QDELETED(body))
 			return
@@ -403,7 +409,7 @@
 		// this minute is no way in: it has no more right to walk through that door than it had. So
 		// for any way to a door, a locked hallway's among them, which locked_out_of() takes for open
 		// (KNA-31): the Service Hallway, walked into through a door a janitor had open.
-		if(length(route) && route_by_open_door(route))
+		if(!leaving && length(route) && route_by_open_door(route))
 			route = null
 		if(length(route))
 			best = nearest
@@ -416,7 +422,7 @@
 		if(outer_locked)
 			outer_name ||= format_text(outer.name)
 			continue
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door into [room_name], and looks for another.")
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door [leaving ? "out of" : "into"] [room_name], and looks for another.")
 	finding_door = FALSE
 	if(errand_serial != serial || tool_serial != calls || !can_sense())
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [goal], and had been given something else to do meanwhile.")
