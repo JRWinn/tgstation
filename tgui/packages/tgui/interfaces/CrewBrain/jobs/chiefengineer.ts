@@ -35,7 +35,7 @@ import {
   heardLine,
   isChiefEngineer,
   isEngineer,
-  LIGHT_AGAIN_WORDS,
+  isLightAgainOrder,
   LIGHT_WORDS,
   LIT_WORDS,
   lightLine,
@@ -697,7 +697,7 @@ export const CHIEF_ENGINEER: Job = {
       }
       return;
     }
-    if (LIGHT_AGAIN_WORDS.test(text)) {
+    if (isLightAgainOrder(text, brain.name)) {
       lightAgain(brain);
     }
   },
@@ -727,7 +727,7 @@ export const CHIEF_ENGINEER: Job = {
       }
       return;
     }
-    if (LIGHT_AGAIN_WORDS.test(heard)) {
+    if (isLightAgainOrder(heard, brain.name)) {
       lightAgain(brain);
     }
   },

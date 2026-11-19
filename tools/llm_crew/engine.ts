@@ -10,7 +10,7 @@ const { lightingSteps, nextLightingStep, emitterSteps, batterySteps } = await im
 const { ENGINEER } = await import(ROOT + 'jobs/engineer');
 const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
 const { jobFor } = await import(ROOT + 'jobs/index');
-const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isEngineer, LIGHT_WORDS, notOffLine, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
+const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isLightAgainOrder, isEngineer, LIGHT_WORDS, notOffLine, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -368,6 +368,24 @@ ada.engineReading = null;
 CHIEF_ENGINEER.syncTasks(ada);
 add('with no reading on its PDA it orders nothing', ada.chief.order, null);
 add('and is told that it has none', CHIEF_ENGINEER.cues(ada).some((line: string) => /no reading of the engine/.test(line)), true);
+
+// ENG-05: which lines are an order to light the engine again.
+for (const [line, want] of [
+  ['Light the engine.', true],
+  ['Relight the engine please.', true],
+  ['light the engine again', true],
+  ['Ada light the engine', true],
+  ['Chief, light the engine again when you are ready.', true],
+  ["Don't wait, light the engine now.", true],
+  ['Restart the engine.', true],
+  ['Light it again.', true],
+  ['Do not light the engine again until I say so.', false],
+  ['Why did you not light the engine?', false],
+  ['Did Sam light the engine', false],
+  ['Can engineering light the engine safely now?', false],
+] as [string, boolean][]) {
+  add(`"${line}" is ${want ? '' : 'not '}an order to light the engine again`, isLightAgainOrder(line, 'Ada Volt'), want);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

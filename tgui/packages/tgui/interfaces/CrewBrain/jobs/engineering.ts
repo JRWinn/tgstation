@@ -154,4 +154,26 @@ export function heardLine(to: string): string {
 export const HEARD_WORDS = /\bI have that\b/i;
 
 /** How the Captain, or anyone the Chief Engineer answers to, tells it to have the engine lit again after it was shut off. */
-export const LIGHT_AGAIN_WORDS = /\blight the engine\b/i;
+const LIGHT_AGAIN_ORDER =
+  /(?:^|[.!,;]\s*|\bplease\s+)(?:re-?light|light|restart|start(?: up)?|turn on)\s+(?:the\s+)?(?:engine|emitters|supermatter|sm)\b|(?:^|[.!,;]\s*|\bplease\s+)(?:turn the engine back on|get the emitters back on|light it again)\b/i;
+const LIGHT_AGAIN_REFUSED =
+  /\b(?:do not|don't|dont|never|not to)\s+(?:re-?light|light|restart|start|turn on)\b/i;
+
+/**
+ * Whether a line is an order to light the engine again: "Light the engine.", "Relight the engine
+ * please.", "Ada, light the engine again." A line with "do not" just before the verb, or one that
+ * asks ("Why did you not light the engine?"), is not. A leading address to the Chief Engineer,
+ * by its first name or its title, is taken off first.
+ */
+export function isLightAgainOrder(text: string, myName: string): boolean {
+  const said = text.trim();
+  if (!said || said.endsWith('?') || LIGHT_AGAIN_REFUSED.test(said)) {
+    return false;
+  }
+  const first = firstName(myName).replace(/[^A-Za-z'-]/g, '');
+  const address = new RegExp(
+    `^(?:${first ? `${first}|` : ''}chief engineer|chief|ce)\\b[,:]?\\s*`,
+    'i',
+  );
+  return LIGHT_AGAIN_ORDER.test(said.replace(address, ''));
+}
