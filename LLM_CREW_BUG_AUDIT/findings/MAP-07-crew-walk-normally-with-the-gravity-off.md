@@ -1,12 +1,13 @@
 ---
 id: MAP-07
-title: With the station's gravity off the crew walk about as if it were on, which no player can do
+title: With the station's gravity off a crew body can push off from nothing and set itself moving in open floor, which no player can do (after that the game's own drift carries it)
 kind: bug
-severity: high
+severity: medium
 effort: small
-confidence: sure
-status: found
+confidence: likely
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_motor.dm:59, code/modules/llm_crew/crew_npc_motor.dm:39, code/controllers/subsystem/movement/movement_types.dm:215, code/modules/mob/mob_movement.dm:94
 fix: Give every crew step the check a player's step gets (no gravity and nothing to push off means no step), in an allowed_to_move override on the crew movement type and in the idle shuffle, and tell the brain the body is floating
@@ -16,9 +17,11 @@ fix: Give every crew step the check a player's step gets (no gravity and nothing
 
 A player's step goes through `client/Move`, which refuses it when the mob has no gravity and nothing to push off from (`if(!mob.Process_Spacemove(direct))`, `code/modules/mob/mob_movement.dm:94`). Without gravity a player drifts, can only move by pushing off a wall or a thing beside them, and cannot stop in the middle of a room.
 
-A crew body's steps do not go through `client/Move`. The walk leaf uses the base navmap move loop, which calls `moving.Move(...)` directly (`movement_types.dm:215` and the other loop types); the idle shuffle calls `living_pawn.Move(destination_turf, move_dir)` itself (`crew_npc_motor.dm:39`). `/atom/movable/Move` and `/mob/living/Move` do not look at gravity. So with the gravity off, a crew body walks across open floor at its usual pace, turns corners, stops where it likes and hauls crates by pulling them, which the game would not let a player do. (`Move_Pulled` does check `Process_Spacemove`, so a pulled crate may stop following while the body goes on: that part is the game's.)
+A crew body's steps do not go through `client/Move`. The walk leaf uses the base navmap move loop, which calls `moving.Move(...)` directly (`movement_types.dm:215` and the other loop types); the idle shuffle calls `living_pawn.Move(destination_turf, move_dir)` itself (`crew_npc_motor.dm:39`). `/atom/movable/Move` and `/mob/living/Move` do not look at gravity before the step. So with the gravity off, a crew body standing in open floor with nothing within a tile to push off can take a step a player could not. (`Move_Pulled` does check `Process_Spacemove`, so a pulled crate may stop following while the body goes on: that part is the game's.)
 
-This is not rare. "Gravity Generator Blackout" fired in 4 of the logged test rounds (`grep "Random Event triggering" data/logs/.../game.log`), and the change log of 2026-11-18 says "A random event turned the gravity generator off at 30 minutes, and nothing turns it back on." So for the last part of that round every crew member walked as normal with no gravity aboard. The brain was never told anything was different.
+**Correction by the checker:** the body does *not* then walk on as if gravity were on. After any step, `/atom/movable/Moved` calls `newtonian_move` (`code/game/atoms_movable.dm:932-933`), which, with no gravity and no backup, makes a `/datum/drift_handler` whose loop has `MOVEMENT_SPACE_PRIORITY` (100, `drift_handler.dm:32`). That beats the AI walk loop's default priority 10 in `contest_running_loop` (`code/datums/move_manager.dm:107-125`), so the walk loop is paused and the body drifts in a straight line until it is next to something to hold (`drift_handler.dm` `after_move`), as a player would. Beside a wall, or with tables and lockers within a tile, every step is one a player could also take by pushing off. What is left is the push from nothing: about once per body each time the gravity goes (a body caught mid-room, or at rest at a post in open floor), and an idle shuffle taken mid-room. Each starts a drift the body should not have been able to start.
+
+This is not rare. "Gravity Generator Blackout" fired in 4 of the logged test rounds (`grep "Random Event triggering" data/logs/.../game.log`), and the change log of 2026-11-18 says "A random event turned the gravity generator off at 30 minutes, and nothing turns it back on." So for the last part of that round the crew moved with no gravity aboard: by the reading above, along walls and by drifting, with an unearned push now and then. The brain was never told anything was different, so a walk cut short by a drift reads to it as an ordinary failed walk.
 
 The rule this breaks is the owner's first one: a crew body acts only as a player could.
 
@@ -47,7 +50,7 @@ The rule this breaks is the owner's first one: a crew body acts only as a player
 
 ## How it was found
 
-Read from the code: the base move loops and `/mob/living/Move` were read for any gravity check, and there is none outside `client/Move` and `Move_Pulled`. The gravity event is in the round logs. In `data/logs/2026/11/18/round-15.09.26/` it fired at 21:38:44 (`game.log` line 1259) and the round's brain log ends at 21:49:26; in those ten minutes `crew_brain.log` has bodies told "You arrive in" Engineering (three times), the Cargo Bay, Medbay Central, the Courtroom, the Chapel Funeral Room and four maintenance tunnels. The event calls the generator's `blackout()`, which calls `disable()` at once (`code/modules/power/gravitygenerator.dm:459`), and the AI movement's own pre-step check, `allowed_to_move`, has no gravity test. What each body felt was not checked step by step in the log.
+Read from the code: the base move loops and `/mob/living/Move` were read for any gravity check, and there is none outside `client/Move` and `Move_Pulled`. The gravity event is in the round logs. In `data/logs/2026/11/18/round-15.09.26/` it fired at 21:38:44 (`game.log` line 1259) and the round's brain log ends at 21:49:26; in those ten minutes `crew_brain.log` has bodies told "You arrive in" Engineering (three times), the Cargo Bay, Medbay Central, the Courtroom, the Chapel Funeral Room and four maintenance tunnels. The event calls the generator's `blackout()`, which calls `disable()` at once (`code/modules/power/gravitygenerator.dm:459`), and the AI movement's own pre-step check, `allowed_to_move`, has no gravity test. What each body felt was not checked step by step in the log. (Checker: arriving in rooms is what bodies moving along walls and drifting would also do, so these arrivals do not show the bodies walked as with gravity.)
 
 ## How to fix it
 

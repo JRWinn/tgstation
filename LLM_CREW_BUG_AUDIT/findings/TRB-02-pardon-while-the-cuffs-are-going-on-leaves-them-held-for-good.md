@@ -2,14 +2,15 @@
 id: TRB-02
 title: A pardon or a withdrawn warrant that comes while the cuffs are going on leaves the person cuffed and held by the arm for the rest of the round
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:182, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1093, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:713, code/modules/llm_crew/crew_npc_security.dm:1027
-fix: In beatAfterActing, when an arrest step comes back with the cuffs on and the warrant is no longer held, push a let-go for that person, and in syncBeat let go of anyone held by the arm on no warrant
+fix: In beatAfterActing, when an arrest comes back with the cuffs on and its warrant was dropped while it ran, push a let-go for that person; any net in syncBeat only for someone it holds cuffed whom no list it keeps has a warrant on
 ---
 
 ## What is wrong

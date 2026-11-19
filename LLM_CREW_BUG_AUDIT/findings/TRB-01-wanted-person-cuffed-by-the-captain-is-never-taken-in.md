@@ -63,14 +63,23 @@ Read from the code, both halves. Not seen in a round: no round log so far has a 
 
 ## How to fix it
 
-1. In `serveStep`, keep the "leave them to it" answer only when another security crew member is in sight within a tile or two of the prisoner (`brain.peopleInView`, `isSecurity(person.job)`, and `distance`). That is what the guard was written for: two of security pulling at one prisoner.
-2. Otherwise fall through to the existing "In its own cuffs and got loose of its hold" branch: `act: { tool: 'arrest', person: seen.handle, how: 'quiet' }`. The server's `make_arrest` takes a cuffed person by the arm without a second pair of cuffs, and `beatAfterActing` already reads `details.cuffed` and pushes the `cuffed` outcome.
-3. Better still, have `people_in_view` say who is pulling a person (`person.pulledby`, by name), since that is what anyone standing there would see. Then the guard can be "someone else has them by the arm", exactly as the comment means.
+1. Do this one first (checker's order): have `people_in_view` in `crew_npc_senses.dm:191` say who is pulling a person (`"pulled_by" = person.pulledby?.name`, null if nobody), since that is what anyone standing there would see. Add `pulled_by?: string | null` to `PersonInView` in `types.ts`. Then in `serveStep` the guard becomes "in cuffs, and someone other than me is pulling them": `seen.cuffed && !warrant.cuffedByMe && seen.pulled_by && seen.pulled_by !== brain.name`. That is exactly what the comment means: two do not pull at one prisoner.
+2. Otherwise fall through to the existing "In its own cuffs and got loose of its hold" branch: `act: { tool: 'arrest', person: seen.handle, how: 'quiet' }`. The server's `make_arrest` (crew_npc_security.dm:876) takes a cuffed person by the arm without a second pair of cuffs, and `beatAfterActing` already reads `ok`/`details.cuffed`, sets `cuffedByMe` and pushes the `cuffed` outcome. This matters because `hold_arrested` calls `body.start_pulling(person)`, and the base game's `/mob/living/start_pulling` (code/modules/mob/living/living.dm:415) pulls a mob out of whoever else has it: without the `pulled_by` guard the officer would take a prisoner out of the Head of Security's hand, the case the guard was written for.
+3. The finder's first idea, "another security crew member within a tile or two", is a weaker stand-in for step 1: a Head of Security standing beside a prisoner it is not holding would still block the arrest. Use it only if the server side cannot be changed.
 4. When the guard does hold, push a `cannot` outcome once (`I am leaving them to <name>`), so the desk knows why there is no arrest.
+5. HOLE-11 (a crew member cuffed by a player never resists) would make this case end on its own a minute or two later. It is not a fix for this one: the arrest should be made at once, by the officer standing there.
 
 ## How to test the fix
 
-- Simulator: add a scenario like `warrant` in which the suspect is reported `cuffed: true` before the officer reaches them and nobody of security is near. The officer should send `arrest` with `how: 'quiet'` and then `jail`.
-- Keep the scenario where the Head of Security has the prisoner by the arm: the officer must still leave them.
+- Simulator: add a scenario like `warrant` in which the suspect is reported `cuffed: true` with `pulled_by: null` before the officer reaches them. The officer should send `arrest` with `how: 'quiet'` and then `jail`, and the Head of Security should get the `cuffed` and `jailed` outcomes.
+- The same with `pulled_by: 'Joan ...'` (the Head of Security): the officer must leave them. Keep the existing `hurt` scenario that found the guard passing.
 - Type check.
-- In a round, have the Captain cuff someone wanted and walk them to the officer. `game.log` should show "take Pun Pun, who is in cuffs, by the arm" and then the cell.
+- In a round, have the Captain cuff a wanted crew NPC (not Pun Pun, who breaks out by itself) and let go of them beside the officer. `game.log` should show "took hold of Dana Reyes" from `hold_arrested` and then the cell.
+
+## Check
+
+Read `serveStep` (arrests.ts:664-820), `beatAfterActing` (arrests.ts:1022), `target`, `onLead`, `syncBeat`; the `people_in_view` line in crew_npc_senses.dm:191; `make_arrest` and `hold_arrested` in crew_npc_security.dm:865 and :1027; `custody_tick` and `being_arrested` (:1391, :1442); the driver's handling of a step that is not ready (driver.ts:513, :535, `orderToDrop`); the base game's `start_pulling` (living.dm:415) and Pun Pun's controller (`/datum/ai_controller/monkey/pun_pun`, monkey.bt.json with the `escape_captivity` subtree). The quotes match today's code. The change log entry that added the guard (LLM_CREW_CHANGELOG.md:586) meant it for another of security's prisoners only; nothing chose to leave a player's prisoner alone.
+
+Ran a throwaway bun script (outside the repo) that gives an officer a warrant, shows it the person `cuffed: true` beside it, and calls `syncBeat` and `planBeat`: the SERVE task is an emergency and the plan is `ready: false`, "is in cuffs already. Someone else from security has made the arrest, and you are leaving them to it". Nothing else in desk.ts, officer.ts or security.ts acts on a wanted person in cuffs, and `syncWanted` sends no sighting of someone in cuffs.
+
+Confirmed, with two corrections: Pun Pun, the finder's example, breaks out of cuffs by itself through its monkey AI, as do human players and crew NPCs already in custody (after two minutes alone), so in those cases it is a delay; the case that lasts for good is a crew NPC cuffed by a player, since only `being_arrested` starts a crew NPC working its cuffs off. Severity lowered to medium: the Captain cuffing a wanted crew member is a less common case, not most rounds. The fix now leads with saying who pulls each person, because the server's `start_pulling` would take a prisoner out of another's hand.
