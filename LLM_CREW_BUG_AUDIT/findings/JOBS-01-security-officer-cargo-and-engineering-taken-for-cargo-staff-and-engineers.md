@@ -30,6 +30,8 @@ So a player who joins as a security officer posted to Cargo is, to every crew NP
 
 And an officer posted to Engineering is, to the Chief Engineer and the engineer, one of the engineers: `engineersAboard` (`engineering.ts:49`), the lines read in `chiefengineer.ts:655` and `678`, and the door-forcing messages in `forcing.ts:242`, `256` and `272`.
 
+A rarer case of the same kind: the wizard's "RPG Titles" event (`code/modules/events/wizard/rpgtitles.dm`) rewrites every living player's ID assignment to the job's `rpg_title`. The Captain's card then no longer says "Captain", so `isJob(toTitle, 'Captain')` in `hierarchy.ts` and every `/captain/i` test stop seeing the Captain at all. The base-title fix below covers that too.
+
 The same would happen to an NPC body itself if it were ever given a departmental trim, because `jobFor` takes the first job whose `is` matches and `CARGO` and `ENGINEER` come before `OFFICER` in `JOBS` (`index.ts:21`). NPCs are spawned from an outfit (`crew_npc_spawn.dm:35`), with no department, so today this only bites through other people's titles.
 
 One concrete case: the Captain (the player) and a second player who joins as a security officer with "Supply" as their department. Their ID reads "Security Officer (Cargo)" and they start at the cargo checkpoint, next to the Cargo Lobby. The NPC janitor is sent for crate #12. At the counter `planPickups` finds the officer first in `peopleInView` and says "Ann, I am here to collect crate 12 for Hop Kins, please." The technicians in the bay hear it as said to someone else (`said_to === 'other'`) and leave it. The janitor asks the officer again every minute.
