@@ -313,8 +313,9 @@
 	// Take the first thing that came out of it with the right name, and note what else was inside.
 	var/obj/item/found
 	var/list/inside = list()
+	// One standing open holds what lies in front of it: all of that is looked through.
 	for(var/obj/item/thing in spill)
-		if(was_open || already_there[thing])
+		if(!was_open && already_there[thing])
 			continue
 		if(isnull(found) && name_matches(thing.name, errand_item))
 			found = thing
@@ -340,7 +341,7 @@
 	var/open_note = left_open ? " You leave it open: someone is in the way of shutting it." : ""
 	// What the body just saw replaces what it remembered of this container.
 	storage_checked_at[REF(container)] = world.time
-	report_storage(container, was_open ? "open" : "looked", inside, people)
+	report_storage(container, "looked", inside, people)
 	if(taken)
 		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].[open_note]")
 	return list(FALSE, "There is no [errand_item] in the [container_name] any more.[open_note]")

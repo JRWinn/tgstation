@@ -118,9 +118,14 @@
 	if(QDELETED(container) || QDELETED(body) || !can_reach_target_now(container))
 		return list("state" = "unreached")
 	body.face_atom(container)
-	// Already standing open: whatever it held is lying about in plain view.
+	// Already standing open: whatever it held is lying about in plain view, in front of it. Seen as
+	// what it holds, as a person standing there would. Often a workmate has it open for a look, and
+	// shuts it again with all that inside.
 	if(container.opened)
-		return list("state" = "open", "contents" = list())
+		var/list/in_front = list()
+		for(var/obj/item/thing in container.drop_location())
+			in_front[format_text(thing.name)]++
+		return list("state" = "looked", "contents" = in_front)
 	// A large wooden crate is pried apart with a crowbar, not opened by hand.
 	if(istype(container, /obj/structure/closet/crate/large))
 		return list("state" = "locked")
