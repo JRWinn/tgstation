@@ -3,10 +3,11 @@ id: SECT-02
 title: Any line from the Captain with free, release or let go in it that names someone wanted or in a cell pardons them
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:778, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:399
 fix: Take a pardon only when the pardon word comes right before the name, with no negation in front of it, and read the warrant words before the pardon words
@@ -61,10 +62,11 @@ Not seen in a round.
 ## How to fix it
 
 1. In `security.ts`, add `readPardon(text, names)` that returns a name only when a pardon word is followed, within a word or two ("pardon", "release", "set free", "free", "let ... go"), by the name: `pardon Pun Pun`, `release Dana`, `let Pun Pun go`, `set Dana Reyes free`. Use `nameIn`/`closeIn` on the words just after (or, for "let ... go" and "set ... free", between) the verb, not on the whole line.
-2. Return null if a negation (`not`, `don't`, `dont`, `never`, `no`) stands in the words before the verb, or the line ends in `?`.
+2. Return null if a negation (`not`, `don't`, `dont`, `never`, `no`) stands in the last two or three words before the verb within the same clause (after the last `,.;:!?`), or the line ends in `?`. Keep it to the clause so that "Don't worry, release Pun Pun" still pardons. The same clause test is proposed for warrants in SECT-01: write it once, as a helper both use.
 3. In `deskTakes`, use `readPardon` in place of the `PARDON_WORDS` test. Keep `/\bpardon\b/` as the trigger for "a pardon is the Captain's to give" only when the word "pardon" itself is there.
-4. Try the warrant reading before the loose pardon words (`free`, `release`, `let go`), or at least do not take a pardon when `readWarrant` reads a warrant on the same name. "Pardon" said outright can stay first.
+4. Try the warrant reading before the loose pardon words (`free`, `release`, `let go`), or at least do not take a pardon when `readWarrant` reads a warrant on the same name. "Pardon" said outright can stay first. With step 1 this is mostly belt and braces: in "Warrant for Pun Pun, for setting the slimes free, 10 minutes" no name follows "free", so `readPardon` is null anyway.
 5. A line that is now neither goes on to `deskUnread`, and the LLM reader answers it; its reading comes back as "Pardon X." which `readPardon` still takes.
+6. Note for the tester: today "Let Pun Pun go" is not a pardon at all, since `let go` in `PARDON_WORDS` needs the two words side by side; it goes to the LLM reader. "Set Pun Pun free" is taken only because "free" is in the list on its own. So "Let Pun Pun go" pardoning after the fix is new behaviour, not kept behaviour.
 
 ## How to test the fix
 
