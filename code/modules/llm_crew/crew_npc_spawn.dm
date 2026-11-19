@@ -50,7 +50,7 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 	log_admin("[key_name(user)] spawned crew NPC [key_name(npc)] at [AREACOORD(spawn_turf)].")
 	message_admins("[key_name_admin(user)] spawned crew NPC [ADMIN_LOOKUPFLW(npc)] at [ADMIN_VERBOSEJMP(spawn_turf)].")
 	BLACKBOX_LOG_ADMIN_VERB("Spawn Crew NPC")
-	get_crew_brain_link(user.ckey).ui_interact(user.mob)
+	get_crew_brain_link(user.ckey).open_for(user)
 
 /// TRUE if the standing test crew is spawned, and the brain window opened, when a round starts.
 GLOBAL_VAR_INIT(crew_npc_autostart, TRUE)
@@ -64,7 +64,7 @@ SUBSYSTEM_DEF(crew_npc)
 	SSticker.OnRoundstart(CALLBACK(src, PROC_REF(round_started)))
 	return SS_INIT_SUCCESS
 
-/// Called when the round starts. The crew is spawned a few seconds in, once whoever owns them has a body.
+/// Called when the round starts. The crew is spawned ten seconds in, whether or not whoever owns them has a body by then: if they are still in the lobby, the brain window waits until they join or observe.
 /datum/controller/subsystem/crew_npc/proc/round_started()
 	if(GLOB.crew_npc_autostart)
 		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(spawn_test_crew)), CREW_NPC_AUTOSTART_DELAY)
@@ -120,7 +120,7 @@ SUBSYSTEM_DEF(crew_npc)
 			spawned++
 	log_admin("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name(owner)].")
 	message_admins("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name_admin(owner)].")
-	get_crew_brain_link(owner.ckey).ui_interact(owner.mob)
+	get_crew_brain_link(owner.ckey).open_for(owner)
 	return spawned
 
 ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, a Quartermaster, a Chief Engineer, a Head of Security, two cargo technicians, a station engineer, a security officer and three janitors.", ADMIN_CATEGORY_FUN)
@@ -148,4 +148,4 @@ ADMIN_VERB(jump_to_cargo_lobby, R_SPAWN, "Jump To Cargo Lobby", "Takes you to th
 	BLACKBOX_LOG_ADMIN_VERB("Jump To Cargo Lobby")
 
 ADMIN_VERB(crew_brain, R_SPAWN, "Crew Brain", "Opens the brain window for the crew NPCs you own.", ADMIN_CATEGORY_FUN)
-	get_crew_brain_link(user.ckey).ui_interact(user.mob)
+	get_crew_brain_link(user.ckey).open_for(user)

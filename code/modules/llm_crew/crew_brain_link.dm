@@ -66,6 +66,27 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(user.ckey == owner_ckey)
 		watch_close_all_key(user)
 
+/**
+ * Opens the window for its owner. In the lobby it waits until they have a body or a ghost: a window
+ * opened on the lobby mob is closed the moment they join or observe, and every brain with it.
+ */
+/datum/crew_brain_link/proc/open_for(client/owner)
+	if(isnull(owner) || isnull(owner.mob))
+		return
+	if(!isnewplayer(owner.mob))
+		ui_interact(owner.mob)
+		return
+	RegisterSignal(owner, COMSIG_CLIENT_MOB_LOGIN, PROC_REF(on_owner_mob_login), override = TRUE)
+	to_chat(owner, span_notice("The Crew Brain window opens when you join or observe."))
+
+/// The owner took a new mob: once it is no lobby mob, the window is opened on it.
+/datum/crew_brain_link/proc/on_owner_mob_login(client/source, mob/new_mob)
+	SIGNAL_HANDLER
+	if(isnewplayer(new_mob))
+		return
+	UnregisterSignal(source, COMSIG_CLIENT_MOB_LOGIN)
+	INVOKE_ASYNC(src, PROC_REF(ui_interact), new_mob)
+
 /datum/crew_brain_link/ui_state(mob/user)
 	return GLOB.always_state
 
