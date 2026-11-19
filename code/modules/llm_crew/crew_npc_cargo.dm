@@ -388,31 +388,48 @@
 	var/list/known = orderable_crates()
 	if(!length(order_items))
 		return list(FALSE, "You forget what you came to order.")
+	// A console with no power, or broken, shows no screen to order on (can_interact, as the game's
+	// window asks).
+	if(!console.can_interact(body))
+		return list(FALSE, "The supply console is dead: it has no power, or it is broken, and will take no order.")
 	// Each crate comes with a manifest that carries its order's number. Those numbers are how the
 	// crates are known from here on: when they dock, and when someone comes to collect them.
 	ordered_numbers = list()
 	ordered_kinds = list()
 	var/list/placed_items = list()
+	var/datum/supply_order/last_placed
+	var/ordered_as = body.get_authentification_name()
+	var/went_dead = FALSE
 	for(var/kind in order_items)
 		var/pack_type = known[kind]
 		if(isnull(pack_type))
 			continue
 		var/orders_before = length(SSshuttle.shopping_list)
+		// Each crate by the console's own "add", as its screen sends it, a click apart.
 		for(var/crate_number in 1 to order_items[kind])
-			console.add_item(body, pack_type)
+			if(!work_window(console, "add", list("id" = "[pack_type]")))
+				went_dead = TRUE
+				break
+		// Its own orders only: someone else at another console may order in the same moments.
 		for(var/index in orders_before + 1 to length(SSshuttle.shopping_list))
 			var/datum/supply_order/placed = SSshuttle.shopping_list[index]
+			if(placed.pack != SSshuttle.supply_packs[pack_type] || placed.orderer != ordered_as)
+				continue
 			ordered_numbers += placed.id
 			ordered_kinds["[placed.id]"] = kind
-		if(length(SSshuttle.shopping_list) > orders_before)
-			placed_items[kind] = length(SSshuttle.shopping_list) - orders_before
+			placed_items[kind] = (placed_items[kind] || 0) + 1
+			last_placed = placed
+		if(went_dead)
+			break
 	if(!length(ordered_numbers))
+		if(went_dead)
+			return list(FALSE, "The supply console is dead: it has no power, or it is broken, and will take no order.")
 		return list(FALSE, "The supply console will not take the order.")
 	order_items = placed_items
 	order_count = length(ordered_numbers)
 	ordered_words = order_in_words(placed_items)
 	// The last of them to be loaded is the one to watch for: when it is aboard, they all are.
-	pending_order = WEAKREF(SSshuttle.shopping_list[length(SSshuttle.shopping_list)])
+	pending_order = WEAKREF(last_placed)
 	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
 	supply_run_active = TRUE

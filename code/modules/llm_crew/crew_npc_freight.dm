@@ -653,6 +653,10 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 
 /// Sends the shuttle away from the console the body is standing by.
 /datum/ai_controller/crew_npc/proc/send_shuttle_back(obj/machinery/computer/cargo/console)
+	// A console with no power, or broken, shows no screen to send the shuttle from (can_interact,
+	// as the game's window asks). Found out standing at it.
+	if(QDELETED(console) || !console.can_interact(pawn))
+		return list(FALSE, "The supply console is dead: it has no power, or it is broken, so the shuttle cannot be sent from it.")
 	var/obj/docking_port/mobile/supply/shuttle = docked_supply_shuttle()
 	if(isnull(shuttle))
 		// Away, with empties here to go back: it is called in for them.
