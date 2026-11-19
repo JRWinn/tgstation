@@ -37,6 +37,7 @@ import {
   recordLocator,
   recordStorage,
 } from './memory';
+import { roomsAskedFor } from './options';
 import { pickPersonCard } from './person';
 import {
   buildReplySchema,
@@ -1686,11 +1687,6 @@ async function think(brain: NpcBrain): Promise<void> {
         }
         continue;
       } else {
-        // Having agreed to lead someone, the body does not turn round and go back to work the
-        // moment it arrives.
-        if (action.tool === 'go_to') {
-          ledSomeone = true;
-        }
         // What it agrees to has to be something that was asked for: by the last thing said in
         // its hearing, or failing that by something said just before it. Two people speak at
         // once often enough, and whoever spoke last may only have talked over the one who asked.
@@ -1709,11 +1705,23 @@ async function think(brain: NpcBrain): Promise<void> {
           : (heardLines.at(-1) ?? '');
         // Speaking is not agreeing to anything. A line its work calls for is said whether or not
         // anyone has just spoken: with nothing heard lately there is no line to have called for it.
-        if (calledFor === undefined && action.tool !== 'say') {
+        // Nor is it led anywhere but to a room someone said to it they want to be shown or taken.
+        if (
+          (calledFor === undefined && action.tool !== 'say') ||
+          (action.tool === 'go_to' &&
+            !roomsAskedFor(brain, heardLines.join(' ')).includes(
+              String(action.place ?? ''),
+            ))
+        ) {
           decision.calls.push(
             `${formatAction(action)} [nothing said called for it: not done]`,
           );
           continue;
+        }
+        // Having agreed to lead someone, the body does not turn round and go back to work the
+        // moment it arrives.
+        if (action.tool === 'go_to') {
+          ledSomeone = true;
         }
         // An order is for whoever asked for it: whoever said the line that called for it. The
         // body would otherwise take it to be for whoever it last heard, who may be someone else.

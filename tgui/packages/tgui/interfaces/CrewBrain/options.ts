@@ -6,14 +6,17 @@
  * the few things its job lets it take on for them. The reply is restricted to this list.
  */
 import { jobFor } from './jobs';
-import { allPlaces, knownPlaces } from './memory';
+import { allPlaces } from './memory';
 import type { NpcBrain, Option, PersonInView } from './types';
 
 /** Most rooms offered as somewhere to lead someone. */
 const PLACES_OFFERED = 14;
-/** The words of someone asking to be shown or taken somewhere. */
+/**
+ * The words of someone asking to be shown or taken somewhere, tied to the asker. Single words like
+ * "take", "way" and "get to" ask for nothing in "take it" or "I'll get to work".
+ */
 const ASKS_TO_BE_LED =
-  /\b(show|take|lead|guide|walk|escort|come with|way|how do i get|get to|lost|directions?)\b/i;
+  /\b((show|take|lead|guide|walk|escort) me|come with me|the way to|how do i get to|i am lost|i'm lost|im lost|directions to)\b/i;
 /** The words of someone asking where something is, which is asking the way only if it is a room. */
 const ASKS_WHERE = /\b(where|find)\b/i;
 
@@ -44,24 +47,10 @@ export function availableOptions(
   // Crew who keep to a post do not leave it to show people round. Nor can anyone who is shut in.
   // And it is only on offer when what was said could be asking for it: put to the LLM with every
   // "how are you?", it is one more thing to get wrong.
-  const said = heard.toLowerCase();
-  const named = allPlaces(brain)
-    .filter((place) =>
-      new RegExp(
-        `\\b${place.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
-      ).test(said),
-    )
-    .sort((a, b) => b.length - a.length);
-  // Asking to be shown or taken somewhere is asking for it. Asking where a room is may be.
-  // Asking where a thing is kept is not: offered the walk, the model took it, and a janitor asked
-  // where the mops are set off for the closet instead of saying so.
-  const wantsLeading =
-    ASKS_TO_BE_LED.test(heard) || (ASKS_WHERE.test(heard) && named.length > 0);
-  if (!job.keepsPost && !brain.shutIn && wantsLeading) {
-    // It knows the way to every room aboard, but a list of them all is too long to choose from.
-    // On offer are the rooms that were named in what was just said, and the ones it was last in.
-    // There is no leading someone to the room they are already standing in.
-    const places = [...new Set([...named, ...knownPlaces(brain)])]
+  if (!job.keepsPost && !brain.shutIn) {
+    // On offer are the rooms that were asked for by name: nobody can be led to a room they did
+    // not name. There is no leading someone to the room they are already standing in.
+    const places = roomsAskedFor(brain, heard)
       .filter(
         (place) =>
           place !== brain.location &&
@@ -79,6 +68,26 @@ export function availableOptions(
     }
   }
   return options;
+}
+
+/**
+ * The rooms these words ask to be shown or taken to, longest name first. Asking to be shown or
+ * taken somewhere is asking for it, and so is asking where a room is. Asking where a thing is kept
+ * is not: offered the walk, the model took it, and a janitor asked where the mops are set off for
+ * the closet instead of saying so. A room has to be named either way.
+ */
+export function roomsAskedFor(brain: NpcBrain, heard: string): string[] {
+  if (!ASKS_TO_BE_LED.test(heard) && !ASKS_WHERE.test(heard)) {
+    return [];
+  }
+  const said = heard.toLowerCase();
+  return allPlaces(brain)
+    .filter((place) =>
+      new RegExp(
+        `\\b${place.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
+      ).test(said),
+    )
+    .sort((a, b) => b.length - a.length);
 }
 
 /** Writes the list of options as the last lines of a report. */
