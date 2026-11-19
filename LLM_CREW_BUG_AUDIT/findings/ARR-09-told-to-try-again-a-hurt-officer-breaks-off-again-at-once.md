@@ -2,17 +2,20 @@
 id: ARR-09
 title: Told to try again, security that is still under half its health breaks off again the same second, and says so again
 kind: bug
-severity: high
+severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:359, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:253, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:442, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:806
 fix: Remember the health it was told to try again at, and break off again only when it has lost a good deal more since
 ---
 
 ## What is wrong
+
+See also: SEC-03 (on the server, the arrest it breaks off from goes on running). Fixing this one sends a hurt officer back into fights, so SEC-03 matters more once it is done.
 
 Under half its health security breaks off and uses no more force. The Head of Security tells the Captain, in fixed words: "I am hurt, and will use no more force. Say "try again" and I will." The plan (`LLM_CREW_PLAN_SECURITY.md:269`) says the same: no force again that round "unless the Captain tells it to: try again. It has no way to heal."
 

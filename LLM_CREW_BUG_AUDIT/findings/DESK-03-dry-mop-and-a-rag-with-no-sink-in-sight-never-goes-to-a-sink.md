@@ -77,7 +77,11 @@ The log also says a sink is right here when there is none, which misleads whoeve
 
 ## How it was found
 
-Read from the code on both sides. The mop-and-rag hold was seen in a round (change log, "(16) A dry mop is not only a rag"); the stuck step that follows was not looked for in a log.
+Read from the code on both sides, and the window side run in a throwaway bun script in the system temp folder: a janitor in Arrivals holding a dry mop and a damp rag, `mopNeedsWater` TRUE, `sinkInView` FALSE, a mess known in the Bar and a sink remembered in the Custodial Closet. The only open task, and its step:
+
+    clean Bar | Your mop is dry and there is a sink right here. You are wetting it before you set off for the mess in Bar. {"tool":"clean"}
+
+No SUPPLIES task is open. The server's answer to that `clean` was not run. The mop-and-rag hold was seen in a round (change log, "(16) A dry mop is not only a rag"); the stuck step that follows was not looked for in a log.
 
 ## How to fix it
 
