@@ -288,11 +288,37 @@ const NUMBER_WORDS = [
   'thirteen',
   'fourteen',
   'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
 ];
-const MINUTES_SAID = new RegExp(
-  `\\b(\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min(?:ute)?s?\\b`,
-  'i',
-);
+const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty'];
+/** The number in a time: "10", "ten", "twenty-five", "thirty five". */
+const NUMBER_SAID = `\\d{1,3}|(?:${TENS.join('|')})(?:[\\s-](?:${NUMBER_WORDS.slice(0, 9).join('|')}))?|${NUMBER_WORDS.join('|')}`;
+/** A time said: "10 minutes", "twenty minutes", "half an hour", "an hour", "2 hours". Not "an hour ago". */
+const TIME_SAID = `(?:(${NUMBER_SAID})\\s*(min(?:ute)?s?|hours?|hrs?)|(an?|one|1)\\s+hour|(?:a\\s+)?(quarter)\\s+(?:of\\s+an\\s+)?hour|(half)\\s+(?:an\\s+)?hour)\\b(?!\\s+ago\\b)`;
+const MINUTES_SAID = new RegExp(`\\b${TIME_SAID}`, 'i');
+
+/** How many minutes the first time said in these words comes to, before any cap. Null if none is said. */
+function minutesIn(text: string): number | null {
+  const found = text.match(MINUTES_SAID);
+  if (!found) {
+    return null;
+  }
+  const [, number, unit, one, quarter] = found;
+  if (!number) {
+    return one ? 60 : quarter ? 15 : 30;
+  }
+  const [first, second] = number.toLowerCase().split(/[\s-]+/);
+  const count = /^\d/.test(first)
+    ? Number(first)
+    : TENS.includes(first)
+      ? (TENS.indexOf(first) + 2) * 10 +
+        (second ? NUMBER_WORDS.indexOf(second) + 1 : 0)
+      : NUMBER_WORDS.indexOf(first) + 1;
+  return /^h/i.test(unit) ? count * 60 : count;
+}
 
 /** A word that turns an order round: "do not arrest", "don't release", "no warrant for", "never". */
 const NEGATION = /\b(?:not|dont|never|no)\b|n't\b|\bhold\s+off\b/i;
@@ -371,12 +397,7 @@ export function readWarrant(
   if (NOT_A_NAME.test(rest)) {
     return null;
   }
-  const said = rest.match(MINUTES_SAID)?.[1].toLowerCase();
-  const number = said
-    ? /^\d/.test(said)
-      ? Number(said)
-      : NUMBER_WORDS.indexOf(said) + 1
-    : null;
+  const number = minutesIn(rest);
   const minutes =
     number === null ? null : Math.min(MINUTES_MOST, Math.max(1, number));
   // Someone it knows of, named in full, is taken whole.
@@ -392,7 +413,7 @@ export function readWarrant(
     // that is no part of a name: "Pun Pun in the bar", "Pun Pun who wrecked it", "Pun Pun - theft".
     const cut = rest.search(
       new RegExp(
-        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min|\\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|again)\\b|\\s+[-–](?:\\s|$)`,
+        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+${TIME_SAID}|\\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|again)\\b|\\s+[-–](?:\\s|$)`,
         'i',
       ),
     );
@@ -425,15 +446,7 @@ export function readWarrant(
   }
   const why = after.match(/^[\s,:]*(?:for\s+)?(.*)/is)?.[1] ?? '';
   const reason = tidyReason(
-    why
-      .split(/[.!?]/)[0]
-      .replace(
-        new RegExp(
-          `\\b(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min(?:ute)?s?\\b.*$`,
-          'i',
-        ),
-        '',
-      ),
+    why.split(/[.!?]/)[0].replace(new RegExp(`\\b${TIME_SAID}.*$`, 'i'), ''),
   )
     // What is left of "for 15 minutes" once the time is taken out of it.
     .replace(/(?:^|\s+)(?:for|for about|about)$/i, '');
@@ -457,11 +470,10 @@ export function readTerm(
   if (!/\b(?:him|her|them|it|that\s+one)\b/i.test(text)) {
     return null;
   }
-  const said = text.match(MINUTES_SAID)?.[1].toLowerCase();
-  if (!said) {
+  const asked = minutesIn(text);
+  if (asked === null) {
     return null;
   }
-  const asked = /^\d/.test(said) ? Number(said) : NUMBER_WORDS.indexOf(said) + 1;
   return { minutes: Math.min(MINUTES_MOST, Math.max(1, asked)), asked };
 }
 

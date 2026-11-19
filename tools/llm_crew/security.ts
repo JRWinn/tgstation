@@ -474,6 +474,24 @@ add('"on site" is no part of the name', S.readWarrant('Arrest Pun Pun on site', 
 add('nor is what follows "and"', S.readWarrant('Arrest Pun Pun on site and keep him in jail for 30 minutes', CREW), { name: 'Pun Pun', reason: '', minutes: 15 });
 add('a time with no name is a time', S.readTerm('Keep him in jail for 30 minutes'), { minutes: 15, asked: 30 });
 add('talk with no time in it is not', S.readTerm('Keep him out of my office'), null);
+// SECT-05: times past fifteen, and in hours, are times, not the reason.
+for (const [line, minutes, reason] of [
+  ['Warrant for Pun Pun, twenty minutes', 15, ''],
+  ['Warrant for Pun Pun for half an hour', 15, ''],
+  ['Warrant for Pun Pun, for theft, an hour', 15, 'theft'],
+  ['Warrant for Pun Pun, 120 minutes', 15, ''],
+  ['Warrant for Pun Pun, for theft, twelve minutes', 12, 'theft'],
+  ['Warrant for Pun Pun for a quarter of an hour', 15, ''],
+  ['Warrant for Pun Pun, for theft. Ten minutes.', 10, 'theft'],
+  ['Warrant for Pun Pun, he broke in an hour ago', null, 'he broke in an hour ago'],
+] as [string, number | null, string][]) {
+  const read = S.readWarrant(line, []);
+  add(`"${line}" is ${minutes} minutes`, [read?.name, read?.minutes, read?.reason], ['Pun Pun', minutes, reason]);
+}
+add('"Warrant for Dana Reyes twenty minutes", nobody known, is on Dana Reyes', S.readWarrant('Warrant for Dana Reyes twenty minutes', [])?.name, 'Dana Reyes');
+add('"twenty minutes" said after the warrant is a time', S.readTerm('Keep him in for twenty minutes'), { minutes: 15, asked: 20 });
+add('"twenty-five minutes" is 25', S.readTerm('Keep him in for twenty-five minutes'), { minutes: 15, asked: 25 });
+add('"half an hour" is 30', S.readTerm('Keep him in for half an hour'), { minutes: 15, asked: 30 });
 b = head();
 deskTakes(b, 'Zim Fire', 'Captain', 'Arrest Pun Pun on site', false);
 b.toTell = [];
