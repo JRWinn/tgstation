@@ -75,13 +75,24 @@ Read from the code, both halves. Not run in the simulator (no scenario sends the
 
 ## How to fix it
 
-1. In `beatAfterActing`, in the `arrest` branch, before `if (!warrant) return;`: if the act was not `how: 'stop'`, the warrant for that task is gone, and the answer says the cuffs went on (`ok || details.cuffed`), push `{ name: <the task's item>, pardoned: <true if the last let-go said pardoned>, tries: 0 }` onto `beat.toFree`. The simplest way to know `pardoned` is to have `dropWarrant` keep a short list of names it dropped in the last minute, with the flag.
-2. As a net under every other way this can happen (SEC-03, ARR-08), add to `syncBeat`: if `security.holding` names someone with no warrant in `beat.warrants` and nobody on `toFree`, push them onto `toFree` with `pardoned: false`. Nobody should be held by the arm on no warrant.
-3. Keep `freeStep` as it is: `tool_free` finds the one held through `arrested` and takes the cuffs off.
+1. Have `dropWarrant` note each name it drops with the flag and the time: `beat.dropped = [{ name, pardoned, at: brain.now }]`, kept a minute. In `beatAfterActing`, in the `arrest` branch, before `if (!warrant) return;`: if the act was not `how: 'stop'`, the task is a SERVE task whose item is on `beat.dropped`, and the answer says the cuffs went on (`ok || details.cuffed`), push `{ name: task.item, pardoned: <from beat.dropped>, tries: 0 }` onto `beat.toFree` (unless it is there already). The task is still found: `finishTask` (tasks.ts:108) only marks it done, and `noteResult` (driver.ts:964) looks it up by id. Keying on `beat.dropped`, not only on "the warrant is gone", keeps ARR-13 apart: a warrant the Head of Security handed back is gone from its beat too, and that prisoner is still wanted.
+2. A net in `syncBeat` (the finder's step 2) needs two guards the finder did not give, or it does harm:
+   - `security.holding` is whoever the body is pulling (`var/mob/living/held = body.pulling`, crew_npc_security.dm:1623), not whoever it arrested. A Head of Security or officer walking a trespasser out of its post (`take_hold_of`, crew_npc_guarding.dm:173) is "holding" them on no warrant, and the net would raise an emergency FREE task in the middle of the eviction. Take the net only for someone held who is also seen `cuffed`, or better have `security_state` send `arrested` (the server's own `arrested` weakref) and test that.
+   - A Head of Security that handed a warrant back mid-arrest (ARR-13) holds a wanted prisoner whose warrant is on its desk, not its beat. The net must also skip anyone named in `deskOf(brain).warrants` when the brain keeps a desk.
+3. Keep `freeStep` as it is: `tool_free` (crew_npc_security.dm:1284) finds the one held through `arrested` and takes the cuffs off.
 
 ## How to test the fix
 
 - Simulator: in the `warrant` scenario, have the Captain send "Pardon <name>." in the tick after the officer sends `arrest`, and have the simulated arrest come back cuffed. The officer should then send `free` for that name, and the Head of Security's list and the officer's hold should both be empty.
 - The same with "Cancel the warrant on <name>" from the head that declared it.
+- If the net is built: a scenario where the officer (or Head of Security) walks a trespasser out of its post by the arm, with no warrant on them. No FREE task may open and the eviction must finish. And ARR-13's scenario: the Head of Security that handed the warrant back must not let its prisoner go.
 - Type check.
 - In a round, grep `game.log` for "arrested" followed by "took the cuffs off" for the same name after a pardon.
+
+## Check
+
+Read `dropWarrant`, `handBack`, `syncBeat`, `serveStep`, `beatAfterActing` (arrests.ts), the officer's `takeWord` (officer.ts:313, the let-go line calls `dropWarrant` once, when the word comes), `strike` (desk.ts:259), the driver's busy rule and `orderToDrop` (driver.ts:631, :726), `noteResult` (driver.ts:943), `make_arrest`, `hold_arrested`, `tool_free` and `security_state` in crew_npc_security.dm, and the plan's pardon rule (LLM_CREW_PLAN_SECURITY.md:319). The quotes match today's code, and the change log (LLM_CREW_CHANGELOG.md:597) says a pardon ends "an arrest under way", so this is not chosen behaviour.
+
+Ran a throwaway bun script (outside the repo): an officer with a warrant on Dana Reyes, in sight and not yet cuffed; `dropWarrant(..., true)` leaves `toFree` empty; then `security.holding` set to her, her seen cuffed, `beatAfterActing` with an `arrest` that came back `ok` and `cuffed`, and `syncBeat`: no warrant, nothing on `toFree`, no outcome, no open task. Nothing lets her go.
+
+Confirmed. Severity lowered to medium: the word has to reach the officer in the few seconds an arrest act runs, after passing through the Head of Security, which is a narrow window and will not come up in most rounds; when it does, the harm lasts the round. The fix is mended: the finder's net in `syncBeat` would have fired on any eviction by the arm, because `holding` is whoever the body pulls, and on ARR-13's prisoner, who is still wanted.

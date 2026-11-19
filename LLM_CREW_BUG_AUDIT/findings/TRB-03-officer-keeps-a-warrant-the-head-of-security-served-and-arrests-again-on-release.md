@@ -3,13 +3,14 @@ id: TRB-03
 title: When the officer is out hurt both it and the Head of Security hold each warrant, and whichever did not make the arrest arrests the prisoner again when the cell opens
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:802, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:765, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:954, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:281, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:755
-fix: When a warrant is served, have the desk tell every other holder to drop it (a let-go line with the reason served, or a new served line), and on hurt have the officer hand its warrants back
+fix: When a warrant is served, have the desk strike it from its own beat and send every other holder a fixed served line that only takes it off their beat, without the let-go that dropWarrant does
 ---
 
 ## What is wrong
@@ -85,14 +86,16 @@ Read from the code, both halves of the desk and the beat. Not run in the simulat
 
 ## How to fix it
 
-1. Give the desk one place that knows a warrant is done: in `deskOutcome`, `case 'jailed'`, after striking it from `desk.warrants`, tell the officer to drop it if the officer was ever given it (`warrant.given !== 'no'` before the hurt reset, so keep a `wasGiven` flag on the warrant) and it was not the officer that reported it. Use a fixed line such as "Hale, Dana Reyes is in a cell: the warrant is served." read in `takeWord` with its own pattern, which calls `dropWarrant` (nobody is held, so nothing is freed). The let-go line would also do, but it would make the officer try to free someone.
-2. Do the same for the Head of Security's own copy when the outcome came from the officer: call `dropWarrant(brain, outcome.name, false)` on itself, which drops its `beat.warrants` copy.
-3. When the officer breaks off hurt, have it hand its warrants back in its own window: on the `hurt` outcome in `syncBeat`, keep the warrant it has by the arm (if any) and drop the rest, the same rule as `handBack`. The desk gives them again after "try again" (see SECT-11 for that half).
-4. As a net, in `serveStep` before arresting a crew member on its own copy, skip one who was in a cell in the last few minutes for this warrant if the brain has heard so (needs step 1's line).
+1. Give the desk one place that knows a warrant is done: in `deskOutcome`, `case 'jailed'`, after striking it from `desk.warrants`, tell the officer to drop it if the officer was ever given it (`warrant.given !== 'no'` before the hurt reset, so keep a `wasGiven` flag on the warrant) and it was not the officer that reported it. Use a fixed line such as "Hale, Dana Reyes is in a cell: the warrant is served." (built in `security.ts` beside `letGoLine`, with its own pattern beside `LET_GO_WORDS`), read in the officer's `takeWord`.
+2. Checker's correction: what that line and the desk's own copy call must not be `dropWarrant`. `dropWarrant` (arrests.ts:182) also pushes a let-go when `had && cuffed`, and a prisoner who is not a crew NPC is left in their cuffs in the cell (`tool_jail`), so an officer or a Head of Security standing in the brig, seeing them cuffed in there, would open the cell the other has just shut. Add a plain `forgetWarrant(brain, name)` in arrests.ts that only filters `beat.warrants` (and finishes the SERVE task, which `syncBeat` does already), and call it for the served line and, in `deskOutcome` `case 'jailed'`, on the Head of Security's own beat when the outcome came from the officer.
+3. Leave out the finder's step 3 (have the hurt officer hand all its warrants back). It goes against what was built and planned: a hurt officer "still follows sightings" (LLM_CREW_PLAN_SECURITY.md:270) and "Someone who stays put for the cuffs it still arrests" (LLM_CREW_CHANGELOG.md:583). Steps 1 and 2 end the double arrest without it. If both holders going after one person at once should also stop, that is the owner's call.
+4. As a net, in `serveStep` before arresting on its own copy, skip one it has heard was put in a cell on this warrant (needs step 1's line). With steps 1 and 2 this is belt and braces; it can be left out.
+5. Two officers (MULTI-01) need the served line sent to every officer the warrant was given to, not only to `officerAboard`. That is MULTI-01's fix; this one should not wait on it.
 
 ## How to test the fix
 
 - Simulator: extend the `hurt` scenario so that the Head of Security serves the remaining warrant on a crew NPC who stands still, then let the cell time run out and walk the prisoner past the officer. The officer must not arrest them again.
 - The reverse: the hurt officer makes a quiet arrest while the Head of Security holds a copy. After the cell opens the Head of Security must not arrest them.
+- With a prisoner who is not a crew NPC (left in cuffs in the cell) and the other holder standing in the brig when the served word comes: no `free` may be sent.
 - Type check.
 - In a round, grep `game.log` for two "arrested" lines on one name with one warrant, and `pda.log` for two "is in Cell" lines to the Captain for one name.
