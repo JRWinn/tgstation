@@ -69,6 +69,26 @@ for (const [line, name] of [
 }
 add('and what follows the name is the reason', S.readWarrant('Arrest Pun Pun because he stole my id', FEW)?.reason, 'because he stole my id');
 
+// SECT-21: "wanted" somewhere, a word a letter off a key word, and "put X up" are no warrant.
+const SOME = ['Walker Wolfe', 'Dana Reyes', 'Pun Pun'];
+for (const line of ['Joan, Walker is wanted on the bridge.', 'Dana is wanted in the kitchen', 'Pun Pun is wasted again', 'Put Dana up for the night shift', 'Dana is waited on in the bar', 'Walker is wanted by the Captain on the bridge']) {
+  add(`"${line}" declares no warrant`, S.readWarrant(line, SOME), null);
+}
+for (const [line, name, reason, minutes] of [
+  ['Pun Pun is wanted', 'Pun Pun', '', null],
+  ['Joan, Dana Reyes is wanted for theft', 'Dana Reyes', 'theft', null],
+  ['Dana Reyes is wanted, she took the ID', 'Dana Reyes', 'she took the ID', null],
+  ['Pun Pun is wanted for theft. 10 minutes', 'Pun Pun', 'theft', 10],
+  ['throw Dana in the brig', 'Dana Reyes', '', null],
+  ['lock Pun Pun up for 10 minutes', 'Pun Pun', '', 10],
+  ['warrent for pun pun', 'Pun Pun', '', null],
+  ['Pun Pun is wanted by security', 'Pun Pun', 'by security', null],
+] as [string, string, string, number | null][]) {
+  add(`"${line}" still reads`, S.readWarrant(line, SOME), { name, reason, minutes });
+}
+add('"wasted" and "detail" are left as they are', S.mendWords('wasted detail withdrawn'), 'wasted detail withdrawn');
+add('"warrent", "arest" and "warrants" are still mended', S.mendWords('warrent arest warrants'), 'warrant arrest warrant');
+
 // PARSE-03: a known first name of three letters is found with more words after it.
 const SHORT = ['Bob Hale', 'Dana Reyes', 'Ann Moss', 'Tom Reed', 'Eli Moor', 'Joe Bloggs'];
 for (const [line, name, reason] of [

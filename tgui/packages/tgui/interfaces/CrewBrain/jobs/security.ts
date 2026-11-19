@@ -171,6 +171,15 @@ const KEY_WORDS = [
   'detain',
   'apprehend',
 ];
+/** Words of their own that are a letter off one of those, and are left as they are: "Pun Pun is wasted", "detail". */
+const NOT_MISSPELT = [
+  'wasted',
+  'waited',
+  'wonted',
+  'wanter',
+  'detail',
+  'withdrawn',
+];
 
 /**
  * Puts right the spelling of the words an order turns on: "warrent", "arest", "pardn". A word
@@ -180,7 +189,11 @@ export function mendWords(text: string, known: string[] = []): string {
   const inNames = new Set(known.flatMap((name) => nameWords(name)));
   return text.replace(/[A-Za-z]{4,}/g, (word) => {
     const lower = word.toLowerCase();
-    if (KEY_WORDS.includes(lower) || inNames.has(lower)) {
+    if (
+      KEY_WORDS.includes(lower) ||
+      NOT_MISSPELT.includes(lower) ||
+      inNames.has(lower)
+    ) {
       return word;
     }
     const meant = KEY_WORDS.find(
@@ -257,9 +270,13 @@ export function tidyReason(raw: string): string {
 /** The words by which the Captain or a head declares a warrant: what follows them is who it is on. */
 const WARRANT_WORDS =
   /\b(?:warrant\s+(?:out\s+)?(?:for|on)|apb\s+(?:out\s+)?(?:on|for)|wanted:|arrest|bring\s+in|lock\s+up|jail|detain|apprehend|capture)\s+(.+)/is;
-/** With the name in the middle: "lock Pun Pun up for 10 minutes", "throw Dana Reyes in the brig". */
+/**
+ * With the name in the middle: "lock Pun Pun up for 10 minutes", "throw Dana Reyes in the brig".
+ * The verb is group 1, the name 2, the word after it 3 and what follows 4. Only "lock" takes
+ * "up": "put Dana up for the night shift" is no warrant (see readWarrant).
+ */
 const LOCK_AROUND =
-  /\b(?:lock|throw|put|toss|stick|chuck)\s+(.+?)\s+(?:up\b|in(?:to|side)?\s+(?:the\s+|a\s+)?(?:brig|cells?|jail|lock-?up)\b)(.*)$/is;
+  /\b(lock|throw|put|toss|stick|chuck)\s+(.+?)\s+(up\b|in(?:to|side)?\s+(?:the\s+|a\s+)?(?:brig|cells?|jail|lock-?up)\b)(.*)$/is;
 /** What follows a name when it says what is to be done with them, and gives no reason: "lock him up", "and put them in a cell". */
 const SENTENCE_WORDS =
   /^(?:and\s+|then\s+)?(?:lock|keep|hold|jail|detain|put|throw|leave|brig|arrest|cuff)\s+(?:him|her|them|it)\b/i;
@@ -269,6 +286,9 @@ const FILLER =
 /** The other way round: "Pun Pun is wanted", "Joan, Dana Reyes is wanted for theft". Who it is on comes first. */
 const WANTED_AFTER =
   /^(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|are)\s+wanted\b[\s,]*(.*)$/is;
+/** What follows "is wanted" when it means needed somewhere: "Walker is wanted on the bridge", "wanted by the Captain". */
+const WANTED_ELSEWHERE =
+  /^(?:on|in|at|to|up|down|upstairs|downstairs|over|back|here|there|outside|inside|again)\b|^by\b(?!\s+security\b)/i;
 /** What follows those words when nobody was named. */
 const NOT_A_NAME =
   /^(?:him|her|them|that|this|it|the|a|an|any|anyone|someone|somebody|people|everyone|nobody|no|who|what|which|me|you|us|warrants?|is|are|was|were|went|has|have|had|will|would|should|can|could|did|do|does|to|in|on|at|of|and|or|but|for|with|my|your|his|their|our|not|up|down|out|some|more|all|when|if|before|after|while|until|then)\b/i;
@@ -372,9 +392,18 @@ export function readWarrant(
 ): { name: string; reason: string; minutes: number | null } | null {
   const text = mendWords(written, known);
   const found = text.match(WARRANT_WORDS);
-  const around = found ? null : text.match(LOCK_AROUND);
+  const locked = found ? null : text.match(LOCK_AROUND);
+  // "Put Dana up for the night shift": only "lock" takes "up".
+  const around =
+    locked && (!/^up$/i.test(locked[3]) || /^lock$/i.test(locked[1]))
+      ? locked
+      : null;
   const turned = found || around ? null : text.trim().match(WANTED_AFTER);
   if (!found && !around && !turned) {
+    return null;
+  }
+  // "Walker is wanted on the bridge" is wanted somewhere, not by security.
+  if (turned && WANTED_ELSEWHERE.test(turned[2].trim())) {
     return null;
   }
   // "Do not arrest Pun Pun", "Is there a warrant for Dana Reyes?": no warrant.
@@ -387,7 +416,7 @@ export function readWarrant(
     found
       ? found[1]
       : around
-        ? `${around[1]}${around[2]}`
+        ? `${around[2]}${around[4]}`
         : `${turned?.[1] ?? ''}${turned?.[2] ? `, ${turned[2]}` : ''}`
   )
     .replace(FILLER, ' ')
