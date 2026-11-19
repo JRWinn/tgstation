@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:95, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:40, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:66
-fix: In saidTo, before rule 1, find the longest known full name the line calls on, and if it is someone else's the line is theirs; and let a first name of one or two letters be called on when it stands at the start or is set off by a comma
+fix: In saidTo, before rule 1, find the longest known full name the line calls on, and if it is someone else's the line is theirs, else cut full names out before rules 1 and 2; and let a first name of one or two letters be called on when it stands at the start or is set off by a comma
 ---
 
 ## What is wrong
