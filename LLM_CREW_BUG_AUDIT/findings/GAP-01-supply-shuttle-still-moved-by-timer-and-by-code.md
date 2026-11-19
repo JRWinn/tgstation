@@ -8,7 +8,7 @@ confidence: sure
 status: found
 area: cargo
 files: code/modules/llm_crew/crew_npc_cargo.dm:419, code/modules/llm_crew/crew_npc_freight.dm:633, LLM_CREW_PLAN_NO_CHEATS.md:155
-fix: Lift the console's send code into a proc both the window and the crew call, drop the timer that moves the shuttle, and make an order two presses at the console
+fix: Press send through work_window at the console as the owner allowed for machine windows, drop the timer that moves the shuttle, and make an order two presses at the console
 ---
 
 ## What is wrong
@@ -51,10 +51,10 @@ Read from the code against the plan. The change log has no entry that builds 4.7
 
 ## How to fix it
 
-This is the plan's own design, already approved. It is one change to a base-game file.
+This is the plan's own design, already approved. **The plan's change to a base-game file is no longer needed.** The plan was written before engineering was built. Since then the owner has allowed "send what the window would send" for machine windows, and `work_window` in `crew_npc_machines.dm:281` does exactly that with the window's own checks (the body is next to the machine, `machine.can_interact(body)`, then `machine.ui_act(action, params, window, window.state)` with the body as `ui.user`). The console's `"send"` branch (`orderconsole.dm:383`) needs nothing but `ui.user`, so `work_window(console, "send")` reaches the same lines a player's click reaches, with `canMove()`, `supply_blocked`, the requisition form and the console's spoken warning all applying.
 
-1. In `code/modules/cargo/orderconsole.dm`, move the body of the `"send"` branch of `ui_act` into a new proc on the console (for example `send_shuttle(mob/user)`), and call it from the branch. Nothing changes for players. Say so in the change log: it is a fourth base-game file.
-2. Add one crew action, `press_send`, that needs the body standing at a supply console (use `start_errand` to the console as `tool_send_shuttle` does) and calls that proc with the body as the user. Return the console's own refusal as the reason.
+1. No change to `code/modules/cargo/orderconsole.dm`.
+2. Add one crew action, `press_send`, that needs the body standing at a supply console (use `start_errand` to the console as `tool_send_shuttle` does) and calls `work_window(console, "send")`. Read back whether the shuttle's mode changed to tell whether the console refused, and give `what_bars_shuttle` as the reason. (GAP-20 uses the same helper for placing the order.)
 3. In `place_order`, after the order is placed, press send in the same visit. Do not start the `supply_run_step` timer. Send the brain the time the shuttle left.
 4. Brain side (`jobs/cargo.ts`, the order task, and `jobs/freight.ts`): a new step "the shuttle should be at the far end by now, go to the console and call it home" that becomes ready after the trip time (read `SSshuttle.supply.callTime` on the server and send it, do not hard-code it). A workmate at the post may take the step if the technician who ordered is not in the department: this is plan 4.7's "a workmate at the post may press in its place", and it needs the pending order to be something both can see. The console shows it, so sending `shuttle away, order aboard` in `freight` to every cargo body in the bay is honest.
 5. Keep `order_arrived` as it is: it only runs when the body is in the bay and sees the dock. Trigger it from the look-around, not from the removed timer.
