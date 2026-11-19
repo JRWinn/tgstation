@@ -16,8 +16,8 @@
  *   five minutes.
  * - With the cuffs on it takes them by the arm to an empty cell in the brig, puts them in and
  *   starts the timer. The door opens by itself when the time is up.
- * - Three tries that come to nothing and it leaves them be for a couple of minutes. The warrant
- *   stands.
+ * - Three tries that come to nothing and it leaves them be for half a minute, and says why
+ *   there is no arrest yet. The warrant stands.
  * - Hurt, under half its health, it breaks off. It makes no arrest by force again until it is
  *   told to. Someone who stands still for the cuffs it still arrests.
  * - Someone with no warrant on them who attacks it is stopped with the baton, and not arrested.
@@ -78,7 +78,9 @@ const NEAR = 2;
 const TOLD_STANDS_DS = 450;
 /** How many tries at an arrest may come to nothing before they are left be a while, and how long (deciseconds) that is. */
 const ARREST_TRIES = 3;
-const REST_DS = 1200;
+const REST_DS = 300;
+/** Why there is no arrest yet, of someone in sight that three tries have not taken. It reads the same in any mouth. */
+const WILL_NOT_STAND = 'they will not stand still for the baton or the cuffs';
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -1118,14 +1120,32 @@ export function beatAfterActing(
     if (reason === 'lost' || warrant.tries >= ARREST_TRIES) {
       warrant.tries = 0;
       warrant.toldAt = null;
-      warrant.restUntil = reason === 'lost' ? 0 : brain.now + REST_DS;
       warrant.lastSeen = { place: brain.location, at: brain.now };
       warrant.lookedAt = brain.now;
-      beat.outcomes.push({
-        what: 'lost',
-        name: warrant.name,
-        place: brain.location,
-      });
+      if (reason === 'lost') {
+        warrant.restUntil = 0;
+        beat.outcomes.push({
+          what: 'lost',
+          name: warrant.name,
+          place: brain.location,
+        });
+      } else {
+        // Three tries have come to nothing and they are still in front of it. That is not losing
+        // them: it sent "I lost Pun Pun in the Bar Lounge" standing a step from the monkey. It
+        // takes a short rest and goes at them again, and whoever keeps the list is told why
+        // there is no arrest yet, once.
+        warrant.restUntil = brain.now + REST_DS;
+        beat.cannotTold ??= {};
+        const key = `${warrant.name}|${WILL_NOT_STAND}`;
+        if (beat.cannotTold[key] === undefined) {
+          beat.cannotTold[key] = brain.now;
+          beat.outcomes.push({
+            what: 'cannot',
+            name: warrant.name,
+            why: WILL_NOT_STAND,
+          });
+        }
+      }
     }
     return;
   }

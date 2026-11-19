@@ -331,6 +331,14 @@ deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'nobody has opened t
 add('engineering is not asked twice for one room', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
 deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'no baton' }, 'Hale Stone', false);
 add('nor for any other reason a warrant cannot be served', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
+// Three tries at someone in sight that came to nothing: said as it is, and not as losing them.
+{
+  const why = 'they will not stand still for the baton or the cuffs';
+  const line = S.outcomeLine('Joan', { what: 'cannot', name: 'Pun Pun', why });
+  add('"will not stand still" reads back whole', S.readOutcome(line), { what: 'cannot', name: 'Pun Pun', why });
+  deskOutcome(hos, { what: 'cannot', name: 'Pun Pun', why }, 'Hale Stone', false);
+  add('and the Captain is told that, with no word of losing them', sentBy(hos), ['PDA to Zim Fire: Captain, Hale cannot bring in Pun Pun: they will not stand still for the baton or the cuffs.']);
+}
 const chief = makeBrain('Ada Voss', 'Chief Engineer'); chief.pdaPeople = [...CREW_PDA, { name: 'Joan Marsh', job: 'Head of Security' }];
 at(chief, 6000, 'Engineering');
 add('the Chief Engineer takes the ask', F.forcingReads(chief, 'Joan Marsh', 'Head of Security', F.forceAskLine('Ada', 'Cargo Bay', 'Dana Reyes')), true);

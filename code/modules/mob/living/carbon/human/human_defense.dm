@@ -143,6 +143,11 @@
 	return COMSIG_LIVING_SHOVE_HANDLED
 
 /mob/living/carbon/human/attack_paw(mob/living/carbon/human/user, list/modifiers)
+	// Crew NPC change: a monkey's bite or tackle on a person never reached /atom/attack_paw, which
+	// is where this signal is sent, so nothing that listens for "I was attacked" heard of either.
+	// A security officer was bitten seven times and tackled three, and was told nothing.
+	if(SEND_SIGNAL(src, COMSIG_ATOM_ATTACK_PAW, user, modifiers) & COMPONENT_CANCEL_ATTACK_CHAIN)
+		return TRUE
 	var/dam_zone = pick(BODY_ZONE_CHEST, BODY_ZONE_PRECISE_L_HAND, BODY_ZONE_PRECISE_R_HAND, BODY_ZONE_L_LEG, BODY_ZONE_R_LEG)
 	var/obj/item/bodypart/affecting = get_bodypart(get_random_valid_zone(dam_zone))
 
