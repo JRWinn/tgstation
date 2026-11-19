@@ -45,9 +45,24 @@
 	living_pawn.Move(destination_turf, move_dir)
 	return TRUE
 
-/// TRUE if a crew member would be willing to stand on this turf: solid floor, breathable, and not an airlock to space.
-/proc/crew_npc_safe_turf(turf/destination)
+/**
+ * TRUE if a crew member would be willing to stand on this turf: solid floor, breathable, and not an
+ * airlock to space. Given the body, the game's own test for it is asked too (a hole to the floor
+ * below, a chasm or lava are no floor: MAP-11); with none to hand, those are looked for by kind.
+ */
+/proc/crew_npc_safe_turf(turf/destination, mob/living/walker)
 	if(!isopenturf(destination) || isspaceturf(destination))
+		return FALSE
+	if(walker)
+		if(!destination.can_cross_safely(walker))
+			return FALSE
+	else if(HAS_TRAIT(destination, TRAIT_AI_AVOID_TURF))
+		return FALSE
+	else if(istype(destination, /turf/open/openspace) && !(locate(/obj/structure/lattice) in destination))
+		return FALSE
+	else if(istype(destination, /turf/open/chasm) && !HAS_TRAIT(destination, TRAIT_CHASM_STOPPED))
+		return FALSE
+	else if(istype(destination, /turf/open/lava) && !HAS_TRAIT(destination, TRAIT_LAVA_STOPPED))
 		return FALSE
 	// Stepping into an external airlock opens it and starts it cycling, which ends in vacuum.
 	if(locate(/obj/machinery/door/airlock/external) in destination)

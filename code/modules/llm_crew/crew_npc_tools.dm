@@ -394,7 +394,7 @@
 	var/best_clear_distance = INFINITY
 	for(var/sample in 1 to min(length(place_turfs), 40))
 		var/turf/candidate = pick(place_turfs)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf())
+		if(!crew_npc_safe_turf(candidate, pawn) || candidate.is_blocked_turf())
 			continue
 		// Keep well clear of airlocks to space.
 		if(locate(/obj/machinery/door/airlock/external) in range(2, candidate))
