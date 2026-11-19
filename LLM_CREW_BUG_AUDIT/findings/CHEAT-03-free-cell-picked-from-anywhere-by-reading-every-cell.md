@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1075, code/modules/llm_crew/crew_npc_security.dm:1117, code/modules/llm_crew/crew_npc_security.dm:1583
-fix: Choose the cell from what the body last saw of the cells, or Cell 1 if it has seen none, and pick again at the brig once the cells are in view
+fix: In tool_jail pick only among cells in view, else walk to the first cell, and in put_in_cell pick again among the cells in view on arrival before answering every cell is in use
 ---
 
 ## What is wrong
