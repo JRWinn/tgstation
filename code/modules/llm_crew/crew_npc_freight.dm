@@ -455,8 +455,11 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			destination = shuttle_spot()
 	if(isnull(destination))
 		return list(FALSE, tool == CREW_TOOL_RECYCLE ? "There is no room aboard the supply shuttle for the [crate_name]." : "There is no room to put the [crate_name].")
-	// A crate goes back shut, with whatever worthless thing spilled out of it back inside.
+	// A crate goes back shut, with whatever worthless thing spilled out of it back inside. Not
+	// shut on someone lying in it: that would send them off aboard the shuttle.
 	if(tool == CREW_TOOL_RECYCLE && crate.opened)
+		if(crew_npc_someone_on(get_turf(crate)))
+			return list(FALSE, "Someone is in the way of the [crate_name]: you cannot shut it to send it back.")
 		crate.close(body)
 	body.start_pulling(crate)
 	if(body.pulling != crate)
@@ -575,8 +578,9 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		stopped = TRUE
 	if(QDELETED(body) || QDELETED(crate))
 		return list(FALSE, "You could not get to it.")
-	// Shutting it takes back in whatever is still lying there: any mail there was no room for.
-	if(crate.opened)
+	// Shutting it takes back in whatever is still lying there: any mail there was no room for. Not
+	// with someone on its tile, who would be shut in with it.
+	if(crate.opened && !crew_npc_someone_on(get_turf(crate)))
 		crate.close(body)
 	freight_changed()
 	var/junk_words = binned ? " You [taken ? "also " : ""]take out [binned == 1 ? "a letter" : "[binned] letters"] addressed to nobody: junk, for the bin." : ""

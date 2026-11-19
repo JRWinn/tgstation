@@ -646,7 +646,7 @@
 	if(succeeded && istype(hauled, /obj/structure/closet/crate))
 		var/obj/structure/closet/crate/emptied = hauled
 		emptied.crew_npc_unpacked = FALSE
-		if(emptied.opened)
+		if(emptied.opened && !crew_npc_someone_on(get_turf(emptied)))
 			emptied.close(body)
 	if(succeeded && hauled)
 		crate_to_return = null
