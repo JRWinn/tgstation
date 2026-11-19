@@ -596,12 +596,16 @@
 	SIGNAL_HANDLER
 	if(!(slot & ITEM_SLOT_HANDS) || (item.item_flags & ABSTRACT))
 		return
-	// Its own doing, or handed over by one of the crew.
-	if(errand_tool || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
-		return
+	// Handed over by one of the crew, or a tool of its trade, drawn for the work in hand.
 	if(handed_at && world.time - handed_at < 2 SECONDS)
 		return
 	if(is_trade_tool(item, trade_tool_types()))
+		return
+	// Its own doing, on an errand that fetches things. Errands that bring nothing to hand but a tool
+	// of its trade (an arrest, opening a door, seeing someone out, resetting an alarm, handing
+	// something over), and a look in a locker, are no reason: what lands then was put there.
+	var/static/list/takes_nothing = list(CREW_TOOL_ARREST, CREW_TOOL_DOOR, CREW_TOOL_EVICT, CREW_TOOL_RESET_ALARM, CREW_TOOL_GIVE)
+	if(errand_tool ? !(errand_tool in takes_nothing) : blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	unasked_item = WEAKREF(item)
 	unasked_item_waits = 0
