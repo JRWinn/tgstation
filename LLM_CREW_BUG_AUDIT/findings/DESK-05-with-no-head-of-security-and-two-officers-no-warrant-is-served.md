@@ -73,7 +73,13 @@ The plan has a second officer as stage 3 (LLM_CREW_PLAN_SECURITY.md:392), so thi
 
 ## How it was found
 
-Read from the code, on both officers' side. Not run in the simulator and not seen in a round.
+Read from the code, on both officers' side, then run in a throwaway bun script in the system temp folder: two brains with the job Security Officer and no Head of Security on their PDA lists, the Captain's warrant sent to Hale, Hale's give step taken and its message fed to Dana's `readsMessage`. It printed:
+
+    hale desk [["Pun Pun","no"]] hale beat []
+    hale step {"tool":"message","person":"Dana Reyes","text":"Dana, warrant: Pun Pun, for wrecking the Custodial Closet. Bring them in, 5 minutes."}
+    after: hale desk [["Pun Pun","taken"]] hale beat [] dana beat [] dana desk []
+
+Not run in the simulator and not seen in a round.
 
 ## How to fix it
 
