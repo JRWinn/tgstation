@@ -140,7 +140,32 @@ add('"I am here to collect crate 12" is still no order', agrees(tech([HOP]), toM
   add('"a crate of lights with soap": both kinds named in one clause', items('a crate of lights with soap'), ['1 Janitorial Supplies Crate', '1 Replacement Lights']);
   add('"lights for Jan Mopp", Jan known by name', items('order some lights for jan mopp', ['Jan Mopp']), ['1 Replacement Lights']);
   add('"I need janitor supplies"', items('i need janitor supplies'), ['1 Janitorial Supplies Crate']);
+  add('"a crate of paper for the janitor"', items('a crate of paper for the janitor'), ['1 Bureaucracy Crate']);
   add('"I need to order a crate of janitorial supplies for my staff, please."', items('I need to order a crate of janitorial supplies for my staff, please.'), ['1 Janitorial Supplies Crate']);
+  // PARSE-06: every kind cargo can get has words it goes by.
+  for (const [said, want] of [
+    ['order paper', '1 Bureaucracy Crate'],
+    ['order some pens and clipboards', '1 Bureaucracy Crate'],
+    ['order stationery', '1 Bureaucracy Crate'],
+    ['order lightbulbs', '1 Replacement Lights'],
+    ['order light tubes', '1 Replacement Lights'],
+    ['order jani supplies', '1 Janitorial Supplies Crate'],
+    ['order light bulbs', '1 Replacement Lights'],
+    ['order cleaning supplies', '1 Janitorial Supplies Crate'],
+    ['order a crate of mops', '1 Janitorial Supplies Crate'],
+    ['order janitorial suplies', '1 Janitorial Supplies Crate'],
+    ['order a bucket', '1 Janitorial Supplies Crate'],
+  ]) {
+    add(`"${said}"`, items(said), [want]);
+  }
+}
+{
+  // Every crate the server's orderable_crates() can offer has its own words, so that one renamed
+  // upstream is caught here rather than falling back to its name alone.
+  const { itemsAskedFor } = await import(ROOT + 'jobs/cargo');
+  for (const [kind, said] of [['Janitorial Supplies Crate', 'soap'], ['Replacement Lights', 'bulbs'], ['Bureaucracy Crate', 'paper']]) {
+    add(`${kind} is asked for by "${said}"`, itemsAskedFor(`order ${said}`, [kind]).map((it: any) => it.crate), [kind]);
+  }
 }
 
 let failed = 0;

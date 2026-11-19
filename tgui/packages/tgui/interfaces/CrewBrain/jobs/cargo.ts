@@ -96,15 +96,26 @@ const CRATE_HOLDS: Record<string, string> = {
 };
 
 /**
+ * The words the paper crate is asked for by (PARSE-06). Exported so that the Quartermaster's own
+ * reading of its order book can go by the same words.
+ */
+export const PAPER_WORDS =
+  /bureaucra|paper|stationery|\bpens?\b|clipboards?|office supplies|folders?/i;
+
+/**
  * The words each kind of crate is asked for by. An order may be for several kinds at once ("two
  * crates of janitorial supplies and a crate of light bulbs"), and which kinds, and how many of
  * each, are read off what was said, not left to the LLM.
  */
 const CRATE_ASKED_AS: Record<string, RegExp> = {
   // The supplies, not the person: "the janitor says the bar is dark" asks for no soap (CARGO-14).
+  // Run-together and short words count: "jani supplies" (PARSE-06).
   'Janitorial Supplies Crate':
-    /janitorial|\bjanitor'?s? (supplies|kit|gear|stuff)|cleaning|cleaner\b(?! (says|said|wants|needs))|\bmops?\b|\bsoap\b/i,
-  'Replacement Lights': /\blights?\b|\bbulbs?\b|light tubes?/i,
+    /janitorial|\bjani\b|\bjanitor'?s? (supplies|kit|gear|stuff)|custodial|cleaning|cleaner\b(?! (says|said|wants|needs))|\bmops?\b|\bsoap\b|\bbuckets?\b|\bbrooms?\b|\brags?\b/i,
+  // "lightbulbs" as well as "light bulbs" (PARSE-06).
+  'Replacement Lights':
+    /\blight\s*(bulb|tube)s?\b|\blights?\b|\bbulbs?\b|\btubes?\b/i,
+  'Bureaucracy Crate': PAPER_WORDS,
 };
 
 /** The kinds of task cargo staff have: an order to see through, and getting back to their post. */
