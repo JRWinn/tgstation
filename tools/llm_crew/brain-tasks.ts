@@ -53,6 +53,39 @@ const toldMess = () => {
   add('blocked over an hour: given up', library(b), 'gone');
 }
 
+// ---- JOBS-02 and CARGO-13: a job may keep open work longer (keepUntil), and a dropped ask is shown
+{
+  // keepUntil past the half hour: kept until then, then given up.
+  const b = toldMess();
+  at(b, 3100, 'Central Primary Hallway');
+  b.tasks.find((task: any) => task.place === 'Library').keepUntil = 3000 + 18000 + 5000;
+  at(b, 3000 + 18100, 'Central Primary Hallway');
+  add('keepUntil ahead: kept past the half hour', library(b), 'open');
+  at(b, 3000 + 18000 + 4900, 'Central Primary Hallway');
+  add('keepUntil still ahead: kept', library(b), 'open');
+  at(b, 3000 + 18000 + 5100, 'Central Primary Hallway');
+  add('keepUntil passed: given up', library(b), 'gone');
+  add('given up on work Donna asked for: the window shows it', /^Gave up on, not done: /.test(b.lastJob?.what ?? ''), true);
+}
+{
+  // keepUntil sooner than the half hour does not cut the half hour short.
+  const b = toldMess();
+  at(b, 3100, 'Central Primary Hallway');
+  b.tasks.find((task: any) => task.place === 'Library').keepUntil = 5000;
+  at(b, 3000 + 17000, 'Central Primary Hallway');
+  add('keepUntil passed but under 30 minutes old: kept', library(b), 'open');
+  add('nothing given up yet: no word in the window', b.lastJob, undefined);
+}
+{
+  // Blocked work with keepUntil is still kept on the blocked limit.
+  const b = toldMess();
+  b.blockedPlaces = ['Library'];
+  at(b, 3100, 'Central Primary Hallway');
+  b.tasks.find((task: any) => task.place === 'Library').keepUntil = 4000;
+  at(b, 3000 + 25000, 'Central Primary Hallway');
+  add('blocked, keepUntil long past: still kept while blocked', library(b), 'blocked');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
