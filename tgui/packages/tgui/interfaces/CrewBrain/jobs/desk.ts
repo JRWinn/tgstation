@@ -40,6 +40,7 @@ import type {
 import {
   arrestAgain,
   dropWarrant,
+  forgetWarrant,
   giveWarrant,
   handBack,
   noteSeen,
@@ -72,19 +73,21 @@ import {
   noticeLines,
   noWarrantLine,
   outcomeLine,
-  PARDON_WORDS,
+  pardonAsked,
   pardonedLine,
   pardonNamed,
   pardonToldLine,
   REFUSALS,
   readGiven,
   readOutcome,
+  readPardon,
   readTerm,
   readWarrant,
   termLine,
   SIGHTING_WORDS,
   sameName,
   seenLine,
+  servedLine,
   sightedName,
   TRY_AGAIN_WORDS,
   takenLine,
@@ -395,11 +398,21 @@ export function deskTakes(
     }
     return true;
   }
-  // A pardon. It names someone there is something against, or uses the word.
-  const pardoned = PARDON_WORDS.test(text)
-    ? (nameIn(text, anyone) ?? closeIn(text, anyone))
-    : undefined;
-  if (pardoned || /\bpardon\b/i.test(text)) {
+  // A pardon. It names someone there is something against, right by the pardon word, or uses
+  // the word "pardon". "Don't release Pun Pun" and "Pun Pun broke free" are no pardon. A warrant
+  // declared on the same person, with "free" or "release" in its reason, is the warrant.
+  const warrantToo = readWarrant(text, knownNames(brain));
+  const loose = readPardon(text, anyone);
+  const pardoned =
+    loose &&
+    !(
+      warrantToo &&
+      !pardonAsked(text) &&
+      (sameName(warrantToo.name, loose) || sameName(loose, warrantToo.name))
+    )
+      ? loose
+      : undefined;
+  if (pardoned || pardonAsked(text)) {
     if (!captain) {
       reply(
         brain,
@@ -462,12 +475,25 @@ export function deskTakes(
   // A warrant declared.
   const declared = readWarrant(text, knownNames(brain));
   if (declared) {
-    const theirJob =
-      jobOf(brain, declared.name) ||
-      jobOf(
+    // Settled on one person it knows of, by full name, here and now: the rules below are
+    // tested against that one, and the warrant is kept under that name. A name that fits two
+    // it knows of ("Dana", with Dana Reyes and Dana Smith aboard) is asked about, not guessed.
+    const fits = knownNames(brain).filter((it) => sameName(declared.name, it));
+    const owners = fits.includes(declared.name) ? [declared.name] : fits;
+    if (declarer && owners.length > 1) {
+      reply(
         brain,
-        knownNames(brain).find((it) => sameName(declared.name, it)) ?? '',
+        from,
+        REFUSALS.whichOne(to, owners),
+        aloud,
+        `${from} has declared a warrant on ${declared.name}, and more than one person aboard goes by that name. You are asking which one.`,
       );
+      return true;
+    }
+    if (owners.length === 1) {
+      declared.name = owners[0];
+    }
+    const theirJob = jobOf(brain, declared.name);
     const why = (rest: string) =>
       `${from} has declared a warrant on ${declared.name}. ${rest}`;
     if (!declarer) {
@@ -508,9 +534,16 @@ export function deskTakes(
           'That is a head of department, and only the Captain can declare one on a head. You are telling them so.',
         ),
       );
-    } else if (desk.warrants.some((it) => sameName(declared.name, it.name))) {
-      const standingOne = desk.warrants.find((it) =>
-        sameName(declared.name, it.name),
+    } else if (
+      desk.warrants.some(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
+      )
+    ) {
+      // Either way round: "Pun Pun the monkey" is the Pun Pun already wanted.
+      const standingOne = desk.warrants.find(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
       );
       // Declared again with a time on it: the time is what is new.
       if (
@@ -532,7 +565,7 @@ export function deskTakes(
         reply(
           brain,
           from,
-          REFUSALS.already(to, declared.name),
+          REFUSALS.already(to, standingOne?.name ?? declared.name),
           aloud,
           why('There is one on them already, and you are telling them so.'),
         );
@@ -772,6 +805,19 @@ export function deskOutcome(
       if (warrant) {
         desk.warrants = desk.warrants.filter((it) => it !== warrant);
         desk.serial += 1;
+      }
+      // The warrant is served, and the one who did not serve it gives up its copy: else it
+      // would arrest them again once the cell opens. Nobody is let go by this.
+      if (!own) {
+        forgetWarrant(brain, warrant?.name ?? outcome.name);
+      } else if (warrant && officerAboard(brain)) {
+        // Its officer may have it still: given it before it broke off hurt, or given it and
+        // then outrun to the arrest.
+        tellOfficer(
+          brain,
+          servedLine(officerAboard(brain) ?? '', warrant.name),
+          `${warrant.name} is in a cell, and you served the warrant yourself. You are telling your officer, who may still have it, that it is served.`,
+        );
       }
       tellCaptain(
         brain,

@@ -200,6 +200,17 @@ export function dropWarrant(
   }
 }
 
+/**
+ * Gives a warrant up that someone else has served: the person is in a cell already. Unlike
+ * `dropWarrant` it lets nobody go, so a prisoner left in cuffs in a cell stays there.
+ */
+export function forgetWarrant(brain: NpcBrain, name: string): void {
+  const beat = beatOf(brain);
+  beat.warrants = beat.warrants.filter(
+    (it) => !sameName(name, it.name) && !sameName(it.name, name),
+  );
+}
+
 /** Notes where someone it has a warrant on was last seen, if that is newer than what it had. */
 export function noteSeen(
   brain: NpcBrain,
@@ -283,9 +294,17 @@ function target(
   warrant: BeatWarrant,
 ): PersonInView | undefined {
   const shut = inCells(brain);
+  // A warrant on someone it knows of by that full name is on that one person: "Pun Pun" is not
+  // "Pun Pun II" when both are aboard. Only a name nobody knew is matched loosely.
+  const known =
+    brain.pdaPeople.some((person) => person.name === warrant.name) ||
+    brain.people.has(warrant.name);
   return brain.peopleInView.find(
     (person) =>
-      sameName(warrant.name, person.name) &&
+      (known
+        ? person.name === warrant.name ||
+          person.name.startsWith(`${warrant.name} (as `)
+        : sameName(warrant.name, person.name)) &&
       person.name !== brain.name &&
       !shut.includes(person.name),
   );
