@@ -470,7 +470,10 @@ function reportToCaptain(brain: NpcBrain, meeting: Meeting): string {
   const work = totalWords(workReported(brain, meeting));
   const order = orderFor(brain);
   const short = needing(brain);
-  const came = `Staff meeting in the ${meeting.room}: ${there} of ${meeting.invited.length} there${byPda > 0 ? `, ${byPda} reported by PDA` : ''}.`;
+  const came =
+    meeting.startedAt === null && !inPlace(brain, meeting)
+      ? `I could not get to the ${meeting.room} for the staff meeting; reports are coming by PDA.`
+      : `Staff meeting in the ${meeting.room}: ${there} of ${meeting.invited.length} there${byPda > 0 ? `, ${byPda} reported by PDA` : ''}.`;
   const done = work ? `${work}.` : 'No work to count yet.';
   const needs = order
     ? `${short} short of supplies: I am ordering ${orderWords(order)}.`
@@ -554,6 +557,8 @@ export function syncMeeting(
   if (
     !brain.meeting &&
     !held &&
+    // Not while it is shut in somewhere: its staff would wait for a head who cannot come.
+    !brain.shutIn &&
     people.length > 0 &&
     brain.now >= brain.nextMeetingAt
   ) {
@@ -601,6 +606,10 @@ export function syncMeeting(
       } else if (here.length === 0 && (noneCan || (inRoom && waited))) {
         // Nobody is coming: they have all sent word that they cannot, or none of them has turned
         // up. What they have to report reaches it by PDA instead.
+        meeting.closedAt = brain.now;
+      } else if (waited && !inRoom) {
+        // It has had as long as it waits for them to get there itself, and has not: its staff are
+        // told it is over, and send their reports by PDA.
         meeting.closedAt = brain.now;
       }
     }

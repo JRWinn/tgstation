@@ -91,6 +91,37 @@ for (const [short, crates] of [[1, 1], [2, 1], [3, 2], [8, 4]] as [number, numbe
   }
 }
 
+// HEAD-06: a head that cannot get to its meeting.
+{
+  const hopWith = () => {
+    const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+    know(hop, ['Bar Lounge', 'Bridge']);
+    hop.pdaPeople = [{ name: 'Jan Itor', job: 'Janitor' }, { name: 'Cap Tain', job: 'Captain' }];
+    hop.location = 'Bridge';
+    hop.now = 5000;
+    hop.nextMeetingAt = 4000;
+    hop.metOnce = true;
+    return hop;
+  };
+  let hop = hopWith();
+  hop.shutIn = true;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('shut in when a meeting falls due, it calls none', hop.meeting, null);
+  hop.shutIn = false;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('let out, it calls it', !!hop.meeting, true);
+  hop = hopWith();
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  const room = hop.meeting?.room;
+  hop.meeting.invited = ['Jan Itor'];
+  hop.meeting.copied = true;
+  hop.toTell = [];
+  hop.now += 1801;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('never got there in three minutes: the meeting is ended, and its staff told by PDA', [hop.meeting, hop.toTell.filter((tell: any) => tell.to === 'Jan Itor' && /meeting is over/.test(tell.line)).length], [null, 1]);
+  add('and the Captain is told it could not get there', hop.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line.split(';')[0]), [`I could not get to the ${room} for the staff meeting`]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
