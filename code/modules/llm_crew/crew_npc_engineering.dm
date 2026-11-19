@@ -110,7 +110,34 @@
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
 		if(!(locate(/datum/computer_file/program/supermatter_monitor) in computer.stored_files))
 			continue
+		// The monitor is read on the screen, as a player does: the PDA whole, switched on and read.
+		if(!pda_screen_usable(computer))
+			continue
 		if(!computer.get_ntnet_status())
 			continue
 		return list("integrity" = round(crystal.get_integrity_percent(), 0.1), "energy" = round(crystal.internal_energy))
 	return null
+
+/**
+ * TRUE if the body could read a PDA's screen just now without pressing anything: the PDA not
+ * broken past booting, and the body able to read. No side effect, so it is safe on every update of
+ * the window. A PDA that is off but whole counts: whether it has the charge to turn on is found when
+ * it is used (see pda_screen_usable()).
+ */
+/datum/ai_controller/crew_npc/proc/pda_readable(obj/item/modular_computer/computer)
+	var/mob/living/carbon/human/body = pawn
+	if(isnull(computer) || crew_npc_pda_broken(computer))
+		return FALSE
+	return body.can_read(computer, READING_CHECK_LITERACY, silent = TRUE)
+
+/**
+ * TRUE if the body can use a PDA's screen now, as a player could: the PDA whole, switched on
+ * (pressing the power button if it is off, as pda_unusable() does for sending, which draws on its
+ * cell from then on) and its screen read.
+ */
+/datum/ai_controller/crew_npc/proc/pda_screen_usable(obj/item/modular_computer/computer)
+	if(!pda_readable(computer))
+		return FALSE
+	if(!computer.enabled && !computer.turn_on(pawn, open_ui = FALSE))
+		return FALSE
+	return TRUE
