@@ -61,6 +61,8 @@ export type PersonInView = {
   cuffed?: BooleanLike;
   /** TRUE if this person is lying on the floor and cannot get up: knocked down, or out cold. */
   down?: BooleanLike;
+  /** Who is pulling this person, null if nobody. Left out by a server that does not say. */
+  pulled_by?: string | null;
 };
 
 /**
@@ -533,6 +535,8 @@ export type BeatWarrant = {
     doorTries?: number;
     gaveUp?: boolean;
   };
+  /** Whom the server would not let it arrest (a Captain's ID), by handle, and when: passed over a while. */
+  refused?: { handle: string; at: number }[];
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -582,6 +586,10 @@ export type BeatWork = {
   batonTold?: boolean;
   /** Why it has said it cannot bring someone in, and when (server time), by "name|why". Each is said once. */
   cannotTold?: Record<string, number>;
+  /** Its health (percent) when it was last told to try again, hurt: it breaks off again only a good deal under it. */
+  againAt?: number;
+  /** Warrants pardoned or taken back lately, by name, and when: an arrest still under way for one lets them go. */
+  dropped?: { name: string; pardoned: boolean; at: number }[];
 };
 
 /**

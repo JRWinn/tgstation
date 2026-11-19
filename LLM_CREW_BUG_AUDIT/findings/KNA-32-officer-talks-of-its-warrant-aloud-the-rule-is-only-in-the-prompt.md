@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1370, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1280, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1296
 fix: In the reply filter in brain.ts, drop or replace a remark of a security body that names someone it holds a warrant on, unless it is said to security, the Captain or a head
@@ -80,3 +81,7 @@ Seen in a round log (the two lines above). The cause read from the code: grep of
 - Add cases to `tools/llm_crew/security.ts`: a greeting reply "Hi Brick! Pun Pun is a mess, I'll sort him out soon!" from an officer with a warrant on Pun Pun comes out without "Pun Pun"; the same said to the Captain is said whole; the arrest line is untouched.
 - Simulator `warrant` and `fight` with a chatty LLM: grep the spoken lines for the warrant's name outside the arrest line.
 - Next round, `game.log`: every "was told by its brain to say" of a security body during a warrant, for the name of whoever it is on.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19, from the code, while fixing. Confirmed. The only place the rule lives is the prompt line in `beatCues` ("A warrant is security business. You do not bring it up ..."). The reply filter in `brain.ts` (after `withoutHandles`) screens handles, filler, repeats and, since TRUST-11, lines that sound like an order (`soundsLikeOrder` in `talk.ts`); none of it looks at `beat.warrants` or a desk's warrants. `jobs/job.ts` has no hook that sees a line before it is said. So a model that names the warrant in a greeting is heard as it wrote it, as in round-19.33.50. Severity medium and effort small stand, but the fix spans `jobs/job.ts`, `brain.ts`, `jobs/officer.ts` and `jobs/headofsecurity.ts`.

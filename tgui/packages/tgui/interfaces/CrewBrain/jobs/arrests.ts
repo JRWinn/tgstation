@@ -81,6 +81,15 @@ const ARREST_TRIES = 3;
 const REST_DS = 300;
 /** Why there is no arrest yet, of someone in sight that three tries have not taken. It reads the same in any mouth. */
 const WILL_NOT_STAND = 'they will not stand still for the baton or the cuffs';
+/** Why there is no arrest yet, of someone in sight it cannot walk to and has nobody to ask to let it through. */
+const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
+/** Why there is no arrest of someone the server would not let it touch: they wear or hold a Captain's ID. */
+const CAPTAIN_CARD =
+  "they carry a Captain's ID, and nobody lays a hand on the Captain";
+/** How long (deciseconds) someone the server would not let it arrest is passed over. They may take the card off. */
+const REFUSED_DS = 3000;
+/** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
+const DROPPED_DS = 600;
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -91,6 +100,12 @@ const HALLWAY_DS = 100;
 const BETWEEN_WALKS_DS = 900;
 /** The health (percent) under which it breaks off and uses no more force. */
 const HURT_BELOW = 50;
+/**
+ * Told to try again while hurt, how much more (percent) it may lose before it breaks off again,
+ * and the health under which it breaks off whatever it was told. A guess: the owner's to set.
+ */
+const AGAIN_MARGIN = 15;
+const AGAIN_FLOOR = 20;
 /** How long (deciseconds) after it breaks off hurt that saying so comes before getting away. */
 const HURT_WORD_DS = 50;
 /** How long (deciseconds) someone who has attacked it is someone to stop. */
@@ -193,6 +208,14 @@ export function dropWarrant(
   const beat = beatOf(brain);
   const had = beat.warrants.some((it) => sameName(name, it.name));
   beat.warrants = beat.warrants.filter((it) => !sameName(name, it.name));
+  // An arrest under way when the word came may yet put the cuffs on: kept a minute, so that
+  // its answer lets them go.
+  if (had) {
+    beat.dropped = [
+      ...(beat.dropped ?? []).filter((it) => brain.now - it.at < DROPPED_DS),
+      { name, pardoned, at: brain.now },
+    ];
+  }
   const holding = brain.security?.holding;
   const inCell = Object.keys(beat.jailed).some((it) => sameName(name, it));
   const cuffed = brain.peopleInView.some(
@@ -238,6 +261,7 @@ const OPENED_DS = 1800;
  * there, or in a room reached through there, is worth going for again, at once.
  */
 export function doorOpened(brain: NpcBrain, room: string): void {
+  const told = beatOf(brain).cannotTold ?? {};
   for (const warrant of beatOf(brain).warrants) {
     const shut = warrant.shutOut;
     const last = warrant.lastSeen;
@@ -247,6 +271,12 @@ export function doorOpened(brain: NpcBrain, room: string): void {
       last?.place === room ||
       (last && doorFor(brain, last.place) === room)
     ) {
+      // A room locked again after this is told of again.
+      for (const place of [room, shut?.door, shut?.place]) {
+        delete told[
+          `${warrant.name}|nobody has opened the ${place} for security`
+        ];
+      }
       warrant.shutOut = undefined;
       warrant.opened = { place: room, at: brain.now };
       warrant.lookedAt = null;
@@ -261,14 +291,24 @@ export function doorOpened(brain: NpcBrain, room: string): void {
 export function handBack(brain: NpcBrain): void {
   const beat = beatOf(brain);
   const holding = brain.security?.holding;
+  // One whose arrest is under way is kept too: the hold comes only at the end of the arrest,
+  // and handed back before it, the cuffs went on someone held on no warrant.
+  const last = brain.lastAct;
+  const arresting =
+    last?.act.tool === 'arrest' && last.act.how !== 'stop'
+      ? brain.tasks.find((it) => it.id === last.task && it.kind === SERVE)?.item
+      : undefined;
   beat.warrants = beat.warrants.filter(
-    (it) => !!holding && sameName(it.name, holding),
+    (it) => (!!holding && sameName(it.name, holding)) || it.name === arresting,
   );
 }
 
 /** Told to make arrests again after breaking off hurt. */
 export function arrestAgain(brain: NpcBrain): void {
   const beat = beatOf(brain);
+  if (beat.hurt) {
+    beat.againAt = brain.security?.health ?? HURT_BELOW;
+  }
   beat.hurt = false;
   for (const warrant of beat.warrants) {
     warrant.tries = 0;
@@ -305,6 +345,10 @@ function target(
   const known =
     brain.pdaPeople.some((person) => person.name === warrant.name) ||
     brain.people.has(warrant.name);
+  // Someone the server would not let it arrest is passed over a while, so that it looks past them.
+  const refused = (warrant.refused ?? [])
+    .filter((it) => brain.now - it.at < REFUSED_DS)
+    .map((it) => it.handle);
   return brain.peopleInView.find(
     (person) =>
       (known
@@ -312,7 +356,16 @@ function target(
           person.name.startsWith(`${warrant.name} (as `)
         : sameName(warrant.name, person.name)) &&
       person.name !== brain.name &&
-      !shut.includes(person.name),
+      !shut.includes(person.name) &&
+      !refused.includes(person.handle),
+  );
+}
+
+/** TRUE if someone other than itself is pulling them, or the server does not say who is. */
+function heldByAnother(brain: NpcBrain, person: PersonInView): boolean {
+  return (
+    person.pulled_by === undefined ||
+    (!!person.pulled_by && person.pulled_by !== brain.name)
   );
 }
 
@@ -388,8 +441,20 @@ function wantsKit(brain: NpcBrain): boolean {
 export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   const beat = beatOf(brain);
   const security = brain.security;
-  // Hurt: it breaks off, and whoever keeps the list is told.
-  if (security && security.health < HURT_BELOW && !beat.hurt) {
+  // Hurt: it breaks off, and whoever keeps the list is told. Told to try again, it goes on until
+  // it is a good deal more hurt than it was then: nothing aboard heals it, so its health alone
+  // would have it break off again the same second.
+  if (security && security.health >= HURT_BELOW) {
+    beat.againAt = undefined;
+  }
+  const breaksOff =
+    !!security &&
+    security.health < HURT_BELOW &&
+    (beat.againAt === undefined ||
+      security.health <= beat.againAt - AGAIN_MARGIN ||
+      security.health < AGAIN_FLOOR);
+  if (security && breaksOff && !beat.hurt) {
+    beat.againAt = undefined;
     beat.hurt = true;
     beat.hurtAt = brain.now;
     const about =
@@ -412,6 +477,14 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   // get into. Left unsaid, the Captain waits on an arrest that is not coming.
   beat.cannotTold ??= {};
   const told = beat.cannotTold;
+  // Once a warrant, not once a round: what was told of a warrant now gone (served, pardoned,
+  // handed back) is forgotten, so a second warrant on the same person is told afresh.
+  for (const key of Object.keys(told)) {
+    const name = key.slice(0, key.indexOf('|'));
+    if (!beat.warrants.some((it) => it.name === name)) {
+      delete told[key];
+    }
+  }
   const cannot = (name: string, why: string) => {
     const key = `${name}|${why}`;
     if (told[key] === undefined) {
@@ -425,13 +498,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // has come to nothing. Until they have, there is the quiet arrest to try: someone who stands
     // still is cuffed without a baton, and "no baton" sent the moment a warrant came in was not
     // yet true of them.
+    // With them in sight it is said at once: the trip for one takes a minute.
+    const inSight = !!target(brain, warrant);
     if (
       security &&
       !security.has_baton &&
       warrant.force &&
-      beat.kitTries >= 1
+      (beat.kitTries >= 1 || inSight)
     ) {
       cannot(warrant.name, 'no baton');
+    }
+    if (security && !security.has_cuffs && inSight && !holds(brain, warrant)) {
+      cannot(warrant.name, 'no cuffs');
     }
     // A room they are in that it cannot get into. With someone to ask, that is said only once
     // nobody it asked has opened the door.
@@ -457,6 +535,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     }
     // The one it has found is a head of staff, going by their ID, and the Captain did not declare
     // the warrant. Only the Captain may have a head arrested, whatever went wrong with the name.
+    // In cuffs it did not put on, and in someone else's hold: it leaves them be, and says whose.
+    // Not when that is security: the list hears of that arrest from them.
+    const cuffedSeen = target(brain, warrant);
+    if (
+      cuffedSeen?.cuffed &&
+      !warrant.cuffedByMe &&
+      cuffedSeen.pulled_by &&
+      cuffedSeen.pulled_by !== brain.name &&
+      !/security|warden/i.test(jobOf(brain, cuffedSeen.pulled_by))
+    ) {
+      cannot(warrant.name, `${cuffedSeen.pulled_by} has them in cuffs`);
+    }
     if (headSpared(brain, warrant)) {
       cannot(
         warrant.name,
@@ -534,6 +624,15 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     beat.outcomes.push({ what: 'attacked', name: beat.attacker.name });
   }
   const attacker = beat.attacker;
+  const attackerSeen = attacker
+    ? brain.peopleInView.find((person) => person.name === attacker.name)
+    : undefined;
+  // Nobody lays a hand on the Captain or a head of staff with no warrant. It stands, and whoever
+  // keeps the list is told at once, so that the Captain can declare one.
+  if (attacker && attackerSeen?.command && !attacker.told) {
+    attacker.told = true;
+    beat.outcomes.push({ what: 'attacked', name: attacker.name });
+  }
   keep(
     brain,
     STOP,
@@ -541,7 +640,8 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
       !attacker.stopped &&
       !beat.hurt &&
       !!security?.has_baton &&
-      brain.peopleInView.some((person) => person.name === attacker.name),
+      !!attackerSeen &&
+      !attackerSeen.command,
     'emergency',
   );
   return beat.warrants.length > 0 || beat.toFree.length > 0 || kit || away;
@@ -643,9 +743,12 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   }
   const last = shut.asked[shut.asked.length - 1];
   if (last && brain.now - shut.askedAt < LET_IN_WAIT_DS) {
+    // At the door, whoever comes to open it has to find it standing there: the wait comes before
+    // its other work, as a janitor's at a door does.
     return {
       ready: false,
       wait: true,
+      asked: atDoor,
       step: `${name} is in the ${shut.place}${within}, which is locked to you. You have asked ${last} to let you into the ${door}, and are waiting${atDoor ? ' at the door' : ''}.`,
     };
   }
@@ -782,9 +885,11 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         step: `${seen.name} is here, and you could not take them a moment ago. You are leaving them be for now. The warrant stands.`,
       };
     }
-    // In cuffs that it did not put on: someone else from security has them. Two do not pull at
-    // one prisoner, so it leaves them to whoever made the arrest.
-    if (seen.cuffed && !warrant.cuffedByMe) {
+    // In cuffs that it did not put on, and someone else has them by the arm: two do not pull at
+    // one prisoner, so it leaves them to whoever has them. In cuffs with nobody holding them (the
+    // Captain cuffed them and let go), it takes them by the arm itself. Until the server says who
+    // is pulling whom, it leaves them, as before.
+    if (seen.cuffed && !warrant.cuffedByMe && heldByAnother(brain, seen)) {
       return {
         ready: false,
         step: `${seen.name} is in cuffs already. Someone else from security has made the arrest, and you are leaving them to it.`,
@@ -794,7 +899,9 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     if (seen.cuffed) {
       return {
         ready: true,
-        step: `${seen.name} is in cuffs and not in your hold. You are taking them by the arm again.`,
+        step: warrant.cuffedByMe
+          ? `${seen.name} is in cuffs and not in your hold. You are taking them by the arm again.`
+          : `${seen.name} is in cuffs, and nobody has them by the arm. You are taking them by the arm.`,
         act: { tool: 'arrest', person: seen.handle, how: 'quiet' },
       };
     }
@@ -828,8 +935,10 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     ) {
       warrant.shutOut = undefined;
     }
+    // A walk at them has already failed with them in that room: near or far, fought back or not,
+    // the baton cannot reach them until someone lets it in.
     const far = (seen.distance ?? 0) > NEAR;
-    if (far && warrant.shutOut && !warrant.resisted) {
+    if (warrant.shutOut) {
       return letInStep(brain, warrant);
     }
     // Someone who has hit it gets no second telling: the baton, at once.
@@ -934,7 +1043,22 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   // No sighting to follow. It walks the main hallways, one after the other, and looks.
   const halls = hallways(brain);
   const round = beat.round;
-  const walking = round.next > 0 || brain.now - round.at > BETWEEN_WALKS_DS;
+  let walking = round.next > 0 || brain.now - round.at > BETWEEN_WALKS_DS;
+  // A hallway it has just found no way into is passed over, and the round goes on to the next.
+  // The server lets the place go again after a while, or when the fire doors lift.
+  if (walking) {
+    while (
+      round.next < halls.length &&
+      brain.blockedPlaces.includes(halls[round.next])
+    ) {
+      round.next += 1;
+    }
+    if (halls.length > 0 && round.next >= halls.length) {
+      round.next = 0;
+      round.at = brain.now;
+      walking = false;
+    }
+  }
   if (halls.length > 0 && walking && round.next < halls.length) {
     const hall = halls[round.next];
     if (brain.location !== hall) {
@@ -987,9 +1111,27 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === SERVE) {
     const warrant = beat.warrants.find((it) => it.name === task.item);
-    return warrant
-      ? serveStep(brain, warrant)
-      : { ready: false, step: 'That warrant is no longer yours to serve.' };
+    if (!warrant) {
+      return {
+        ready: false,
+        step: 'That warrant is no longer yours to serve.',
+      };
+    }
+    // In the middle of arresting someone else: this one waits until that arrest is done, so the
+    // cuffs going on are not walked away from when the other comes into sight.
+    const last = brain.lastAct;
+    if (
+      last?.act.tool === 'arrest' &&
+      last.task !== undefined &&
+      last.task !== task.id
+    ) {
+      return {
+        ready: false,
+        wait: true,
+        step: `You are in the middle of arresting someone else. ${warrant.name} waits.`,
+      };
+    }
+    return serveStep(brain, warrant);
   }
   if (task.kind === FREE) {
     return freeStep(brain, task.item ?? '');
@@ -1024,6 +1166,12 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
     const seen = attacker
       ? brain.peopleInView.find((person) => person.name === attacker.name)
       : undefined;
+    if (seen?.command) {
+      return {
+        ready: false,
+        step: `${seen.name} attacked you, but they are a head of staff. With no warrant you do not lay a hand on them.`,
+      };
+    }
     return seen
       ? {
           ready: true,
@@ -1093,6 +1241,20 @@ export function beatAfterActing(
     }
     return;
   }
+  // A walk down the hallways that could not reach the one it was making for: the round goes on
+  // to the next, before the server's list of places it cannot get to comes in.
+  if (warrant && !ok && act.tool === 'go_to' && act.attempt === undefined) {
+    const halls = hallways(brain);
+    const round = beat.round;
+    if (halls[round.next] === act.place) {
+      round.next += 1;
+      if (round.next >= halls.length) {
+        round.next = 0;
+        round.at = brain.now;
+      }
+      return;
+    }
+  }
   // A walk into a room engineering opened that came to nothing is counted.
   if (warrant?.opened && act.tool === 'go_to' && act.attempt !== undefined) {
     if (!ok) {
@@ -1123,7 +1285,10 @@ export function beatAfterActing(
       const attacker = beat.attacker;
       if (attacker) {
         attacker.stopped = true;
-        if (ok && !attacker.told) {
+        // Refused because they are the Captain or a head of staff: still word for the list.
+        const spared =
+          details.reason === 'captain' || details.reason === 'command';
+        if ((ok || spared) && !attacker.told) {
           attacker.told = true;
           const about = beat.warrants.find(
             (it) => target(brain, it) || holds(brain, it),
@@ -1136,6 +1301,26 @@ export function beatAfterActing(
         }
       }
       return;
+    }
+    // The warrant was pardoned or taken back while the cuffs were going on, and they went on:
+    // they are let go, as a pardon of someone already by the arm is.
+    const dropped =
+      task?.kind === SERVE
+        ? (beat.dropped ?? []).find(
+            (it) => it.name === task.item && brain.now - it.at < DROPPED_DS,
+          )
+        : undefined;
+    if (
+      !warrant &&
+      dropped &&
+      (ok || details.cuffed) &&
+      !beat.toFree.some((it) => sameName(it.name, dropped.name))
+    ) {
+      beat.toFree.push({
+        name: dropped.name,
+        pardoned: dropped.pardoned,
+        tries: 0,
+      });
     }
     if (!warrant) {
       return;
@@ -1155,17 +1340,48 @@ export function beatAfterActing(
       return;
     }
     const reason = String(details.reason ?? '');
+    // The server would not let it lay a hand on them: they carry a Captain's ID. That is no try
+    // and no refusal to stand still. They are passed over a while, and the list is told why, once.
+    if (reason === 'captain') {
+      warrant.refused = [
+        ...(warrant.refused ?? []).filter(
+          (it) => brain.now - it.at < REFUSED_DS,
+        ),
+        { handle: String(details.handle ?? act.person ?? ''), at: brain.now },
+      ];
+      warrant.toldAt = null;
+      beat.cannotTold ??= {};
+      const key = `${warrant.name}|${CAPTAIN_CARD}`;
+      if (beat.cannotTold[key] === undefined) {
+        beat.cannotTold[key] = brain.now;
+        beat.outcomes.push({
+          what: 'cannot',
+          name: warrant.name,
+          why: CAPTAIN_CARD,
+        });
+      }
+      return;
+    }
+    // Refused for itself or for a kind of arrest it does not know: no try at them.
+    if (reason === 'self' || reason === 'how') {
+      return;
+    }
     // It could not get to them, and can still see them: a door or a counter is between them.
     // That is not losing them. It asks to be let in.
+    // In its own room, behind a counter or a shut fire door, or with nobody to ask: there is no
+    // door to ask at, so it is a try that came to nothing like any other, and after three it
+    // rests and says why.
     if (reason === 'no_way') {
-      warrant.toldAt = null;
-      noteShutOut(
+      const asking = noteShutOut(
         brain,
         warrant,
         String(details.place ?? target(brain, warrant)?.place ?? ''),
         details.keepers,
       );
-      return;
+      if (asking || warrant.shutOut) {
+        warrant.toldAt = null;
+        return;
+      }
     }
     // Knocked down itself before it was done: that is no try at them, and says nothing of
     // whether they would stand still. It goes at them again once it is up.
@@ -1184,7 +1400,10 @@ export function beatAfterActing(
     warrant.tries += 1;
     if (reason === 'lost' || warrant.tries >= ARREST_TRIES) {
       warrant.tries = 0;
-      warrant.toldAt = null;
+      // Someone it cannot get to needs no telling again: they heard it the first time.
+      if (reason !== 'no_way') {
+        warrant.toldAt = null;
+      }
       warrant.lastSeen = { place: brain.location, at: brain.now };
       warrant.lookedAt = brain.now;
       if (reason === 'lost') {
@@ -1201,13 +1420,14 @@ export function beatAfterActing(
         // there is no arrest yet, once.
         warrant.restUntil = brain.now + REST_DS;
         beat.cannotTold ??= {};
-        const key = `${warrant.name}|${WILL_NOT_STAND}`;
+        const why = reason === 'no_way' ? NO_WAY_TO_THEM : WILL_NOT_STAND;
+        const key = `${warrant.name}|${why}`;
         if (beat.cannotTold[key] === undefined) {
           beat.cannotTold[key] = brain.now;
           beat.outcomes.push({
             what: 'cannot',
             name: warrant.name,
-            why: WILL_NOT_STAND,
+            why,
           });
         }
       }
@@ -1335,6 +1555,54 @@ export function securityFeels(brain: NpcBrain, event: SenseEvent): void {
 }
 
 /** What the LLM should know of the warrants in its hands, so that what it says about them is true. */
+/**
+ * A line the model wrote for a security body, screened for a warrant talked about. If it names
+ * someone it has a warrant on and does not yet hold (or one of `others`, for whoever keeps the
+ * list), and it is not said to security, the Captain or a head of staff, the plain line to say in
+ * its place: said before it has a hand on them, it is a warning to run. NULL to say it as it is.
+ * Not for its own fixed lines, the arrest line among them: those are code's words.
+ */
+export function warrantTalk(
+  brain: NpcBrain,
+  text: string,
+  to: string | null,
+  others: string[] = [],
+): string | null {
+  if (to) {
+    const seen = brain.peopleInView.find((person) => person.name === to);
+    if (seen?.command || /security|warden|captain/i.test(jobOf(brain, to))) {
+      return null;
+    }
+  }
+  const names = [
+    ...beatOf(brain)
+      .warrants.filter((warrant) => !holds(brain, warrant))
+      .map((warrant) => warrant.name),
+    ...others,
+  ];
+  const lower = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  const named = names.some((name) => {
+    if (sameName(name, text)) {
+      return true;
+    }
+    // Their first name alone, when it is a name of its own and not a short word.
+    const first = name.toLowerCase().split(/[^a-z0-9]+/)[0] ?? '';
+    return (
+      name.includes(' ') &&
+      first.length >= 3 &&
+      first !== brain.name.toLowerCase().split(/[^a-z0-9]+/)[0] &&
+      lower.includes(` ${first} `)
+    );
+  });
+  if (!named) {
+    return null;
+  }
+  // A greeting keeps only who it is.
+  return sameName(brain.name, text)
+    ? `I am ${brain.name}, security.`
+    : 'I am on security business.';
+}
+
 export function beatCues(brain: NpcBrain): string[] {
   const beat = beatOf(brain);
   const security = brain.security;
