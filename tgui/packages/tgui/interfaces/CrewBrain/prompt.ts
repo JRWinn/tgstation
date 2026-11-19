@@ -183,9 +183,16 @@ const BODY_TALK: [RegExp, string][] = [
  * Puts something the LLM wants said into the words of one person. The reports it reads speak of
  * "your body", because that is how it is told what it is doing, and it sometimes says "my body"
  * back out loud. Nobody talks like that.
+ *
+ * Asterisks go the way the server takes them out before the line is said (tool_say, HAND-03), so
+ * that what the brain keeps as said is what was said: a *...* at the start or end of the line is
+ * an action and goes; any other asterisk goes and keeps its word ("Crate **12**").
  */
 export function inOwnVoice(text: string): string {
-  let said = text;
+  let said = text
+    .replace(/^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$/g, '')
+    .replace(/\*+/g, '')
+    .trim();
   for (const [pattern, plain] of BODY_TALK) {
     said = said.replace(pattern, plain);
   }
@@ -373,9 +380,11 @@ export function parseReply(reply: string): Action[] {
     );
   }
   const actions: Action[] = [];
-  // Silence comes as null. A line of nothing but dots or dashes is silence as well.
-  if (typeof body.say === 'string' && /[a-z0-9]/i.test(body.say)) {
-    actions.push({ tool: 'say', text: inOwnVoice(body.say.trim()) });
+  // Silence comes as null. A line of nothing but dots or dashes is silence as well, and so is one
+  // that is only an action ("*nods*"): the server would say nothing of it.
+  const said = typeof body.say === 'string' ? inOwnVoice(body.say.trim()) : '';
+  if (/[a-z0-9]/i.test(said)) {
+    actions.push({ tool: 'say', text: said });
   }
   const move = body.move as Action | null | undefined;
   if (move && typeof move.tool === 'string' && move.tool !== 'stay') {
