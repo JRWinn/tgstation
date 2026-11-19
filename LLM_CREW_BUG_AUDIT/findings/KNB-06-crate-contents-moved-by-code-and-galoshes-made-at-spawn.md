@@ -80,3 +80,7 @@ Checked by Opus 5.5. Both quotes are what the code says today: `tip_out` at `cre
 Mended: fix step 3 said to shut the crate before the haul; shut where it stands, `close()` -> `take_contents()` would take the unpacked things back in, so it must be pulled clear first. Fix step 1 now says the first click on a crate with a manifest only tears the manifest off (`crates.dm:113`). Step 6 now says why the mopped tile cannot go straight into `slippery_seen`. The crate's contents in the case were wrong (three buckets and one rag, not one bucket and three rags). Slips are in `attack.log`.
 
 Not a duplicate: it holds two faults with two separate changes; GAP-02 and GAP-04 each hold one. Severity high stands (the no-cheats rule is broken in every round with a janitor or a collection). Effort medium stands.
+
+## Fix notes, second round
+
+`crate_collected` (`crew_npc_held.dm`, branch `r2-server`): when `tip_out` returns null the crate was hauled but would not open. It now fails with "You haul the crate #N to X, but you cannot unpack it." and why: "It is a wooden crate: it wants prying open with a crowbar." for a large wooden crate, "it is welded shut", "it is locked", or "The crate will not open for you." `crate_to_return` is not set, so there is no empty crate to take back, and the window does not mark the collection unpacked (it does that only on success), so it does not tell the head "crate #N is unpacked in". The held entry is still dropped, as the crate has left the counter. Compile-checked only.
