@@ -64,6 +64,17 @@ if (process.argv.includes('--json')) {
   process.exit(0);
 }
 
+// One line a finding, for reading the whole list at once: id | kind/severity | status | area | where | title
+// (add --with-fix for the proposed change after ||).
+if (process.argv.includes('--brief')) {
+  const withFix = process.argv.includes('--with-fix');
+  for (const row of [...findings].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))) {
+    const where = row.files.split(',').map((place) => place.trim().replace(/^.*\//, '')).filter(Boolean).slice(0, 3).join(', ');
+    console.log(`${row.id} | ${row.kind}/${row.severity} | ${row.status}${row.duplicateOf ? ` of ${row.duplicateOf}` : ''} | ${row.area} | ${where} | ${row.title}${withFix ? ` || ${row.fix}` : ''}`);
+  }
+  process.exit(0);
+}
+
 /** Easiest first, then the ones a second reviewer has confirmed, then by id. */
 function inOrder(a, b) {
   return (
