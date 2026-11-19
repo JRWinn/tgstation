@@ -5,8 +5,10 @@ kind: bug
 severity: low
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: HAND-01
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:980, code/modules/llm_crew/crew_npc_security.dm:1013, code/modules/llm_crew/crew_npc_machines.dm:259, code/_onclick/click.dm:120
 fix: Have click_as_body wait out body.next_move before it clicks, and say so when a click was not made
@@ -74,3 +76,7 @@ This is one proc used by every job, so check the other callers do not depend on 
 
 - Server compile on a side copy.
 - In a round: give the target a riot suit, or have the officer make a `force` arrest of someone the player keeps standing with stimulants. `game.log` should show "hit ... with its baton 3 times" followed by "arrested", not by a second arrest a few seconds later.
+
+## Check
+
+Checked by Opus 5.5. Duplicate of HAND-01: the same cause (`click_as_body` does not wait out `next_move` and returns TRUE for a click `ClickOn` dropped) and the same one change in `click_as_body`. The code quoted here is what the code says today. What this file had and HAND-01 lacked (the window's three tries and 30 second rest, the `CLICK_CD_HANDCUFFED` reason for the cap, `next_click + 1`, checking the other callers) has been copied into HAND-01. One statement here is too broad: a "did nothing" swing caused by the baton not being ready sets no cooldown (the baton's `pre_attack` stops it before `attackby`), so only a swing that was blocked costs the next one. HAND-01 has the corrected account.

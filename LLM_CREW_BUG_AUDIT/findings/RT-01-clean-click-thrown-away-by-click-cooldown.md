@@ -4,15 +4,18 @@ title: One spray in five is followed by a click the game throws away, and the me
 kind: bug
 severity: high
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:513, code/modules/llm_crew/crew_npc_machines.dm:259, code/_onclick/click.dm:120, code/modules/reagents/reagent_containers/spray.dm:78
 fix: Wait out the body's own click cooldown before the click in clean_mess, and do not mark a mess stubborn when the click never landed
 ---
 
 ## What is wrong
+
+See also: HAND-01 (the same missing wait inside `click_as_body`, a separate change in another proc).
 
 A janitor with a spray bottle cleans one mess, steps to the next one a tile away, and clicks on it at once. The game ignores that click: a spray sets a wait of 0.8 seconds before the same body may click again, and `clean_mess` does not look at it. Nothing is sprayed. The body then stands for the full 8 seconds of `CREW_NPC_CLEAN_TIME`, decides the mess "will not come off", and marks it in `stubborn_messes` so that it is never tried again. Two of those in one room and every mess of that kind in the room is written off (`stubborn_kinds`).
 
@@ -64,9 +67,9 @@ The base game, `code/_onclick/click.dm:117`, in `/mob/proc/ClickOn`:
     	playsound(src, spray_sound, 50, TRUE, -6)
     	user.changeNext_move(CLICK_CD_RANGE * 2)
 
-Every other click the crew make goes through `click_as_body` (`crew_npc_machines.dm:259`), which sleeps a full second first. `clean_mess` is the one place that clicks with no wait. `put_down_unasked_item` (`crew_npc_hands.dm:623`) also calls `ClickOn` directly, but comes from a timer and is rarely near another click.
+Every other click the crew make goes through `click_as_body` (`crew_npc_machines.dm:259`), which sleeps first: a full second by default, though security passes 0.2 or 0.4 seconds and `draw_item` passes 0. `clean_mess` is the one place that clicks with no wait. `put_down_unasked_item` (`crew_npc_hands.dm:623`) also calls `ClickOn` directly, but comes from a timer and is rarely near another click.
 
-The same blind spot is in `click_as_body` itself: it returns TRUE whenever it called `ClickOn`, whether or not `ClickOn` did anything. With the short gaps security uses (`CREW_NPC_STRIKE_GAP` 0.2 seconds, and the 0.5 second sleep after a swing that "did nothing" in `baton_hits`), a swing 0.7 seconds after the last is thrown away too and counted as a swing.
+The same blind spot is in `click_as_body` itself: it returns TRUE whenever it called `ClickOn`, whether or not `ClickOn` did anything. That is written up, with its own fix, in HAND-01.
 
 The comments already describe the effect without the cause: "Once could be a slip of the hand", and "two slips of the hand in the first ten minutes meant that from then on a single miss in any room wrote off all the dirt in it".
 
@@ -92,8 +95,9 @@ Not seen: the `stubborn_messes` entry itself, which is written to no log.
 
 1. In `clean_mess`, before `body.ClickOn(target)`, wait until the body may click: while `body.next_move > world.time`, sleep the difference (cap it at a second or two), then check `QDELETED(src)`, `QDELETED(body)`, `QDELETED(mess)` and that the errand is still this one (`errand_serial`, as `push_clear` does). A player's own client makes them wait the same way, so this is no cheat.
 2. Still in `clean_mess`, know whether the click landed. Note `tool.reagents?.total_volume` before the click. After it, if the mess is still there, nothing is in `body.do_afters`, and a spray's volume has not gone down, the click did nothing: click once more after a second. If that does nothing either, return `list(FALSE, "You could not get to it.")` and do not touch `stubborn_messes` or `stubborn_kinds`.
-3. In `click_as_body`, do the same wait for `next_move` after the `gap` sleep, and return FALSE if the body is incapacitated (`INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS)`), so that TRUE means the click reached the game. Check the security callers: `baton_hits` counts a swing for every TRUE.
+3. The same wait in `click_as_body` is HAND-01's fix. Build the wait once, as a small proc on the controller (say `wait_to_click()`: sleep until `max(body.next_move, body.next_click + 1)`, capped at 2 seconds, and return FALSE if the body or the controller is gone), and call it from both `clean_mess` and `click_as_body`. Step 1 alone fixes what the logs show; step 2 is the safety net for any other click that comes to nothing.
 4. Keep the 8 second wait for a mop or soap, which really do take time.
+5. Do not simply route `clean_mess` through `click_as_body`: its `can_perform_action(target, ... | SILENT_ADJACENCY)` test is a second gate that `clean_mess` has never had and that has not been tried on messes and floors. The shared wait is enough.
 
 Question for the owner: none. This is how a player's clicks already work.
 
@@ -103,3 +107,16 @@ Question for the owner: none. This is how a player's clicks already work.
 - The simulator does not run server code, so this needs a round. Spawn a janitor in a hallway with dirt on three tiles in a row and a full space cleaner in its hand.
 - In `attack.log`, measure the time between that body's sprays as above. There should be no gaps of 8.0 to 9.5 seconds between sprays on neighbouring tiles, and one-tile follow-ups should be the commonest kind.
 - In `crew_brain.log`, "will not come off" should stop appearing for dirt, blood and the like when the body holds space cleaner.
+- A cheap check before a round: log `body.next_move - world.time` at the click in `clean_mess` to `crew_brain` or `game.log` for one build. With the fix it must never be above 0 when `ClickOn` is called.
+
+## Check
+
+Checked by Opus 5.5. Confirmed.
+
+- `clean_mess` (`crew_npc_cleaning.dm:498-543`) is as quoted: `body.ClickOn(target)` at line 513 with no wait, then the 8 second loop, then `stubborn_messes` and `stubborn_kinds`. It is one of only three direct `ClickOn` calls in `code/modules/llm_crew/` (the others are `click_as_body` and `put_down_unasked_item`).
+- `/mob/proc/ClickOn` (`code/_onclick/click.dm:72-133`): a plain click returns silently at `if(next_move > world.time)`, before the held item is used. `try_spray` (`spray.dm:51-81`) ends with `user.changeNext_move(CLICK_CD_RANGE * 2)`, 8 deciseconds (`CLICK_CD_RANGE` is 4 in `code/__DEFINES/combat.dm:104`).
+- A mess on open floor is cleaned from on top of it (`can_reach_target_now`, and the comment under it in `crew_npc_hands.dm:429-437`), so `do_spray` takes the same-turf branch and the mess is gone before `ClickOn` returns. `crew_npc_do_errand/perform_async` (`crew_npc_hands.dm:392-402`) then calls `finish_errand` at once, and `next_mess` starts the next errand. The tree plans every 0.25 seconds (`SSai_controllers` `wait`). One step and a tick or two later the next click comes well inside the 0.8 seconds and is dropped.
+- The log example is real: `data/logs/2026/11/18/round-12.23.07/attack.log` lines 286 and 325, Andre Davis, 18:24:53.597 and 18:25:02.443. The same round's `crew_brain.log` line 1108 has Andre Davis, holding space cleaner, reporting that "the rest will not come off" in the Mining Office. I did not redo the 492-spray count.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions `next_move` or the click cooldown; the entries on `clean_mess` (the 8 more seconds, `stubborn_kinds` per room) treat the stall as a mess that will not shift. Not fixed, not chosen.
+- Kept separate from HAND-01: the same base-game rule, but a different proc and a different change, and only this one wrongly marks messes stubborn. SEC-06 is a duplicate of HAND-01, not of this.
+- Severity high stands: it writes off rooms of dirt for the commonest janitor tool, and the logs show it in most rounds with a janitor. Confidence raised to sure: the trace is end to end. Not run in a game.
