@@ -3,7 +3,7 @@
  * events from the server into prompts for the player's local Ollama, and turns the LLM's tool
  * calls into requests to the server. The server never contacts the LLM itself.
  */
-import { saidTo } from './addressing';
+import { callsOn, saidTo } from './addressing';
 import { buildChoice, readChoice } from './choice';
 import { clearExpected } from './expected';
 import { clearRounds, roundsAfterSaying } from './jobs/rounds';
@@ -1765,13 +1765,24 @@ async function think(brain: NpcBrain): Promise<void> {
         if (action.tool === 'say') {
           const text = String(action.text ?? '');
           noteSaid(brain, text);
-          // Whoever it has just spoken to by name is who it is talking with: what they say next,
-          // with no name in it, is meant for this NPC.
+          // Whoever it has just called on by name is who it is talking with: what they say next,
+          // with no name in it, is meant for this NPC. Speaking of someone is not calling on
+          // them, and "I hope so" does not call on Hope. Calling on nobody, it is still talking
+          // with whoever it was answering, from now.
           const spokeTo = brain.peopleInView.find((person) =>
-            new RegExp(`\\b${person.name.split(' ')[0]}\\b`, 'i').test(text),
+            callsOn(text, person.name),
           );
           if (spokeTo) {
             brain.inTalkWith = { name: spokeTo.name, at: Date.now() };
+          } else if (
+            brain.inTalkWith &&
+            brain.peopleInView.some(
+              (person) =>
+                speakers.includes(person.handle) &&
+                person.name === brain.inTalkWith?.name,
+            )
+          ) {
+            brain.inTalkWith = { name: brain.inTalkWith.name, at: Date.now() };
           }
         }
       }

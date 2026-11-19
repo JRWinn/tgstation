@@ -3,7 +3,7 @@
 //
 //   bun run addressing.ts
 const { ROOT, makeBrain } = await import('./fixtures');
-const { saidTo } = await import(ROOT + 'addressing');
+const { saidTo, callsOn } = await import(ROOT + 'addressing');
 
 const zim = { handle: 'p1', name: 'Zim Fire', job: 'Captain' };
 const josh = { handle: 'p2', name: 'Josh Reed', job: 'Assistant' };
@@ -44,6 +44,14 @@ const cases: [string, string, string][] = [
   ['no name, speaker beside it but turned to someone nearer', hears('What a day.', { with: [josh], tiles: 1, facing: false, nearest: false }), 'nobody'],
   ['no name, speaker turned towards it from three tiles off', hears('What a day.', { with: [josh], tiles: 3, facing: true }), 'me'],
   ['no name, but the two of them were just talking', hears('And then what?', { with: [josh], tiles: 5, facing: false, talking: true }), 'me'],
+  // BRAIN-06: who an NPC's own line calls on, which is who it is then talking with.
+  ['callsOn: "I hope the Kitchen is open." does not call on Hope Reyes', String(callsOn('Right away, Captain. I hope the Kitchen is open.', 'Hope Reyes')), 'false'],
+  ['callsOn: "I\'ll ask Ann to let me in." does not call on Ann Moss', String(callsOn("I'll ask Ann to let me in.", 'Ann Moss')), 'false'],
+  ['callsOn: "Ann, I\'ll get my mop." calls on Ann Moss', String(callsOn("Ann, I'll get my mop.", 'Ann Moss')), 'true'],
+  ['callsOn: "Oh hey Arielle! Can you open the door?" calls on Arielle', String(callsOn('Oh hey Arielle! Can you open the door?', 'Arielle Durstine')), 'true'],
+  ['callsOn: "Oh hello Arielle!" calls on Arielle', String(callsOn('Oh hello Arielle!', 'Arielle Durstine')), 'true'],
+  ['callsOn: "I saw Billy!" does not call on Billy', String(callsOn('I saw Billy!', 'Billy Marsh')), 'false'],
+  ['"Oh hey Josh, come here" with Josh in the room', hears('Oh hey Josh, come here', { with: [josh] }), 'other:Josh Reed'],
 ];
 let failed = 0;
 for (const [label, got, want] of cases) {
