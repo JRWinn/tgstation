@@ -74,8 +74,23 @@
 		if(QDELETED(container))
 			continue
 		set_blackboard_key(BB_CREW_NPC_STORAGE_TARGET, container)
+		storage_target_at = world.time
+		addtimer(CALLBACK(src, PROC_REF(storage_overdue), container, storage_target_at), CREW_NPC_ERRAND_LIMIT)
 		return
 	finish_search()
+
+/// world.time the body was last pointed at a container to look inside.
+/datum/ai_controller/crew_npc/var/storage_target_at = 0
+
+/// The backstop for a look in a container that never ended: the search is given up, and the brain told.
+/datum/ai_controller/crew_npc/proc/storage_overdue(obj/structure/closet/container, set_at)
+	if(QDELETED(src) || storage_target_at != set_at || blackboard[BB_CREW_NPC_STORAGE_TARGET] != container)
+		return
+	var/tool = search_tool
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) gave up its search: still not done with one container after [DisplayTimeText(CREW_NPC_ERRAND_LIMIT)].")
+	cancel_search()
+	if(tool)
+		action_result(tool, FALSE, "You could not finish looking through the storage.")
 
 /// Ends the search and tells the brain how it went.
 /datum/ai_controller/crew_npc/proc/finish_search()
@@ -254,7 +269,14 @@
 /datum/bt_node/ai_behavior/crew_npc_look_inside/perform_async(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	var/obj/structure/closet/container = controller.blackboard[target_key]
-	var/list/result = crew_controller.look_inside(container)
+	var/list/result
+	// An error in the look must not leave the search stuck: it is logged, and the search moved on.
+	try
+		result = crew_controller.look_inside(container)
+	catch(var/exception/error)
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) look inside stopped on an error: [error.name] at [error.file]:[error.line].")
+		stack_trace("crew NPC look inside: [error.name] at [error.file]:[error.line]")
+		result = list("state" = "unreached")
 	if(!async_still_valid())
 		return
 	finish_async(AI_BEHAVIOR_SUCCEEDED)

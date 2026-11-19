@@ -171,6 +171,21 @@
 	errand_item = wanted
 	errand_serial++
 	set_blackboard_key(BB_CREW_NPC_ERRAND_TARGET, target)
+	addtimer(CALLBACK(src, PROC_REF(errand_overdue), errand_serial), CREW_NPC_ERRAND_LIMIT)
+
+/**
+ * The backstop for an errand whose work never ended: the body would stand counted as busy for the
+ * rest of the round, and be sent nothing more. Given up, and the brain told it failed.
+ */
+/datum/ai_controller/crew_npc/proc/errand_overdue(serial)
+	if(QDELETED(src) || errand_serial != serial || !blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	var/tool = errand_tool
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) gave up its [tool || "unknown"] errand: still not done after [DisplayTimeText(CREW_NPC_ERRAND_LIMIT)].")
+	errand_in_flight = FALSE
+	cancel_errand()
+	if(tool)
+		action_result(tool, FALSE, "You could not finish that.")
 
 /**
  * TRUE if the errand a run of work belongs to has been called off, or the body or this controller
@@ -432,11 +447,14 @@
 	var/list/outcome
 	crew_controller.errand_in_flight = TRUE
 	// Cleared however the run ends, a thrown error too, or every later errand would wait on it for good.
+	var/tool = crew_controller.errand_tool
+	// An error in the work must not leave the body busy for good: it is logged, and the errand closed as failed.
 	try
 		outcome = crew_controller.do_errand(controller.blackboard[target_key])
 	catch(var/exception/error)
-		crew_controller.errand_in_flight = FALSE
-		throw error
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) errand [tool] stopped on an error: [error.name] at [error.file]:[error.line].")
+		stack_trace("crew NPC errand [tool]: [error.name] at [error.file]:[error.line]")
+		outcome = list(FALSE, "Something stopped you, and you could not finish.")
 	crew_controller.errand_in_flight = FALSE
 	if(async_still_valid())
 		finish_async(AI_BEHAVIOR_SUCCEEDED)

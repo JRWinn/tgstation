@@ -90,6 +90,8 @@
 #define CREW_NPC_REACH_TIMEOUT (20 SECONDS)
 /// How long a crew NPC holds a container open while it looks inside.
 #define CREW_NPC_LOOK_TIME (0.8 SECONDS)
+/// The longest an errand, or a look in one container, may run before it is given up as stuck.
+#define CREW_NPC_ERRAND_LIMIT (5 MINUTES)
 /// Percent chance that exploring goes back to storage due a second look when there are still new rooms to find.
 #define CREW_NPC_REVISIT_CHANCE 20
 /// How many rooms a crew NPC tests a route to each time it looks for somewhere new to explore.
