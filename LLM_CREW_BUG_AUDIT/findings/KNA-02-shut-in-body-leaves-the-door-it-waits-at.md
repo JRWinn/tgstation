@@ -3,10 +3,11 @@ id: KNA-02
 title: A body shut in and waiting at the door is sent off to search storage and to walk to rooms it cannot reach
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:577, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:500, tgui/packages/tgui/interfaces/CrewBrain/jobs/meetings.ts:423
 fix: While shut in with no open door in view, offer only steps that keep the body where it is, and make the meeting step wait instead of walking
@@ -19,7 +20,7 @@ See also: DRV-12
 A body that is shut in a locked room goes to the door, knocks, and sends word to whoever let it in. Then it has a minute to wait before it writes to the next person (`NOBODY_CAME_MS`). During that minute nothing in `nextStep` holds it at the door. It falls through to its ordinary work and then to passing the time:
 
 - with storage in the room it is told to `search`, and walks away from the door to the lockers;
-- with a staff meeting called it is told `go_to` the meeting room, which cannot succeed, and each failure is one more "walk failed" line and one more count toward being shut in;
+- with a staff meeting called it is told `go_to` the meeting room, which cannot succeed, and each failure is one more "walk failed" line (and a walk off the door first). The driver's leaving throttle (`walksOut` and `tryLeavingAt` in `drive`, about `driver.ts:768`) already holds a `go_to` or `explore` back to one try in 20 seconds (120 if `wantsOut`), except while `wayOutOpen`; it does not hold back `search`, which is in `STAYS`;
 - then, because it is no longer at the door, it is sent back to the door (`go_to_door`), and round again.
 
 It should stand at the door until it is let out or it is time to write to the next person, and do only what needs no walking (send a message, clean what is in reach).
@@ -92,8 +93,11 @@ Seen in a round log (the lines above), then read from the code. Not run in the s
 
 1. In `nextStep` (`driver.ts`), after the shut-in block that ends near line 402 and before `wantsOut`, add: if `stuck` (shut in, no open door in view) and `brain.atDoorOf === brain.location`, the body waits. Let through only what keeps it where it is: a `tell` by PDA, and work whose act is in `STAYS` (`message`, `clean`, `note`, `word_passed`) or whose `task.place === brain.location`. Everything else is skipped, and when nothing is left return `null`. Do not let `search` through: it is in `STAYS` but walks the body to each locker.
 2. In the same place, when `stuck` and not at the door, nothing but the `go_to_door` step should be offered. Today a `go_to_door` in backoff lets work through.
-3. In `jobs/meetings.ts`, where the staff walk to the meeting is planned (`:423`), return `{ ready: false, step: 'You are shut in ... and will go when you are let out.' }` while `brain.shutIn`. The existing "missed" path (`summons.missed`, report by PDA) then covers the meeting, as it did in the round at 02:17:27.
+3. In `jobs/meetings.ts`, where the staff walk to the meeting is planned (`:423`), return `{ ready: false, step: 'You are shut in ... and will go when you are let out.' }` while `brain.shutIn && !brain.doorOpen` (so that a door standing open is still tried, as `wayOutOpen` means it to be). The existing "missed" path (`summons.missed`, set in `meetings.ts:285` when the head says the meeting is over, report by PDA) then covers the meeting, as it did in the round at 02:17:27.
 4. Leave `wayOutOpen` as it is: a door standing open is worth two tries.
+5. Simplest form of steps 1 and 2: one flag, `const holdAtDoor = stuck && brain.atDoorOf === brain.location`, tested in the work loop (skip any plan whose act is not in `STAYS`, or is `search` or `find_supplies`, both of which walk to lockers; a plan with only `say` is fine) and before the idle block (`return null`). Work in the same room with a walking act (`clean` of a mess across the room starts a walk too) is better skipped as well: the body is waiting for a door that will be held only `CREW_NPC_DOOR_HELD`.
+
+Effort is medium, not small: two window files, about 25 lines, and the door scenarios to re-run.
 
 Keeps the rules: code decides, nothing new is known to the body, no model is asked.
 

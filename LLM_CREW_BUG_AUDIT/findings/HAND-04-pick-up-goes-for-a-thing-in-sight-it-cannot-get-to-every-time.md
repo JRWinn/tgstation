@@ -3,12 +3,13 @@ id: HAND-04
 title: Pick up goes for the nearest thing of that name in sight even when it cannot be got to, every time, and never for the closet it knows holds one
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
-files: code/modules/llm_crew/crew_npc_hands.dm:40, code/modules/llm_crew/crew_npc_hands.dm:405, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:898
+files: code/modules/llm_crew/crew_npc_hands.dm:40, code/modules/llm_crew/crew_npc_hands.dm:405, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:898, tgui/packages/tgui/interfaces/CrewBrain/memory.ts:293, code/modules/llm_crew/crew_npc_senses.dm:161
 fix: Keep a short list of things pick up could not get to, with the time, skip them in tool_pick_up for a few minutes, and fall through to the remembered container
 ---
 
@@ -74,6 +75,7 @@ Read from the code, both sides. Not seen in a round. To look for it: in `game.lo
 5. With the thing in sight skipped, the loop over `storage_memory` runs and the remembered locker is gone to, as meant.
 6. `ways_reopened()` should empty `pickup_unreached`, as for the other lists of things not reached.
 7. In the window, the "someone has taken it" test in `janitor.ts` could be kept as it is: with this fix a failed `pick_up` of soap means the soap really is not to be had anywhere the body knows.
+8. The window needs to hear of it too, or the case with no locker known is not mended. `things_in_view` is built from the same `oview` (`crew_npc_senses.dm`, `notable_things(in_sight)`), and `allKnownItems` (`memory.ts`) offers every item in it, so `knownSupply` and `scrubberToHand` keep naming the thing behind the glass. With steps 1 to 5 the server then fails at once ("You cannot see one, and you do not remember where one is kept.") instead of after a walk, but the janitor's `SUPPLIES` step still asks for the same `pick_up` after every backoff, and `needs` stays null because `knownSupply` is set, so it never tells its head. Either leave out of `things_in_view` (or mark `unreached`) any item in `pickup_unreached` or in an area `locked_out_of`, or keep in the window a short list of item names whose `pick_up` failed lately and have `allKnownItems` skip those. The first keeps one truth on the server side and is the smaller change.
 
 Keeps the rules: it only changes which thing the body walks to.
 
@@ -82,3 +84,5 @@ Keeps the rules: it only changes which thing the body walks to.
 - Server compile to a side copy.
 - The simulator plays the server, so this is server-only; a sim case cannot show it.
 - In a round: put a bar of soap behind a window in a room locked to janitors, with the janitor's closet soap known, and leave a cobweb in the hallway outside. `game.log` must show the janitor walking to its closet for soap, not a "walk failed" for the soap behind the glass.
+- In a round, for step 8: take the janitor's mop, make sure it knows of no locker with one, and put a mop behind a window in a room locked to it. `crew_brain.log` must show at most one failed `pick_up mop`, then a PDA to its head saying it needs supplies.
+- For step 8 done in the window: a sim case with a janitor lacking a tool, a mop in `thingsInView`, and one failed `pick_up mop` result; the next plan step must not be `pick_up mop`.
