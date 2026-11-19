@@ -533,26 +533,46 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	// own tile, where shutting the crate would take it back in, nor the deck of the shuttle.
 	var/turf/feet = get_turf(body)
 	var/may_drop = feet != get_turf(crate) && !istype(get_area(feet), /area/shuttle)
+	// Each letter by hand, as a player does it: a click on the letter with an empty hand, and a
+	// click on the bag with it. About two seconds a letter, so the errand may be called off, or the
+	// body taken away, part way through: then it stops, and what is not taken stays in the crate.
+	var/serial = errand_serial
+	var/stopped = FALSE
 	for(var/obj/item/mail/letter in crew_npc_crate_holds(crate))
+		if(!stopped && (QDELETED(src) || QDELETED(body) || QDELETED(crate) || errand_serial != serial || !crate.opened || !can_reach_target_now(crate)))
+			stopped = TRUE
+		if(stopped)
+			left++
+			continue
+		if(QDELETED(letter) || get_turf(letter) != get_turf(crate))
+			continue
+		if(!empty_clicking_hand() || !click_as_body(letter) || QDELETED(letter) || !body.is_holding(letter))
+			left++
+			continue
 		var/whose = crew_npc_mail_for(letter)
-		if(isnull(whose))
+		if(isnull(whose) && may_drop)
 			// Addressed to nobody: junk. It comes out all the same, or the crate can never go
-			// back. Picked up and dropped, to be binned with the rest of the rubbish.
-			if(may_drop)
-				// With both hands full it goes straight to the floor at its feet, which is where it was going.
-				if(body.put_in_hands(letter))
-					body.dropItemToGround(letter)
-				binned++
-			else if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
+			// back. Dropped at its feet, to be binned with the rest of the rubbish.
+			body.dropItemToGround(letter)
+			binned++
+			continue
+		// Into the bag: mail for someone, and junk where it may not be dropped (the crate's own
+		// tile, where shutting the crate would take it back in, or the deck of the shuttle).
+		if(stow_in_bag(letter))
+			if(isnull(whose))
 				binned++
 			else
-				left++
+				taken++
+				names |= whose
 			continue
-		if(body.equip_to_storage(letter, ITEM_SLOT_BACK, indirect_action = TRUE))
-			taken++
-			names |= whose
-		else
-			left++
+		// The bag is full, or there is none. The letter goes back in the open crate, by a click on
+		// the crate with it, and the rest stay where they are.
+		if(!QDELETED(crate) && crate.opened)
+			click_as_body(crate)
+		left++
+		stopped = TRUE
+	if(QDELETED(body) || QDELETED(crate))
+		return list(FALSE, "You could not get to it.")
 	// Shutting it takes back in whatever is still lying there: any mail there was no room for.
 	if(crate.opened)
 		crate.close(body)
