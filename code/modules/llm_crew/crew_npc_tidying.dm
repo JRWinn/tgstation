@@ -72,6 +72,11 @@
 /datum/ai_controller/crew_npc/proc/wants_shutting(obj/structure/closet/container)
 	if(!container.opened || !isturf(container.loc))
 		return FALSE
+	// A crate someone collected and unpacked where it stands: its things are there for the taking.
+	if(istype(container, /obj/structure/closet/crate))
+		var/obj/structure/closet/crate/crate = container
+		if(crate.crew_npc_unpacked)
+			return FALSE
 	var/skipped_at = tidy_skipped[REF(container)]
 	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
 		return FALSE

@@ -66,6 +66,8 @@
 /obj/structure/closet/crate/var/crew_npc_came_by_shuttle = FALSE
 /// The tile cargo's crew last left this crate standing on. A crate still there is where they meant it to be, on a marked square or not: it is not moved again until someone moves it.
 /obj/structure/closet/crate/var/turf/crew_npc_left_on
+/// TRUE while this crate stands open where someone who collected it unpacked it, its things on its tile for the taking. Nobody tidying shuts it on them.
+/obj/structure/closet/crate/var/crew_npc_unpacked = FALSE
 
 /**
  * Returns the marked squares on the floor of a room: the tiles painted with a box, which is where

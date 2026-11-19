@@ -559,23 +559,27 @@
 	return best_turf
 
 /**
- * Tips out what a crate holds onto the floor round it, and returns the names of what came out.
- * What was collected is left where people can pick it up, and the crate goes back to cargo to be sent away.
+ * Opens a crate where it stands, as anyone opening it would: what it holds lies on its own tile,
+ * where people can pick it up, and the crate goes back to cargo to be sent away. Returns the names
+ * of what was in it, or null if it would not open (locked to the body, welded, or a wooden crate
+ * that wants a crowbar). When it is taken back it is shut where it is left, not here: shutting a
+ * crate takes back in whatever lies on its tile.
  */
 /datum/ai_controller/crew_npc/proc/tip_out(obj/structure/closet/crate/crate)
-	var/turf/here = get_turf(crate)
-	var/list/spots = list()
-	for(var/turf/open/spot in orange(1, here))
-		if(get_area(spot) == get_area(here) && crew_npc_safe_turf(spot) && !spot.is_blocked_turf(exclude_mobs = TRUE))
-			spots += spot
-	if(!length(spots))
-		spots += here
+	var/mob/living/carbon/human/body = pawn
+	// What was in it, read before it is opened: once open, the tile is read, with whatever was lying there already.
 	var/list/names = list()
-	var/index = 0
 	for(var/obj/item/thing as anything in crew_npc_crate_holds(crate))
-		index++
-		thing.forceMove(spots[((index - 1) % length(spots)) + 1])
 		names |= format_text(thing.name)
+	if(crate.opened)
+		return names
+	// A large wooden crate is pried apart with a crowbar, not opened by hand (HAND-12).
+	if(istype(crate, /obj/structure/closet/crate/large))
+		return null
+	// The open a click on it reaches, with its lock and weld checks.
+	if(!crate.open(body))
+		return null
+	crate.crew_npc_unpacked = TRUE
 	return names
 
 /// Tool: fetch the crate the body unpacked and haul it back to cargo, to go back on the shuttle.
@@ -620,6 +624,13 @@
 	var/atom/movable/hauled = body.pulling
 	body.stop_pulling()
 	var/place = get_area_name(body, TRUE)
+	// It goes back shut, as cargo takes no crate standing open. Shut here, where it is let go, and
+	// not where it was unpacked: shutting a crate takes in whatever lies on its tile.
+	if(succeeded && istype(hauled, /obj/structure/closet/crate))
+		var/obj/structure/closet/crate/emptied = hauled
+		emptied.crew_npc_unpacked = FALSE
+		if(emptied.opened)
+			emptied.close(body)
 	if(succeeded && hauled)
 		crate_to_return = null
 		action_result(CREW_TOOL_TAKE_BACK, TRUE, "You bring the empty crate back to [place]. It can go back on the supply shuttle.", list("place" = place))
