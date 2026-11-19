@@ -1439,6 +1439,45 @@ async function chooseJob(brain: NpcBrain): Promise<void> {
   pump();
 }
 
+/** Who spoke to an NPC for one call, and what of theirs was news then. */
+type Asked = {
+  speakers: string[];
+  report: string[];
+  news: NpcBrain['talkLog'];
+  names: string[];
+};
+
+/**
+ * Puts whoever spoke back to be answered, when what the NPC said was a line its work called for
+ * and not an answer to them. Their words go back as news, not as history, and it is woken, so the
+ * next call is an ordinary one for someone who has spoken to it. Not counted as a reply to them.
+ */
+function answerAgain(brain: NpcBrain, asked: Asked): void {
+  const theirs = asked.report.filter(
+    (line) =>
+      line.includes(' says: ') &&
+      asked.speakers.some((handle) => line.includes(`(person ${handle}`)),
+  );
+  brain.pending.unshift(...theirs);
+  let forMe = linesForMe.get(brain);
+  if (!forMe) {
+    forMe = new Set();
+    linesForMe.set(brain, forMe);
+  }
+  for (const line of theirs) {
+    forMe.add(line);
+  }
+  for (const said of asked.news) {
+    if (!said.own && asked.names.includes(said.who)) {
+      said.reported = false;
+    }
+  }
+  for (const speaker of asked.speakers) {
+    brain.pendingSpeakers.add(speaker);
+  }
+  brain.wake = true;
+}
+
 /** Holds the driver off a while after a line its work asked for turned out not to be needed (BRAIN-03). */
 function holdDriverAfterDrop(brain: NpcBrain): void {
   brain.driveAfter = Math.max(
@@ -1505,7 +1544,19 @@ async function think(brain: NpcBrain): Promise<void> {
   });
   const { messages, trigger, superior, toldBy, ordered } = call;
   const { feelAbout, workTold: told } = call.parts;
-  // What it heard and is now being told of becomes part of the talk so far.
+  // What it heard and is now being told of becomes part of the talk so far. What was news, and who
+  // said it, are kept in case the answer turns out to answer none of them: see answerAgain.
+  const asked: Asked = {
+    speakers,
+    report,
+    news: brain.talkLog.filter((said) => !said.reported),
+    names: speakers.flatMap((handle) => {
+      const name =
+        heardFrom.get(brain)?.get(handle)?.name ??
+        brain.peopleInView.find((seen) => seen.handle === handle)?.name;
+      return name ? [name] : [];
+    }),
+  };
   for (const said of brain.talkLog) {
     said.reported = true;
   }
@@ -1573,6 +1624,8 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // Nor is a line said that is only the model's way of saying it has nothing to say.
     const unprompted = speakers.length === 0 && !mustSay;
+    // Set when what is said does not answer whoever spoke, so they are asked about again.
+    let unanswered = false;
     const replied = parseReply(reply);
     for (const action of replied) {
       if (action.tool === 'say') {
@@ -1597,12 +1650,30 @@ async function think(brain: NpcBrain): Promise<void> {
         );
         return false;
       }
+      // A line no longer needed is left out of the answer too, when it can be told apart: the
+      // answer was written to work it in. Whoever spoke is then asked about again (BRAIN-07).
+      if (
+        dropped &&
+        speakers.length > 0 &&
+        !!mustSayNeeds &&
+        mustSayNeeds.test(text)
+      ) {
+        decision.calls.push(
+          `say(${JSON.stringify(text)}) [the line in it is no longer needed: not said]`,
+        );
+        unanswered = true;
+        return false;
+      }
       return !(
         alone ||
         (dropped && speakers.length === 0) ||
         (unprompted && (isFiller(text) || saidBefore(brain, text)))
       );
     });
+    // A line its work called for that is said in place of an answer, and is not to whoever spoke,
+    // has not answered them (BRAIN-09).
+    const notToThem = (line: string) =>
+      speakers.length > 0 && !asked.names.some((name) => callsOn(line, name));
     if (mustSay && exact) {
       // The line is said as it stands: the numbers in it are the server's, and whoever hears it
       // goes by its words. Whatever the LLM gave is a remark to follow it, if it is fit to be one.
@@ -1611,6 +1682,9 @@ async function think(brain: NpcBrain): Promise<void> {
       actions.length = 0;
       if (!alone) {
         actions.push({ tool: 'say', text: withRemark(mustSay, given?.text) });
+        if (notToThem(mustSay)) {
+          unanswered = true;
+        }
       }
       actions.push(...rest);
     } else if (
@@ -1629,6 +1703,9 @@ async function think(brain: NpcBrain): Promise<void> {
           !mustSayNeeds.test(String(action.text ?? ''))
         ) {
           action.text = mustSay;
+          if (notToThem(mustSay)) {
+            unanswered = true;
+          }
         }
       }
     }
@@ -1799,7 +1876,13 @@ async function think(brain: NpcBrain): Promise<void> {
         brain.toldOfMess.set(brain.location, brain.now);
       }
       // Speaking after hearing someone counts as a reply to them.
-      noteReplies(brain, speakers);
+      if (!unanswered) {
+        noteReplies(brain, speakers);
+      }
+    }
+    if (unanswered) {
+      answerAgain(brain, asked);
+      decision.calls.push('[whoever spoke is still to be answered]');
     }
   } catch (error) {
     if (mySession !== session) {
@@ -1845,8 +1928,13 @@ async function think(brain: NpcBrain): Promise<void> {
         );
       }
     }
-    // The LLM being down must not leave the body dumb: what had to be said is said plainly.
-    if (mustSay && brain.peopleInView.length > 0) {
+    // The LLM being down must not leave the body dumb: what had to be said is said plainly. Unless
+    // it has stopped needing saying in the time the call took.
+    if (
+      mustSay &&
+      brain.peopleInView.length > 0 &&
+      !(mustSayIf && !mustSayIf())
+    ) {
       runTool(brain, { tool: 'say', text: mustSay });
       decision.calls.push(`say(${JSON.stringify(mustSay)}) [the LLM gave none]`);
       brain.lastSayAt = Date.now();
