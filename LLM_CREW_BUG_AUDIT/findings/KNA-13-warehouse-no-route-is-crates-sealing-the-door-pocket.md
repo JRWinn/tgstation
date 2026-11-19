@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: found
+status: duplicate
+duplicate_of: KNB-01
 found_by: Fable 5.2
 area: doors
 files: code/modules/llm_crew/crew_npc_places.dm:32, code/modules/llm_crew/crew_npc_tools.dm:370, code/modules/llm_crew/crew_npc_tools.dm:534

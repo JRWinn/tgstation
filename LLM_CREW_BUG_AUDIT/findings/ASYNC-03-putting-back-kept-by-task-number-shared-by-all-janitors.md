@@ -5,7 +5,8 @@ kind: bug
 severity: low
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: DESK-04
 found_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:127, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:157, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:239, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:198

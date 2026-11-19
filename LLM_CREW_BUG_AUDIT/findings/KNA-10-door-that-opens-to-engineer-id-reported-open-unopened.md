@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: DOOR-07
 found_by: Fable 5.2
 area: engineering
 files: code/modules/llm_crew/crew_npc_forcing.dm:154, code/modules/llm_crew/crew_npc_forcing.dm:443, tgui/packages/tgui/interfaces/CrewBrain/jobs/forcing.ts:386

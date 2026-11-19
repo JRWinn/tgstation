@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: JOBS-01
 found_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/supply.ts:19, tgui/packages/tgui/interfaces/CrewBrain/jobs/engineering.ts:19, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:84, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:30, tgui/packages/tgui/interfaces/CrewBrain/jobs/index.ts:21

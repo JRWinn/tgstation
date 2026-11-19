@@ -5,7 +5,8 @@ kind: gap
 severity: medium
 effort: medium
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: KNA-23
 found_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:878, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:900, code/modules/llm_crew/crew_npc_tools.dm:370
