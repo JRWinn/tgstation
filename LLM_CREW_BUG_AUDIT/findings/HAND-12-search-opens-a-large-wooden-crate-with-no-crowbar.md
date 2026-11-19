@@ -5,8 +5,9 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: hands
 files: code/modules/llm_crew/crew_npc_storage.dm:11, code/modules/llm_crew/crew_npc_storage.dm:115, code/modules/llm_crew/crew_npc_hands.dm:276, code/game/objects/structures/crates_lockers/crates/large.dm:27
 fix: Leave crate/large out of storage_to_search and out of take_from_container until a crowbar step is built, the way body bags and cardboard boxes are left out
@@ -21,6 +22,8 @@ A large wooden crate (`/obj/structure/closet/crate/large`) does not open by hand
 `look_inside` and `take_from_container` open storage by calling `container.open(body)`. The base `open()` and `can_open()` know nothing of the crowbar: a large crate has no `before_open` or `can_open` of its own. So a body opens one bare-handed, sees what is in it, stands for 0.8 seconds, and shuts it again with `container.close(body)`, as if it were a locker. The crate is left whole, its contents known, its manifest torn off and shut inside it (`after_open` → `tear_manifest()`, then `take_contents`).
 
 `storage_to_search` leaves out body bags, cardboard boxes, coffins and supply pods. It does not leave out large crates.
+
+How a large crate gets aboard: no station map places one (`grep` of `_maps/map_files/*/*.dmm` finds none), and the crew cannot order one (`orderable_crates`, see GAP-02). So it takes a player ordering one of the 12 packs at a cargo console. Rare in the rounds played so far, but certain once it happens.
 
 One concrete case. A player orders a pack that comes in a large crate (12 packs in `code/modules/cargo/packs/` use `crate_type = /obj/structure/closet/crate/large`). A technician unloads it into the bay. A janitor sent to explore comes into the Cargo Bay.
 
@@ -75,3 +78,16 @@ Keeps the rules: the body leaves alone what a player could not open.
 
 - Server compile to a side copy.
 - In a round: spawn a `/obj/structure/closet/crate/large` with something in it in a room and send a crew NPC to search there. `game.log` and the brain's storage sense must not show it looked inside.
+
+## Check
+
+Confirmed, by reading the code; nothing was run.
+
+- The quotes match the code today: `storage_to_search` (`crew_npc_storage.dm:11`) leaves out body bags, cardboard boxes, coffins and supply pods only; `look_inside` calls `container.open(body)` (`:115`); `take_from_container` the same (`crew_npc_hands.dm:276`).
+- Base `closet/open` (`closets.dm:538`) checks `can_open` (`:474`: welded, locked, the user's mobility, a strong pull, something large on top) and `before_open`, which returns TRUE. `crate/large` (`crates/large.dm`) overrides neither, and is not locked. So `open(body)` succeeds on one. What a player meets is `attack_hand` (manifest only, "You need a crowbar to pry this open!") and `item_interaction` (refuses everything); only `crowbar_act` opens it, and that deletes the crate. Calling `open()` straight is a way past the crowbar no player has: a no-cheats break, so high stands though it is rare.
+- `crate/after_open` (`crates.dm:118`) calls `tear_manifest()`, which drops the manifest on the tile; `look_inside` then counts it among what was "inside", and `close` takes it back in. As written.
+- `typecacheof` covers subtypes, so step 1 also covers `crate/large/hats` and the rest.
+- Overlap: GAP-02, KNB-06 and SUP-09 name the large crate for cargo's unpacking of an ordered crate, a different path (`tip_out`). None covers the search and the fetch, so this is not a duplicate. HAND-06's `open_storage` (step 3) is still `found`, not built.
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions large crates or a crowbar for crates.
+
+Changes made: added how a large crate gets aboard (no map has one, the crew cannot order one), which bears on how often this comes up. The fix is right and small; step 1 alone ends it.

@@ -3,13 +3,14 @@ id: LOGA-03
 title: A mop clicked on a cobweb or rubble takes it up, but the body only ever mops the floor under it, so every cobweb and pile of rubble is called beyond the mop and starts a round-long soap-or-rag loop
 kind: bug
 severity: high
-effort: small
-confidence: likely
-status: found
+effort: large
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: logs
-files: code/modules/llm_crew/crew_npc_cleaning.dm:512, code/modules/llm_crew/crew_npc_cleaning.dm:191, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:112
-fix: For a mop, click the mess itself when it is not is_mopped, and judge a mop by its cleaner strength alone in can_clean_mess, and take cobweb and rubble out of SCRUB_KINDS for a janitor holding a mop
+files: code/modules/llm_crew/crew_npc_cleaning.dm:513, code/modules/llm_crew/crew_npc_cleaning.dm:191, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:112
+fix: For a mop, click the mess itself when it is not is_mopped, judge a mop by its cleaner strength in can_clean_mess, and count a held mop as able to scrub in janitor.ts
 ---
 
 ## What is wrong
@@ -80,7 +81,7 @@ Seen in round logs (the PDA lines above), then traced in the code: the click tar
 
 1. In `clean_mess`, click the mess itself when the tool is a mop and the mess is not `is_mopped`: `var/atom/target = (istype(tool, /obj/item/mop) && mess.is_mopped) ? get_turf(mess) : mess`. Mopping the floor stays as it is for everything else, which also takes up the other mopable messes on that tile.
 2. In `can_clean_mess`, for a mop: shift anything its cleaner's strength covers, whether or not it is mopped. Read the strength off the tool: `var/datum/component/cleaner/cleaner = tool.GetComponent(/datum/component/cleaner); return cleaner && (mess.clean_type & cleaner.cleaning_strength)`. This also covers JAN-02's garbage and gooey grey mass.
-3. In `jobs/janitor.ts`, `SCRUB_KINDS` is then wrong for a janitor with a mop. Either drop cobweb and rubble from it, or (better, since a spray still cannot shift them) make the test "what this janitor holds cannot shift it" by asking whether it holds a mop, soap or a rag. Keep the words "needs scrubbing with soap or a rag" for a janitor with only a spray, but change them to "needs a mop, soap or a rag".
+3. In `jobs/janitor.ts`, the window works from the same wrong belief in three places, all through `canScrub` (`janitor.ts:122`, soap or a rag only): `changeForScrubbing` makes a janitor holding a mop and bucket carry them back to the closet and fetch a rag for a cobweb call; the call handler (`janitor.ts:819-833`) declines a call that names only cobwebs or rubble with "I have no soap or rag"; and `whatIsLeft` / the room line say a cobweb "needs scrubbing with soap or a rag". Make `canScrub` true for a held mop as well (`/soap|rag$|mop$/i`), and leave `SCRUB_KINDS` as it is: it still means "a spray cannot shift this", which stays true. Change the words to "needs a mop, soap or a rag" (`NEEDS_SCRUBBING`, `ONLY_IF_WORDS`, `whatIsLeft`, the room line), and change `ONLY_IF_WORDS` and the cargo side that writes the call (`jobs/cargo.ts`, which builds its call from `NEEDS_SCRUBBING`) together so they still match. A dry mop is fine to count: the server wets it before it cleans (`dry_mop`, `wet_mop`).
 4. Check `beyond_kinds_here`, `could_shift` and `messes_to_clean` all go through `can_clean_mess`, so that rooms with only a cobweb left are no longer marked "beyond what you are holding" for a janitor with a mop.
 5. Check the walk to the mess stops next to it: the click is on the decal, which may sit against a wall, and `CanReach` needs the body beside it.
 
@@ -90,3 +91,12 @@ Seen in round logs (the PDA lines above), then traced in the code: the click tar
 - In a round: put a janitor with a wet mop beside a cobweb in maintenance. `game.log` / the brain: "You clean up the cobweb". The cobweb should be gone.
 - Next round, `pda.log`: no "What is left (cobweb) needs scrubbing" or "(rubble)" from a janitor holding a mop, and far fewer cargo calls about the Bitrunning Den and the Mining Office.
 - Simulator: the `janitor` scenarios do not run the server; check only that a janitor holding a mop is not sent for a rag for a cobweb (`changeForScrubbing`).
+- Window: a throwaway case for the call handler: a janitor holding `mop` and `bucket`, sent "There is a mess in the Cargo Bay: cobweb. Could you come ...", should take the call, not send "I have no soap or rag", and `changeForScrubbing` should give null.
+
+## Check
+
+Checked by Opus 5.5. Read: `clean_mess` and `can_clean_mess` in `crew_npc_cleaning.dm` (the quotes are as on disk; the click is at line 513), `canScrub`, `changeForScrubbing`, `whatIsLeft` and the call handler in `jobs/janitor.ts`, and in the base game `/obj/item/mop` (`mop.dm`: the cleaner is added with no strength, so the default `CLEAN_SCRUB`; `should_clean` allows a wash when the mop holds a `REAGENT_CLEANS` reagent), `/datum/component/cleaner` (`on_interaction` on any atom clicked, then `target.wash(cleaning_strength)` after the `do_after`), `melee_attack_chain` (calls `base_item_interaction` first), `base_item_interaction` (the tool's `COMSIG_ITEM_INTERACTING_WITH_ATOM` comes before the decal's own `item_interaction`), `/obj/effect/decal/cleanable/item_interaction` (only acts for a cup that is not a rag, so it returns NONE for a mop after the signal has already run anyway), `/obj/effect/decal/cleanable/wash` (deletes when `clean_types & clean_type`), and `cleaning.dm` (`CLEAN_SCRUB` includes `CLEAN_TYPE_HARD_DECAL`). So a wet mop clicked on the cobweb itself deletes it, and the body never clicks it: the mop branch has clicked the turf since the first commit (`git log -S` finds the line in `82810bef`). `is_mopped` only decides `TRAIT_MOPABLE`, which `/turf/wash` uses.
+
+The change log's 15:07 round-13.32 entry, item (5) "A mop does not scrub", and `LLM_CREW_PLAN_ROUND_1332.md` row 5 built the present behaviour on the reading that cobwebs "want scrubbing with soap": that reading is right for washing the floor and wrong for clicking the decal, so this is a mistaken premise, not an owner's choice. The comment above `can_clean_mess` ("a janitor with a wet mop scrubbed at a cobweb, gave it up") is that turf click. Round logs: the 19.33.50 `pda.log` lines quoted are there (lines 55, 56, 65, 84 and on).
+
+Changed: effort to large (both the server and the window, as FORMAT.md counts it, though each side is small); confidence to sure; step 3 of the fix, since the window's harm is in `canScrub`, not only in `SCRUB_KINDS`, and `SCRUB_KINDS` should stay for the spray. Severity stays high: cobwebs and rubble were left in all three rounds of 2026-11-19 and fed the cargo call loop. Not run in a game.
