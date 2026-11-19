@@ -47,7 +47,14 @@ export function describeView(brain: NpcBrain): string[] {
     // How the NPC feels about each of them goes right beside the name, where it will be read.
     const people = brain.peopleInView.map((person) => {
       const feeling = describeFeeling(brain, person.name);
-      return `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle}${feeling ? `; ${feeling}` : ''})`;
+      // What anyone could see of them at a glance: down and not getting up, or in cuffs.
+      const state = [
+        person.down ? 'lying still' : '',
+        person.cuffed ? 'in cuffs' : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle}${feeling ? `; ${feeling}` : ''})${state ? ` (${state})` : ''}`;
     });
     lines.push(`People in view: ${people.join(', ')}.`);
   }

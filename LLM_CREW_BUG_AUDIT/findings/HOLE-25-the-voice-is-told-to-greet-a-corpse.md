@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: code/modules/llm_crew/crew_npc_senses.dm:200, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:947, tgui/packages/tgui/interfaces/CrewBrain/talk.ts:188, tgui/packages/tgui/interfaces/CrewBrain/person.ts:124, tgui/packages/tgui/interfaces/CrewBrain/situation.ts:45
 fix: Say in the arrival line and in People in view when someone is lying still, out cold, dead (as examining them would show) or cuffed, and do not wake the voice to greet anyone who is not up and awake
@@ -73,3 +74,12 @@ Read from the code: followed a `person_in_view` event from `look_around` through
 - Type check and server compile.
 - Simulator: a scenario with a person sent as `down: true` and `lying: true` arriving in view; check that no greeting is asked for, and that the report line reads "(lying still)".
 - In a round: kill a monkey-free test body with admin tools in a hallway and walk a janitor past it; read the brain log for the moment and what was said.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19, from the code, before the window half was built. Confirmed.
+
+- The quotes are what the code says today: the arrival text and its `lying` detail in `look_around` (`crew_npc_senses.dm`, about line 199), `cuffed` and `down` sent with each person in `people_in_view` (about line 191, `crew_npc_person_down` in `crew_npc_security.dm`), the `person_in_view` case of `shouldWake` in `brain.ts`, which looked only at "you have not seen them before" and a warrant, the `meeting` moment in `talk.ts`, and the "People in view" line in `describeView` (`situation.ts`), which wrote "Name, Job (handle)" whatever state the person was in.
+- `PersonInView` in `types.ts` already has `cuffed` and `down`, read only by security code (`jobs/arrests.ts`); nothing in the voice's report used them. So a person lying dead on the floor, seen for the first time, woke the voice for a greeting.
+- Nothing in the change log or the plans covers it (searched `lying`, `down`, `greet`). GAP-13 is the related gap; this is the cheaper part.
+- Severity medium and effort small stand for the window half (steps 2 and 3). Step 1, the server's wording and "dead" after a close look, is server work in `crew_npc_senses.dm` and was left for whoever owns that file.

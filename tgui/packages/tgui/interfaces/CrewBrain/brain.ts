@@ -1033,11 +1033,17 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
       // Someone security has a warrant on is not greeted. The first thing they hear is that
       // they are under arrest: see jobs/arrests.ts. Nor does a body that cannot break off what
       // it is doing, an arrest above all, stop to greet anyone: the one it is after gets away.
+      // Nor is anyone greeted who is not up: lying on the floor, or down and not getting up. A
+      // corpse is not told the janitor's name.
       return (
         line.includes('you have not seen them before') &&
         !isWarrantOn(brain, String(event.details.name ?? '')) &&
         !jobFor(brain.job).keptFromMeeting?.(brain) &&
-        !(brain.beat && onLead(brain))
+        !(brain.beat && onLead(brain)) &&
+        !event.details.lying &&
+        !brain.peopleInView.some(
+          (person) => person.handle === event.details.handle && !!person.down,
+        )
       );
     case 'knowledge':
       // Being walked out of a room by the arm is something to have a word about.
