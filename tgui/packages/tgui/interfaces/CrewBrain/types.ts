@@ -469,6 +469,16 @@ export type DeskWork = {
   readingAt?: number;
 };
 
+/** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */
+export type ForcingWork = {
+  /** For security: when it last asked engineering to open each room. */
+  asked: Record<string, number>;
+  /** For whoever forces doors: each door it has been sent to, by whom, and how many goes it has had. */
+  jobs: { room: string; by: string; tries: number }[];
+  /** For the Chief Engineer: each door it has sent an engineer to, and who asked for it. */
+  sent: { room: string; to: string; askedBy: string; at: number }[];
+};
+
 /** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */
 export type BeatWarrant = {
   name: string;
@@ -501,6 +511,8 @@ export type BeatWarrant = {
   cellFailedAt?: number;
   /** How many tries at a cell it has made for them in all. It numbers each try. */
   cellAttempts?: number;
+  /** A room engineering has forced open for it, when, and how many walks into it have failed since. */
+  opened?: { place: string; at: number; tries?: number };
   /**
    * A room they are in that it cannot get into: who it can ask to open it, who it has asked and
    * when it last asked, and whether it has given up asking.
@@ -1371,6 +1383,8 @@ export type NpcBrain = {
     ordered: boolean;
     told: boolean;
   }[];
+  /** Doors forced for security: what it has asked for, been sent to, or sent someone to. See jobs/forcing.ts. */
+  forcing?: ForcingWork;
   /** For a head: the staff meeting it is holding, and how far it has got: see jobs/head.ts. */
   meeting: {
     calledAt: number;

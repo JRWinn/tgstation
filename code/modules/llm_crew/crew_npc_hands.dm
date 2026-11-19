@@ -216,6 +216,8 @@
 			return open_own_crate(target)
 		if(CREW_TOOL_MACHINE)
 			return work_machine(target)
+		if(CREW_TOOL_FORCE_DOOR)
+			return force_door_open(target)
 		if(CREW_TOOL_RELEASE)
 			return haul_released(target)
 		if(CREW_TOOL_COLLECT)
@@ -337,6 +339,11 @@
 	// A thing it could not find a place for is put back down, not carried about for the rest of the shift.
 	if(tool == CREW_TOOL_TIDY && !outcome[1])
 		drop_tidy_item()
+	// Forcing a door says which door it was, and which step came to nothing: see crew_npc_forcing.dm.
+	if(tool == CREW_TOOL_FORCE_DOOR)
+		outcome = force_door_outcome(outcome)
+		action_result(tool, outcome[1], outcome[2], outcome[3])
+		return
 	if(tool != CREW_TOOL_CLEAN)
 		// Security's errands say why they came to nothing, and what came of them: see crew_npc_security.dm.
 		action_result(tool, outcome[1], outcome[2], CREW_NPC_SECURITY_TOOL(tool) ? security_details(tool, outcome) : null)
@@ -488,6 +495,8 @@
 				return "going to open a crate that came for you"
 			if(CREW_TOOL_MACHINE)
 				return "going to work a machine"
+			if(CREW_TOOL_FORCE_DOOR)
+				return "opening a locked door"
 			if(CREW_TOOL_GET_KIT)
 				return "going to get your baton and cuffs"
 			if(CREW_TOOL_ARREST)

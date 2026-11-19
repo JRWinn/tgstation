@@ -52,6 +52,7 @@ import {
   syncMeeting,
   workReported,
 } from './head';
+import { forcingReads } from './forcing';
 import type { Job } from './job';
 import { isMeetingOrder } from './meetings';
 import { addCounts, readReport, totalWords } from './reports';
@@ -211,6 +212,10 @@ export const HEAD_OF_SECURITY: Job = {
   // A warrant, a pardon or a sighting sent by PDA, word from its officer, or the Captain telling
   // it to find out how its staff are doing.
   readsMessage: (brain, from, text, _at, job) => {
+    // Word from engineering about a door it asked to have forced.
+    if (forcingReads(brain, from, job, text)) {
+      return;
+    }
     if (deskTakes(brain, from, job, text, false)) {
       return;
     }

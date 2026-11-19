@@ -300,6 +300,8 @@
 #define CREW_TOOL_OPEN_CRATE "open_own_crate"
 /// Tool name: go to one of the machines engineering staff work, and work it one way: turn a pump on, wrench a canister on, switch an emitter. Engineering staff only.
 #define CREW_TOOL_MACHINE "work_machine"
+/// Tool name: go to a door of a room that is locked to the body, take the door's power away and pry it open. Engineering staff only.
+#define CREW_TOOL_FORCE_DOOR "force_door"
 /// The most lines written in the order book in one go, and the longest a line may be, in characters.
 #define CREW_NPC_NOTE_LINES 6
 #define CREW_NPC_NOTE_LINE_LENGTH 200

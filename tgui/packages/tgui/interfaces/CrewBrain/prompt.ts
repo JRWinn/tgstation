@@ -158,6 +158,8 @@ const SERVER_TOOL_NAMES: Record<string, string> = {
   arrest: 'arrest',
   jail: 'jail',
   free: 'free',
+  // An engineer forcing a door that security cannot get through. Only ever asked for by code.
+  force_door: 'force_door',
 };
 
 /** How "my body" and "your body" are put right when they turn up in something said out loud. */

@@ -60,6 +60,14 @@ import {
   syncMeeting,
   workReported,
 } from './head';
+import {
+  describeForcing,
+  forcingAfterActing,
+  forcingCues,
+  forcingReads,
+  planForcing,
+  syncForcing,
+} from './forcing';
 import type { Job } from './job';
 import { isMeetingOrder } from './meetings';
 import { totalWords } from './reports';
@@ -262,6 +270,8 @@ function batteriesLeft(brain: NpcBrain) {
 
 /** Keeps the Chief Engineer's tasks true to the engine's reading, to what it has been told and to the time. */
 function syncTasks(brain: NpcBrain): void {
+  // A door to force for security, where it has no engineer to send.
+  syncForcing(brain);
   const chief = chiefOf(brain);
   const reading = brain.engineReading;
 
@@ -416,6 +426,10 @@ function giveStep(brain: NpcBrain): Plan {
 }
 
 function plan(brain: NpcBrain, task: Task): Plan | null {
+  const forcing = planForcing(brain, task);
+  if (forcing) {
+    return forcing;
+  }
   if (task.kind === MEET) {
     return meetStep(brain, ENGINE_WAY);
   }
@@ -450,6 +464,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
 }
 
 function describeTask(task: Task): string | null {
+  const forcing = describeForcing(task);
+  if (forcing) {
+    return forcing;
+  }
   switch (task.kind) {
     case MEET:
       return 'hold the engineering staff meeting';
@@ -623,13 +641,17 @@ export const CHIEF_ENGINEER: Job = {
         ]
       : []),
   ],
-  cues,
+  cues: (brain) => [...cues(brain), ...forcingCues(brain)],
   syncTasks,
   plan,
   describeTask,
   // Word from its engineer that could not be said to its face, or the Captain telling it to
   // find out how its staff are doing, or to have the engine lit again.
   readsMessage: (brain, from, text, _at, job) => {
+    // Security asking for a door to be forced, or its engineer saying how that went.
+    if (forcingReads(brain, from, job, text)) {
+      return;
+    }
     if (isEngineer(job)) {
       hearEngineer(brain, from, text, false);
       return;
@@ -695,9 +717,10 @@ export const CHIEF_ENGINEER: Job = {
       chief.order = null;
     }
   },
-  afterActing: (brain, act, task, ok) => {
+  afterActing: (brain, act, task, ok, _looped, details) => {
     const chief = chiefOf(brain);
     meetingActed(brain, act, ok);
+    forcingAfterActing(brain, act, ok, details);
     if (task?.kind === GIVE && chief.order) {
       // Having walked up to its engineer, near enough or not, it speaks.
       if (act.tool === 'approach') {

@@ -54,6 +54,14 @@ import {
   stuckLine,
   UNKNOWN_ENGINE,
 } from './engineering';
+import {
+  describeForcing,
+  forcingAfterActing,
+  forcingCues,
+  forcingReads,
+  planForcing,
+  syncForcing,
+} from './forcing';
 import type { Job } from './job';
 import { describeRounds, planRounds, roundsInHand, syncRounds } from './rounds';
 
@@ -162,6 +170,8 @@ function keep(
 
 /** Keeps the engineer's tasks true to what it has been told, what it has done and what it has yet to say. */
 function syncTasks(brain: NpcBrain): void {
+  // A door to force for security.
+  syncForcing(brain);
   const engine = engineOf(brain);
   // Nobody has given it the engine. The batteries are running down all the same, so it starts.
   if (
@@ -315,6 +325,10 @@ function tellChief(brain: NpcBrain, word: EngineWord): Plan {
 }
 
 function plan(brain: NpcBrain, task: Task): Plan | null {
+  const forcing = planForcing(brain, task);
+  if (forcing) {
+    return forcing;
+  }
   const engine = engineOf(brain);
   if (task.kind === SHUT) {
     const next = emitterSteps(brain.machines, 'switch_off').find(
@@ -372,6 +386,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
 }
 
 function describeTask(task: Task): string | null {
+  const forcing = describeForcing(task);
+  if (forcing) {
+    return forcing;
+  }
   switch (task.kind) {
     case LIGHT:
       return 'light the engine';
@@ -493,12 +511,17 @@ export const ENGINEER: Job = {
     "You light the engine, and switch its emitters off or on, on the Chief Engineer's word and nobody else's. Whether it is lit, and how far you have got, is told to you here: never say more about it than that.",
     'Other repairs are not something you can see to yet: a door, a light, a room without power, a hole in the hull. Asked for one, say so plainly, and that they should tell the Chief Engineer.',
   ],
-  cues,
+  cues: (brain) => [...cues(brain), ...forcingCues(brain)],
   syncTasks,
   plan,
   describeTask,
   // The Chief Engineer's orders reach it by PDA when they are not said to its face.
   readsMessage: (brain, from, text, _at, job) => {
+    // Sent to force a door for security: by the Chief Engineer, or by security where there is
+    // no chief.
+    if (forcingReads(brain, from, job, text)) {
+      return;
+    }
     if (isChiefEngineer(job)) {
       takeWord(brain, from, text, false);
     }
@@ -524,7 +547,8 @@ export const ENGINEER: Job = {
       word.toldAt = brain.now;
     }
   },
-  afterActing: (brain, act, task, ok) => {
+  afterActing: (brain, act, task, ok, _looped, details) => {
+    forcingAfterActing(brain, act, ok, details);
     const engine = engineOf(brain);
     const word =
       task?.kind === WORD

@@ -209,6 +209,33 @@ export function noteSeen(
   }
 }
 
+/** How long (deciseconds) word that engineering has opened a room is worth walking in on. */
+const OPENED_DS = 1800;
+
+/**
+ * Takes word that engineering has forced a room open for it. Whoever it has a warrant on in
+ * there, or in a room reached through there, is worth going for again, at once.
+ */
+export function doorOpened(brain: NpcBrain, room: string): void {
+  for (const warrant of beatOf(brain).warrants) {
+    const shut = warrant.shutOut;
+    const last = warrant.lastSeen;
+    if (
+      shut?.place === room ||
+      shut?.door === room ||
+      last?.place === room ||
+      (last && doorFor(brain, last.place) === room)
+    ) {
+      warrant.shutOut = undefined;
+      warrant.opened = { place: room, at: brain.now };
+      warrant.lookedAt = null;
+      if (last) {
+        last.at = brain.now;
+      }
+    }
+  }
+}
+
 /** Hands its warrants back: there is an officer to serve them. One whose person it has by the arm it sees through. */
 export function handBack(brain: NpcBrain): void {
   const beat = beatOf(brain);
@@ -372,7 +399,10 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // nobody it asked has opened the door.
     const shut = warrant.shutOut;
     if (shut?.gaveUp) {
-      cannot(warrant.name, `nobody has opened the ${shut.place} for security`);
+      cannot(
+        warrant.name,
+        `nobody has opened the ${shut.door ?? shut.place} for security`,
+      );
     }
     const last = warrant.lastSeen;
     if (
@@ -778,6 +808,29 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   }
   // Not in sight. Where they were last seen, if that is fresh and it has not looked there since.
   const sighting = warrant.lastSeen;
+  // Engineering has forced the way open: it goes in, whatever it found there before. Twice at
+  // most: a room further in may be locked as well, and that one is asked about in its turn.
+  const forced = warrant.opened;
+  if (
+    sighting &&
+    forced &&
+    brain.now - forced.at < OPENED_DS &&
+    (forced.tries ?? 0) < 2 &&
+    brain.location !== sighting.place &&
+    !warrant.shutOut &&
+    (forced.place === sighting.place ||
+      doorFor(brain, sighting.place) === forced.place)
+  ) {
+    return {
+      ready: true,
+      step: `Engineering has opened the ${forced.place}. You are going in for ${name}, to the ${sighting.place}.`,
+      act: {
+        tool: 'go_to',
+        place: sighting.place,
+        attempt: (forced.tries ?? 0) + 1,
+      },
+    };
+  }
   // A room it has found no way into: it asks whoever can open it, at the door.
   if (
     sighting &&
@@ -975,6 +1028,13 @@ export function beatAfterActing(
     const seen = target(brain, warrant);
     if (!ok && seen && (seen.distance ?? 0) > NEAR && seen.place) {
       noteShutOut(brain, warrant, seen.place);
+    }
+    return;
+  }
+  // A walk into a room engineering opened that came to nothing is counted.
+  if (warrant?.opened && act.tool === 'go_to' && act.attempt !== undefined) {
+    if (!ok) {
+      warrant.opened.tries = (warrant.opened.tries ?? 0) + 1;
     }
     return;
   }

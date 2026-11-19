@@ -45,6 +45,7 @@ import {
   noteSeen,
   takeOutcomes,
 } from './arrests';
+import { askEngineering } from './forcing';
 import { captainName } from './head';
 import {
   addressOf,
@@ -846,6 +847,15 @@ export function deskOutcome(
         `Captain, ${own ? 'I' : firstName(from)} cannot bring in ${outcome.name}: ${outcome.why}.`,
         `${outcome.name} cannot be brought in. You are telling the Captain by PDA.`,
       );
+      // Nobody whose ID opens the room has opened it: engineering is asked to force the door.
+      {
+        const shutRoom = outcome.why?.match(
+          /^nobody has opened the (.+) for security$/,
+        )?.[1];
+        if (shutRoom) {
+          askEngineering(brain, shutRoom, outcome.name);
+        }
+      }
   }
 }
 

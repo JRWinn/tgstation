@@ -313,6 +313,65 @@ add('with a baton it does not run: it stops them', [hit.tasks.some((task: any) =
 add('the ask names the door, the room and who the warrant is on', S.letInLine('Quin', 'Cargo Lobby ', 'Cargo Bay', 'Marisol Burris'), 'Quin, I am at the Cargo Lobby door of the Cargo Bay with a warrant for Marisol Burris. Could you let me in, please?');
 add('and is known for what it is', S.LET_IN_WORDS.test(S.letInLine('Captain', '', 'Kitchen', 'Pun Pun')), true);
 
+// ---- a door nobody will open: up to the Head of Security, across to the Chief Engineer, down to an engineer, and back
+const F = await import(ROOT + 'jobs/forcing');
+const { giveWarrant, doorOpened } = await import(ROOT + 'jobs/arrests');
+const CREW_PDA = [...PDA, { name: 'Derek Albright', job: 'Station Engineer' }];
+const sentBy = (brain: any) => { const lines = said(brain); brain.toTell = []; return lines; };
+const hos = head(); hos.pdaPeople = CREW_PDA;
+deskTakes(hos, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes', false);
+hos.toTell = [];
+deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'nobody has opened the Cargo Bay for security' }, 'Hale Stone', false);
+add('nobody opened the door: the Captain is told, engineering is asked, and the Captain gets a copy', sentBy(hos), [
+  'PDA to Zim Fire: Captain, Hale cannot bring in Dana Reyes: nobody has opened the Cargo Bay for security.',
+  'PDA to Ada Voss: Ada, security needs the door of the Cargo Bay opened: Dana Reyes is inside on a warrant. Could you send an engineer, please?',
+  'PDA to Zim Fire: Captain, I have asked engineering to open the Cargo Bay: Dana Reyes is inside on a warrant.',
+]);
+deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'nobody has opened the Cargo Bay for security' }, 'Hale Stone', false);
+add('engineering is not asked twice for one room', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
+deskOutcome(hos, { what: 'cannot', name: 'Dana Reyes', why: 'no baton' }, 'Hale Stone', false);
+add('nor for any other reason a warrant cannot be served', sentBy(hos).filter((line: string) => line.includes('security needs')).length, 0);
+const chief = makeBrain('Ada Voss', 'Chief Engineer'); chief.pdaPeople = [...CREW_PDA, { name: 'Joan Marsh', job: 'Head of Security' }];
+at(chief, 6000, 'Engineering');
+add('the Chief Engineer takes the ask', F.forcingReads(chief, 'Joan Marsh', 'Head of Security', F.forceAskLine('Ada', 'Cargo Bay', 'Dana Reyes')), true);
+add('gives it to its engineer, and tells security who is coming', sentBy(chief), [
+  'PDA to Derek Albright: Derek, security needs the door of the Cargo Bay opened. Go and open it, please.',
+  'PDA to Joan Marsh: Joan, I am sending Derek to open the Cargo Bay.',
+]);
+const eng = makeBrain('Derek Albright', 'Station Engineer'); eng.pdaPeople = [...PDA, { name: 'Joan Marsh', job: 'Head of Security' }];
+at(eng, 6000, 'Engineering');
+add('the engineer takes the order', F.forcingReads(eng, 'Ada Voss', 'Chief Engineer', F.forceOrderLine('Derek', 'Cargo Bay')), true);
+F.syncForcing(eng);
+const forceTask = eng.tasks.find((task: any) => task.kind === 'force_door');
+add('and goes to force the door', F.planForcing(eng, forceTask)?.act, { tool: 'force_door', place: 'Cargo Bay', attempt: 1 });
+add('a janitor saying the same words sends it nowhere', F.forcingReads(makeBrain('Derek Albright', 'Station Engineer'), 'Dana Reyes', 'Janitor', F.forceOrderLine('Derek', 'Bar')), false);
+F.forcingAfterActing(eng, { tool: 'force_door', place: 'Cargo Bay', attempt: 1 }, true, {});
+add('the door open, it tells whoever sent it', sentBy(eng), ['PDA to Ada Voss: Ada, the door of the Cargo Bay is open.']);
+add('which the Chief Engineer passes to security', [F.forcingReads(chief, 'Derek Albright', 'Station Engineer', 'Ada, the door of the Cargo Bay is open.'), sentBy(chief)], [true, ['PDA to Joan Marsh: Joan, the door of the Cargo Bay is open.']]);
+add('and the Head of Security passes to its officer', [F.forcingReads(hos, 'Ada Voss', 'Chief Engineer', 'Joan, the door of the Cargo Bay is open.'), sentBy(hos)], [true, ['PDA to Hale Stone: Hale, engineering has opened the Cargo Bay.']]);
+const off2 = makeBrain('Hale Stone', 'Security Officer'); off2.pdaPeople = [...PDA, { name: 'Joan Marsh', job: 'Head of Security' }];
+know(off2, ['Security Office', 'Cargo Bay']);
+at(off2, 6000, 'Cargo Lobby');
+giveWarrant(off2, { name: 'Dana Reyes', reason: '', minutes: 5 });
+beatOf(off2).warrants[0].lastSeen = { place: 'Cargo Bay', at: 5000 };
+beatOf(off2).warrants[0].shutOut = { place: 'Cargo Bay', at: 5500, keepers: [], asked: ['Zim Fire'], askedAt: 5500, gaveUp: true };
+add('the officer takes that word', F.forcingReads(off2, 'Joan Marsh', 'Head of Security', F.forceOpenedLine('Hale', 'Cargo Bay')), true);
+add('and is shut out of that room no longer', [beatOf(off2).warrants[0].shutOut ?? null, beatOf(off2).warrants[0].opened?.place], [null, 'Cargo Bay']);
+// A door that will not be forced.
+F.forcingReads(eng, 'Ada Voss', 'Chief Engineer', F.forceOrderLine('Derek', 'Bridge'));
+F.forcingAfterActing(eng, { tool: 'force_door', place: 'Bridge', attempt: 1 }, false, { reason: 'bolted' });
+add('a bolted door is not gone at twice, and the engineer says why', sentBy(eng), ['PDA to Ada Voss: Ada, I could not open the door of the Bridge: it is bolted.']);
+F.forcingReads(hos, 'Ada Voss', 'Chief Engineer', 'Joan, I could not open the door of the Bridge: it is bolted.');
+add('and the Captain is told', sentBy(hos), ['PDA to Zim Fire: Captain, engineering could not open the Bridge: it is bolted.']);
+// With no Chief Engineer aboard, security asks an engineer itself.
+const lone = head(); lone.pdaPeople = [...PDA.filter((person) => person.job !== 'Chief Engineer'), { name: 'Derek Albright', job: 'Station Engineer' }];
+F.askEngineering(lone, 'Kitchen', 'Pun Pun');
+add('with no Chief Engineer, security asks an engineer itself', sentBy(lone)[0], 'PDA to Derek Albright: Derek, security needs the door of the Kitchen opened: Pun Pun is inside on a warrant. Could you send an engineer, please?');
+const solo = makeBrain('Derek Albright', 'Station Engineer'); solo.pdaPeople = [{ name: 'Joan Marsh', job: 'Head of Security' }];
+F.forcingReads(solo, 'Joan Marsh', 'Head of Security', F.forceAskLine('Derek', 'Kitchen', 'Pun Pun'));
+F.syncForcing(solo);
+add('and the engineer goes itself', solo.tasks.some((task: any) => task.kind === 'force_door' && task.item === 'Kitchen'), true);
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

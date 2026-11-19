@@ -329,7 +329,7 @@ Layer 2 is a change to a standing rule: until now every line with a name or a nu
 
 ## Proposed: an engineer opens a door security cannot get through
 
-The owner, 2026-11-18: "when security can not reach a fugitive call an engineer to bust open the door". **Not built. The questions at the end are the owner's.**
+The owner, 2026-11-18: "when security can not reach a fugitive call an engineer to bust open the door". **Built 2026-11-18 at 19:12, in the normal build, not played.** The owner answered the first question: "Yes, as a last step". The other two went by my own judgement: it goes up the chain with the Captain copied, and the engineer shuts the panel and leaves the door open. The change log's 18:05 entry has what was built and what is not sure.
 
 ### What the game allows, read in its code
 

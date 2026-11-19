@@ -49,6 +49,7 @@ import {
   planDesk,
   syncDesk,
 } from './desk';
+import { forcingReads } from './forcing';
 import type { Job } from './job';
 import { describeRounds, planRounds, roundsInHand, syncRounds } from './rounds';
 import {
@@ -421,6 +422,11 @@ export const OFFICER: Job = {
   describeTask,
   // The Head of Security's word reaches it by PDA when it is not said to its face.
   readsMessage: (brain, from, text, _at, job) => {
+    // A door forced for it: the Head of Security saying so, or engineering where it keeps the
+    // list itself.
+    if (forcingReads(brain, from, job, text)) {
+      return;
+    }
     if (isHeadOfSecurity(job)) {
       takeWord(brain, from, text, false);
       return;

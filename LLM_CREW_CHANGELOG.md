@@ -16,9 +16,11 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
-## 2026-11-18, 18:05: a meeting fault of my own from the last entry, and three wordings of a warrant (not committed, not in a build)
+## 2026-11-18, 18:05 to 19:12: a meeting fault of my own, three wordings of a warrant, asking to be let in, and an engineer who forces a door (part committed as 31960af4, the rest in the commit that added this line)
 
-**Tested:** type check, 127 cases in `tools/llm_crew/security.ts`, server compile to a side copy (0 errors, 0 warnings), simulator: see the last line. **Not played. The server was running, so the normal build was not run: the game has none of this until `BUILD.cmd` is run between rounds.**
+**This entry was added to twice after it was first written, at 18:15 and 18:50. The owner committed everything up to 18:50 as `31960af4` "Publish". The engineer forcing a door, added after that, is in the commit after it. The normal build was run at 19:12 with the server closed (0 errors, 0 warnings): the next round has all of it.**
+
+**Tested:** type check, 144 cases in `tools/llm_crew/security.ts`, server compile (0 errors, 0 warnings), simulator: see the last line, and the normal build. **Not played. No model tests.**
 
 **Round that showed the faults:** `data/logs/2026/11/18/round-17.48.05` (MetaStation, read live from 17:54 to 18:01, on `83f63ee7`, the 17:34 build).
 
@@ -57,6 +59,36 @@ The officer had a warrant on the Quartermaster, who was in the Quartermaster's O
 And it waits 90 seconds on each person it asks, not 45: the Captain is a player and was busy.
 
 Server compile to a side copy (0 errors, 0 warnings), type check, 127 cases. No scenario has security shut out of a room, so none of this has run.
+
+### An engineer forces a door security cannot get through (added at 18:50)
+
+The owner: "when security can not reach a fugitive call an engineer to bust open the door", and, asked when: "Yes, as a last step". The other two questions in the plan went unanswered, so they went by my own judgement, as the owner has said to do: the ask goes up the chain with the Captain copied, and the engineer shuts the door's panel and leaves the door standing open, so that the officer can get back out with its prisoner.
+
+- **The chain, all by PDA, word for word** (`jobs/forcing.ts`, new):
+  1. The officer has asked whoever's ID opens the door and nobody has. It tells the Head of Security "I cannot bring in X: nobody has opened the Cargo Bay for security." That was built already.
+  2. The Head of Security tells the Captain, as before, and now asks the Chief Engineer: "Ada, security needs the door of the Cargo Bay opened: X is inside on a warrant. Could you send an engineer, please?" The Captain gets a copy. Once for a room in ten minutes (`askEngineering`, called from `deskOutcome` in `jobs/desk.ts`).
+  3. The Chief Engineer gives it to its engineer ("Derek, security needs the door of the Cargo Bay opened. Go and open it, please.") and tells security who is coming.
+  4. The engineer forces the door (`force_door`, below) and tells the Chief Engineer "the door of the Cargo Bay is open", who tells the Head of Security, who tells the officer "engineering has opened the Cargo Bay".
+  5. The officer goes in (`doorOpened`, `opened` in `jobs/arrests.ts`). A room further in that is locked as well is asked about in its turn: the Quartermaster's Office after the Cargo Bay.
+- With no Chief Engineer aboard, security asks an engineer itself. With no engineer, the Chief Engineer goes. With neither, nobody is asked.
+- A door that is bolted or welded is not forced. The engineer says why, and the Captain is told "engineering could not open the X: it is bolted."
+- **The server tool `force_door`** (`crew_npc_forcing.dm`, new) was written by a helper agent to this brief: walk to the door, open its panel with a screwdriver, pulse both power wires with a multitool through the wires window, pry the unpowered door with a crowbar, shut the panel. An engineer knows a door's wires from its job's skill chip (`TRAIT_KNOW_ENGI_WIRES`), and one that does not have it refuses. No ID is used, nothing is spawned, and no var of the door is set by hand. See the end of this section for what the helper reported.
+
+144 cases, 17 of them the chain end to end. The simulator has no door to force: 20 runs of the engineering, security and general scenarios passed after this went in, which shows only that the engineer's and the Chief Engineer's other work is not broken.
+
+**What the helper reported of `force_door`, which has never run:**
+
+- It pulses one main power wire and one backup wire, not the two I named in the brief: those are both main wires, and the door would have been dead for 10 seconds only. By the game's code the door is then without power for about a minute. The log line for a forced door prints the seconds left, so the first round will show whether that is right.
+- A click with the multitool does not pulse a wire. It opens the wires window. The pulse is sent to the wires as what that window would send, with the body as the user, after the checks the window makes (`work_wires`).
+- Prying a door with no power is instant, by the game's code. The body waits up to 3 seconds for it to stand open.
+- A door that already has no power is only pried: no panel, no wires.
+- Whether a door is bolted or welded is found out at the door, not from across the station.
+- Not sure of: taking a tool out of a worn tool belt with a click. If it fails the log reads "could not get your screwdriver into a free hand".
+- The Chief Engineer's belt holds a power screwdriver and jaws of life. Switched to their other heads, they are not seen as a screwdriver or a crowbar, and the body does not switch them.
+- It will force a door into a room with no air: only the air on its own side of the door is looked at.
+- `game.log`: "forced open", "could not force" (with the reason, the door and where the body stood), "left off forcing".
+
+**The helper also listed places in older code that break the no-cheats rule,** which I have not checked against `LLM_CREW_PLAN_NO_CHEATS.md`: `hold_door_for` and `let_door_close` call a door's `open()` and `close()` directly; `reset_fire_alarm` calls the alarm's `reset()`; `take_from_container` opens a container and puts the thing in the hand; `hand_over` uses `forceMove`; `tool_pick_up` and `free_a_hand` use `put_in_hands` and `equip_to_storage`.
 
 ### Seen and left alone
 
