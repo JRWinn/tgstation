@@ -14,6 +14,8 @@ fix: Find the speaker among people_in_view by details.handle, which the server a
 
 ## What is wrong
 
+See also: CARGO-19 (a counter order held for and messaged to the seen name, in tool_order) and JOBS-07 (mail never handed over, in freight.ts). Same naming split, but each needs its own change: the handle lookup here mends neither.
+
 The server tells the brain who someone is in three different fields, and they are worked out three different ways:
 
 - `people_in_view[].name` is `person.name`, the mob's visible name. For a human that is `get_visible_name()`, which puts the ID's honorific in: "Captain John", "Captain Smith", "Officer Smith", or "Face (as ID name)" for someone wearing another's card.

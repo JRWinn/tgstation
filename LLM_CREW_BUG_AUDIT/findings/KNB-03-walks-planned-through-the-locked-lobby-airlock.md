@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: duplicate
+duplicate_of: KNA-03
 found_by: Fable 5.2
 area: logs
 files: code/modules/llm_crew/crew_npc_motor.dm:68, code/modules/llm_crew/crew_npc_doors.dm:286, code/modules/llm_crew/crew_npc_tools.dm:515

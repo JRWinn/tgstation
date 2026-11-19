@@ -14,6 +14,8 @@ fix: Tell the brain a cell is dead (reason no_power), have security say so to it
 
 ## What is wrong
 
+See also: ARR-04
+
 The security work was written for a brig that has power. The owner's test rounds lose station power about fifteen minutes in and do not get it back (nobody runs the engine). After that, three things go wrong and none of them is told to anyone in true words.
 
 **1. A prisoner whose time is up stays shut in.** The game's cell timer stops counting when it has no power (`process()` returns `PROCESS_KILL`), `timing` stays TRUE, and the door stays shut. Nothing on the crew's side looks at the cell again: the window drops its `beat.jailed` entry when its own clock says the time is up and takes it that the door opened. A crew NPC in the cell goes by the timer alone (`held = !QDELETED(timer) && timer.timing`), so it stands in the cell for the rest of the round, its tools refused with "You are in Cell 1 until your time is up."

@@ -14,7 +14,7 @@ fix: Have freight_state send, for each name in mail_for, the handle of that pers
 
 ## What is wrong
 
-See also: API-02, which sets out that the server names one person in three ways. This is that fault in the mail.
+See also: API-02, which sets out that the server names one person in three ways. This is that fault in the mail. Also CARGO-19 (the same split in a counter order).
 
 `freight_state` lists who the carried mail is for by `crew_npc_mail_for(letter)`, which is `recipient.current?.real_name` ("John Smith"). The window decides whether that person has come to the counter by looking for that exact string among the people in view: `brain.peopleInView.some((person) => person.name === task.item)`. But `people_in_view[].name` is the mob's visible name (`person.name`), and a player who has toggled the honorific on their ID (ctrl-click on the card) shows as "Captain John" or "Captain Smith" (`get_id_name` with honorifics, `update_honorific` in `cards_ids.dm`). The same happens to anyone seen as "Face (as ID name)" while wearing someone else's card.
 

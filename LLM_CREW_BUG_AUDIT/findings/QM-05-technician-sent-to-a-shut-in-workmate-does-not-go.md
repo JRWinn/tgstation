@@ -14,6 +14,8 @@ fix: Have the technician who hears it is to see to someone shut in note it as a 
 
 ## What is wrong
 
+See also: CARGO-18
+
 A technician shut in a room, who has knocked and written to whoever can open the door and still has nobody come, at last sends its head a PDA message: "I am shut in the Warehouse and nobody has come to the door. Could you send someone to let me out to the Cargo Bay, please?" (`driver.ts:396`).
 
 The Quartermaster reads that in `readsMessage` and does what the comment says: "It sends another technician to see what is shutting the way." It walks to the bay and tells the other technician, word for word: "Sam, Cora is shut in the Warehouse. See to it, please."

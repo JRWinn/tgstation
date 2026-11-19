@@ -14,6 +14,8 @@ fix: Have whoever keeps the list take a warrant back when the officer it went to
 
 ## What is wrong
 
+See also: HOLE-08 (the dead and the silent counted on in every job; its fix step 3 is this one, in syncDesk), QM-02 and ENG-03 (the same blind spot in the Quartermaster and the Chief Engineer).
+
 The Head of Security serves warrants with its own hands in two cases only: there is no officer on its PDA, or its officer has sent the words "I am hurt". An officer that is knocked down before it can write, or whose PDA is gone, or who is in a cell, or simply stuck, still counts as the one the warrants go to. Every warrant handed to it waits for good, and the Captain is told nothing.
 
 Listed in the change log entry of 2026-11-18, 20:53 to 21:05: "The Captain's second warrant, on the Head of Personnel, was given to the officer 40 seconds before the fight and was never acted on." And: "Nothing more of it in any log by 20:55. No word was sent to the Head of Security, who went on believing the warrant was being served."

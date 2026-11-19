@@ -14,6 +14,8 @@ fix: Have the server send each person's department and head job (from the job da
 
 ## What is wrong
 
+See also: HOLE-01 (the same loose `isJob` match lets any card text with captain in it be obeyed as the Captain).
+
 There are two answers to "who answers to whom" in the code, and they differ.
 
 - The server's `answers_to` (`crew_npc_guarding.dm:59`) uses the game's job data: the job on the person's ID, its `departments_list`, and each department's `department_head`. It is sent as `superior` for people in view.

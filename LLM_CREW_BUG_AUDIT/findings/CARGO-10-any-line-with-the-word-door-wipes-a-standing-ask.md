@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: found
+status: duplicate
+duplicate_of: KNA-01
 found_by: Fable 5.2
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2275, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2316, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1754

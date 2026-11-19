@@ -14,6 +14,8 @@ fix: Keep, for each person a crew member relies on, a count of words sent and no
 
 ## What is wrong
 
+See also: KNA-09 (the warrant case, in syncDesk and serving), QM-02 (the Quartermaster giving an order again for good, in giveStep), ENG-03 (the Chief Engineer's engineer(), in chiefengineer.ts). Each job has its own copy of the picker, so each of those is its own cause with a fix that stands alone; this file is the general rule across all of them.
+
 Every chain of work in the crew runs through "the" holder of a job: the officer a warrant is given to, the head a need is taken to, the Quartermaster an order is sent to, the janitor a mess is reported to. Who that is, is worked out the same way everywhere: the first person in view with the job, and failing that the first on the PDA's list.
 
 The PDA's list is every PDA on a station level that has a name on it (`people_on_pda`). It does not matter whether its owner is alive, awake, at the keyboard, or even carrying it. So:

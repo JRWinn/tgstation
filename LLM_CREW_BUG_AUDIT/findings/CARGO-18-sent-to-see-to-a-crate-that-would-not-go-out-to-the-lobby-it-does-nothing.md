@@ -14,6 +14,8 @@ fix: When the see-to line names a held crate that would not go out to the lobby,
 
 ## What is wrong
 
+See also: QM-05
+
 When a haul is given up, the technician tells the Quartermaster in fixed words, and the Quartermaster sends another technician: "Sam, crate #12 is in the Cargo Bay and Cora could not get it out to the lobby. See to it, please." (`seeToLine`). All the sent technician does with that line is set `seeToUntil`, which for five minutes makes the shuttle and the rooms its work as well as whoever they were given to.
 
 That is enough for a crate that would not come off the shuttle (`unload`), go aboard (`recycle`) or come clear of a door (`stow_crate`): those are shuttle and rooms work, and the freight tasks pick the crate up again. It does nothing for a crate that would not go **out to the lobby** (`release`). Bringing a held crate out is not shuttle or rooms work. It is the `handover` task, and that task exists only in the brain of the technician who heard the collector ask (`brain.pickupAsked`, set in `overhears`). The technician sent has no `pickupAsked` for crate #12, so it has no task about it at all, and carries on as before.

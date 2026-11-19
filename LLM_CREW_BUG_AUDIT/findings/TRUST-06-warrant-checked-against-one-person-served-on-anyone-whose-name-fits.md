@@ -8,11 +8,13 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: security
-files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:465, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:281, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:72, code/modules/llm_crew/crew_npc_security.dm:853
+files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:465, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:281, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:72, code/modules/llm_crew/crew_npc_security.dm:853, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:358, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:540
 fix: Settle a warrant on one known person by full name at the moment it is declared, refuse a name that fits more than one, and have the officer check the person in front of it is that one and not a head before it lays a hand on them
 ---
 
 ## What is wrong
+
+Also written up as: SECT-16
 
 The desk's rules about who a warrant may be on are kept in `deskTakes`: nobody declares one on the Captain, none on security's own staff, and only the Captain declares one on a head. They are tested against **one** job, found like this:
 
@@ -37,6 +39,8 @@ So a head can have another head arrested, which only the Captain may order, and 
 
 The server does not stand in the way: `tool_arrest` refuses only the Captain (`crew_npc_security.dm:853`).
 
+The same happens with no head involved (from SECT-16). The Head of Security knows Dana Reyes (Janitor) and Dana Smith (Cook) from its PDA. The Captain sends "Arrest Dana for theft." The warrant list is `["Dana"]`, and the Captain is told "Captain, I have that: a warrant for Dana, for theft. 5 minutes." Nothing tells the Captain there are two Danas. `sameName('Dana', 'Dana Smith')` and `sameName('Dana', 'Dana Reyes')` are both true, so whichever the officer sees first is arrested, cuffed and put in a cell, and that is reported as the warrant served. Staff send sightings of both, and every head reads "Security is looking for Dana" at its meetings. Random names in SS13 come from lists of a few hundred first names, so two crew with one first name happen in a full round.
+
 The same loose match is used to let people go. `strike` and the officer's `dropWarrant` find the warrant by `sameName`, and `tool_free` on the server by `findtext(name, wanted)`, so a pardon or a withdrawal for "Jane" lets go whichever Jane is held first.
 
 ## Where
@@ -54,7 +58,30 @@ The same loose match is used to let people go. `strike` and the officer's `dropW
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:72`, `sameName`: "every word of the wanted name is in theirs".
 
-`tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:358`, in `readWarrant`, where a shared first name is left as it was said.
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:358`, in `readWarrant`, where a shared first name is left as it was said:
+
+    // A first name alone is whoever it knows of by that first name, if there is only one.
+    const owners = known.filter(
+      (it) => firstName(it).toLowerCase() === (name ?? '').toLowerCase(),
+    );
+    if (owners.length === 1) {
+      name = owners[0];
+    } else {
+
+`security.ts:154`, in `closeName`, the misspelling reader it falls back to, gives nothing on a tie:
+
+    if (near.length === 0 || (near.length > 1 && near[0].apart === near[1].apart)) {
+      return undefined;
+    }
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:540`, where the warrant is stored under the words read:
+
+    const minutes = declared.minutes ?? MINUTES_USUAL;
+    const unknown = !knownNames(brain).some((it) =>
+      sameName(declared.name, it),
+    );
+    desk.warrants.push({
+      name: declared.name,
 
 ## How it was found
 
@@ -66,9 +93,11 @@ Read from the code, and a throwaway bun script (in the system temp folder) that 
 
 `deskTakes` and `target` were not run; they were read. Not seen in a round.
 
+SECT-16 (a second write-up of this) ran the Dana case through `deskTakes` in a bun script with fixtures from `tools/llm_crew/fixtures`, and it printed `["Dana"] [ "Captain, I have that: a warrant for Dana, for theft. 5 minutes." ] true true` (the warrant list, the reply, and `sameName` for each Dana).
+
 ## How to fix it
 
-1. In `deskTakes`, after `readWarrant`, list every known name that `sameName(declared.name, it)` fits. If more than one, take no warrant and answer in fixed words: "Which Jane: Jane Doe or Jane Marsh?" If exactly one, store the warrant under that full name. If none (someone it has never heard of), store the words said, as now.
+1. In `deskTakes`, after `readWarrant`, list every known name that `sameName(declared.name, it)` fits. If more than one, take no warrant and answer in fixed words: "Which Jane: Jane Doe or Jane Marsh?" If exactly one, store the warrant under that full name. If none (someone it has never heard of), store the words said, as now. One way to do it (from SECT-16): have `readWarrant` return the owners it found when there are two or more (for example `{ name, reason, minutes, ambiguous: ['Dana Reyes', 'Dana Smith'] }`), and put the "which one" answer as a new fixed line in `REFUSALS`, such as "Captain, there are two by that name: Dana Reyes and Dana Smith. Which one?". The next "Warrant for Dana Reyes" is then read whole. The same question applies to a name read in full that `sameName` fits to two known people: a warrant on "Pun Pun" when "Pun Pun" and "Pun Pun II" are both aboard. A first name with one owner is left as it is.
 2. Test the rules against that one person's job, as now.
 3. In `target`, match a warrant stored under a known full name only to a person whose name is that name (allow the " (as ...)" form a mismatched card gives, if the owner wants that to count). Keep `sameName` only for warrants on names nobody knew.
 4. Before the arrest itself, the officer checks the person in view: if `person.command` is true (the server sends it, from their worn ID's access) and the warrant was not declared by the Captain (`byJob`), it does not arrest, and tells the Head of Security. That makes the head rule hold whatever went wrong with the name.
@@ -76,6 +105,6 @@ Read from the code, and a throwaway bun script (in the system temp folder) that 
 
 ## How to test the fix
 
-- `tools/llm_crew/security.ts`: add a desk with two known Janes, one a head; "Warrant for Jane, for theft" from a head gives the "Which Jane" line and no warrant. "Warrant for Jane Doe" is taken. An officer holding a warrant on "Jane Doe" does not pick Jane Marsh as its `target`.
+- `tools/llm_crew/security.ts`: add a desk with two known Janes, one a head; "Warrant for Jane, for theft" from a head gives the "Which Jane" line and no warrant. "Warrant for Jane Doe" is taken. From SECT-16: with Dana Reyes and Dana Smith on the PDA list, "Arrest Dana for theft." from the Captain leaves no warrant and answers with the new line; "Arrest Dana Smith for theft." is a warrant on Dana Smith; with only Dana Reyes known, "Arrest Dana for theft." is still a warrant on Dana Reyes. An officer holding a warrant on "Jane Doe" does not pick Jane Marsh as its `target`.
 - A case for step 4: a warrant declared by a head on a name that, when served, turns out to be someone in view with `command: true`: no `arrest` step.
 - Type check.

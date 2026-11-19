@@ -15,7 +15,7 @@ fix: Have the Chief Engineer remember which engineer took the engine (and each d
 
 ## What is wrong
 
-See also: HOLE-13 (a player in a crew job is handed work like an NPC) and HOLE-08 (the dead are counted on). This is the engineering case of both, and it is the one where it is dangerous.
+See also: HOLE-13 (a player in a crew job is handed work like an NPC) and HOLE-08 (the dead are counted on). This is the engineering case of both, and it is the one where it is dangerous. Also KNA-09 (warrants) and QM-02 (the Quartermaster's orders), the same blind spot in other jobs.
 
 The Chief Engineer does not keep who its engineer is. Each time it has an order to give it works it out again with `engineer(brain)`: an engineer in sight if there is one, and failing that `names[0]`, the first engineer its PDA lists. The PDA list (`people_on_pda` in `crew_npc_cargo.dm`) is every PDA on the station's level, in the order the PDAs were made, with the job saved on it. That includes:
 

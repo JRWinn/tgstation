@@ -14,6 +14,8 @@ fix: Take the go-for-a-bucket step only when a hand is free or the other hand ho
 
 ## What is wrong
 
+See also: LOGA-05 (two rags in hand, so the mop is never taken up: the same `free_a_hand` finds nothing spare, with another pair of things and another fix).
+
 Before setting off for a mess in another room, `plan` sends a janitor that holds a mop and no bucket to pick up a bucket it knows of (`brain.wantsBucket`). That step comes before the `go_to`, for every CLEAN task that is not in the room it stands in.
 
 `wants_bucket` (server) is only "holds a mop and no bucket". It does not ask whether there is a hand for one. With the other hand holding soap or a full spray, `tool_pick_up` calls `free_a_hand`, which finds nothing spare (a mop, soap and a spray are all trade tools, and only a rag beside a mop counts as spare), and fails: "Your hands are full of things you need. Put something down first."

@@ -15,6 +15,8 @@ fix: Open and shut the door with click_as_body from beside it, leave autoclose a
 
 ## What is wrong
 
+See also: KNA-04 (its item 2 is this door, among six other cheats that are each fixed apart).
+
 Every door a cargo technician opens for a janitor, for security, or to let someone out is opened by code. The body walks to the door and its access is checked, and then the door's `open()` is called directly, its `autoclose` is set to FALSE so that it stands open, and later `autoclose` is set back and `close()` is called. A player cannot do any of that: a player clicks or walks into the door, it opens, it shuts itself after its own delay, and to hold it they stand in it or open it again.
 
 Listed, and never built:

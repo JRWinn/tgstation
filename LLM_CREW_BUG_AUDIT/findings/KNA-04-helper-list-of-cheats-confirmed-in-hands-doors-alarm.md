@@ -15,7 +15,7 @@ fix: Replace each direct call with the click a player makes, starting with hand_
 
 ## What is wrong
 
-See also: GAP-07 (the read-through and check script, with a wider table of cheats), KNB-04 and GAP-03 (the door, item 2 here), GAP-05 (the fire alarm, item 6 here), KNA-05 (what is handed over).
+See also: GAP-07 (the read-through and check script, with a wider table of cheats), KNB-04 and GAP-03 (the door, item 2 here), GAP-05 (the fire alarm, item 6 here), KNA-05 (what is handed over), CHEAT-16 (the same put_in_hands pick-up in tidy_step, named in step 3 here, with the table, bin and locker beside it).
 
 The change log entry of 2026-11-18, 18:05 to 19:12 says: "The helper also listed places in older code that break the no-cheats rule, which I have not checked against `LLM_CREW_PLAN_NO_CHEATS.md`: `hold_door_for` and `let_door_close` call a door's `open()` and `close()` directly; `reset_fire_alarm` calls the alarm's `reset()`; `take_from_container` opens a container and puts the thing in the hand; `hand_over` uses `forceMove`; `tool_pick_up` and `free_a_hand` use `put_in_hands` and `equip_to_storage`." The entry of 19:38 adds: "`free_a_hand` puts a thing away with `equip_to_storage` ... The revolver went into the officer's bag that way."
 

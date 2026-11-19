@@ -8,11 +8,15 @@ confidence: sure
 status: found
 found_by: Fable 5.2
 area: janitor
-files: code/modules/llm_crew/crew_npc_guarding.dm:144, code/modules/llm_crew/crew_npc_cargo.dm:41, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:751, LLM_CREW_PLAN_SECURITY.md:399
+files: code/modules/llm_crew/crew_npc_guarding.dm:144, code/modules/llm_crew/crew_npc_cargo.dm:41, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:751, LLM_CREW_PLAN_SECURITY.md:399, code/modules/llm_crew/crew_npc_senses.dm:191, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:343
 fix: Give every body a list of rooms it keeps (its department's locked rooms), key the guarding code on that list instead of the post, and add guarding to the janitor job
 ---
 
 ## What is wrong
+
+Also written up as: KNA-16
+
+See also: KNB-12 (the same tie of guarding to a post, as part of a wider gap that also covers a janitor opening its own door for someone)
 
 The owner asked on 2026-11-18, after Pun Pun got into the Custodial Closet, for janitors to put out people with no business there, as cargo staff do. It is written down as not built in three places: `LLM_CREW_PLAN_SECURITY.md:399` ("The janitors' duty to put people out of their own rooms, which the owner asked for on 2026-11-18 and is not built"), its risk list (":484, Trespass warrants start in cargo and engineering only... the monkey in the Custodial Closet still needs the Captain"), and the change log's 14:15 entry ("Janitors do not").
 

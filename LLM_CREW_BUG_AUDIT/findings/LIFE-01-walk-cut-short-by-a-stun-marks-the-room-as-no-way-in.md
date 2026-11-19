@@ -14,6 +14,8 @@ fix: Give a walk that ends because the controller stopped running its own reason
 
 ## What is wrong
 
+See also: CORE-11, KNB-14, HAND-09 (other ways `walk_finished` writes a room off wrongly, each with its own cause and fix).
+
 When a body on a `go_to` walk is stunned, paralysed or knocked out, the walk is ended by the base controller, not by the walk itself. The walk leaf is reset with no reason set, `walk_finished` is called with `reason = null`, and the body is told "You stop on the way to X: you were interrupted." That much is only vague. But `walk_finished` also writes the room down in `blocked_places`, the list of rooms it "lately failed to find a way into", whatever the reason the walk ended. The window reads that list (`blocked_places` in `ui_data`) and from then on, for five minutes (`CREW_NPC_BLOCKED_PLACE_TIME`), treats the room as one there is no way into:
 
 - `jobs/orders.ts`: a "go and look at that room" order is finished with the finding "I could not get in: there is no way in for me.", which goes back to whoever gave the order.

@@ -15,6 +15,8 @@ fix: Before every body.Move in close_with and walk_steps, stop unless the body h
 
 ## What is wrong
 
+See also: LIFE-07 (the same bare `body.Move` with no look at the body, in `push_clear` in `crew_npc_grip.dm`; one `can_step()` helper can serve both, but each loop needs its own call).
+
 See also: SEC-03 (the same loops run on after the errand is called off, a different cause; both fixes add a check at the top of the same loop turns and can be built together).
 
 `close_with` (the steps after someone it means to hit or cuff) and `walk_steps` (the steps into and out of a cell) move the body with a bare `body.Move(next, dir)` in a loop with a `sleep` between steps. Neither looks at the state of the body before a step. The only checks are that the body, the controller and the target still exist and stand on a floor.

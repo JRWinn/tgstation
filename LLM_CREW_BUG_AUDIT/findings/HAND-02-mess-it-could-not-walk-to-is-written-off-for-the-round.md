@@ -14,6 +14,8 @@ fix: Keep messes it could not get to in a list of their own with the time, try t
 
 ## What is wrong
 
+See also: JAN-01 (a scrub cut short is written off the same way, in `clean_mess`: a different cause and a different place to fix).
+
 When the walk to a mess fails (no way found, or the walk ran out of time), `crew_npc_fail_errand` writes the mess into `stubborn_messes`. That list is for messes that were scrubbed at and would not come off. Nothing takes a mess out of it again except the body coming to hold a different kind of cleaning tool (`mind_what_it_holds`). A janitor that keeps its mop all round never tries that mess again.
 
 Passing an unreachable mess over for this visit is meant (`more_to_clean` says so: a room is settled in one visit). Two things about it are wrong:

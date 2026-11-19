@@ -15,6 +15,8 @@ fix: Have the server work out each person's rank from the card they wear and whe
 
 ## What is wrong
 
+See also: MAP-09 (the window's hand-written department table, matched by the same `isJob`, disagrees with the game's job data).
+
 The crew tell who someone is by the job text on an ID card, and by nothing else. Three things make that easy to abuse. The cheapest is point 2: it needs only a Captain's or head's card in the hand, picked up or stolen. Points 1 and 3 need a retyped card (the Head of Personnel's console, or a traitor's agent card) or a stolen worn one.
 
 1. **The job text is matched as a piece of text, anywhere in the title.** `isJob` in `hierarchy.ts` is `title.includes(job)`. Every rank check in the window is built on it (`isHead`, `answersTo`, `departmentHeadedBy`), and the Captain checks are `/captain/i.test(job)`. A throwaway script run against the real file printed:

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: duplicate
+duplicate_of: TRUST-06
 found_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:358, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:72, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:540

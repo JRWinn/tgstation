@@ -15,6 +15,8 @@ fix: Keep door asks as a list by asker, serve them oldest first, and strike one 
 
 ## What is wrong
 
+Also written up as: CARGO-10
+
 A cargo technician keeps one ask for a door at a time (`brain.doorAsked`). When two people ask within a few seconds, the second ask overwrites the first. The technician has already answered the first by PDA, "I am coming to the X door of the Y to let you out", and then never goes, because nothing is left to say that anyone is waiting there.
 
 This is the cause of a janitor left shut in a cargo room, which the change log reports in round after round without a cause ("A janitor was shut in the Head of Personnel's Office", 18:05 entry; the janitor shut in the Bitrunning Den for forty minutes, 15:00 entry). It is also the real cause behind the item "not looked into" in the entry of 2026-11-18, 20:19 to 20:40: "a janitor with no route from the Mining Office to the Bar Lounge three times". That janitor was shut in the Mining Office and had been promised a door twice.
@@ -29,6 +31,15 @@ The case, from `data/logs/2026/11/19/round-20.00.21` (log times are 6 hours ahea
 6. Marina's door is never opened. `game.log` has no "to let Marina Shaffer out of" line in the round. At 02:15:06 she writes to the other technician, Osbert Mortland, and five seconds later Collin does too (02:15:10): the same overwrite, in Osbert's brain this time. Osbert opens neither. At 02:16:06 she writes to her head, who writes to the Captain.
 
 Nothing in that order of events is unusual: two janitors called to cargo rooms finish within seconds of each other in most rounds.
+
+The new line need not be an ask at all, and need not come from anyone who could be let through (from CARGO-10). `DOOR_WORDS` (`cargo.ts:156`, `/\bdoor\b|let (me|us) (in|out|through)|open up/i`) matches any line with the word "door", and `overhears` takes it from anyone, a workmate included, unless `said_to` is `other`. The technician's own cues push the word into the crew's talk: `cargo.ts:1757` "You are opening the door for them now: say so if you speak of it", and `cargo.ts:1774` "If you answer, say that Maria is seeing to it". A case, two technicians, Maria has the rooms:
+
+1. The janitor Jan says at the counter "Could you let me in, please?" Both technicians set `doorAsked = { name: 'Jan Mopp', ... }`. The door is Maria's; she is mid-haul.
+2. Sam answers, as its cue tells it: "Maria is seeing to the door, Jan."
+3. Maria hears it (it has her name in it, so it may not read as said to someone else), `DOOR_WORDS` matches, and her `doorAsked` becomes `{ name: 'Sam Tech', room: undefined, out: false }`. `mayPass` for Sam is null, `doorWanted` is null, and the `syncTasks` loop at `cargo.ts:873` closes her DOOR task for Jan.
+4. If Maria had already set off, the door still opens, but the task is gone when the answer comes back, so `afterActing` finds no task: Jan is not noted as let in (`noteLetIn`), is not on the list of people to let out, and `lastOpened` is not set.
+
+The same happens when a head at a staff meeting in the bay says anything about a door, when the Captain says "mind the door", and when a second person asks who may not be let in: the refusal goes to them and the first person's ask is gone. Whether `saidTo` in `addressing.ts` takes Sam's line as said to Jan was not run; if it does, the fault needs a line with no name in it ("I am getting the door."), which the model also says.
 
 ## Where
 
@@ -99,6 +110,8 @@ Seen in a round log: `data/logs/2026/11/19/round-20.00.21`, `game.log` and `crew
 8. In the tick (`cargo.ts:843` to `:903`), `asked` is the one slot today. With a list: the "I am coming" promise goes to `askFrom(brain, wants.name)` (the entry being served), and the refusal walks every live `out: false` entry that `mayPass` turns down, each once. An asker who is waiting their turn is neither promised nor refused; if a word is wanted for them, make it "I will be with you after X", and only if the owner wants it.
 9. `cargo.ts:1967` drops the entry whether the door opened or not (`ok` false too). Keep that: an open that failed should not be retried for ever, and the asker asks again.
 
+10. (From CARGO-10.) In `overhears` and `readsMessage`, do not take a line from cargo staff as an ask unless they are asking to be let out: return early on `isCargo(speakerJob) && !LET_OUT_WORDS.test(heard)`. A technician that is shut in sends "I am shut in the ..." (`SHUT_IN_WORDS`), which has neither "door" nor "let me", so that keeps working. With the list this is not needed for correctness (a workmate's entry fails `mayPass` and is passed over), but it keeps chatter out of the list.
+
 A smaller stopgap, if the list is too much for one sitting: in `readsMessage` and `overhears`, do not overwrite a live ask with `out: true` from someone else; queue the newcomer in a second slot. I would do the list: three janitors make the two-slot version wrong again.
 
 Keeps the rules: senses only (the asks are PDA messages and speech the body received), code does the work.
@@ -107,6 +120,7 @@ Keeps the rules: senses only (the asks are PDA messages and speech the body rece
 
 - Simulator: add a scenario to `tools/llm_crew/sim.ts` with two janitors let into two different cargo rooms who both send the let-out message to the same technician within five seconds. Pass when both doors are opened. The existing door scenarios (`nested`, `aside`, the janitor ones) must still pass.
 - A table of cases or a throwaway bun script on `CARGO.readsMessage` (`jobs/cargo.ts:1893`) and what the tick then wants (`CARGO.syncTasks`, the DOOR task it adds): two let-out asks from two names, then the first served and opened (`afterActing` with `ok`), then the second must be what is wanted next. Also a third ask from the first name again must replace its own entry, not add one.
+- (From CARGO-10.) A unit case: a brain with a standing ask from an expected janitor, then `overhears` a line from a workmate with "door" in it; the janitor's ask must still be what `doorSought` serves. And the simulator with a chatty model (`chatty` as the last argument), the `crew` and `nested` scenarios with two technicians: one ask from the janitor leads to one `open_door` and a let-in note, with the other technician talking.
 - Type check from `tgui/`.
 - Next round, `game.log`: every "was told by its brain to PDA X: X, I am coming to the ... door of the ... to let you out" should be followed within a minute or so by "opened ... to let X out of ...". Count the ones that are not.
 

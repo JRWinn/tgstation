@@ -8,11 +8,28 @@ confidence: likely
 status: found
 found_by: Fable 5.2
 area: doors
-files: code/modules/llm_crew/crew_npc_motor.dm:68, code/modules/llm_crew/crew_npc_tools.dm:200, code/modules/llm_crew/crew_npc_tools.dm:506, code/modules/llm_crew/crew_npc_doors.dm:42
+files: code/modules/llm_crew/crew_npc_motor.dm:68, code/modules/llm_crew/crew_npc_tools.dm:200, code/modules/llm_crew/crew_npc_tools.dm:506, code/modules/llm_crew/crew_npc_doors.dm:42, code/modules/llm_crew/crew_npc_doors.dm:286, code/modules/llm_crew/crew_npc_tools.dm:515
 fix: End a walk at once when the route just planned runs through a shut airlock that is locked to the body, say which door, and ask to be let out by that door
 ---
 
 ## What is wrong
+
+Also written up as: KNB-03
+
+What KNB-03 adds, kept here so nothing is lost:
+
+- **How often.** 51 walks in the logs of 2026/11/18 and 2026/11/19 ended at (77,146) with a route planned ("the last route planned was N steps"): 45 `go_to`, 2 `release`, 2 `throw_out`, 1 `go_to_door`, 1 `recycle`. It is in every round with janitors called into cargo: 4 in `round-15.52.18`, 5 in `17.48.05`, 5 in `19.33.50`, 8 in `20.00.21`, 6 in `20.43.32`. Found by `grep 'Stopped at Cargo Bay (77,146'` over every `game.log` of those two days. 5 of the 51 are technicians' hauls held at the same tile for another reason (a crate that will not go through).
+- **The change log lists it twice besides the 20:19 entry quoted below**: the 2026-11-18 morning entry, "fixes from the first round with a Quartermaster": "The route planner sends a janitor inside the Cargo Bay to the lobby airlock, which is locked to it (11 failed walks stopping at 77,146). Cause not found."
+- **A second case**, `data/logs/2026/11/19/round-20.43.32/game.log`. Jean-Luc Willey, a janitor, let into the Cargo Bay by the Quartermaster Maintenance door at 02:48:22, finished at 02:49:06:
+
+      [02:49:17.475] ... (Jean-Luc Willey) walk failed (go_to, to Cargo Lobby): there is no way through. Stopped at Cargo Bay (77,146,2), heading for The floor at Cargo Lobby (82,147,2); the last route planned was 5 steps.
+      [02:49:56.891] ... found no route to Cargo Lobby from Delivery Office (80,142,2). ... Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it. ...
+      [02:51:38.360] ... walk failed (go_to, to Bar Lounge): ... Stopped at Cargo Bay (77,146,2) ...; the last route planned was 61 steps.
+      [02:52:04.404] ... walk failed (go_to, to Bar Lounge): ... Stopped at Cargo Bay (77,146,2) ...; the last route planned was 61 steps.
+      [02:57:30.048] ... walk failed (go_to, to Central Primary Hallway): ... Stopped at Cargo Bay (77,146,2) ...; the last route planned was 39 steps.
+
+  KNB-03 measured about ten seconds at the door in that round, not five. A far walk (the Bar Lounge, 61 steps) is held back by the driver as a failed step and tried again, so the body goes back to the same door.
+- **Why it is not a door that happened to be open.** The move loop plans again after every failed step (`handle_move_attempt_failure` calls `recalculate_path`), and "5 steps" from (77,146) to (82,147) is a plan made while standing at the shut door, through it. The search itself runs in `navmap_pathfinder.dll`, which was not read. The log's own "locked to it" second opinion is the same planner (KNB-02), so it is no check.
 
 The change log entry of 2026-11-18, 20:19 to 20:40 lists, as "not looked into": "two bodies stopped at Cargo Bay (77,146) on a five-step route to the Cargo Lobby, six times between them".
 
@@ -82,6 +99,15 @@ Seen in a round log (`game.log` and `crew_brain.log` of `round-20.00.21`, lines 
 3. In `walk_finished` (`crew_npc_tools.dm`), when the walk failed on such a door, put it in the answer to the brain: "You stop on the way to X: the door Y is locked to you." with details `locked_door` (its label from `crew_npc_door_label`) and `place`. And make that door the one it wants out by: set `wanted_door`, `wanted_door_place`, `wanted_door_leaving = TRUE`, `wanted_door_label` as `tool_go_to_door` does at its end (`crew_npc_doors.dm:399`), so that the knock and the PDA message name the lobby door. `trail_door()` should give this door ahead of the one it came in by while it is set.
 4. On the window side nothing new is needed if step 3 sets the door: the shut-in steps in `driver.ts` already knock and send "I am at the X door". Check that `doorCalled(brain, brain.location)` (`jobs/janitor.ts`) reads the label the server now sends.
 5. A choice for the owner: should a janitor who was let into the bay for a mess leave it for other work while the mess is still there? The rule built on 2026-11-18 ("does not walk out of a room while there is work in it that it can get on with", `driver.ts:412`) covers only the walk back out, not other tasks. In the round the pick-up of crate #764 and the lobby mess both pulled it out of the bay mid-clean. I would hold other rooms' work back while `task.place === brain.location` work is ready and the room is locked to it. That is a question of priorities, so ask.
+
+Points from KNB-03 for steps 1 to 3:
+
+- In step 1, walk the whole path once, not only the first tiles, and count as shut also an airlock that is bolted, welded or without power. Keep the first such door (`route_shut_by` or `route_locked_door`, one field) and clear it when a fresh plan has none. The move loop plans again after each failed step, so the note always matches the newest plan.
+- In step 2, put the check before `return ..()` in `perform` and return `AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED`, so the walk ends in the tick it was planned.
+- Leave alone a door that is standing open: that case is `route_by_open_door`'s, decided per tool.
+- In `log_walk_failed` (`crew_npc_tools.dm:515`), add the door to the failure line: "the route planned ran through [door] at (x,y), which is shut and does not open for it". That line is the evidence to take the planner's fault upstream.
+- Must keep working: a technician whose ID opens the door is not stopped (`door.allowed(body)` is true), and a body hauling a crate is handled by the grip code first (`CREW_NPC_HAULS`), which is above this check in `perform`.
+- KNB-03's last step left the ask by the door it came in by as built; step 3 here (ask by the door that stopped it) is the better one, by the Collin Archibald case above.
 
 Keeps the rules: the body learns only what it would find by trying the door. No door is opened by code.
 

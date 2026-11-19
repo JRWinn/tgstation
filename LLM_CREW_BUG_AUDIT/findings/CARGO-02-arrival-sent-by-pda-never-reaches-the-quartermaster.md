@@ -15,6 +15,8 @@ fix: In the PDA fall-back for an order given by the Quartermaster, also send the
 
 ## What is wrong
 
+See also: KNB-15
+
 An order the Quartermaster gave is reported back to the Quartermaster face to face (`tellQuartermaster`). If the Quartermaster is not in sight and does not come to its office door in a minute and a half, or is told twice and does not answer "I have that", the technician falls back to the PDA. That fall-back sends one message, to whoever the order is for:
 
 "Your order has come in: crate #12 (Janitorial Supplies Crate). Send someone to the Cargo Lobby counter..."

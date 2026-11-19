@@ -14,7 +14,7 @@ fix: In tool_order take order_for from the asker's ID name without the honorific
 
 ## What is wrong
 
-See also: API-02, which sets out that the server names one person three ways (voice, seen name, PDA name). This is one more place it bites, in the order path, which API-02 does not list.
+See also: API-02, which sets out that the server names one person three ways (voice, seen name, PDA name). This is one more place it bites, in the order path, which API-02 does not list. Also JOBS-07 (the same split in the mail).
 
 An order taken at the counter, with no Quartermaster aboard or after a head says the Quartermaster has not answered, is placed "for" whoever asked. The window passes the asker's handle; the server turns it into `asker.name`, the mob's seen name. With an honorific on the ID that is "Captain Smith", not "John Smith". Everything after that goes by the seen name:
 

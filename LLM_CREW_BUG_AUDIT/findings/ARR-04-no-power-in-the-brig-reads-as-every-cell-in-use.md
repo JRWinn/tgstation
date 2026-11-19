@@ -14,6 +14,8 @@ fix: Have tool_jail say no_power apart from no_cell, walk the prisoner to the br
 
 ## What is wrong
 
+See also: SEC-08
+
 `free_cell` passes over a cell whose timer has no power. When every timer is dead it returns null, and `tool_jail` answers "Every cell is in use" with reason `no_cell`, without the body taking a step. The window notes `noCellAt` and waits 30 seconds, then asks again, for ever. Three things are wrong with that:
 
 - The officer waits wherever it made the arrest: the bar, a hallway. The plan (`LLM_CREW_PLAN_SECURITY.md:293`) says "it waits in the brig with the prisoner". Only the other failure (`cellTries`, a cell that would not take them) walks back to the brig.

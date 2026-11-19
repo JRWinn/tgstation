@@ -8,11 +8,13 @@ confidence: sure
 status: found
 found_by: Opus 5.5
 area: cleaning
-files: code/modules/llm_crew/crew_npc_cleaning.dm:519, code/modules/llm_crew/crew_npc_cleaning.dm:526, code/modules/llm_crew/crew_npc_hands.dm:392, code/datums/components/cleaner.dm:146, code/datums/timed_actions.dm:76
+files: code/modules/llm_crew/crew_npc_cleaning.dm:519, code/modules/llm_crew/crew_npc_cleaning.dm:526, code/modules/llm_crew/crew_npc_hands.dm:392, code/datums/components/cleaner.dm:129, code/datums/timed_actions.dm:76, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:733
 fix: In clean_mess, mark a mess stubborn only if the body stayed on its errand, in reach and fit, and the scrub ran its course, else return a plain could not finish
 ---
 
 ## What is wrong
+
+Also written up as: LIFE-02
 
 See also: RT-01 (a click thrown away by the click cooldown) and HAND-02 (a mess it could not walk to). This is a third way to the same wrong write-off, with a different cause and a different place to fix.
 
@@ -31,6 +33,15 @@ One concrete case:
 5. After the meeting it comes back. `messes_to_clean` skips that vomit (`!stubborn_messes[REF(mess)]`). If the same happens once more to another vomit in the Bar, every vomit the janitor remembers in the Bar is written off and it tells the brain what is left "will not come off with what you have".
 
 The same happens if someone walks into the janitor and swaps places with it, pulls it, or it slips and falls while scrubbing.
+
+A second case, from LIFE-02: the window breaks off a scrub on purpose. `driver.ts` drops whatever the body is doing when it has been asked to step aside (`dropToMove`, "scrubbing on at the spot it was asked to move from is no answer"), when told to leave, and for an order from someone it answers to.
+
+1. A janitor in the Bar is scrubbing a cobweb with a rag. `clean_mess` has clicked it, the cleaner's `do_after` (3 seconds at base, `cleaner.dm:20`) is running, and `clean_mess` is in its `sleep(0.5 SECONDS)` loop.
+2. The bartender says "excuse me". `asideAsked` is set, `dropToMove` is true, the driver sends `step_aside`.
+3. `tool_step_aside` → `start_walk` → `cancel_errand()`. `errand_serial` goes up, the body walks two tiles, the `do_after` breaks, the cobweb stays.
+4. `clean_mess` waits on to the deadline, then writes the cobweb into `stubborn_messes` and adds one to `stubborn_kinds["Bar|/obj/effect/decal/cleanable/cobweb"]`. The answer is dropped (serial changed), so the brain is told nothing, but from now on `messes_to_clean` leaves the cobweb out, `beyond_kinds_here` names it as beyond the rag, and a second interruption on a second cobweb there writes off every cobweb in the Bar.
+
+A stun just before the click has the same end: `ClickOn` refuses an incapacitated body outright, so the scrub never starts and the mess is written off after the wait.
 
 ## Where
 

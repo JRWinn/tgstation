@@ -14,6 +14,8 @@ fix: In walk_finished do not mark blocked_places or blocked_tries for the goal w
 
 ## What is wrong
 
+See also: CORE-11, HAND-09 (two more wrong write-offs of a room in `walk_finished`, with other causes).
+
 See also: LIFE-01 (a walk cut short by a stun marks the room, for a different reason).
 
 When a walk to a room ends with "there is no way through", `walk_finished` writes the room the body was going to into `blocked_places`, and adds one to `blocked_tries` for it. Two such failures and the room is left alone for fifteen minutes (`CREW_NPC_BLOCKED_PLACE_LONG`), and, by the 13:30 entry's own design, "a door being opened for it does not wipe that" (`ways_reopened` only clears rooms with fewer than two tries).

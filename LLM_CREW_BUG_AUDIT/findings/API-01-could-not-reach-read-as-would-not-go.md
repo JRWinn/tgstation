@@ -15,6 +15,8 @@ fix: Narrow WOULD_NOT_GO in wanted.ts to the put_out line ending they got away f
 
 ## What is wrong
 
+See also: MULTI-08
+
 The window tells "they would not be walked out" from every other failure of `throw_out` by matching the server's English with a regular expression:
 
     const WOULD_NOT_GO = /\bcould not get\b|\bcannot get a hold\b/i;

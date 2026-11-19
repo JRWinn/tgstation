@@ -14,6 +14,8 @@ fix: Send each person's base job title from the server (crew_npc_job_of(person).
 
 ## What is wrong
 
+Also written up as: MAP-02
+
 The window tells jobs apart by testing the title on an ID with a loose regular expression. Two of them catch a title the game itself gives a security officer:
 
 - `isCargo` is `/cargo|quartermaster/i` and `isTechnician` is `/cargo/i && !isQuartermaster`. A security officer posted to Supply has the ID title **"Security Officer (Cargo)"** (`JOB_SECURITY_OFFICER_SUPPLY` in `code/__DEFINES/jobs.dm:71`). Both tests are TRUE for it.
@@ -29,6 +31,14 @@ So a player who joins as a security officer posted to Cargo is, to every crew NP
 - **word from cargo.** `pickupsOverhear` takes "is lost" from anyone `isCargo` and ends the errand; `head.ts:1242`, `1257` and `1266` and `janitor.ts:804` and `888` take PDA messages from them as from cargo.
 
 And an officer posted to Engineering is, to the Chief Engineer and the engineer, one of the engineers: `engineersAboard` (`engineering.ts:49`), the lines read in `chiefengineer.ts:655` and `678`, and the door-forcing messages in `forcing.ts:242`, `256` and `272`.
+
+More callers caught, from MAP-02:
+
+- The Quartermaster deals the standing work at its first meeting with `dutiesFor(technicians(brain))`, so the officer can be given "the rooms" or "the shuttle", which it never does.
+- The Head of Personnel at the counter takes the first `isTechnician` person in view as the one to ask for supplies (`head.ts:950`). The Supply checkpoint is beside the Cargo Lobby on most maps, so a cargo officer standing there is the one asked.
+- A janitor locked out of the bay asks "a technician" in view to let it in (`janitor.ts:677`).
+- With no Chief Engineer aboard, a door security wants forced is sent by PDA to `engineersAboard(brain)[0]` (`forcing.ts:163`), which can be the Engineering officer.
+- The same bare words catch other base-game titles: "Engineering Response Officer" and "Visiting Engineer" are taken for engineers, and `isJanitor` (`/janitor|custodian/i`, `janitor.ts:30`) takes "Janitorial Response Officer" for a janitor. `jobFor` would give an NPC with any of these that job's whole duties, since JANITOR is first in `JOBS`.
 
 A rarer case of the same kind: the wizard's "RPG Titles" event (`code/modules/events/wizard/rpgtitles.dm`) rewrites every living player's ID assignment to the job's `rpg_title`. The Captain's card then no longer says "Captain", so `isJob(toTitle, 'Captain')` in `hierarchy.ts` and every `/captain/i` test stop seeing the Captain at all. The base-title fix below covers that too.
 
@@ -79,11 +89,13 @@ Read from the code: the regular expressions, every caller found by grepping for 
 2. Window: carry `job_title` on `PersonInView`, on `pdaPeople`, and on `brain` (`brain.jobTitle`), and make `isCargo`, `isTechnician`, `isQuartermaster`, `isEngineer`, `isChiefEngineer`, `isOfficer`, `isHeadOfSecurity`, `isJanitor`, `isHeadOfPersonnel` and `jobFor` test that, falling back to `job` when it is empty (a custom title the HoP typed, a card with no trim).
 3. If the server change is not wanted, a smaller window-only step: in each of those tests, first drop a bracketed department from the end (`title.replace(/\s*\([^)]*\)\s*$/, '')`), and anchor the cargo and engineer tests to the title's start (`/^cargo\b/i`, `/\bengineer\b/i` after the strip). That fixes the four department officers but no other alternate title a later base-game change adds.
 4. Keep `QUARTERMASTER` before `CARGO` and `CHIEF_ENGINEER` before `ENGINEER` in `JOBS`: with base titles that order still matters for custom ones.
+5. A third way, window only, from MAP-02: in `hierarchy.ts` give each job as whole titles with the game's alternate titles (the four `Security Officer (...)` under Security, `Chef` under Service, "Custodian" and "Senior Janitor" as janitor alternates), add one helper `titleIs(title, job)` that compares whole titles ignoring case and end spaces, and rewrite the `is...` tests on it, `isOfficer` staying true for the four department titles. A title typed by hand on the HoP's console then matches nothing and the person is crew with no known job. The base-title way in step 1 is still the one to take: it needs no list kept in step with the game, and the fallback to `job` still sorts a custom title by its words.
 
 Owner question: should an officer posted to Cargo be let into the bay like cargo staff (their ID opens it), or treated as any other visitor? The fix above treats them as security, which is what the game says they are.
 
 ## How to test the fix
 
-- A small table of cases, in the style of `tools/llm_crew/addressing.ts`: `isTechnician('Security Officer (Cargo)')` FALSE, `isCargo('Security Officer (Cargo)')` FALSE, `isEngineer('Security Officer (Engineering)')` FALSE, `isOfficer('Security Officer (Engineering)')` TRUE, `jobFor('Security Officer (Cargo)') === OFFICER`, and the ordinary titles unchanged.
+- A small table of cases, in the style of `tools/llm_crew/addressing.ts`: `isTechnician('Security Officer (Cargo)')` FALSE, `isCargo('Security Officer (Cargo)')` FALSE, `isEngineer('Security Officer (Engineering)')` FALSE, `isOfficer('Security Officer (Engineering)')` TRUE, `jobFor('Security Officer (Cargo)') === OFFICER`, and the ordinary titles unchanged. Better, as MAP-02 asks, one row for each title in `code/__DEFINES/jobs.dm` with the job each test should give, which also covers "Engineering Response Officer", "Visiting Engineer" and "Janitorial Response Officer".
+- Simulator: a player-held `Security Officer (Cargo)` on the PDA list in a Quartermaster scenario; no duty or order may go to them.
 - Simulator: a `pickup` scenario with a person titled "Security Officer (Cargo)" standing in the lobby before the technician; the collector must ask the technician.
 - Type check and compile. In a round with a second player set to a security department, grep `game.log` for the collector's "here to collect crate" line and check whose first name begins it.

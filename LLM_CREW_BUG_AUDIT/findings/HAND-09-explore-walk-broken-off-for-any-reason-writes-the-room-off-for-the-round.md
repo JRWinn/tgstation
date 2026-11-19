@@ -14,6 +14,8 @@ fix: Write a room into unreachable_places from walk_finished only when the reaso
 
 ## What is wrong
 
+See also: CORE-11, KNB-14 (two more wrong write-offs of a room in `walk_finished`, with other causes).
+
 See also: LIFE-01, which found the same in `blocked_places` for `go_to` (there the room is written off for five minutes). For `explore` it is for good.
 
 `pick_somewhere_new` only offers a room it has just found a route to (`get_path_to` with the body's access). So when the walk there then fails, the cause is nearly always passing: the body was knocked down (the walk ends with `reason = null`, "you were interrupted"), the walk ran over `CREW_NPC_TRAVEL_TIMEOUT` behind people at a door, a fire door came down on the way, or the route planner was wrong about one door. `walk_finished` writes the room into `unreachable_places` whatever the reason. Nothing ever takes a room out of that list. `pick_somewhere_new` skips it for the rest of the round, and `tool_flee` will not run there either.

@@ -14,6 +14,8 @@ fix: In the walk leaf, when the move loop gave up because the body was not allow
 
 ## What is wrong
 
+See also: KNB-14, HAND-09 (two more wrong write-offs of a room in `walk_finished`, with other causes).
+
 See also: LIFE-01, which is the stunned case: the walk ended by the controller switching off. This is the other half: the controller stays on, but the body is not allowed to step.
 
 The crew controller keeps running while the body is cuffed or in an aggressive grab (`get_able_to_run` ignores `INCAPABLE_RESTRAINTS` and `INCAPABLE_GRAB`, on purpose: "Cuffed or grabbed crew can still shuffle about and talk"). So a walk carries on. But the base move loop will not step a body that is incapacitated in any way while someone pulls it, nor one that cannot move (`MOBILITY_MOVE` gone), nor one inside something. And a body buckled to an anchored chair or bed tries each step and gets nowhere: `/mob/living/Move` hands the step to what it is buckled to and returns, and an anchored chair does not move (`living.dm:1049`), so each step is a `MOVELOOP_FAILURE`. Each refused or failed step is counted by `increment_pathing_failures`, and after `max_pathing_attempts` (20) `fail_movement` sends `COMSIG_MOB_AI_MOVEMENT_FAILED`. The walk leaf takes every such failure to mean the route is shut:
