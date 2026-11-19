@@ -8,7 +8,7 @@ confidence: likely
 status: found
 found_by: Opus 5.5
 area: core
-files: code/modules/llm_crew/crew_npc_senses.dm:404, code/modules/llm_crew/crew_npc_senses.dm:191, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1196, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:684, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:687, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1610, tgui/packages/tgui/interfaces/CrewBrain/jobs/headofsecurity.ts:262
+files: code/modules/llm_crew/crew_npc_senses.dm:404, code/modules/llm_crew/crew_npc_senses.dm:191, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1196, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:684, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:687, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1610, tgui/packages/tgui/interfaces/CrewBrain/jobs/headofsecurity.ts:262, code/modules/llm_crew/crew_npc_doors.dm:823
 fix: Find the speaker among people_in_view by details.handle, which the server already ties to the voice, and fall back to the name only when there is no handle
 ---
 
@@ -27,6 +27,8 @@ The window takes these to be one and the same. Everywhere a job decides whether 
 With a visible name of "Captain John" and a voice of "John Smith" that finds nobody, so the line is taken to be from someone with no say over the NPC.
 
 Concrete case: the owner plays the Captain and has ctrl-clicked their ID to show the "Captain" honorific (`/obj/item/card/id` `honorific_position`, set by the player; the trims for Captain, security, heads and others all offer one). Their `name` is now "Captain John". They walk up to the Head of Personnel NPC and say "John here. Hold a staff meeting now." The NPC hears speaker "John Smith" with handle p3. In `head.ts` `overhears`, `peopleInView.find(person => person.name === 'John Smith')` is undefined, so `meetingOrderedBy` is never set and no meeting is called. The same check fails in `guarding.ts` (being told to leave a room), `chiefengineer.ts` (orders about the engine), `quartermaster.ts` and `headofsecurity.ts`. Things it means to say aloud to the Captain (`toTell` with `to` taken from a PDA name) also wait for a `peopleInView` entry named "John Smith" that never comes, and are dropped unsaid after two minutes.
+
+The same split runs the other way too. The server hands the window a seen name where the window will use it as a PDA name: `door_opened_for` keeps `let_in_by = opener.name` (crew_npc_doors.dm:823) and sends it as `let_in_by`. A body shut in after being let in then PDAs that name (`driver.ts` WORD_OUT_KEY step, `person: brain.letInBy`), and `tool_message` looks it up by `saved_identification` (`messenger_named`). "Captain John" is not "John Smith", so the server answers "You cannot find that person on your PDA." and the one person who let it in is never asked to let it out. A masked opener ("Unknown") fails the same way.
 
 The server already has the answer: `on_pre_hear` adds `details.handle` when the speaker is a human the body has just seen, and that handle is the same one in `people_in_view`.
 
@@ -59,8 +61,9 @@ Read from the code on both sides and in the base game's naming procs. Not seen i
 
 1. Add one helper in the window, say `speakerInView(brain, event)` in `addressing.ts` or `situation.ts`: if `event.details.handle` is a string, return the `peopleInView` entry with that handle; else return the entry whose name equals `details.speaker`.
 2. Replace each `brain.peopleInView.find((person) => person.name === speaker)` in the overhears hooks (head, guarding, chiefengineer, quartermaster, headofsecurity, and any other grep turns up) with the helper. Those hooks all receive the event.
-3. Server side, optionally, send the visible name too: in `on_pre_hear` add `details["seen_as"] = speaker.name` when the handle is set, so the window can map a voice name to a seen name for `toTell` and `jobOf`.
-4. Owner question: should a person's identity in the brain be the name on their ID (what the PDA uses) or the name they are seen by? The two only differ with honorifics or a borrowed ID. Using the handle for anything in sight, and the PDA name for anything out of sight, avoids having to choose.
+3. Server, `door_opened_for`: keep the opener's PDA name for `let_in_by` (the `saved_identification` of the PDA they carry, which `door_keepers` already reads; failing that `real_name` is closer than `name`), since the only use made of it is to send them word.
+4. Server side, optionally, send the visible name too: in `on_pre_hear` add `details["seen_as"] = speaker.name` when the handle is set, so the window can map a voice name to a seen name for `toTell` and `jobOf`.
+5. Owner question: should a person's identity in the brain be the name on their ID (what the PDA uses) or the name they are seen by? The two only differ with honorifics or a borrowed ID. Using the handle for anything in sight, and the PDA name for anything out of sight, avoids having to choose.
 
 ## How to test the fix
 

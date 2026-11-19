@@ -22,6 +22,8 @@ Concrete case. The Captain, Zim Fire, tells the janitor Tolly Field to clean the
 
 The same happens to a technician sent by the Quartermaster into another department's locked room, or to a player who says "the Captain sent me".
 
+One thing softens it. `brain.workmates` is everyone the guard has ever seen in its post with `belongs` true, and `belongs` is true for anyone the post's doors open for (`belongs_in_post` in `crew_npc_guarding.dm`), which takes in the Captain and heads with wide access. So if the Captain has once stood in the Cargo Bay while this technician was there, he is a "workmate" and his name is taken and checked. A Captain the technician has never seen in the bay, and a head whose ID does not open the bay, are not.
+
 ## Where
 
 `tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:760`, in `guardOverhears`:
