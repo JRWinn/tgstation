@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:599, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:610, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:227
-fix: Find the wanted name in a sighting the way a pardon finds it, with closeIn and a first name that only one wanted person has, before saying there is no warrant
+fix: Find the wanted name in a sighting the way a pardon finds it, nameIn then closeIn over the standing names, before saying there is no warrant
 ---
 
 ## What is wrong
@@ -62,11 +62,19 @@ Not seen in a round.
 
 ## How to fix it
 
-1. In `deskTakes`, find the wanted name as `nameIn(text, standing) ?? closeIn(text, standing) ?? firstOnly(text, standing)`, where `firstOnly` returns the one standing warrant whose first name is a word in the text, if only one has it.
-2. Before answering `noWarrantLine`, run `sameName` and `closeName` of the stranger's name against the standing names; if one matches, treat it as a sighting of that warrant.
-3. Have `sightedName`, or a second pattern, take "saw X in the Y", "X was in the Y", "X is hiding in the Y" with the name after "saw" as well as before "is in".
-4. Keep `placeNamedIn` as the test that a room was named.
+1. In `deskTakes` (`jobs/desk.ts:599`), find the wanted name as `nameIn(text, standing) ?? closeIn(text, standing)`, as the pardon and the taking-back do. No new `firstOnly` helper is needed: `closeName` (`jobs/security.ts:139`) already matches a word of four letters or more against each name's first name, and gives undefined when two names are as near, so "Dana" with warrants on Dana Reyes and Dana Smith is taken for neither. Checked: `closeIn` gives Dana Reyes for "Dana is in the bar" and "I just saw Dana in the bar", Pun Pun for "Punpun is in the bar", and undefined for two Danas.
+2. With step 1 the stranger path is not reached for these lines, so nothing more is needed before `noWarrantLine`. A first name of three letters or less ("Pun is in the bar") is still not matched by `closeName`, and still gets the no-warrant answer; leave that unless the owner wants it, since a short word matches too much.
+3. Optional, and a different fault: `sightedName` reads only "X is in the Y", so "I just saw Bob in the bar" about someone with no warrant gets no "there is no warrant" answer and goes to the LLM reader. A second pattern for "saw X in the Y" would fix that. It is not needed for the wanted cases here.
+4. Keep `placeNamedIn` and `SIGHTING_WORDS` as the tests that a room was named and that it is word of where someone is.
 
 ## How to test the fix
 
-Add to `tools/llm_crew/security.ts`: with warrants on Dana Reyes and Pun Pun, "Dana is in the bar", "Punpun is in the bar" and "I just saw Dana in the bar" each set that warrant's `lastSeen.place` to "Bar" and send no "no warrant" line. With warrants on Dana Reyes and Dana Smith, "Dana is in the bar" is not taken for either.
+Add to `tools/llm_crew/security.ts`: with warrants on Dana Reyes and Pun Pun, "Dana is in the bar", "Punpun is in the bar" and "I just saw Dana in the bar" each set that warrant's `lastSeen.place` to "Bar" and send no "no warrant" line. With warrants on Dana Reyes and Dana Smith, "Dana is in the bar" is not taken for either. The existing case at `tools/llm_crew/security.ts:163` ("Pun Pun is in the bar" with no warrant gets the no-warrant line) must still pass. Check that a sighting with a room still sets `lastSeen` and is passed to the officer through `syncDesk`. In a round, grep `pda.log` for "there is no warrant on" and check each against the wanted list at that time.
+
+## Check
+
+Checked by Opus 5.5. Read the sighting and stranger steps of `deskTakes` (`jobs/desk.ts:597` to `:622`), the pardon (`:399`) and taking-back (`:360`), and `nameIn`, `closeIn`, `closeName`, `slack`, `SIGHTING_WORDS` and `sightedName` in `jobs/security.ts`. The quotes are what the code says today. `mendWords` leaves "Dana" and "Punpun" as they are (checked), so nothing mends the name before `nameIn`.
+
+Ran a throwaway bun script in the scratchpad: the `head()` fixture, warrants on Dana Reyes and Pun Pun from the Captain, then each line through `deskTakes`. Printed the same as the finding: "Dana is in the bar" and "Punpun is in the bar" each got "there is no warrant on ..." and left `lastSeen` empty; "I just saw Dana in the bar" returned false (on to the LLM reader); "Dana Reyes is in the bar" set Dana Reyes's `lastSeen` to Bar. Nothing in the change log or plans chose a stricter reading for sightings than for pardons. Confirmed.
+
+The fix is simpler than first written: `closeIn` already does what `firstOnly` and step 2 were for, so steps 1 and 2 are mended to one line. Severity medium and effort small are right.

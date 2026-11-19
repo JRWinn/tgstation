@@ -72,7 +72,7 @@ Read from the code. Not seen in a round.
 1. In `tellHead`, look for the Head of Security in view first. If `seen`, take the face-to-face path whatever `word.byPda` says, and clear `word.byPda`. Keep the rule that a word said and not answered twice goes to the PDA (`TELL_TRIES`), but let that be undone the next time they are in sight and the PDA has failed.
 2. In `afterActing`, when the `message` for a word comes back not ok, set `word.unsent = true` (new field on `BeatWord`). In `tellHead`, for a word that is `unsent` and with nobody in sight: if `brain.post` is set and the officer is not there and has nobody by the arm and no one in sight on a warrant (`!onLead(brain)`), the step is `go_to` the post. At the post it waits (`wait: true`) for the head to come into sight, and tries the PDA again every few minutes. This is the same shape as `giveStep` in `jobs/desk.ts`.
 3. With no PDA at all (`!brain.hasPda`) take the same on-foot path, not "no way to get it to them".
-4. Because the server sends a kept message again by itself, do not send the same line again from the window while `unsent` is set and less than a few minutes old. Otherwise the Head of Security hears one arrest twice and counts it twice (`desk.arrests += 1` in `deskOutcome` has no guard against the same word coming twice).
+4. Because the server sends a kept message again by itself, do not send the same line again from the window while `unsent` is set and less than a few minutes old. Otherwise the Head of Security hears one arrest twice and counts it twice (`desk.arrests += 1` in `deskOutcome` has no guard against the same word coming twice). That is not enough on its own: once the word has been said face to face and heard, the server still holds its kept copy and sends it when the PDAs come back (it keeps one for up to eight minutes, `CREW_NPC_UNSENT_KEPT`), and the window has no way to call it back. So also, in `deskOutcome` in `jobs/desk.ts`, take an outcome only once: keep the last few as `what|name|from` with the time, and pass over the same one within ten minutes, with no second "jailed" for the Captain and no second count. That guards every other word that goes both ways as well.
 5. A dead LLM changes nothing here: the line is fixed and said word for word.
 
 What must keep working: "I am hurt" still goes at once by PDA when the head is not in sight and the PDA works. Out on the station with a working PDA the officer does not walk back to tell.
@@ -80,5 +80,14 @@ What must keep working: "I am hurt" still goes at once by PDA when the head is n
 ## How to test the fix
 
 - Type check and lint.
+- `tools/llm_crew/security.ts`: a case for `tellHead` with `word.byPda` set and the Head of Security in view: the plan is `say`, not `message`. A case for `deskOutcome` given the same "jailed" outcome twice: `desk.arrests` goes up by one and the Captain is told once.
 - Simulator: `warrant` with the server side answering every `message` with `ok: false`. Check that after the jail the officer goes to its post and, with the Head of Security put in view, says the line and gets "I have that" back, and that the head's list drops the warrant.
 - In a round after power has failed: `game.log` "was told by its brain to say:" with the outcome line, said in the Security Office, and no long run of "its PDA would not send it" for the same text.
+
+## Check
+
+Checked by Opus 5.5. Confirmed. Effort raised to medium: the fix touches `officer.ts` and `desk.ts`.
+
+Read `tellHead` (`officer.ts:187-261`): `if (word.byPda) return byPda();` comes before the look for the head in view, and nothing in the file ever sets `byPda` back to false. `syncTasks` (`:154`) sets it for an urgent word whenever the head is out of sight. `afterActing` (`:521`) drops a word only on a `message` that went; a failed one stays, and the driver's `fail` (`driver.ts:931`) holds the step back for `RETRY_MS * count`, up to `RETRY_MAX_MS`, then sends it again. Read `tool_message` (`crew_npc_cargo.dm:692-738`): a send that fails answers `ok: false` and keeps the text; `resend_unsent` (`:755`) sends it later by itself, and the window is never told that it went. So with PDAs down the word never reaches a head standing in the same room. With PDAs back, the server's copy and the window's next try can both arrive. Read `deskOutcome` (`desk.ts:729`): a second "jailed" counts a second arrest (`desk.arrests += 1`) and tells the Captain again; nothing guards it.
+
+The Head of Security's own `giveStep` (`desk.ts:1039-1050`) does go on foot after a failed send (`warrant.unsent`), so the shape to copy is there. Nothing in the change log fixes this or chose it. Added to step 4 that the window cannot recall the server's kept copy, and a guard in `deskOutcome` for it.

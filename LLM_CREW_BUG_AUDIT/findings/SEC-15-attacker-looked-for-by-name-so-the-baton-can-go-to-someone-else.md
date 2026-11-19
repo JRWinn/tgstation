@@ -85,3 +85,11 @@ Read from the code on both sides. Not seen in a round: the attackers so far were
 - `tools/llm_crew/security.ts`: a case with two people named "Unknown" in `peopleInView` (handles `p4` and `p7`) and `beat.attacker = { name: 'Unknown', handle: 'p7' }`: the plan's `act.person` is `p7`. A case with the attacker's handle not in view and another "Unknown" in view: no stop.
 - Window type check.
 - In a round with two masked players without IDs: one shoves the officer. `game.log`'s "(stop)" line must name the one who shoved.
+
+## Check
+
+Checked by Opus 5.5. Read `syncBeat`'s `keep(STOP, ...)` (`jobs/arrests.ts` 495-505), `planBeat` for `STOP` (975-990), `securityFeels` (1255-1278), and on the server `tell_struck` (`crew_npc_security.dm:1571`), `person_key` and `handle_for` (`crew_npc_senses.dm` 108-124) and the `people_in_view` entry (191), which uses the same `handle_for`, so the handle sent in `struck_by` is the one in `peopleInView`. A search of `CrewBrain/` and `tools/llm_crew/` finds no read of `attacker.handle`. The quotes match.
+
+Ran a throwaway script with bun (outside the repo) that imports `planBeat` from `jobs/arrests.ts`, with two people named "Unknown" in `peopleInView` (`p4`, then `p7`) and `beat.attacker = { name: 'Unknown', handle: 'p7' }`. It printed `"act":{"tool":"arrest","person":"p4","how":"stop"}`: the one who did nothing is the one batoned. `tool_arrest` refuses only the Captain, so the stop goes ahead on anyone else, a head of staff included.
+
+Severity raised to high: FORMAT puts "the wrong person is acted on" at high, and here it is two baton hits on a bystander. The fix is right and window-only; the server already sends the handle. Non-human attackers get `struck_by = null`, stored as `''`, and never appear in `peopleInView` (it lists humans only), so the name fallback for an empty handle changes nothing for them.

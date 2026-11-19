@@ -3,10 +3,11 @@ id: CHEAT-03
 title: An officer picks a free brig cell from wherever it makes the arrest, by reading every cell's timer and who is inside, unseen
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: security
 files: code/modules/llm_crew/crew_npc_security.dm:1075, code/modules/llm_crew/crew_npc_security.dm:1117, code/modules/llm_crew/crew_npc_security.dm:1583
 fix: Choose the cell from what the body last saw of the cells, or Cell 1 if it has seen none, and pick again at the brig once the cells are in view
@@ -64,3 +65,15 @@ No owner question: this is the plan's own order of steps.
 - Server compile.
 - Simulator: the security scenarios play `tool_jail` from the server side, so the sim's stand-in for it must also stop answering "in use" from afar. Run the jail scenarios in `tools/llm_crew/security.ts`.
 - A round: fill Cell 1 by hand, have an officer arrest someone far from the brig, and check in `game.log` that it walks to the brig first and then to a free cell's timer.
+
+## Check
+
+Checked by Opus 5.5, from the code; nothing run.
+
+- The quotes are what `crew_npc_security.dm` says today: `free_cell` at 1075 reads `timer.timing`, `machine_stat` and `cell.occupants()` for every cell on the level; `tool_jail` calls it at 1117 before any step and answers `no_cell` "Every cell is in use." at once; `security_state` (1583 on) fills `running`, `left` and `occupants` only for a cell in view and says so in its comment.
+- Nothing stops it being asked from afar. The window's `serveStep` (`jobs/arrests.ts`, the `holds(brain, warrant)` branch near 705) sends `jail` the moment it has the prisoner in cuffs and by the arm, wherever that is; there is no walk to the brig first. On `no_cell` the window sets `noCellAt` (`arrests.ts:1191`) and waits where it stands ("every cell in the brig is in use. You are waiting"), which is the Bar in the case above. The plan (`LLM_CREW_PLAN_SECURITY.md` 3.8) has it walk to the brig and wait there.
+- Nothing in `LLM_CREW_CHANGELOG.md` chose this; the C2 entry (line 316) only adds the refused-cell skip to `free_cell`.
+- Severity kept at medium, as for the other things-known-unseen findings (CHEAT-02, -05, -06): the senses rule is broken, but nothing is done to the world that a player could not do, and in most rounds the cell it walks to is the one it would have picked on looking.
+- Effort raised to medium: the server's `tool_jail` and `put_in_cell` change, and the simulator's stand-in for `jail` (`tools/llm_crew/sim.ts:995`) must stop answering `no_cell` from afar too.
+- A simpler fix than keeping `cells_seen`, and the one I would build: in `tool_jail`, call `free_cell` only for cells in view (the same test `security_state` uses: the timer or a cell floor tile in `view`). If one is free, go to it as now. If none is in view, choose the first cell by name and walk to its timer without answering; `put_in_cell` already checks the cell on arrival (`timer.timing || length(cell.occupants() - prisoner - body)`), and there, in the brig with the cells in view, it should call `free_cell` once more (in view only) and go to that timer instead of answering "is in use". Only when none in view is free does it answer `no_cell`, and the window's `noCellAt` wait then happens in the brig, as the plan says. `cells_seen` adds little: the brig is one room and the walk there is needed anyway.
+- How to test, added: a case in the simulator's jail scenarios with the officer far from the brig and Cell 1 occupied; `game.log` should show it walk to the brig, then to Cell 2's timer, with no "Every cell is in use" before it has reached the brig.

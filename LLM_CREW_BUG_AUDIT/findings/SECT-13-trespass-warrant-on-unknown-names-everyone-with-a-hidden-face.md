@@ -55,6 +55,7 @@ Read from the code, following the name from the server's `people_in_view` (`pers
 1. In `security.ts`, add `isNoName(name)`: true for "Unknown", "Unknown (as ...)" and the empty string.
 2. In `deskTakes`, refuse a warrant on such a name: "Captain, I cannot take a warrant on Unknown. Tell me who it is, or where they are and what they wear." (a new line in `REFUSALS`).
 3. In `wantedAfterActing`, do not note a `couldNot` for such a name. Have the body tell its head plainly instead ("Jameson, someone with their face hidden would not leave the Cargo Bay."), so the head can send for security to the room. Whether a warrant can be on "whoever is in the Cargo Bay" is a design question for the owner; today a warrant needs a name.
+   Also have `declareTrespass` return at once for such a name, so a "could not put Unknown out" line that is typed, or sent before the fix, makes no warrant either.
 4. In `syncWanted`, skip people seen as Unknown when sending sightings, so that an old warrant on Unknown (from before the fix) does not flood the Head of Security.
 
 ## How to test the fix
