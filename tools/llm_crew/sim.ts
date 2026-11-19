@@ -22,7 +22,8 @@
 //   bun run sim.ts quiet mixed     a head orders two kinds of crate in one breath: one order is placed for both, and each crate is told apart when it comes
 //   bun run sim.ts quiet evict     the Captain, in the bay, orders the technician to put out a janitor it sent for (leave: tells the janitor to go)
 //   bun run sim.ts quiet aside     a janitor scrubbing the bay is asked to step aside: it moves, and stays clear a while
-//   bun run sim.ts quiet bydoor    a crate has been left right by a door: the technician hauls it clear
+//   bun run sim.ts quiet asidetwice  as aside, but its first step aside finds nowhere to go: asked again ten seconds later, it steps aside then, and nothing is sent over its work meanwhile (JOBS-06)
+//   bun run sim.ts quiet bydoor   a crate has been left right by a door: the technician hauls it clear
 //   bun run sim.ts quiet lost      a crate being held for collection is destroyed: it is written off aloud and whoever ordered it is told
 //   bun run sim.ts quiet nested    a mess in a locked room that lies inside the locked bay: the janitor is let through both doors, and back out through both
 //   bun run sim.ts quiet qm        the crew with a Quartermaster aboard: the head's order goes to it by PDA, into its order book, to a technician face to face, and word of the crates comes back the same way
@@ -305,6 +306,9 @@ const stowed: string[] = [];
 // The technician whose first haul off the shuttle came to nothing, in the scenario about that.
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
+// JOBS-06: when the first step aside found nowhere to go, and each step sent to the janitor while it was still busy with another.
+let asideFailedAt = 0;
+const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
 const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
@@ -545,6 +549,7 @@ function toolCall(body: Body, tool: string, args: any) {
   // Standing still to talk is not a step of anyone's work, so it is not logged as one.
   if (tool === 'hold') { body.stillUntil = Math.max(body.stillUntil, clock + 4000); return; }
   body.log.push(`${stamp()} ${body.room.padEnd(24)} ${tool}${Object.keys(args).length ? ' ' + JSON.stringify(args) : ''}`);
+  if (VARIANT === 'asidetwice' && body.job === 'Janitor' && body.busyText && tool !== 'say' && tool !== 'step_aside') sentOverBusy.push(`${stamp()} ${tool} while ${body.busyText}`);
   // Someone has it by the arm. It can speak, and that is all.
   if (clock < body.inHandUntil && tool !== 'say') return result(body, tool, false, 'Someone has you by the arm and is walking you out.');
   // What it says it will do and then at once does is one act. Wandering off after speaking is another.
@@ -893,6 +898,8 @@ function toolCall(body: Body, tool: string, args: any) {
       });
     }
     case 'step_aside':
+      // JOBS-06: the first time, there is nowhere clear to step to.
+      if (VARIANT === 'asidetwice' && !asideFailedAt) { asideFailedAt = clock; return result(body, 'step_aside', false, 'There is nowhere clear to step to.'); }
       // Asked to get out of the way, it steps to a clear spot nearby, whatever it was in the middle of.
       body.busyText = null; body.walking = false; body.onDone = null;
       // Clear of any doorway it was standing in, on whichever side of it that was.
@@ -1222,6 +1229,8 @@ function spawnCaptainInBay() {
   return crew;
 }
 let captainSpokeAt = 0;
+// JOBS-06: when the Captain asked a second time.
+let askedAgainAt = 0;
 // A technician alone, with a loaded crate that someone has left right by the lobby door.
 function spawnByDoor() {
   const crew = [spawn('Cora Tech', 'Cargo Technician')];
@@ -1360,7 +1369,7 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
@@ -1411,7 +1420,9 @@ for (let second = 0; second < SECONDS; second++) {
   // Pulled again as soon as it is reset: a real problem, or someone who will not leave it alone.
   if (clock >= repullAt) { fireAlarm = bodies[0].room; repullAt = Infinity; }
   // The Captain gives its order once the janitor has been let into the bay and has started on the mess there.
-  if ((VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside') && !captainSpokeAt && bodies[1].room === 'Cargo Bay' && bodies[1].busyText?.startsWith('cleaning')) { captainSpokeAt = clock; playerSays('Ada Stone', VARIANT === 'evict' ? 'Cora, throw this janitor out.' : VARIANT === 'leave' ? 'Jan, leave.' : 'Jan, could you step aside, please? I need to get past you.'); }
+  if ((VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice') && !captainSpokeAt && bodies[1].room === 'Cargo Bay' && bodies[1].busyText?.startsWith('cleaning')) { captainSpokeAt = clock; playerSays('Ada Stone', VARIANT === 'evict' ? 'Cora, throw this janitor out.' : VARIANT === 'leave' ? 'Jan, leave.' : 'Jan, could you step aside, please? I need to get past you.'); }
+  // JOBS-06: ten seconds after the first asking, whose step aside found nowhere to go, the Captain asks again from somewhere with room.
+  if (VARIANT === 'asidetwice' && captainSpokeAt && !askedAgainAt && clock - captainSpokeAt >= 10_000) { askedAgainAt = clock; playerSays('Ada Stone', 'Jan, could you step aside, please? I need to get past you.'); }
   // A head orders a crate and does not come for it. Once it is off the shuttle and held in the bay, it is destroyed. Later the head asks for it.
   if (VARIANT === 'lost' && second === 20) playerSays('Hal Pott', 'Cora, I need to order a crate of janitorial supplies, please.');
   if ((VARIANT === 'lost' || VARIANT === 'qmlost') && !crateLostAt && second >= CRATE_LOST_AT && held[0]?.heldSince && !held[0].lost) { const gone = held[0]; gone.lost = 'it has been destroyed'; rooms['Cargo Bay'].boxes = rooms['Cargo Bay'].boxes.filter((box) => box !== gone.box); crateLostAt = clock; }
@@ -1491,6 +1502,19 @@ if (VARIANT === 'aside') {
   const backAt = jan.log.find((line) => moved && line.slice(0, 8) > stamped(moved.at) && / clean/.test(line))?.slice(0, 8);
   check('it stays out of the way a little while before it takes up its work again', !!moved && !!backAt && backAt >= stamped(moved.at + 12000), backAt ? `back at it at ${backAt}, having moved at ${moved ? stamped(moved.at) : '?'}` : 'it never went back to its work');
   check('it steps aside once for one asking', steppedAside.filter((step) => step.who === jan.name).length === 1, `${steppedAside.length} time(s)`);
+  check('and the bay is still cleaned in the end', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
+}
+// Asked to step aside, a janitor finds nowhere to go; asked again ten seconds later, it steps aside then.
+if (VARIANT === 'asidetwice') {
+  const jan = crew[1];
+  const stamped = (at: number) => new Date(at).toISOString().slice(11, 19);
+  const asks = jan.log.filter((line) => / step_aside/.test(line)).map((line) => line.slice(0, 8));
+  check('the janitor is asked while it is in the middle of scrubbing the bay, and its step aside finds nowhere to go', captainSpokeAt > 0 && asideFailedAt >= captainSpokeAt && asideFailedAt - captainSpokeAt <= 6000, asideFailedAt ? `${(asideFailedAt - captainSpokeAt) / 1000}s after being asked` : 'it never tried');
+  const moved = steppedAside.find((step) => step.who === jan.name);
+  check('asked again ten seconds later, it steps aside within a few seconds', askedAgainAt > 0 && !!moved && moved.at >= askedAgainAt && moved.at - askedAgainAt <= 6000, moved ? `${(moved.at - askedAgainAt) / 1000}s after the second asking` : 'it never moved');
+  check('it tries to step aside once for each asking', asks.length === 2, asks.join(', ') || 'never');
+  const over = sentOverBusy.filter((line) => line.slice(0, 8) >= stamped(captainSpokeAt) && (!moved || line.slice(0, 8) <= stamped(moved.at)));
+  check('nothing else is sent to it while it is busy, from the first asking until it has stepped aside', over.length === 0, over.join(' | '));
   check('and the bay is still cleaned in the end', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
 }
 // A crate that was being held is destroyed: one technician writes it off aloud, whoever ordered it is told, and nobody is chased about it or handed anything.
