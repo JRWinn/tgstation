@@ -25,9 +25,9 @@ Worst first:
 4. **`take_item` picks a thing up with `put_in_hands`**, not a click on it. The game's own checks on picking up (what `attack_hand` on an item runs: the item's `pickup` refusals, a thing that burns the hand, a thing too heavy) are skipped.
 5. **`take_from_container` calls `container.open(body)` and `container.close(body)`** and then `put_in_hands`. `open(user)` does run the closet's own lock check, so this is the mildest.
 6. **`reset_fire_alarm` calls `alarm.reset(body)`.** The game's reset is a right-click (`attack_hand_secondary` in `code/game/machinery/firealarm.dm:295`). Note for the fix: a plain click on a fire alarm pulls it (`attack_hand` calls `alarm(user)`), so the honest version must be a right-click, not `ClickOn` with no modifiers.
-7. **`use_order_book` moves the pen into the clipboard with `forceMove`** and sets `board.pen` by hand (`crew_npc_quartermaster.dm:114`, and again at `:266` to `:300` when it puts the book away). A player clicks the clipboard with the pen.
+7. **`ready_to_write` moves the pen into the clipboard with `forceMove`** and sets `board.pen` by hand (`crew_npc_quartermaster.dm:114`), and `take_paper` does the same with the sheet and the pen at `:266` to `:300`. A player clicks the clipboard with the pen.
 
-The case for 1: the Head of Personnel is told `give("p2")` with a salt shaker in hand and the Captain (a player) standing by with both hands free. The salt shaker is in the Captain's hand the same tick.
+The case for 1: a mail crate comes in with a letter for the Captain. A technician takes the mail out and, seeing the Captain at the counter, is told `hand_mail` (`jobs/freight.ts:202`). The letter is in the Captain's hand the same tick, or on the floor at the Captain's feet if both hands were full. No coded step sends `give` today, but the tool is on the list the server takes (`handle_tool_call`) and in `SERVER_TOOL_NAMES` (`prompt.ts:116`).
 
 ## Where
 
@@ -74,7 +74,7 @@ Read from the code, each proc top to bottom. The revolver in the officer's bag i
 
 Do them in this order. Each is its own small change and can be compiled and played alone.
 
-1. **`hand_over` and `hand_mail_over`.** To another crew NPC: keep the hand-to-hand, since both ends are ours, but do it as the game's give (`/mob/living/carbon/proc/give` raises an offer; the receiving NPC's controller accepts it by the same call the alert button makes, `take` on the offer). To anyone with a player (`person.client`): raise the offer and wait a few seconds; if it is not taken, put the thing down on a table beside them or at the body's own feet with `dropItemToGround`, and say so. Never `forceMove`. **Question for the owner:** is hand-to-hand between two NPCs good enough as it is, or must that go through the offer as well?
+1. **`hand_over` and `hand_mail_over`.** To another crew NPC: keep the hand-to-hand, since both ends are ours, but do it as the game's give (`/mob/living/proc/give` in `code/modules/mob/living/living_item_handling.dm:130` raises an offer; the receiving NPC's controller accepts it by the same call the alert button makes, `/mob/living/proc/take` at `:190`). To anyone with a player (`person.client`): raise the offer and wait a few seconds; if it is not taken, put the thing down on a table beside them or at the body's own feet with `dropItemToGround`, and say so. Never `forceMove`. **Question for the owner:** is hand-to-hand between two NPCs good enough as it is, or must that go through the offer as well?
 2. **`free_a_hand` and the take-out in `tool_pick_up`.** Use `draw_item`'s way in reverse: with the thing in the active hand, click the bag (`body.back.attackby` reached through `ClickOn(body.back)`), which is what a player does. If the bag will not take it, drop it at its feet as now. Taking out: open the bag's storage and click the item, as `draw_item` does for a belt.
 3. **`take_item`.** `ClickOn(item)` with an empty active hand, then check it is held. Keep the "not where you saw it" test.
 4. **`take_from_container`.** `ClickOn(container)` to open it (an empty hand), read what spilled as now, `ClickOn(found)` to take it, `ClickOn(container)` to shut it.
