@@ -51,6 +51,8 @@
 #define CREW_NPC_STRUCK_GAP (3 SECONDS)
 /// How long something security staff went for and could not get, or found nothing in, is left alone.
 #define CREW_NPC_KIT_SKIP (3 MINUTES)
+/// Why the baton stopped, when the body was put down itself.
+#define CREW_NPC_KNOCKED_DOWN "it was knocked down itself"
 /// Where a crew NPC under arrest has got to: told to stand still, shut in a cell, or left to work its cuffs off.
 #define CREW_CUSTODY_ARREST "arrest"
 #define CREW_CUSTODY_CELL "cell"
@@ -363,6 +365,29 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return QDELETED(thing) || !body.is_holding(thing)
 
 /**
+ * TRUE if the body could take a step now, as a player could: it is not stunned, out cold, dead
+ * or buckled, and nobody has it in more than a passive grab. The game's own refusal of a step is
+ * made where a player's key press asks for it, not in Move, so a body moved step by step in code
+ * has to be asked first. Knocked to the floor alone, it may still crawl.
+ */
+/datum/ai_controller/crew_npc/proc/can_step()
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	if(!(body.mobility_flags & MOBILITY_MOVE) || body.stat == DEAD || body.buckled)
+		return FALSE
+	if(body.pulledby && body.pulledby.grab_state > GRAB_PASSIVE)
+		return FALSE
+	return TRUE
+
+/// TRUE if the body has been put down itself: stunned, out cold or dead, past using its hands or feet.
+/datum/ai_controller/crew_npc/proc/knocked_down_itself()
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	return body.stat == DEAD || !(body.mobility_flags & MOBILITY_MOVE) || INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_GRAB)
+
+/**
  * Steps after someone who has moved off, a tile at a time, until the body is next to them:
  * straight at them, and round whatever is in the way when that step will not go. A bar is all
  * tables and stools, and a step straight at someone across one goes nowhere.
@@ -379,6 +404,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			body.face_atom(person)
 			return TRUE
 		if(taken == most || get_dist(body, person) > most || !(person in view(CREW_NPC_VISION_RANGE, body)))
+			return FALSE
+		// Stunned, out cold or dead, it lies where it fell. Moved with no player behind it, it slid along the floor after them.
+		if(!can_step())
 			return FALSE
 		var/turf/from = get_turf(body)
 		var/turf/next = get_step_towards(body, person)
@@ -420,6 +448,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		// A door walked into opens, and is not open yet: the step is tried until it has had time to be.
 		var/tried_from = world.time
 		while(get_turf(body) != next && world.time - tried_from < CREW_NPC_STEP_WAIT)
+			if(!can_step())
+				return FALSE
 			body.Move(next, get_dir(body, next))
 			sleep(max(movement_delay, 0.2 SECONDS))
 			if(QDELETED(src) || QDELETED(body))
@@ -906,16 +936,22 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(how == CREW_ARREST_STOP)
 			put_baton_away(baton)
 			if(!hits)
+				if(knocked_down_itself())
+					return knocked_down_outcome(person_name, handle, 0)
 				return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
 			return list(TRUE, "You stop [person_name] with your baton.", list("handle" = handle, "cuffed" = FALSE, "hits" = hits))
 		if(!hits)
 			put_baton_away(baton)
 			stow_in_bag(cuffs)
+			if(knocked_down_itself())
+				return knocked_down_outcome(person_name, handle, 0)
 			return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
 		var/cuffed = put_cuffs_on(person, cuffs)
 		put_baton_away(baton)
 		if(!cuffed)
 			stow_in_bag(cuffs)
+			if(knocked_down_itself())
+				return knocked_down_outcome(person_name, handle, hits)
 			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (!QDELETED(person) && (person in view(CREW_NPC_VISION_RANGE, body))) ? "moved" : "lost", "hits" = hits))
 		return hold_arrested(person, hits, TRUE)
 	// The cuffs alone.
@@ -923,8 +959,19 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		stow_in_bag(cuffs)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
+		if(knocked_down_itself())
+			return knocked_down_outcome(person_name, handle, 0)
 		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
 	return hold_arrested(person, hits, TRUE)
+
+/**
+ * What an arrest comes to when the body was put down itself before it was done: stunned, out
+ * cold or dead. Not that they stepped away, nor that they will not stand still: the reason
+ * "down" is its own, and counts against nobody's standing still.
+ */
+/datum/ai_controller/crew_npc/proc/knocked_down_outcome(person_name, handle, hits)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) was knocked down itself while arresting [person_name] at [AREACOORD(pawn)].")
+	return list(FALSE, "You were knocked down yourself before you were done with [person_name].", list("handle" = handle, "reason" = "down", "hits" = hits))
 
 /**
  * Hits someone with the stun baton: takes it out by a click, switches it on in the hand, and
@@ -964,14 +1011,18 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			baton_stopped = "its baton went flat"
 			break
 		if(!close_with(person, CREW_NPC_CHASE_STEPS))
-			baton_stopped = "it could not get near them"
+			baton_stopped = knocked_down_itself() ? CREW_NPC_KNOCKED_DOWN : "it could not get near them"
 			break
 		if(!hand_to(baton))
-			baton_stopped = "its baton was not in its hand"
+			baton_stopped = knocked_down_itself() ? CREW_NPC_KNOCKED_DOWN : "its baton was not in its hand"
 			break
 		swings++
 		var/charge_before = baton.cell?.charge
 		if(!click_as_body(person, null, CREW_NPC_STRIKE_GAP))
+			// Down itself, every swing fails, and they were said to have stepped out of reach of them all.
+			if(knocked_down_itself())
+				baton_stopped = CREW_NPC_KNOCKED_DOWN
+				break
 			baton_stopped = "they stepped out of reach of every swing"
 			continue
 		if(!QDELETED(baton) && baton.cell?.charge < charge_before)
@@ -1175,6 +1226,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return list(FALSE, "You could not get to it.")
 		if(QDELETED(prisoner) || body.pulling != prisoner)
 			return list(FALSE, "[prisoner_name] got away from you at the door of [cell.name].", got_away_details(prisoner, prisoner_name))
+		// Knocked down on the way in: that is not the cell refusing them.
+		if(knocked_down_itself())
+			return list(FALSE, "You were knocked down yourself at the door of [cell.name].", list("reason" = "down", "prisoner" = prisoner_name, "cell" = cell.name))
 		var/obj/machinery/door/cell_door = cell.door()
 		cell_refuses(cell, prisoner_name, isnull(deep) ? "it found no clear floor inside" : "it could not walk in to ([deep.x],[deep.y]), [length(cell.turfs)] tiles of cell, the door [isnull(cell_door) ? "not found" : (cell_door.density ? "shut" : "open")]")
 		return list(FALSE, "You cannot get into [cell.name] with [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
@@ -1194,6 +1248,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!walk_steps(outside))
 		if(QDELETED(src) || QDELETED(body))
 			return list(FALSE, "You could not get to it.")
+		if(knocked_down_itself())
+			return list(FALSE, "You were knocked down yourself in [cell.name], before you could start its timer.", list("reason" = "down", "prisoner" = prisoner_name, "cell" = cell.name))
 		cell_refuses(cell, prisoner_name, "it could not walk back out to the timer")
 		return list(FALSE, "You cannot get back out of [cell.name] to its timer.", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	if(QDELETED(prisoner) || !(get_turf(prisoner) in cell.turfs))
@@ -1679,6 +1735,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_NPC_CUFF_TRIES
 #undef CREW_NPC_STRUCK_GAP
 #undef CREW_NPC_KIT_SKIP
+#undef CREW_NPC_KNOCKED_DOWN
 #undef CREW_CUSTODY_ARREST
 #undef CREW_CUSTODY_CELL
 #undef CREW_CUSTODY_CUFFS
