@@ -5,11 +5,12 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: doors
-files: code/modules/llm_crew/crew_npc_doors.dm:721, code/modules/llm_crew/crew_npc_doors.dm:694, code/game/machinery/doors/firedoor.dm:379
-fix: In fire_door_report take the room whose alarm was raised by hand over one it only spread to, as the fault display on a fire alarm shows, and say the room the alarm is in
+files: code/modules/llm_crew/crew_npc_doors.dm:721, code/modules/llm_crew/crew_npc_doors.dm:694, code/modules/llm_crew/crew_npc_doors.dm:749, code/game/machinery/doors/firedoor.dm:379, code/game/machinery/firealarm.dm:267
+fix: Let a body stopped by a fire door that borders its own room reset the alarm on its own side, whose reset opens that shared door, instead of calling its room's spill-over alarm a real one - and build it with GAP-05
 ---
 
 ## What is wrong
