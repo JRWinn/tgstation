@@ -5,11 +5,12 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/wanted.ts:58, code/modules/llm_crew/crew_npc_hands.dm:425, code/modules/llm_crew/crew_npc_hands.dm:196, tgui/packages/tgui/interfaces/CrewBrain/jobs/wanted.ts:332
-fix: Send a details field such as would_not_go from put_out and the cannot-get-a-hold path, and test that field in wantedAfterActing in place of the English wording
+fix: Narrow WOULD_NOT_GO in wanted.ts to the put_out line ending they got away from you and the cannot-get-a-hold line, or better send a would_not_go details field from the server and test that
 ---
 
 ## What is wrong
