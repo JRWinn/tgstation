@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1543, tgui/packages/tgui/interfaces/CrewBrain/addressing.ts:128, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1038
 fix: After saying a line, set inTalkWith only to someone the line calls on (callsOn from addressing.ts) or else leave it on the speaker it was answering
@@ -27,7 +28,7 @@ One concrete case:
 1. The janitor Bob Lane is in the Bar with Hope Reyes, Bartender, beside the counter. The Captain, 4 tiles away, says "Bob, the kitchen floor is filthy." `saidTo` gives `me` (his name). `hearSpeaker` sets `inTalkWith = { name: Captain's name }`.
 2. The model answers, and Bob says "Right away, Captain. I hope the Kitchen is open." The loop at `brain.ts:1543` tests each person in view; `\bHope\b` with the `i` flag matches "hope". `inTalkWith` becomes Hope Reyes.
 3. The Captain, still 4 tiles off, adds "And do the Bar after." No name, others in the room, not beside: `saidTo` comes to the `inTalkWith` test, which is for Hope now, and returns `nobody`. Bob does not wake, and the Bar is not put on his list (`workInWords` only runs when he is woken, and the next time he is, MEM-05's stale-line problem is the only way it would be read).
-4. For the next 20 seconds (`STILL_TALKING_MS`), anything Hope says with no name in it, to anyone at the bar, is taken as said to Bob: he is woken and answers it, and if Hope is someone he answers to, `workInWords` can read an order out of it.
+4. For the next 20 seconds (`STILL_TALKING_MS`), anything Hope says with no name in it, to anyone at the bar, from 2 or more tiles away or turned away from him, is taken as said to Bob. (From beside him, with no one nearer, it counts as said to him anyway, by the `BESIDE` rule.) He is woken and answers it, he is woken and answers it, and if Hope is someone he answers to, `workInWords` can read an order out of it.
 
 ## Where
 
@@ -69,7 +70,8 @@ Read from the code, and the name lists checked with grep (`strings/names/first_f
 2. In `think` (`brain.ts:1543`), replace the plain word match with `callsOn(text, person.name)`, so only someone the line calls on by name counts. "Ann, I'll get my mop" sets Ann; "I'll ask Ann" and "I hope so" set nobody.
 3. When no one is called on, leave `inTalkWith` as it is (set by `hearSpeaker` for whoever it answered), but refresh its time to now if `speakers` is not empty, so the 20 seconds run from the answer, not from the question. The speaker's name is in `brain.inTalkWith.name` already; check that it is one of `speakers` (by handle, through `brain.peopleInView`) before refreshing.
 4. This also takes the unescaped name out of a `new RegExp` (one of the eleven places DRV-06 lists).
+5. Widen `callsOn`'s opening so that it fits how the model talks. Its own lines often open "Oh hello Arielle!" or "Oh hey Arielle!" (see `game.log` of `round-21.49.53`, Manuel Sheets at 04:14:41 and 04:14:54). `atStart` takes only one opener, `oh` is not one, and `!` does not set off a name. So today `callsOn` fails on those lines, and after step 2 such a line would set nobody. Add `oh` to `OPENERS` and allow up to two of them: `(?:${OPENERS}\W+){0,2}`. Calling on someone is still only the start of the line or a comma. Do not let `!` count anywhere in the line: in `saidTo`, "I saw Billy!" would then call on Billy.
 
 ## How to test the fix
 
-Add a case to the addressing table in `tools/llm_crew/` (or a small sim scenario): a janitor, the Captain 4 tiles away, and a crew member named Hope beside the janitor. The Captain says "Bob, the kitchen floor is filthy."; the stand-in model answers "Right away, Captain. I hope the Kitchen is open."; then the Captain says "And do the Bar after." Before the fix the third line is `nobody`; after it, `me`, and the Bar goes on the list. Then a line by Hope with no name in it, said within 20 seconds, must stay `nobody`. Run the type check.
+Add a case to the addressing table in `tools/llm_crew/` (or a small sim scenario): a janitor, the Captain 4 tiles away, and a crew member named Hope 2 tiles from the janitor and turned away from it. Not beside it: from beside, a line with no name is the janitor's under the `BESIDE` rule whatever `inTalkWith` says. The Captain says "Bob, the kitchen floor is filthy."; the stand-in model answers "Right away, Captain. I hope the Kitchen is open."; then the Captain says "And do the Bar after." Before the fix the third line is `nobody`; after it, `me`, and the Bar goes on the list. Then a line by Hope with no name in it, said within 20 seconds, must stay `nobody`. Run the type check.
