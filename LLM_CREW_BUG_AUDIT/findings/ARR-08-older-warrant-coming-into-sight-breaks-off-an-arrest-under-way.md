@@ -1,0 +1,97 @@
+---
+id: ARR-08
+title: With two warrants, the person on the older one coming into sight breaks off an arrest of the other that is under way
+kind: bug
+severity: medium
+effort: small
+confidence: likely
+status: found
+area: security
+files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:631, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:461, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:740
+fix: In orderToDrop do not drop a step of one emergency task for another emergency task, and have serveStep make the other warrant wait while an arrest is in hand
+---
+
+## What is wrong
+
+A warrant whose person is in sight is an emergency task (`syncBeat`). The driver drops whatever the body is in the middle of for "an emergency it could be getting on with and is not" (`orderToDrop`). It takes the first such task in the list's order, and among emergencies that is the oldest. It carries on only when that first task is the one it is already doing.
+
+So with warrants on A (given first) and B, the officer in the middle of arresting B, and A walking into view: the first emergency task that is ready with something to do is A's ("walk up to them"), it is not the task in hand, and the arrest of B is dropped for it. The window sends `approach` and then `arrest` for A. On the server `start_errand` and `start_walk` cancel B's errand without a result, so `beatAfterActing` never hears how B's arrest went.
+
+What that leaves:
+
+- If the baton had landed and the cuffs went on B as the proc ran on (SEC-03 says a called-off arrest keeps running), `warrant.cuffedByMe` is never set for B. From then on `serveStep` reads B as "in cuffs already. Someone else from security has made the arrest, and you are leaving them to it", and B is left in cuffs for good. No "cuffed" word goes to the Head of Security either.
+- If the cuffs had not gone on, a stunned B is walked away from.
+
+The other order does not do it: with B the older warrant, the first emergency found is B's own, which is the task in hand.
+
+The same break-off happens when A was in sight all along and resting (`restUntil`): its rest ends in the middle of B's arrest, A's step becomes ready, and B is dropped.
+
+One concrete case, from what round-20.43.32 had standing: a warrant on Pun Pun, then one on the Head of Personnel. The officer finds the Head of Personnel in the Bar Lounge, says the line and sends `arrest(p5, 'quiet')`. The cuffs take about four seconds of both standing still. Pun Pun wanders into view in that time. `syncBeat` makes Pun Pun's task an emergency. `orderToDrop` returns it, `drive` sends `approach(p2)`, the server's `start_walk` clears the errand, and the body walks off as the cuffs click shut or do not.
+
+## Where
+
+`tgui/packages/tgui/interfaces/CrewBrain/driver.ts:631`:
+
+    function orderToDrop(brain: NpcBrain): Task | null {
+      const order = workInOrder(brain).find(
+        ({ task, plan }) =>
+          task.urgency === 'emergency' && plan.ready && !!plan.act,
+      );
+      if (!order) {
+        return null;
+      }
+      ...
+      if (
+        brain.lastAct?.task === order.task.id &&
+        !(order.plan.dropsWalk && brain.lastAct.act.tool === 'go_to')
+      ) {
+        return null;
+      }
+      return inBackoff(brain, keyOf(order.task, order.plan.act)) ? null : order.task;
+    }
+
+`tgui/packages/tgui/interfaces/CrewBrain/tasks.ts:347`, `workInOrder`: among emergencies nothing but `createdAt` tells two ready tasks apart.
+
+`tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:461`, in `syncBeat`:
+
+    for (const warrant of beat.warrants) {
+      // With them in sight, or by the arm, nothing comes before it.
+      const now = !!target(brain, warrant) || holds(brain, warrant);
+      keep(brain, SERVE, true, now ? 'emergency' : 'asked', warrant.name);
+    }
+
+`arrests.ts:711`, in `serveStep`: the other warrant waits only once someone is by the arm, which is after the cuffs:
+
+    const held = security?.holding;
+    if (held) {
+      return { ready: false, wait: true, step: `You have ${held} by the arm. ${name} waits until they are in a cell.` };
+    }
+
+`arrests.ts:740`, what the dropped prisoner then reads as:
+
+    if (seen.cuffed && !warrant.cuffedByMe) {
+      return {
+        ready: false,
+        step: `${seen.name} is in cuffs already. Someone else from security has made the arrest, and you are leaving them to it.`,
+      };
+    }
+
+`code/modules/llm_crew/crew_npc_hands.dm:161`, `start_errand`: `errand_serial++`, and `crew_npc_do_errand/perform_async` reports only `if(... errand_serial == serial)`.
+
+## How it was found
+
+Read from the code. Not seen in a round: in round-20.43.32 the second warrant was never acted on, for another reason.
+
+## How to fix it
+
+1. `driver.ts`, `orderToDrop`: if the task of `brain.lastAct` is itself an emergency task, return null, unless the plan of the task found says it may break in. Add an optional `breaksIn?: boolean` to `Plan` (`types.ts`) for that, and set it in `planBeat` for `AWAY` only (getting out of reach of an attacker it cannot stop has to break in on an arrest. That it does so today only when its task is older is luck). This is a rule for every job, not for security alone.
+2. `jobs/arrests.ts`, `serveStep`: belt and braces. Near the top, if `brain.lastAct?.act.tool === 'arrest'` and `brain.lastAct.task` is another task than this warrant's, return `{ ready: false, wait: true, step: 'You are in the middle of arresting someone else. X waits.' }`. `serveStep` does not know its task id today: pass the task in from `planBeat`, which has it.
+3. `beatAfterActing` cannot mend a result that never comes. Once SEC-03 is fixed the server will stop the old arrest. Until then, treat a suspect seen `cuffed` within a few seconds of this officer's own `arrest` step for that warrant as its own: set `warrant.cuffedByMe` when `brain.lastAct` was an arrest for that task. See also ARR-11.
+
+What must keep working: a walk of the hallways is still dropped the moment someone wanted is in sight (`dropsWalk`). Getting away from an attacker still breaks in.
+
+## How to test the fix
+
+- Type check and lint.
+- Simulator: a scenario with two warrants, A given first. Put B in view, let the officer send `arrest` for B, hold the result back for five seconds, and bring A into view meanwhile. Check that no `approach` or `arrest` for A is sent until B's result is in.
+- Run every scenario once: the driver change touches all jobs. `aside`, `crew` and the security ones most of all.
