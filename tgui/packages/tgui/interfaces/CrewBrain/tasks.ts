@@ -258,8 +258,12 @@ export function workInWords(
     return null;
   }
   // The job's own work first: "check the Bar, there is blood everywhere" is a mess to a janitor.
+  // From someone it answers to, that is an order it cannot turn down, so a question about the
+  // work, being told not to bother, or that it is done already, is not one: those are left to
+  // the model. The room may be named in another part of the line.
+  const asWork = fromSuperior ? orderClauses(heard) : heard;
   for (const [kind, words] of Object.entries(job.soundsLike ?? {})) {
-    if (job.takes?.[kind] && words.test(heard)) {
+    if (job.takes?.[kind] && words.test(asWork)) {
       return takeToldWork(brain, job.takes[kind], place, toldBy, fromSuperior);
     }
   }
@@ -271,6 +275,43 @@ export function workInWords(
     }
   }
   return null;
+}
+
+/** A clause that asks, even typed with no question mark: "is there any blood in the bar". */
+const QUESTION_START = /^(is|are|was|were|did|do|does|have|has|any)\b/;
+/** A clause that says not to: "no need to clean the bar". Not a bare "not": "it is not cleaned up yet" is still an order. */
+const NOT_WANTED = /\b(no need|don'?t|do not|never mind|no more|forget)\b/;
+/** A clause that says the work is done: "the bar was a mess but its fine now". */
+const DONE_ALREADY =
+  /\b(cleaned|clean now|gone|fine now|got it|dealt with|sorted|took care|taken care)\b/;
+/** What keeps a clause an order though it has a done word in it: "not cleaned up yet", "still not gone". */
+const NOT_YET = /\b(not|isn'?t|wasn'?t|hasn'?t|yet|still)\b/;
+
+/**
+ * The parts of what a superior said that can be orders, run together: every clause that is a
+ * question, says not to, or says the work is done already, is left out.
+ */
+export function orderClauses(heard: string): string {
+  const clauses = heard
+    .split(/(?<=[?])|[.!,;]| but | and then /)
+    .map((clause) => clause.replace(/^[\s"]+|[\s"]+$/g, ''))
+    .filter((clause) => clause.length > 0);
+  // Word that it is done already speaks for the whole line: "the bar was a mess but its fine now".
+  if (
+    clauses.some(
+      (clause) => DONE_ALREADY.test(clause) && !NOT_YET.test(clause),
+    )
+  ) {
+    return '';
+  }
+  return clauses
+    .filter(
+      (clause) =>
+        !clause.endsWith('?') &&
+        !QUESTION_START.test(clause) &&
+        !NOT_WANTED.test(clause),
+    )
+    .join('. ');
 }
 
 /** How long (milliseconds) a body that was in a room still counts as in it after it is found outside. */

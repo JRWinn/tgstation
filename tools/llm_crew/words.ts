@@ -33,6 +33,21 @@ for (const line of ['clean the bar', 'mop the bar please', 'someone vomited in t
   add(`said "${line}" by its head: clean the Bar`, task ? [task.place] : null, ['Bar']);
 }
 
+// ---- PARSE-09: from its head, a question, a "no need", or word that it is done, is no order
+const fromHead = (line: string) => {
+  const b: any = janitor('mop');
+  b.stowed = [];
+  know(b, ['Kitchen', 'Library', 'Engineering']);
+  const task = workInWords(b, [says(zim, line)], zim.name, true);
+  return task ? task.place : null;
+};
+for (const line of ['is there any blood in the bar?', 'did you clean up the vomit in the kitchen', 'no need to clean the bar', "don't worry about the mess in the bar", 'the bar was a mess but its fine now', 'someone got it, the blood in the bar', 'never mind the bar, the mess is sorted', 'i cleaned the bar earlier', 'is the kitchen clean now?']) {
+  add(`from its head, "${line}" is no order`, fromHead(line), null);
+}
+for (const [line, room] of [['blood in the bar', 'Bar'], ['the bar is a mess', 'Bar'], ['someone threw up in the bar', 'Bar'], ['check the bar, there is blood everywhere', 'Bar'], ['there was blood all over the bar, go and clean it', 'Bar'], ['the blood in the bar is not cleaned up yet', 'Bar']]) {
+  add(`from its head, "${line}" is an order to clean the ${room}`, fromHead(line), room);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
