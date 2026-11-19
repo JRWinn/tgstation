@@ -5,8 +5,9 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:464, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:574
 fix: In orderAnswered, with no order named, take the order asked about most recently, and when more than one is waiting and the answer names none, ask which one before acting
@@ -56,3 +57,8 @@ Read from the code, then the script above, run with `tools/bootstrap/.cache/bun-
 ## How to test the fix
 
 Add the case above to `tools/llm_crew/book.ts`: two orders waiting, a bare "Yes." must approve the one asked about last (or, with step 2, add a question to `toTell` and approve neither). A third case: "Yes to order 1" approves order 1. Type check and lint.
+Also: with two orders waiting and the same `askedAt` (taken in one tick and asked together), there is no latest; step 2's question is the only right answer then. And a held order (`waitingTold`) re-asked never again keeps its old `askedAt`, so under step 1 it no longer takes later bare answers.
+
+## Check
+
+Read `orderAnswered`, `readAnswer`, `askWhatWasMeant`, `askCaptain` and `clearOrders` in `jobs/quartermaster.ts`; the quotes are what the code says. `clearOrders` walks `ledger.orders` in book order, so `asking[0]` is the lowest-numbered waiting order, and an order held after two asks stays `asking` with `approved === null` (`quartermaster.ts:620` to `637`) and so stays in the list for good. Ran a throwaway script in the scratchpad: two orders waiting (1 and 2), the Captain sends "Yes."; order 1 is approved and order 2 goes on waiting. "Yes, 2 crates is fine" approves order 2 by the crate count, as the write-up says. `LLM_CREW_PLAN_QUARTERMASTER.md:83` does say "with none it is the one asked about first", but that line is not marked Decided (the plan's header: only items marked Decided are the owner's), so it is the builder's rule, not the owner's choice; a human answering a PDA answers the message in front of them. Cargo's account does start at 0 (`code/controllers/subsystem/economy.dm:76`). Severity stays high: once any one order is held for want of an answer, every later bare yes or no goes to it, so the wrong order is placed or the wrong head told no. Effort small. Step 1's word-"order" rule overlaps QM-01 step 5; build it once.
