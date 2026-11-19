@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:861, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1692, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:442, tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1308, code/modules/llm_crew/crew_npc_quartermaster.dm:364
 fix: Mark an own order's crate as done with when it is reported lost or when open_own_crate answers no_such_crate, so the unpack task ends and orderForItself is free again
@@ -75,3 +76,7 @@ Read from the code on both sides, not run and not seen in a round. It needs a st
 ## How to test the fix
 
 In `tools/llm_crew/book.ts`: a Quartermaster with an own order docked as crate #12, then `overhears` a technician say "Ada, crate #12 for Ada Finch is lost: it has been destroyed."; there must be no `qm_unpack` task for that order afterwards, and after the reorder is docked and unpacked, a failed `get_paper` must add a new own order. Type check and lint. In a round, grep `game.log` for repeated "open_own_crate" lines for the same number.
+
+## Check
+
+Checked by Opus 5.5. Every quote is what the code says today. On the server, `crew_npc_held_by_number` (`crew_npc_held.dm:107`) looks only in `crew_npc_held_crates()`, which moves a lost crate to `crew_npc_lost_crates` (line 83), so `tool_open_own_crate` can only answer `no_such_crate` for it from then on. On the window side nothing ends the task: `afterActing` (`quartermaster.ts:1663`) acts on `open_own_crate` only when it worked, `crateLost` (`:1308`) leaves the old order `docked` with its crates, and the driver's `fail` (`driver.ts:931`) only backs the step off (up to `RETRY_MAX_MS`). The general filter in `tasks.ts:148` drops a task after `GIVE_UP_DS` (half an hour), but `syncTasks` adds it again on the next pass because `toOpen` is still true. While it is open, `UNPACK` counts as busy (`quartermaster.ts:905`), so no `OFFICE` task is added, and `orderForItself` (`:442`) refuses every later order for itself. A crate the Quartermaster opened, or one someone else collected, is off the held list too and would loop the same way if the window still thought it unopened; the fix in step 2 covers that as well. Not in the change log or plans as known. Severity medium stands: the case needs no paper aboard and the crate lost first, but then it lasts all round. The fix is right and small; `afterActing` already receives `details` as its sixth argument (`jobs/job.ts:114`). Not run.

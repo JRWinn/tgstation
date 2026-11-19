@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: quartermaster
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1481, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2126, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1393, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:396
 fix: Have the technician who hears it is to see to someone shut in note it as a let-out ask for that room, the way a PDA from the shut-in person is noted, so it walks to that door, and let the Quartermaster go itself when no other technician is about
@@ -20,7 +21,7 @@ A technician shut in a room, who has knocked and written to whoever can open the
 
 The Quartermaster reads that in `readsMessage` and does what the comment says: "It sends another technician to see what is shutting the way." It walks to the bay and tells the other technician, word for word: "Sam, Cora is shut in the Warehouse. See to it, please."
 
-On Sam's side that line is read only by the `SEE_TO_WORDS` test in `cargo.ts` `overhears`, and all it does is set `brain.seeToUntil`. `seeToUntil` is read in one place, `leftTo` (`cargo.ts:273`): for five minutes the shuttle and the rooms count as Sam's work as well as his own. Nothing notes that Cora is in the Warehouse, nothing sets `brain.doorAsked`, and no step takes Sam to the Warehouse door. Sam goes on with his own work. Cora stays shut in; the head was the last person it writes to (`nextToWrite`), so nobody else is coming.
+On Sam's side that line is read only by the `SEE_TO_WORDS` test in `cargo.ts` `overhears`, and all it does is set `brain.seeToUntil`. `seeToUntil` is read in one place, `leftTo` (`cargo.ts:273`): for five minutes the shuttle and the rooms count as Sam's work as well as his own. Nothing notes that Cora is in the Warehouse, nothing sets `brain.doorAsked`, and no step takes Sam to the Warehouse door. Sam goes on with his own work. Cora stays shut in; the head was the last person it writes to (`nextToWrite`), so nobody else is coming. (Sam may well have had a PDA from Cora earlier, since `nextToWrite` writes to those whose ID opens the door before the head, and that ask, while it stood, would have sent him. The head is written to only once those have come to nothing, so this is the step that is meant to mend it, and it does not.) The only way the line can still help is by chance: having the rooms for five minutes lets Sam take a look round the department (`syncRounds` in `jobs/rounds.ts`), which may or may not take him to the Warehouse.
 
 The same "See to it" line was built for a crate that would not come (`crateHeldUp`), where taking on the shuttle and the rooms is the right answer. Reused for a person shut in, it does nothing.
 
@@ -74,7 +75,7 @@ Read from the code on both sides of the line: the Quartermaster's branch, then e
 
 ## How to fix it
 
-1. Give the shut-in case its own line in `supply.ts`, e.g. `letOutLine(first, who, room)`: "Sam, Cora is shut in the Warehouse. Could you let them out, please?", and a regex `LET_OUT_WORDS` to read it back (who, room).
+1. Give the shut-in case its own line in `supply.ts`, e.g. `letOutLine(first, who, room)`: "Sam, Cora is shut in the Warehouse. Could you let them out, please?", and a regex to read it back (who, room). Do not call it `LET_OUT_WORDS`: `cargo.ts:158` already has a `LET_OUT_WORDS` (`/\bout\b|\bdone in\b/i`) that reads any ask to be let out. Call it, say, `SEND_TO_LET_OUT_WORDS`, and test for it in `overhears` before the `SEE_TO_WORDS` test and before the general `DOOR_WORDS` branch at the end of `overhears` (which would otherwise take the Quartermaster's line for the Quartermaster asking about a door).
 2. In `cargo.ts` `overhears`, when the Quartermaster says that line to this technician by name, set `brain.doorAsked = { name: <full name of who>, room, out: true, byPda: true, at: brain.now }` (the full name found among technicians by first name, as the duty line does). The existing branch at `cargo.ts:1393` then walks it to that door and opens it if they are found inside. Keep `seeToUntil` for the crate line only.
 3. In `quartermaster.ts`, pick `other` only from technicians who are not `down` or `cuffed` and who are in view or were seen lately; with nobody to send, and the room one of the department's, let the Quartermaster go itself: a `SEND`-like task whose step is `go_to_door` for that room and then `open_door` (check that `open_door` in `crew_npc_doors.dm` lets the Quartermaster open a door to let someone out: CARGO-04 says it only does so for a janitor with a mess, which would need the same change).
 4. Whether a head should open doors for its staff itself is a design point for the owner; step 3 is the part to ask about.

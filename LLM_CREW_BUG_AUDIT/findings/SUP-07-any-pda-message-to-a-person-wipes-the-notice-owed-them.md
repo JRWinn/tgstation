@@ -32,7 +32,7 @@ One case:
 
 The crate is not lost for good: five minutes later the look over the bay owes a "waiting" notice, and that one carries the number. But the order is told late, by the wrong route, and the book is wrong.
 
-The same loop makes smaller muddles with no mail in it. With two notices for one person, say "waiting" then "lost", the window's LOST task sends its message, the server strikes off the "waiting" one, the LOST notice is still there, and the "lost" message is sent a second time.
+The same loop makes smaller muddles with no mail in it. With two notices for one person, say "waiting" then "lost", the window's LOST task sends its message, the server strikes off the "waiting" one, the LOST notice is still there, and the "lost" message is sent a second time; and the REMIND task closes (`syncHeld` in `jobs/cargo.ts` finishes it when no "waiting" notice is left), so the reminder is never sent. Other messages to the same person do it too: a janitor's or technician's "coming" reply to a head who called a meeting (`jobs/meetings.ts`), when that head is also owed a notice.
 
 ## Where
 
@@ -96,3 +96,9 @@ What must keep working: a notice to someone with no PDA is still dropped after o
 - A new simulator case: an order for the Captain through the Quartermaster, the Quartermaster out of sight, and a letter for the Captain in the same shuttle. After the mail message, the "arrived" notice must still be owed and the Quartermaster must still be told.
 - Server compile to a side copy.
 - In a round: order as the Captain, and check `pda.log` and `game.log`: the technician's "order N has come in" to the Quartermaster must come whether or not the mail message went first.
+
+## Check
+
+Checked by Opus 5.5 on 2026-11-19. Read `tool_message` (`crew_npc_cargo.dm:691-736`): the loop at :710 strikes the first notice whose `to` matches, by name alone, before the target is even looked up. Read where notices are added (`order_arrived` :518, `crew_npc_held.dm:104` and :285) and `tool_word_passed` (`crew_npc_quartermaster.dm:349`, which goes by kind). Window: `arrivedNotice`, `orderInHand` and `syncTasks` (`jobs/cargo.ts:221-235`, :720-735), the arrival plan and `tellQuartermaster` (:327-400, :1034-1095; with the Quartermaster out of sight the ORDER task waits, so other tasks run), the LOST and REMIND plans (:485-620), and the mail DELIVER plan (`jobs/freight.ts:195-215`). Mail goes only to players (`populate` in `code/game/objects/items/mail.dm:288` loops over `GLOB.player_list`). The case holds step by step: the mail message strikes the "arrived" notice, `orderInHand` goes false and the ORDER task is closed as reported. The simulator (`sim.ts:736`) copies the server's by-name strike, so it would not catch this. Nothing in the change log or the plans chose it.
+
+Changed: effort to large by FORMAT.md's rule (server, window and simulator, though each part is a few lines); the fix's step 4 now names the simulator line; added the REMIND task lost in the second muddle, and the meeting reply as another way in. Severity stays medium: the order is told late and by the wrong route and the Quartermaster's book is left wrong, but the crate is still reminded of later. Not run.

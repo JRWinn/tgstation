@@ -4,12 +4,13 @@ title: A technician whose ID card has been taken is questioned by its own workma
 kind: bug
 severity: medium
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:345, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:676, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:469, code/modules/llm_crew/crew_npc_guarding.dm:24, code/modules/llm_crew/crew_npc_guarding.dm:136
-fix: Never open a stranger record on someone in brain.workmates, and have explainStep answer that it works here when the room is its own post
+fix: Never open a stranger record on someone in brain.workmates (and drop any open one), and have explainStep answer "I work here" when the room is its own post
 ---
 
 ## What is wrong

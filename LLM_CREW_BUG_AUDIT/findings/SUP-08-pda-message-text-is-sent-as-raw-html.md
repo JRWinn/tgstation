@@ -2,11 +2,12 @@
 id: SUP-08
 title: A crew NPC's PDA message skips the game's cleaning, so its text reaches the other person's chat as raw HTML
 kind: bug
-severity: medium
+severity: low
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
 files: code/modules/llm_crew/crew_npc_cargo.dm:701, code/modules/llm_crew/crew_npc_cargo.dm:719, code/modules/llm_crew/crew_npc_cargo.dm:775, code/modules/modular_computers/file_system/programs/messenger/messenger_program.dm:461
 fix: Run the text through the messenger's own sanitize_pda_message before it is sent or kept for resending

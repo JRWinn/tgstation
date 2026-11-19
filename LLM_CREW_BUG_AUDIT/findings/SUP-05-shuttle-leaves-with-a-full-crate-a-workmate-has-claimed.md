@@ -3,10 +3,11 @@ id: SUP-05
 title: The shuttle is sent away, and its load sold, while a full crate a workmate has set off for is still aboard
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: supply
 files: code/modules/llm_crew/crew_npc_freight.dm:165, code/modules/llm_crew/crew_npc_cargo.dm:446, code/modules/llm_crew/crew_npc_freight.dm:623, code/modules/llm_crew/crew_npc_freight.dm:276, tgui/packages/tgui/interfaces/CrewBrain/jobs/freight.ts:111
 fix: Decide whether the shuttle may leave from every full crate aboard, not only from those no workmate has claimed
@@ -106,7 +107,7 @@ Leaving a workmate's crate out of "what is mine to unload" is right. Using the s
 3. In `tool_send_shuttle`, replace `crate_to_unload()` with `full_crates_aboard()`.
 4. In `send_shuttle_back`, in the docked branch, ask again before the shuttle is moved, since the walk to the console took time: if `full_crates_aboard()`, return `list(FALSE, "There is still something aboard the supply shuttle that has to come off first.")`. Count `empties` from spent crates only, so the words are true.
 5. In `freight_state`, add `"full_aboard" = <that count>` to the list. In the window, add `fullAboard` where `brain.freight` is filled (`brain.ts`, next to `toUnload`) and to its type in `types.ts`, and change the SEND test in `syncFreight` from `freight?.toUnload === 0` to `(freight?.fullAboard ?? freight?.toUnload) === 0`. Add the field to the simulator's freight state in `tools/llm_crew/sim.ts`.
-6. Release a claim when its errand ends: at the top of `cancel_errand` (`crew_npc_hands.dm:171`), before `errand_tool` is cleared, when `errand_tool` is `unload`, `stow_crate` or `recycle`, remove every entry of `GLOB.crew_npc_crate_claims` whose claimant is this controller. `finish_errand` calls `cancel_errand` first thing, so this covers an errand that ends at the crate as well as one dropped on the way. It is safe when the haul has begun: `haul_freight` has the crate pulled by then, and `crate_taken` checks `crate.pulledby` before the claim. Then a workmate called away does not keep a crate out of everyone's count for 45 seconds. This step alone does not close the fault (the walk is still a gap); steps 1 to 5 do.
+6. Release a claim when its errand ends: at the top of `cancel_errand` (`crew_npc_hands.dm:171`), before `errand_tool` is cleared, when `errand_tool` is `unload`, `stow_crate` or `recycle`, remove every entry of `GLOB.crew_npc_crate_claims` whose claimant is this controller. `finish_errand` calls `cancel_errand` first thing, so this covers an errand that ends at the crate as well as one dropped on the way. It is safe when the haul has begun: `haul_freight` has the crate pulled by then, and `crate_taken` checks `crate.pulledby` before the claim. Then a workmate called away does not keep a crate out of everyone's count for 45 seconds. A lost grip keeps its hold: `go_back_for` (`crew_npc_grip.dm:100`) claims the crate again before it sets off to take it up. This step alone does not close the fault (the walk is still a gap); steps 1 to 5 do.
 
 What must keep working: two technicians still do not go for the same crate (`crate_taken` is untouched), and a shuttle with only empties aboard is still sent.
 
@@ -116,3 +117,12 @@ What must keep working: two technicians still do not go for the same crate (`cra
 - A new simulator case is cheap: two technicians, the shuttle docked, `to_unload` 0 and `full_aboard` 1 for one of them. That one must not open a SEND task.
 - Server compile to a side copy.
 - In a round: give two orders one after the other and watch the second. In `game.log`, "sent the supply shuttle away with N crate(s) aboard" must never follow an `unload` errand that then fails, and no "wrote off held crate ... it has been destroyed" should appear for a crate that was never hauled off.
+
+## Check
+
+Checked by Opus 5.5. Confirmed, with the case corrected for the base game's ignition time.
+
+- Read `claim_crate`, `crate_taken`, `crate_to_unload`, `freight_state`, `tool_unload`, `tool_send_shuttle` and `send_shuttle_back` (`crew_npc_freight.dm`), `supply_run_step` (`crew_npc_cargo.dm:419`) and `syncFreight` (`jobs/freight.ts:111`). The quotes are what the code says. Every "may the shuttle go" test leaves out a crate another body has claimed, and nothing releases a claim before its 45 seconds are up (the only removal is the expiry in `crate_taken`).
+- Base game: `SSshuttle.moveShuttle(..., TRUE)` calls `request()`, which checks `canMove()` and starts `ignitionTime` (5.5 seconds); `enterTransit()` and `initiate_docking()` check `canMove()` again, and `/mob/living` is on the supply shuttle's blacklist (`supply.dm`). So a workmate who steps aboard within those seconds stops the shuttle. The write-up's case had the shuttle leave at the tick while Sam was still walking to the crate; that only happens if his walk is long. Mended to the case that does not depend on it: a claim left standing by a dropped or failed errand. `sell()` sells every unanchored thing aboard at the far dock, as said.
+- The fix keeps "mine to unload" and "may it go" apart, as it should, and keeps the rules. Step 6 was put in `finish_errand` and `cancel_errand`; `finish_errand` calls `cancel_errand` first, so one place does, and it is safe after the grip because `crate_taken` looks at `pulledby` first. Mended.
+- Change log and plans: nothing on claims and the send. Nothing run; not seen in a round. Effort raised to medium: the fix is about forty lines over the server, the window types, `syncFreight` and the simulator. Severity medium: it needs two technicians, a claim at the wrong moment, and the last full crate, but when it happens a paid-for crate held for someone is sold.
