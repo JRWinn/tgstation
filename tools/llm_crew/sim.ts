@@ -44,6 +44,7 @@
 //   bun run sim.ts quiet badcell     the first cell will not take the prisoner: the officer tries the next at once, and walks nowhere else with it by the arm
 //   bun run sim.ts quiet loose       the Captain words the warrant loosely: code cannot read it, the LLM does, and it is read back in the fixed words. With a dead LLM the Captain is told it was not followed, and says it again plainly
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
+//   bun run sim.ts quiet tryagain    the officer starts the shift hurt and says it can make no arrests; a warrant is declared, then the Captain says "Try again": the officer is given it and makes the arrest (SECT-11)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -299,7 +300,7 @@ const stowed: string[] = [];
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 const SEC_OFFICE = 'Security Office';
@@ -1283,6 +1284,8 @@ function spawnSecurity() {
   const staff: Body[] = [];
   if (VARIANT !== 'nohos') { const joan = spawn('Joan Marsh', 'Head of Security'); joan.office = HOS_OFFICE; joan.room = HOS_OFFICE; staff.push(joan); }
   const hale = spawn('Hale Stone', 'Security Officer'); hale.room = SEC_OFFICE; staff.push(hale);
+  // SECT-11: the officer comes aboard under half its health, with no warrant yet to break off from.
+  if (VARIANT === 'tryagain') kitOf(hale).health = 40;
   for (const body of staff) for (const place of [SEC_OFFICE, HOS_OFFICE, BRIG]) body.known.add(place);
   players.push({ name: SEC_CAPTAIN, job: 'Captain', room: 'Bridge' });
   if (VARIANT === 'warrant') staff.push(spawn('Hop Kins', 'Head of Personnel'), spawn('Jan Itor', 'Janitor'), spawn('Mo Pper', 'Janitor'));
@@ -1294,11 +1297,14 @@ function spawnSecurity() {
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' ? 480 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' || VARIANT === 'tryagain' ? 480 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
 const PARDON_AT = 150;
+// When the Captain says "Try again", in the scenarios about that, and when it did.
+const TRY_AGAIN_AT = 30;
+let tryAgainAt = 0;
 function securityTick(second: number) {
   for (const cell of cells) if (cell.occupant && clock >= cell.until) openCell(cell, 'time up');
   const pun = punPun;
@@ -1310,6 +1316,8 @@ function securityTick(second: number) {
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
   if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
+  // SECT-11: the warrant was declared while the officer was out hurt, and the Head of Security took it into its own hands. Then the Captain says to try again.
+  if (second === TRY_AGAIN_AT && VARIANT === 'tryagain') { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
   // SEC-05: once the Head of Personnel's time is up, the monkey is wanted and put in the same cell; then the Captain pardons the Head of Personnel.
   const hurtOfficer = bodies.find((other) => other.job === 'Security Officer');
   if (VARIANT === 'hurt' && pun && hurtOfficer && !pun.cell && walkedFree.some((it) => it.who === pun.name && it.why === 'time up') && inSight(hurtOfficer, pun.room)) freedInSight++;
@@ -1943,7 +1951,9 @@ if (SECURITY && VARIANT !== 'recell') {
   check('the officer fetches its baton from the lockers before anything else', !!fetched && fetched.at - began < 60_000, fetched ? seconds(fetched.at) : 'never');
   if (joan) {
     check('the Head of Security gives its officer the warrant, to its face or by PDA', told(joan, hale.name, new RegExp(`Hale, warrant: ${wanted}${forWhat}\\. Bring them in, ${term} minutes\\.`)) >= 1);
-    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name), listed(secWork.filter((work) => work.who === joan.name)));
+    // Told to try again, the Head of Security may have fetched its own baton while its officer was out: it still lays a hand on nobody.
+    const tryingAgain = VARIANT === 'tryagain';
+    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name || (tryingAgain && work.tool === 'get_kit')), listed(secWork.filter((work) => work.who === joan.name)));
   }
   const arrester = VARIANT === 'hurt' ? joan! : hale;
   const toldArrest = saidBy(arrester.name, new RegExp(`^${wanted}, you are under arrest${forWhat}\\. Stand still\\.`))[0];
@@ -2035,6 +2045,21 @@ if (SECURITY && VARIANT !== 'recell') {
     check('and the baton comes out at once', next?.how === 'force', listed(arrests));
     check('it gets five minutes more for it', jailings[0]?.minutes === 10, `${jailings[0]?.minutes} minutes`);
     check('the officer is not hurt enough to break off', saidBy(hale.name, /I am hurt/).length + sentTo(hale, joan!.name, /I am hurt/).length === 0);
+  }
+  if (VARIANT === 'tryagain') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const hurtTold = told(hale, joan!.name, /Joan, I am hurt and can make no arrests\./);
+    check('the officer, hurt before any warrant, tells the Head of Security it can make no arrests, once', hurtTold === 1, `${hurtTold} time(s)`);
+    check('the Head of Security tells the Captain, once, that it is serving the warrants itself', sentTo(joan, SEC_CAPTAIN, /Captain, Hale is hurt\. I am serving the warrants myself\./).length === 1, sentTo(joan, SEC_CAPTAIN, /hurt/).join(' | '));
+    check('the Captain says to try again after the warrant was declared', tryAgainAt > 0 && tryAgainAt - began > WARRANT_AT * 1000);
+    const again = sentTo(joan, hale.name, /Hale, you are to make arrests again\./).concat(saidBy(joan!.name, /Hale, you are to make arrests again\./).map((line) => `${clockAt(line.at)} said`));
+    check('the Head of Security tells the officer to make arrests again', again.length >= 1 && again.every((line) => line.slice(0, 8) >= clockAt(tryAgainAt)), again.join(' | ') || 'never told');
+    const giveWords = /Hale, warrant: Pun Pun, for wrecking the Custodial Closet\. Bring them in, 5 minutes\./;
+    const given = sentTo(joan, hale.name, giveWords).map((line) => line.slice(0, 8)).concat(saidBy(joan!.name, giveWords).map((line) => clockAt(line.at)));
+    check('and gives it the warrant declared while it was out, after being told to try again', given.some((at) => at >= clockAt(tryAgainAt)), given.join(', ') || 'never given');
+    check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
+    check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
+    check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
   }
   if (VARIANT === 'hurt') {
     const hurtTold = told(hale, joan!.name, /Joan, I could not take Pun Pun\. I am hurt\./);
