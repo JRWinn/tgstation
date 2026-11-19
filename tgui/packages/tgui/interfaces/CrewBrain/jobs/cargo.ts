@@ -99,7 +99,9 @@ const CRATE_HOLDS: Record<string, string> = {
  * each, are read off what was said, not left to the LLM.
  */
 const CRATE_ASKED_AS: Record<string, RegExp> = {
-  'Janitorial Supplies Crate': /janitor|cleaning|cleaner|\bmops?\b|\bsoap\b/i,
+  // The supplies, not the person: "the janitor says the bar is dark" asks for no soap (CARGO-14).
+  'Janitorial Supplies Crate':
+    /janitorial|\bjanitor'?s? (supplies|kit|gear|stuff)|cleaning|cleaner\b(?! (says|said|wants|needs))|\bmops?\b|\bsoap\b/i,
   'Replacement Lights': /\blights?\b|\bbulbs?\b|light tubes?/i,
 };
 
@@ -2069,23 +2071,39 @@ function asksFor(crate: string, said: string): boolean {
  * Everything an order asks for: each kind of crate named, and how many of it. "Two crates of
  * janitorial supplies and a crate of light bulbs" is two kinds, in one order. The words must be
  * in lower case. A kind that is only named again ("soap and mops") is not ordered twice.
+ * Who it is for is no kind: "light bulbs for the janitors" is lights (CARGO-14). The names of
+ * those it knows, if given, are taken out the same way ("for Jan Mopp").
  */
 export function itemsAskedFor(
   said: string,
   orderable: string[],
+  names: string[] = [],
 ): { crate: string; count: number }[] {
+  let words = said.replace(
+    /\bfor (the |my |our |a |your )?(janitors?|cleaners?|custodians?|staff|crew|department)\b/g,
+    ' ',
+  );
+  for (const name of names) {
+    const escaped = name.toLowerCase().replace(/[^a-z0-9 ]/g, '.');
+    const first = escaped.split(' ')[0];
+    words = words.replace(
+      new RegExp(`\\bfor (${escaped}|${first})\\b`, 'g'),
+      ' ',
+    );
+  }
   const items: { crate: string; count: number }[] = [];
-  for (const part of said.split(/[,;.]|\band\b|\bplus\b|\balso\b|\bas well as\b/)) {
-    const crate = orderable.find((kind) => asksFor(kind, part));
-    if (!crate) {
-      continue;
-    }
+  for (const part of words.split(
+    /[,;.?!]|\band\b|\bplus\b|\balso\b|\bas well as\b/,
+  )) {
     const numbered = /\b(\d+|one|two|three|four|an?)\s+crates?\b/.test(part);
-    const item = items.find((it) => it.crate === crate);
-    if (!item) {
-      items.push({ crate, count: cratesAskedFor(part) });
-    } else if (numbered) {
-      item.count += cratesAskedFor(part);
+    // Every kind the clause names, not only the first on the list.
+    for (const crate of orderable.filter((kind) => asksFor(kind, part))) {
+      const item = items.find((it) => it.crate === crate);
+      if (!item) {
+        items.push({ crate, count: cratesAskedFor(part) });
+      } else if (numbered) {
+        item.count += cratesAskedFor(part);
+      }
     }
   }
   return items;
@@ -2385,7 +2403,11 @@ export const CARGO: Job = {
       return;
     }
     const said = spokenIn(heard).toLowerCase();
-    const items = itemsAskedFor(said, brain.orderable);
+    const items = itemsAskedFor(
+      said,
+      brain.orderable,
+      brain.pdaPeople.map((person) => person.name),
+    );
     if (items.length > 0) {
       action.items = items;
       action.crate = items[0].crate;
@@ -2699,7 +2721,11 @@ export const CARGO: Job = {
       brain.peopleInView.find((person) => person.handle === handle) ??
       brain.peopleInView.find((person) => person.name === speakerOf(heard));
     const said = spokenIn(heard).toLowerCase();
-    const items = itemsAskedFor(said, brain.orderable);
+    const items = itemsAskedFor(
+      said,
+      brain.orderable,
+      brain.pdaPeople.map((person) => person.name),
+    );
     return asker &&
       items.length > 0 &&
       asksToOrder(said) &&

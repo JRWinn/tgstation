@@ -94,6 +94,21 @@ add('dead model, the head asks someone else: nothing ordered', CARGO.hears(tech(
   b.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
   add('dead model, the head asks for the second kind on the list: that kind', CARGO.hears(b, toMe(HOP, 'Could you order a crate of light bulbs?')), { tool: 'order', crate: 'Replacement Lights' });
 }
+// CARGO-14: who an order is for is no kind of crate.
+{
+  const { itemsAskedFor } = await import(ROOT + 'jobs/cargo');
+  const ORDERABLE = ['Janitorial Supplies Crate', 'Replacement Lights', 'Bureaucracy Crate'];
+  const items = (said: string, names: string[] = []) => itemsAskedFor(said.toLowerCase(), ORDERABLE, names).map((it: any) => `${it.count} ${it.crate}`);
+  add('"can you order some light bulbs for the janitors?"', items('can you order some light bulbs for the janitors?'), ['1 Replacement Lights']);
+  add('"order a crate of replacement lights for the janitor, please"', items('order a crate of replacement lights for the janitor, please'), ['1 Replacement Lights']);
+  add('"order two crates of light bulbs for the cleaner"', items('order two crates of light bulbs for the cleaner'), ['2 Replacement Lights']);
+  add('"could you order a crate of lights? the janitor says the bar is dark"', items('could you order a crate of lights? the janitor says the bar is dark'), ['1 Replacement Lights']);
+  add('"two crates of janitorial supplies and a crate of light bulbs"', items('two crates of janitorial supplies and a crate of light bulbs'), ['2 Janitorial Supplies Crate', '1 Replacement Lights']);
+  add('"a crate of lights with soap": both kinds named in one clause', items('a crate of lights with soap'), ['1 Janitorial Supplies Crate', '1 Replacement Lights']);
+  add('"lights for Jan Mopp", Jan known by name', items('order some lights for jan mopp', ['Jan Mopp']), ['1 Replacement Lights']);
+  add('"I need janitor supplies"', items('i need janitor supplies'), ['1 Janitorial Supplies Crate']);
+  add('"I need to order a crate of janitorial supplies for my staff, please."', items('I need to order a crate of janitorial supplies for my staff, please.'), ['1 Janitorial Supplies Crate']);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {
