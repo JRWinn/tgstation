@@ -171,15 +171,67 @@
 	if(why_not)
 		action_result(CREW_TOOL_NOTE, FALSE, why_not, list("no_paper" = TRUE))
 		return
+	// Written as a player writes: by the paper's own window, with the pen in the hand that writes,
+	// and only where a player could (light to see by, the sheet to hand).
+	why_not = cannot_write_on(sheet)
+	if(why_not)
+		action_result(CREW_TOOL_NOTE, FALSE, why_not)
+		return
+	var/written = 0
 	for(var/line in to_write)
 		// Each line is its own paragraph: paper runs lines together otherwise.
-		sheet.add_raw_text("[line]\n\n")
+		if(!write_on_paper(sheet, "[line]\n\n"))
+			break
+		written++
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote in its order book: [line]")
-	sheet.update_appearance()
 	var/obj/item/clipboard/board = sheet.loc
 	if(istype(board))
 		board.update_appearance()
-	action_result(CREW_TOOL_NOTE, TRUE, "You write [length(to_write) == 1 ? "a line" : "[length(to_write)] lines"] in your order book.")
+	if(!written)
+		action_result(CREW_TOOL_NOTE, FALSE, cannot_write_on(sheet) || "Your pen would not write on your order book.")
+		return
+	if(written < length(to_write))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote only [written] of [length(to_write)] lines in its order book: the rest did not take.")
+	action_result(CREW_TOOL_NOTE, TRUE, "You write [written == 1 ? "a line" : "[written] lines"] in your order book.")
+
+/**
+ * Why the body cannot write on this sheet now, as a player would be told, or null if it can.
+ * The tests the paper's own window and `add_text` make: in reach, not blind, able to read it,
+ * a writing tool in the writing hand (or the clipboard's pen), able to write, light to see by.
+ * A loose sheet is held in one hand and the pen in the other, so the pen's hand is made the active one.
+ */
+/datum/ai_controller/crew_npc/proc/cannot_write_on(obj/item/paper/sheet)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/clipboard/board = sheet.loc
+	if(!istype(board))
+		board = null
+	if(!body.is_holding(board || sheet) || !in_range(body, sheet))
+		return "You do not have your order book in your hand."
+	if(body.is_blind())
+		return "You cannot see to write in your order book."
+	if(!body.has_light_nearby() && !body.has_nightvision())
+		return "It is too dark here to write in your order book."
+	if(!body.can_read(sheet, READING_CHECK_LITERACY, silent = TRUE))
+		return "You cannot read or write."
+	var/obj/item/holding = board?.pen
+	if(isnull(holding))
+		var/obj/item/pen/pen = pen_on_body()
+		if(isnull(pen) || !hand_to(pen))
+			return "You have nothing in your hand to write with."
+		holding = pen
+	if(!body.can_write(holding))
+		return "Your pen will not write here."
+	return null
+
+/// Writes a line on a sheet as the body, by the paper's own `add_text` click. Returns TRUE if it took.
+/datum/ai_controller/crew_npc/proc/write_on_paper(obj/item/paper/sheet, text)
+	var/mob/living/carbon/human/body = pawn
+	var/length_before = sheet.get_total_length()
+	// Never opened: it only stands for the window the body would be looking at.
+	var/datum/tgui/window = new(body, sheet, "CrewNpcHands")
+	world.push_usr(body, CALLBACK(sheet, TYPE_PROC_REF(/datum, ui_act), "add_text", list("text" = text), window, window.state))
+	qdel(window)
+	return !QDELETED(sheet) && sheet.get_total_length() > length_before
 
 /**
  * Returns the nearest paper bin that has what the body is short of, that it can walk to and has not
