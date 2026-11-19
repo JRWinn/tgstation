@@ -217,6 +217,18 @@ at(outranked, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Walker Wolfe', job: 'He
 wantedAfterActing(outranked, { tool: 'throw_out', person: 'p9' }, false, 'Walker Wolfe outranks you. You do not lay a hand on them.');
 syncWanted(outranked);
 add('someone it had no right to put out is no word for anyone', said(outranked), []);
+for (const [why, line, word] of [
+  ['a stranger the body never reached', 'You could not get to it.', []],
+  ['a walk out that took too long', 'You could not get Pun Pun out of Cargo Bay: it was taking too long.', []],
+  ['a stranger it could not get a hold of', 'You cannot get a hold of Pun Pun.', ['PDA to Quin Master: Quin, I could not put Pun Pun out of the Cargo Bay.']],
+] as const) {
+  const t = makeBrain('Cora Tech', 'Cargo Technician');
+  t.post = 'Cargo Bay'; t.pdaPeople = tech.pdaPeople;
+  at(t, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Cargo Bay', distance: 2, in_post: 1 }]);
+  wantedAfterActing(t, { tool: 'throw_out', person: 'p9' }, false, line);
+  syncWanted(t);
+  add(`${why} is ${word.length ? 'word for the head' : 'no word for anyone'}`, said(t), [...word]);
+}
 const qm = makeBrain('Quin Master', 'Quartermaster');
 qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Joan Marsh', job: 'Head of Security' }];
 at(qm, 4000, 'Cargo Bay');

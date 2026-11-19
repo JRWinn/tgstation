@@ -54,8 +54,13 @@ const DECLARE_AGAIN_DS = 6000;
 const COULD_NOT_KEPT_DS = 1200;
 /** How long (deciseconds) being told it is under arrest stands, if nothing comes of it. */
 const ARREST_STANDS_DS = 600;
-/** What the server says when a body could not get someone out of its room, as against having no right to. */
-const WOULD_NOT_GO = /\bcould not get\b|\bcannot get a hold\b/i;
+/**
+ * What the server says when someone would not be walked out of the body's room: the hold was broken, or no
+ * hold could be got. Not "You could not get to it." (the body never reached them) nor a reason that is the
+ * body's own trouble, such as the walk taking too long.
+ */
+const WOULD_NOT_GO =
+  /\bcould not get .+ out of .+: they got away from you\b|\bcannot get a hold of\b/i;
 
 /** What an NPC knows of who is wanted, before it has been told anything. */
 export function newWanted(): WantedKnown {
