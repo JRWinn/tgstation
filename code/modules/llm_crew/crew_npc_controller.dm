@@ -4,6 +4,9 @@
  * The behavior tree here is only the motor layer and the default behavior: it carries out
  * actions and keeps the body wandering when no brain is attached. It never picks goals.
  */
+/// Why a walk ended when the body went down under it (stunned, out cold, dead or taken over), not the walk itself.
+#define CREW_NPC_WALK_KNOCKED_DOWN "you were knocked off your feet"
+
 /datum/ai_controller/crew_npc
 	ai_movement = /datum/ai_movement/navmap_astar/crew_npc
 	movement_delay = 0.4 SECONDS

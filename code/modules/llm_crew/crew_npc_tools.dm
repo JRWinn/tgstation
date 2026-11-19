@@ -493,7 +493,9 @@
 		action_result(tool, TRUE, "You arrive in [arrived_in].", list("place" = arrived_in))
 	else
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
-		if(tool == CREW_TOOL_GO_TO && goal)
+		// Only when the way was the trouble: a walk cut short by a fall, or by someone in the way, says
+		// nothing about the room (LIFE-01).
+		if(tool == CREW_TOOL_GO_TO && goal && (reason == CREW_NPC_NO_WAY || reason == "it was taking too long"))
 			blocked_places[goal] = world.time
 			if(reason == CREW_NPC_NO_WAY)
 				blocked_tries[goal]++

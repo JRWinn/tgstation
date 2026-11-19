@@ -159,6 +159,10 @@
 	fail_reason = null
 	. = ..()
 	var/datum/ai_controller/crew_npc/crew_controller = controller
+	// Ended from outside, by the body going down: it was stunned, knocked out or tackled, not stopped
+	// by the way (LIFE-01). Any other walk ended from outside was replaced, and reports for itself.
+	if(!succeeded && isnull(reason) && (!controller.able_to_run || controller.ai_status == AI_STATUS_OFF))
+		reason = CREW_NPC_WALK_KNOCKED_DOWN
 	if(istype(crew_controller))
 		crew_controller.walk_finished(finished_target, succeeded, reason)
 
