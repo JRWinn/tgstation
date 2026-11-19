@@ -393,7 +393,13 @@
 		return
 	if(tool != CREW_TOOL_CLEAN)
 		// Security's errands say why they came to nothing, and what came of them: see crew_npc_security.dm.
-		action_result(tool, outcome[1], outcome[2], CREW_NPC_SECURITY_TOOL(tool) ? security_details(tool, outcome) : null)
+		var/list/details = null
+		if(CREW_NPC_SECURITY_TOOL(tool))
+			details = security_details(tool, outcome)
+		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
+		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
+			details = outcome[3]
+		action_result(tool, outcome[1], outcome[2], details)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
 		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(proper_tool()) && sink_in_view)
