@@ -4,12 +4,13 @@ title: A janitor sent for to the Delivery Office who asks at the Cargo Bay door 
 kind: bug
 severity: high
 effort: small
-confidence: likely
-status: found
+confidence: sure
+status: confirmed
 found_by: Opus 5.5
-area: logs
-files: code/modules/llm_crew/crew_npc_cargo.dm:148, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1172, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1297
-fix: Leave out of the outer-room test any door that opens from a room the crew at large cannot walk into, so the Delivery Office is known to be reached through the Cargo Bay
+checked_by: Opus 5.5
+area: cargo
+files: code/modules/llm_crew/crew_npc_cargo.dm:148, code/modules/llm_crew/crew_npc_doors.dm:241, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1172, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1297
+fix: In learn_department leave out of the outer-room test any door the body's own ID cannot open whose far side is not a department room, a hallway or maintenance, so the Delivery Office is known to be reached through the Cargo Bay
 ---
 
 ## What is wrong
@@ -69,10 +70,12 @@ Seen in a round log: `data/logs/2026/11/19/round-20.00.21`, `pda.log` 02:09:16 a
 
 ## How to fix it
 
-1. In `learn_department` (`crew_npc_cargo.dm`), when building `beyond` for a room, leave out a door whose far side is a room the crew at large cannot walk into and which is not one of the department's own rooms. Test that with `crew_npc_room_is_closed(get_area(sides[2]), body.z)`: a room closed to everyone is no way in for a janitor either. Keep the rest as it is: if every door left opens from one of `closed_rooms`, record the room, with the post first.
+1. In `learn_department` (`crew_npc_cargo.dm`), when building `beyond` for a room, leave out a door that the body's own ID cannot open (`!door.allowed(body)`, as `locked_out_of` uses) and whose far side is neither one of the department's rooms nor a hallway or maintenance. A door the technician cannot open is not one it lets anyone in by. Keep the rest as it is: if every door left opens from one of `closed_rooms`, record the room, with the post first. On MetaStation the office's door at (82,141) is `airlock/security/glass` with security general access, which a technician has not got, so it drops out and `beyond` is only the Cargo Bay.
+
+   (Checker's correction: the first draft's test, `crew_npc_room_is_closed(get_area(sides[2]), body.z)`, does not work on MetaStation. It is FALSE for the security post. `crew_npc_doors_of` walks every open turf of the room, window tiles on plating included, and takes an airlock on the next tile as a door of the room: the public hallway airlock at (86,135), which stands beside the post's window tile (86,136), is counted as a door of the post, and it has no access, so the post is "not closed". `locked_out_of` is fooled the same way. That quirk in `crew_npc_doors_of` is worth a finding of its own: a door is taken for a room's door when only a window of the room is beside it.)
 2. If no door is left after that (every door opens from a locked room of another department), do not record it: nothing changes from today.
 3. Second, cheaper safety net in the window, if the owner prefers not to touch the server: in `mayPass`, when `room` is the post and the ask names a further room of the department after "about the mess in the" (the janitor's own words, built in `jobs/desk.ts`), accept a standing `expectedCall` for that further room as the permission, the same as `beyond`. I would do step 1, because the window then needs no reading of words.
-4. Keep working: a room with a door onto a public hallway must still not be put in `reached_through`, and the Mining Office and Bitrunning Den entries must come out as before.
+4. Keep working: a room with a door onto a public hallway or maintenance must still not be put in `reached_through`, even when that door needs access the technician lacks (that is why hallways and maintenance are kept in step 1), and the Mining Office and Bitrunning Den entries must come out as before.
 
 ## How to test the fix
 
@@ -80,3 +83,11 @@ Seen in a round log: `data/logs/2026/11/19/round-20.00.21`, `pda.log` 02:09:16 a
 - In a round on MetaStation, print the cargo technician's `reached_through` (View Variables on its controller): the Delivery Office should be there, against the Cargo Bay.
 - In a round: let a technician call one janitor to the Delivery Office only. In `pda.log` the janitor's "at the ... door of the Cargo Bay about the mess in the Delivery Office" should be answered "I am coming to the ... door of the Cargo Bay to let you in", never "nobody here sent for you".
 - Simulator: none of this is server code it runs, but a scenario where `rooms_through` has `{"Delivery Office": "Cargo Bay"}` and the janitor asks at the Cargo Bay door with only a Delivery Office call should already pass; add it so that it stays passing.
+
+## Check
+
+Checked by Opus 5.5. The quotes of `learn_department`, `boundBeyond` and `mayPass` are what the code says today, and `crew_brain_link.dm` sends `reached_through` as `rooms_through`, read by `brain.ts` into `roomsThrough`. Read the logs of `round-20.00.21`: `pda.log` lines 56 to 58 and `game.log` 02:09:17 are as quoted; Marina's only cargo call was the Delivery Office one. The change log has earlier "nobody here sent for you" fixes (`noteLetOut`, `mayPass` (19), `syncTasks`), none about a room inside the bay with a second door elsewhere.
+
+The first draft had not opened the map. I parsed `MetaStation.dmm` with a throwaway bun script outside the repo. The Delivery Office (`/area/station/cargo/sorting`) has two airlocks: `airlock/mining` at (77,142) into the Cargo Bay (shipping access) and `airlock/security/glass` at (82,141) into `Security Post - Cargo Bay` (security general access); its other edges are walls or windows. Every door of the Cargo Bay needs supply access, so the bay is closed and in `closed_rooms`. So `beyond` for the office is the bay and the security post, the post is of the security department and not in cargo's `closed_rooms`, and the office is skipped: the fault is as written, now `sure`.
+
+The first draft's fix would not have worked: `crew_npc_room_is_closed` is FALSE for the security post, because `crew_npc_doors_of` counts the public hallway airlock at (86,135), beside the post's window tile (86,136), as a door of the post. I changed step 1 to test the door itself against the technician's ID, kept hallways and maintenance out of the leave-out so a room with a public door is still not recorded, and moved `area` to cargo. Severity stays high: the mess is never cleaned by the janitor that was called, the janitor asks only once, and the Delivery Office is where cargo opens its packages, so it is often the room called about. Effort small. Not run.
