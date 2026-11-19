@@ -62,6 +62,7 @@ import {
   giveLine,
   HEARD_WORDS,
   heardLine,
+  isNoName,
   isOfficer,
   isSecurity,
   letGoLine,
@@ -504,6 +505,18 @@ export function deskTakes(
         aloud,
         why(
           'They are neither the Captain nor a head of department, and you are telling them so.',
+        ),
+      );
+    } else if (isNoName(declared.name)) {
+      // "Unknown" is anyone with their face hidden and no ID on show: a warrant on it is on
+      // every one of them, and on nobody once the mask is off.
+      reply(
+        brain,
+        from,
+        REFUSALS.noName(to),
+        aloud,
+        why(
+          'That is how anyone with their face hidden is seen, not a name, and you are telling them so.',
         ),
       );
     } else if (/captain/i.test(theirJob)) {

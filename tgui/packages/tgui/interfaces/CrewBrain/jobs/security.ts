@@ -546,7 +546,14 @@ export const REFUSALS = {
     `${to}, warrants go to ${desk}, the Head of Security.`,
   notPardoner: (to: string) => `${to}, a pardon is the Captain's to give.`,
   notYours: (to: string) => `${to}, that warrant is not yours to take back.`,
+  noName: (to: string) =>
+    `${to}, I cannot take a warrant on Unknown: that is anyone with their face hidden. Tell me who it is.`,
 };
+
+/** TRUE if a name is no name: "Unknown", as anyone with their face hidden and no ID on show is seen, or nothing at all. */
+export function isNoName(name: string): boolean {
+  return /^\s*(?:unknown(?:\s*\(.*\))?)?\s*$/i.test(name);
+}
 
 // ---- the notice to the heads
 
@@ -1107,3 +1114,7 @@ export function couldNotLine(to: string, name: string, place: string): string {
   return `${firstName(to)}, I could not put ${name} out of the ${place}.`;
 }
 export const COULD_NOT_WORDS = /\bI could not put (.+?) out of the /i;
+/** The same, of someone whose face was hidden: there is no name to declare a warrant on, so the head is only told. */
+export function hiddenLine(to: string, place: string): string {
+  return `${firstName(to)}, someone with their face hidden would not leave the ${place}.`;
+}

@@ -268,7 +268,15 @@ for (const line of ['Hale, drop what you are doing, warrant for Dana Reyes, for 
   add('the LLM reading "withdraw" takes it back through the same code', [deskRead(d, deskOf(d).unread[0], { kind: 'withdraw', name: 'pun pun', minutes: 0 }), deskOf(d).warrants.length, said(d)], ['Read as: "Cancel the warrant on pun pun." The body answers Walker Wolfe in the fixed words.', 0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
   add('and the reading is let through', S.readReading('{"kind":"withdraw","name":"Pun Pun","minutes":0}', 'never mind about Pun Pun')?.kind, 'withdraw');
 }
-add('the not-followed line fits a PDA message', S.notFollowedLine('Walker').length <= 200, true);
+// SECT-13: no warrant on Unknown, from a head or from the Captain.
+for (const [from, job, to] of [['Walker Wolfe', 'Head of Personnel', 'Walker'], ['Zim Fire', 'Captain', 'Captain']]) {
+  const d = head();
+  deskTakes(d, from, job, 'Warrant for Unknown, for trespass in the Cargo Bay.', false);
+  add(`a warrant on Unknown from the ${job} is refused`, [deskOf(d).warrants.length, said(d)], [0, [`PDA to ${from}: ${to}, I cannot take a warrant on Unknown: that is anyone with their face hidden. Tell me who it is.`]]);
+}
+add('"Unknown (as Pun Pun)" is no name either', S.isNoName('Unknown (as Pun Pun)'), true);
+add('and Pun Pun is one', S.isNoName('Pun Pun'), false);
+add('the not-followed line fits a PDA message',S.notFollowedLine('Walker').length <= 200, true);
 // The officer says someone is in a cell: off the list, into the cells, and the Captain and whoever declared it are told.
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
