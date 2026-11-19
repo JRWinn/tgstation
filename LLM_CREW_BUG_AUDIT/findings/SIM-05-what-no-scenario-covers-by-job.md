@@ -14,7 +14,7 @@ fix: Add the scenarios listed here, most important first, each with checks that 
 
 ## What is wrong
 
-The simulator has 47 scenarios (the 45 in its header, plus `doorway` and `headdoor`, which are not listed: see `CHK-02`). Read against the eight job modules and the shared ones, these parts of the window code are reached by no scenario and no table of cases. Within each job the most important comes first.
+The simulator has 45 named scenarios and the default one (`doorway` and `headdoor` among the named, though the header does not list them: see `CHK-02`). Read against the eight job modules and the shared ones, these parts of the window code are reached by no scenario and no table of cases. Within each job the most important comes first.
 
 **Every job**
 
