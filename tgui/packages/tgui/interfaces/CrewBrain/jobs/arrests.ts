@@ -93,6 +93,12 @@ const HALLWAY_DS = 100;
 const BETWEEN_WALKS_DS = 900;
 /** The health (percent) under which it breaks off and uses no more force. */
 const HURT_BELOW = 50;
+/**
+ * Told to try again while hurt, how much more (percent) it may lose before it breaks off again,
+ * and the health under which it breaks off whatever it was told. A guess: the owner's to set.
+ */
+const AGAIN_MARGIN = 15;
+const AGAIN_FLOOR = 20;
 /** How long (deciseconds) after it breaks off hurt that saying so comes before getting away. */
 const HURT_WORD_DS = 50;
 /** How long (deciseconds) someone who has attacked it is someone to stop. */
@@ -271,6 +277,9 @@ export function handBack(brain: NpcBrain): void {
 /** Told to make arrests again after breaking off hurt. */
 export function arrestAgain(brain: NpcBrain): void {
   const beat = beatOf(brain);
+  if (beat.hurt) {
+    beat.againAt = brain.security?.health ?? HURT_BELOW;
+  }
   beat.hurt = false;
   for (const warrant of beat.warrants) {
     warrant.tries = 0;
@@ -390,8 +399,20 @@ function wantsKit(brain: NpcBrain): boolean {
 export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   const beat = beatOf(brain);
   const security = brain.security;
-  // Hurt: it breaks off, and whoever keeps the list is told.
-  if (security && security.health < HURT_BELOW && !beat.hurt) {
+  // Hurt: it breaks off, and whoever keeps the list is told. Told to try again, it goes on until
+  // it is a good deal more hurt than it was then: nothing aboard heals it, so its health alone
+  // would have it break off again the same second.
+  if (security && security.health >= HURT_BELOW) {
+    beat.againAt = undefined;
+  }
+  const breaksOff =
+    !!security &&
+    security.health < HURT_BELOW &&
+    (beat.againAt === undefined ||
+      security.health <= beat.againAt - AGAIN_MARGIN ||
+      security.health < AGAIN_FLOOR);
+  if (security && breaksOff && !beat.hurt) {
+    beat.againAt = undefined;
     beat.hurt = true;
     beat.hurtAt = brain.now;
     const about =

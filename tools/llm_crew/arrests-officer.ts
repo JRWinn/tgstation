@@ -72,6 +72,38 @@ const wanted = (place = 'Bar', where = 'Bar') => {
   add('ARR-07: in another room with someone to ask, it still asks to be let in, and is no try', [f.warrant.shutOut?.place, f.warrant.tries, f.warrant.toldAt], ['Cargo Bay', 0, null]);
 }
 
+// ---- ARR-09: told to try again while hurt, it does not break off again the same second
+{
+  const f = wanted('Bar');
+  f.o.security.health = 40;
+  A.syncBeat(f.o);
+  add('ARR-09: under half its health it breaks off, and says so', [A.beatOf(f.o).hurt, A.takeOutcomes(f.o).map((it: any) => it.what)], [true, ['hurt']]);
+  A.arrestAgain(f.o);
+  A.syncBeat(f.o);
+  add('ARR-09: told to try again at 40, it is not hurt again at 40, and says nothing', [A.beatOf(f.o).hurt, A.takeOutcomes(f.o)], [false, []]);
+  f.o.security.health = 30;
+  A.syncBeat(f.o);
+  add('ARR-09: nor at 30', A.beatOf(f.o).hurt, false);
+  f.o.security.health = 25;
+  A.syncBeat(f.o);
+  add('ARR-09: but fifteen under, it breaks off again and says so once more', [A.beatOf(f.o).hurt, A.takeOutcomes(f.o).map((it: any) => it.what)], [true, ['hurt']]);
+  A.arrestAgain(f.o);
+  f.o.security.health = 19;
+  A.syncBeat(f.o);
+  add('ARR-09: and under twenty, whatever it was told', A.beatOf(f.o).hurt, true);
+}
+{
+  const f = wanted('Bar');
+  f.o.security.health = 40;
+  A.syncBeat(f.o);
+  A.arrestAgain(f.o);
+  f.o.security.health = 80;
+  A.syncBeat(f.o);
+  f.o.security.health = 45;
+  A.syncBeat(f.o);
+  add('ARR-09: back over half and hurt again, it breaks off at half as before', A.beatOf(f.o).hurt, true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

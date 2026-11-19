@@ -580,6 +580,8 @@ export type BeatWork = {
   batonTold?: boolean;
   /** Why it has said it cannot bring someone in, and when (server time), by "name|why". Each is said once. */
   cannotTold?: Record<string, number>;
+  /** Its health (percent) when it was last told to try again, hurt: it breaks off again only a good deal under it. */
+  againAt?: number;
 };
 
 /**
