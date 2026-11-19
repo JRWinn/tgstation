@@ -564,12 +564,21 @@
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
 	// before it came off was reported as beyond the body, and then, seconds later, as cleaned up.
 	var/last_chance = deadline + CREW_NPC_CLEAN_TIME
+	var/turf/stood = get_turf(body)
 	while(!QDELETED(mess) && (world.time < deadline || (length(body.do_afters) && world.time < last_chance)))
 		sleep(0.5 SECONDS)
 		if(QDELETED(body))
 			return list(FALSE, "You could not get to it.")
+		// Sent to do something else: the scrub was broken off, not beaten.
+		if(errand_serial != serial)
+			return list(FALSE, "You stopped cleaning the [mess_name].")
 	if(QDELETED(mess))
 		return list(TRUE, "You clean up the [mess_name].")
+	// A scrub cut short, by being moved, knocked down or stunned, or the tool leaving its hand, says
+	// nothing about the mess. Only one that ran its course with the body there and fit writes it off.
+	var/cut_short = get_turf(body) != stood || body.body_position == LYING_DOWN || !body.is_holding(tool)
+	if(cut_short || INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS|INCAPABLE_GRAB))
+		return list(FALSE, "You could not finish cleaning the [mess_name].")
 	// Some messes do not yield to scrubbing at all. Remember this one so the body stops trying it.
 	stubborn_messes[REF(mess)] = TRUE
 	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
@@ -581,6 +590,7 @@
 	var/place = get_area_name(mess, TRUE)
 	var/kind_here = "[place]|[mess.type]"
 	stubborn_kinds[kind_here]++
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote off the [mess_name] ([mess.type]) in [place] as beyond the [format_text(tool.name)] ([stubborn_kinds[kind_here]] of that kind there).")
 	if(stubborn_kinds[kind_here] >= 2)
 		for(var/key in remembered_messes)
 			var/list/memory = remembered_messes[key]
