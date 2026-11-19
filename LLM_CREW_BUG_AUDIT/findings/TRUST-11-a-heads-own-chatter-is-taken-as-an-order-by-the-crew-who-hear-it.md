@@ -5,8 +5,9 @@ kind: bug
 severity: high
 effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: brain
 files: tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1372, tgui/packages/tgui/interfaces/CrewBrain/jobs/desk.ts:710, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:257, tgui/packages/tgui/interfaces/CrewBrain/jobs/officer.ts:465, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2138
 fix: Before a line the model wrote is said, test it against the words other crew act on, and say the plain line instead when it would read as a warrant, pardon, order or summons that code did not decide
@@ -67,8 +68,9 @@ Read from the code, and the four `readWarrant` results above from a throwaway bu
 
 The hearer cannot be the one to tell a head's real order from its chatter: that would need it to know what another body's code decided, which no player could. So the speaker must not say orders it did not decide. Where the model's line is checked, in `think` after `parseReply`:
 
-1. Write one function, say `soundsLikeOrder(text, brain)`, in a new small module that imports the readers other crew use: `readWarrant` (with an empty known list), `PARDON_WORDS` together with "pardon"/"release" and a name, `CANCEL_WORDS`, `GIVE_WORDS`, `GIVEN_WORDS`, `LOST_TOLD_WORDS`, `NOT_PLACED_WORDS`, `DOCKED_WORDS`, the forcing lines' patterns, `CALL_WORDS` for meetings, and the HoS's `SEEN_WORDS` and `LET_GO_WORDS`. It returns TRUE if any of them reads the text as something.
-2. For a line the model wrote (not `mustSay` when `exact`): if `soundsLikeOrder` is TRUE, do not say it. Say `mustSay` if there is one, else nothing, and log `[sounded like an order: not said]` in the decision. A `withRemark` remark appended to an exact line gets the same test, and is dropped if it fails.
+1. Write one function, say `soundsLikeOrder(text, brain)`, in a new small module that imports the readers other crew use: `readWarrant` (with the speaker's own `knownNames(brain)`, not an empty list, so a name it knows is caught as the hearer would catch it; run the text through `mendWords` first, as `deskTakes` does), `PARDON_WORDS` together with "pardon"/"release" and a name, `CANCEL_WORDS`, `GIVE_WORDS`, `GIVEN_WORDS`, `LOST_TOLD_WORDS`, `NOT_PLACED_WORDS`, `DOCKED_WORDS`, the forcing lines' patterns, `CALL_WORDS` for meetings, and the HoS's `SEEN_WORDS` and `LET_GO_WORDS`. It returns TRUE if any of them reads the text as something. Call the hearers' own readers, not copies of their patterns, so the two cannot drift apart; some patterns (`GIVEN_WORDS`, `LOST_TOLD_WORDS` and others) are not exported today and will need exporting.
+2. For a line the model wrote (not `mustSay` when `exact`): if `soundsLikeOrder` is TRUE, do not say it. Put the test in `think` in `brain.ts`, in the loop just after `withoutHandles` and before the `exact` merge, so a line dropped there is then replaced by `mustSay` by the code that follows. Say `mustSay` if there is one, else nothing, and log `[sounded like an order: not said]` in the decision. A `withRemark` remark appended to an exact line gets the same test: add it to the list of tests already in `withRemark` (`jobs/reports.ts`, beside `TAKEN_WORDS`), which drops an unfit remark and says the line bare.
+   It will also drop harmless lines that the readers misread, such as "don't arrest Bob Hale" (SECT-01). That is the safe side: a line not said costs nothing, a line taken as an order costs an arrest.
 3. Tell every job's prompt, in one shared rule: "You never declare a warrant, pardon anyone, order supplies, or call anyone to a meeting in your own words. Asked to, say who to ask. Your body does those things itself." The rule is short; the prompt budget can carry it.
 4. The words the code itself has a head say (`exact` lines) are unchanged: those are decided.
 
@@ -76,6 +78,17 @@ Question for the owner: should a head NPC be able to declare a warrant at all, b
 
 ## How to test the fix
 
-- A table test of `soundsLikeOrder`: the four lines above are TRUE; "Ray, how are you?" and "Bob Hale was in the Bar earlier." are FALSE; each NPC's own fixed lines (`takenLine`, `giveLine`, the Quartermaster's `GIVEN` line) are TRUE, which is why `exact` lines skip the test.
-- Simulator, `chatty`: a player asks the Head of Personnel to have someone arrested, with the Head of Security in view. No warrant on `brain.desk.warrants`.
+- A table test of `soundsLikeOrder`, in a new file beside `tools/llm_crew/security.ts` or added to it: the four lines above are TRUE; "Ray, how are you?" and "Bob Hale was in the Bar earlier." are FALSE; each NPC's own fixed lines (`takenLine`, `giveLine`, the Quartermaster's `GIVEN` line) are TRUE, which is why `exact` lines skip the test. Plus a `withRemark` case: an exact line with the remark "Ray, arrest Bob Hale." comes back bare.
+- Simulator: the stand-in model in `tools/llm_crew/sim.ts` never says anything like this (`chatty` says only "Right you are."), so it cannot show the fault or the fix as it stands. Add a variant where, when the heard text has "arrest" in it, the stand-in's `say` is "Ray, please arrest Bob Hale.", and a scenario with a Head of Personnel and a Head of Security in one room and a player asking the Head of Personnel to have Bob Hale arrested. Before the fix the Head of Security's `desk.warrants` gains Bob Hale; after it, it does not, and the decision log shows the line dropped. Run it a few times, four at a time at most.
+- Type check and lint of the window code.
 - In a round, ask a head NPC standing by the Head of Security to have someone arrested. `crew_brain.log` should show the line dropped; `game.log` no arrest.
+
+## Check
+
+Confirmed. Read `think` in `brain.ts` (about lines 1356-1410): the model's `say` gets only `inOwnVoice` (in `parseReply`) and `withoutHandles`, then the alone/filler/said-before filters; nothing tests it for words others act on. The prompt (`prompt.ts`) has no rule about warrants or orders for heads. On the hearing side: the server marks any human speaker `source: "person"` (`crew_npc_senses.dm:418`), NPC or player alike; `saidTo` in `addressing.ts` gives `me` for any part of the hearer's name (`usesName`), so "Ray, ..." reaches the Head of Security as said to it; `overhears` in `jobs/headofsecurity.ts` calls `deskHears`, which passes it to `deskTakes`; for a Head of Personnel speaker `declarer` is `isHead` TRUE, and a non-head, non-security, not-yet-wanted name goes down the last branch of the warrant part (`desk.warrants.push`, `takenLine`, `tellCaptain` with `copyLine`). No guard on the way tells an NPC head from a player one, and by the senses-only rule none could.
+
+Ran `readWarrant` from `jobs/security.ts` in a throwaway bun script (scratchpad, outside the repo) with Bob Hale, Ray Hoss and Jane Marsh known: the four lines in the write-up give the warrants it says. "Ray, Bob Hale was in the Bar earlier." gives none. "Ray, don't arrest Bob Hale, he's fine." also gives a warrant, which is SECT-01, not this.
+
+Searched the change log and plans: the nearest is (L6) in the 1428 security entry, a prompt line telling the officer's voice a warrant is security business; nothing about a head's model saying a warrant. Not a duplicate of SECT-01 (a hearer misreading a line) or TRUST-03 (rank read from the voice name): this one is about the speaker's model being free to say an order at all.
+
+Severity high stands: the wrong person is arrested, and getting it needs only a head NPC and the Head of Security NPC in earshot. Whether the small model says it when asked was not tested, so confidence stays `likely`. Effort medium: one new module, a few patterns exported, a call in `think` and one in `withRemark`. Sharpened the fix (use the speaker's known names, place the test before the `exact` merge, reuse `withRemark`'s filter list) and the tests (the simulator's stand-in model never says such a line, so a variant is needed).
