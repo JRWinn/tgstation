@@ -10,7 +10,7 @@ found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:423, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:592, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:933, code/modules/llm_crew/_defines.dm:2
-fix: Before a told mess task is finished with no mess seen, have the body walk the room once (a look-round step), and say it found no mess rather than that the mess is cleaned up
+fix: Before a told mess task is finished with no mess seen, send go_to with middle true for that room once, and say it found no mess rather than that the mess is cleaned up
 ---
 
 ## What is wrong
@@ -71,9 +71,9 @@ Read from the code. Not seen in a round, and the Cargo Bay's size and where the 
 
 ## How to fix it
 
-1. Server: add a look-round step, or reuse an existing walk, that takes the body to the middle of a named room and, if the room is bigger than its sight, to a second spot on the far side. `safe_spot_in` already picks a spot in a room. Each spot it stands on refreshes `remember_messes`.
-2. Window: in `plan`, for a told task in the room it is in, with no mess in sight and none remembered there, and not yet looked round (`task.lookedRound` unset), send that step.
-3. In `syncTasks`, finish a told task with no mess seen only once `task.lookedRound` is set (set it in `afterActing` when the step comes back), not after five seconds.
+1. No new server step is needed for the first look: `tool_go_to(place, middle)` already walks the body to `middle_of` the room (`crew_npc_tools.dm:208`, `crew_npc_cargo.dm:245`), and `jobs/meetings.ts` and `jobs/head.ts` send it as `{ tool: 'go_to', place, middle: true }`. `safe_spot_in`, which the let-in walk uses for a room the body has never stood in, picks the nearest of 40 random safe tiles: near the door it came in by, so it is the wrong helper here. Each sense tick on the way refreshes `remember_messes`. A second spot on the far side of a room wider than 15 tiles would need a new server helper; leave that unless a round shows the middle is not enough.
+2. Window: in `plan`, for a told task in the room it is in, with no mess in sight and none remembered there, and not yet looked round (`task.lookedRound` unset), send `{ tool: 'go_to', place: task.place, middle: true }` ("You were told of a mess here and see none from where you stand. You are walking into the middle of the room to look.").
+3. In `syncTasks`, finish a told task with no mess seen only once `task.lookedRound` is set (set it in `afterActing` when that `go_to ... middle` comes back, ok or not, as `jobs/meetings.ts:661` does for its walk to the middle) and the body has stood there `LOOK_ABOUT_DS` since, not after five seconds from the door.
 4. When it finishes that way, it did not clean anything. Mark it (`task.foundNone = true`) and have `sayDone` say "I found no mess in the Cargo Bay." for such a task, so the caller knows to say where. Keep "is cleaned up" for a task where it cleaned (`task.cleanedSome`).
 5. Make the not-ready step in point 3 above say "There is no mess in sight here." when `cleanableMesses` is empty and nothing is remembered, rather than that the tool will not shift it.
 6. The look-and-report order in `jobs/orders.ts` uses the same five-second look (`LOOK_ABOUT_DS` there): the same look-round step would serve it.
@@ -81,5 +81,13 @@ Read from the code. Not seen in a round, and the Cargo Bay's size and where the 
 ## How to test the fix
 
 - Simulator: a told mess in a room where the mess is not in the first view. The janitor must take the look-round step before finishing, and if it then sees the mess, clean it.
-- Server compile to a side copy for the new step.
+- Type check from `tgui/` (no server change if the existing `middle` walk is used). A table case: a told CLEAN task, body in that room, no `messPlaces`, `inPlaceSince` 60 ds ago, no `lookedRound`: the task must still be open and `plan` must give the `go_to ... middle` step; with `lookedRound` set and nothing seen, it is finished and `sayDone` says it found no mess.
 - Next round: grep `game.log` for "is cleaned up" said by a janitor and check `work_area_messes` for that room (or the technician calling again) after it.
+
+## Check
+
+Read `syncTasks`, `plan`, `letInStep`, `readsMessage`, `afterActing` and `sayDone` in `jobs/janitor.ts`; the done-word in `driver.ts:486-497` (said to `askedBy` once in view, with `sayDone`); `finishTask` in `tasks.ts`; `observe` in `memory.ts` and `brain.ts:415` (`inPlaceSince` is set the moment the room name changes); `tool_go_to`, `place_spot`, `safe_spot_in` and `middle_of` on the server; `tool_clean` (falls back only to a mess the body remembers in that room); and cargo's TIDY sync in `jobs/cargo.ts` (`CALL_AGAIN_DS` 6000, ten minutes). Every quote matches.
+
+The case holds. A call from cargo makes a CLEAN task with `source: 'told'`. Let in, the body walks to `place_spot`, which for a room it has never stood in is `safe_spot_in` from where it stands: a tile near the door. Nothing in the janitor's steps walks it further while no mess is in sight. Five seconds after the room name changed, `syncTasks` finishes the task (the oil is not in `mess_places` because the body never saw it), and the driver says "Victor, the mess in the Cargo Bay is cleaned up." once Victor is in view. Cargo's TIDY task stays open while the mess is still in its `areaMesses`, and calls again after ten minutes. The not-ready step "Your ... will not shift it" is also said with nothing in sight.
+
+Not measured: the size of MetaStation's Cargo Bay against 7 tiles of sight, or how often a told mess lies out of view from the door. Hence `likely` stays. Nothing in the change log or plans covers this. The fix is window-only with the existing `middle` walk, and keeps the rules (it walks, it sees with its own eyes).

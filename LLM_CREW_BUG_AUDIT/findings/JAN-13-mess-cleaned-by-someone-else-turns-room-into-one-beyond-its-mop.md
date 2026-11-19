@@ -3,14 +3,14 @@ id: JAN-13
 title: A mess someone else cleaned up, out of the janitor's sight, makes the room one its mop will not shift, and the room is left unvisited with the old mess still on its list
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
 status: confirmed
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cleaning
 files: code/modules/llm_crew/crew_npc_cleaning.dm:328, code/modules/llm_crew/crew_npc_cleaning.dm:366, code/modules/llm_crew/crew_npc_cleaning.dm:240, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:432, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:493
-fix: Make workable_mess_places judge a remembered mess by what was seen of it (its kind, kept in the memory entry), not by whether it still exists, so it agrees with mess_places until the body has looked
+fix: Make workable_mess_places judge a remembered mess by what was seen of it (its kind, kept in the memory entry), not by whether it still exists, and let the body walk to the spot of a remembered mess that no longer resolves so it can look
 ---
 
 ## What is wrong
@@ -66,7 +66,8 @@ Read from the code, both sides. Not seen in a round. How often it bites depends 
 1. When `remember_messes` stores a mess, store what the body saw of it as well: `list(WEAKREF(mess), place, spot, mess.type, mess.clean_type, mess.is_mopped, format_text(mess.name))`. Every reader of `memory[1..3]` keeps working.
 2. Split `can_clean_mess` so it can be asked of the stored kind (`clean_type`, `is_mopped`) as well as of a live mess, and use that in `could_shift` when the mess no longer resolves.
 3. In `workable_mess_places` (and `remembered_mess_in`, and `beyond_kinds_here`, which reads `mess.name`), do not skip a mess because it is `QDELETED`. Judge it by the stored kind. The room stays workable until the body has looked at the spot and `remember_messes` has forgotten it, which is what `mess_places` already says.
-4. The walk then happens: the janitor goes to the Bar, sees the spot clean, `remember_messes` drops the entry, the room leaves both lists, and the task is finished as "seen clean" by the existing code.
+4. The walk then happens: the janitor goes to the Bar, sees the spot clean, `remember_messes` drops the entry, the room leaves both lists, and the task is finished as "seen clean" by the existing code. But only if the spot comes into view. `remember_messes` forgets an entry only when its turf is in `view(7)` or underfoot, and in the room `tool_clean` walks only to a live mess (`messes_to_clean`, then `remembered_mess_in`, which can return no deleted mess). In a big room, or with the spot round a corner, the body would stand in the room, `tool_clean` would answer "There is no mess here...", the room would stay in both lists, and the window would send `clean` again: a loop in place of the stall. So `remembered_mess_in` (or `tool_clean`) must also give the spot of a remembered mess that no longer resolves, `memory[3]`, as somewhere to walk to and look, and drop the entry if the body gets there and cannot see it. A walk errand to a turf, as the cleaning errands already make for a bucket in hand (`start_errand(get_turf(body), ...)`), will do.
+6. Simplest form, if the owner does not want the kind stored: in `workable_mess_places` change the test to `if(!QDELETED(mess) && tool && !could_shift(mess))`, so a mess not seen to go keeps its room workable, plus step 4's walk to the spot. A room whose only mess was one the tool could not shift and which someone else cleaned then costs one walk to look, which is what a player would do.
 5. This also takes the knowledge leak out: the body no longer knows a far-off mess is gone.
 
 ## How to test the fix
@@ -74,3 +75,12 @@ Read from the code, both sides. Not seen in a round. How often it bites depends 
 - Server compile to a side copy; type check is not needed if the brain side is not touched.
 - Simulator: if a scenario has two janitors and one mess, run it and check the second janitor does not block the room `BEYOND` (look at the task list in the output).
 - In a round: let one janitor see a mess, have another clean it out of the first's sight. The first should walk there, look, and drop the room, not report it beyond its mop.
+- Also in a round: the same, with the mess at the far end of a big room from the door (more than 7 tiles). The janitor should walk to the spot, not stand at the door and try `clean` again and again.
+
+## Check
+
+Checked by Opus 5.5. Read `remember_messes`, `workable_mess_places`, `mess_places`, `remembered_mess_in`, `beyond_kinds_here`, `could_shift`, `tool_clean` and `more_to_clean` in `crew_npc_cleaning.dm`, the two lists as sent in `crew_brain_link.dm`, and in `jobs/janitor.ts` the building of `messy`, `workable`, `beyondIt`, the "I cannot shift" message and `blockTask(... BEYOND)`. Searched the change log and plans: `LLM_CREW_PLAN_ROUND_0912.md` names `workable_mess_places` only for the room staying listed while another mess is remembered; nothing on deleted messes.
+
+The fault stands as written. `workable_mess_places` drops a QDELETED entry; `mess_places` keeps it, because `remember_messes` keeps the entry until the spot is seen. The window takes "messy and not workable" as beyond the tool and blocks the task, so the body does not go to look, so the entry is never cleared. Other janitors (the standing crew has two), cleanbots and players all delete messes out of a body's sight, so this comes up; medium is right. The senses leak is real too, and `work_area_messes` (`crew_npc_cargo.dm`) and `remembers_mess_in` (`crew_npc_doors.dm`) read QDELETED the same way, which may be wanted there (those say what is still there to report) but is worth a look at the same time.
+
+The fix as first written would not finish the job: once the room is workable again, the body has to be able to walk to the spot, and today nothing walks to a remembered mess that no longer resolves. Step 4 now says so, step 6 gives the smallest form, and effort is raised to medium (the stored kind, the split `can_clean_mess`, three readers, and a walk to a turf).

@@ -74,7 +74,7 @@ Read from the code. Not seen in a round. `LLM_CREW_PLAN_ROUND_0912.md` line 76 h
 
 1. Add `var/list/unreached_messes = list()` to the controller: `REF` to `list(WEAKREF(mess), world.time)`.
 2. In `crew_npc_fail_errand/perform`, write the mess there in place of `stubborn_messes`.
-3. Add a proc `mess_given_up(mess)` that returns TRUE if the mess is in `stubborn_messes`, or is in `unreached_messes` with the same object behind the weak reference and less than `CREW_NPC_TIDY_GIVE_UP` (5 minutes) ago. Use it at the three places that read `stubborn_messes` (`messes_to_clean`, `remembered_mess_in`, `workable_mess_places`). An entry that is older or whose object is gone is removed there.
+3. Add a proc `mess_given_up(mess)` that returns TRUE if the mess is in `stubborn_messes`, or is in `unreached_messes` with the same object behind the weak reference and less than `CREW_NPC_TIDY_GIVE_UP` (5 minutes) ago. Use it at the three places that read `stubborn_messes` (`messes_to_clean`, `remembered_mess_in`, `workable_mess_places`). An entry that is older or whose object is gone is removed there. Keep a count of tries with each entry, as `blocked_tries` does for rooms, and after the second failure keep it out for `CREW_NPC_BLOCKED_PLACE_LONG`. Otherwise a mess behind a counter in the room the janitor works is walked at every five minutes, and a walk that fails by running out of time costs three minutes each time.
 4. Make `stubborn_messes` hold a weak reference as well and compare the object, so a recycled ref is not taken for the old mess.
 5. In `finish_errand`, count the two apart: keep `clean_failed_count` for the limit on one go, add `clean_unreached_count`. Send `"unreached" = TRUE` in the details when what is left was only out of reach, and say "What is left there you could not get to." in place of "will not come off".
 6. In `janitor.ts`, where `beyondIt` picks the words, use the new detail: "I have done what I can in the Bar. I could not get to the rest." The fallback line must stay a plain one so a dead model changes nothing.
@@ -87,3 +87,19 @@ Keeps the rules: nothing is done to the world, only what the body remembers and 
 - Type check and server compile to a side copy.
 - Simulator: `sim.ts` plays the server, so add to a cleaning scenario one clean result with `beyond: true, unreached: true` and check the PDA line says "could not get to" and not "cannot shift".
 - In a round: spill something behind the bar counter with the windoor shut and call a janitor. `game.log` should show the clean, and `pda.log` the "could not get to" line. Open the windoor, wait five minutes, call again: it should go to the mess.
+
+## Check
+
+Confirmed. The quotes match the code today (`crew_npc_hands.dm:407-425`, `crew_npc_cleaning.dm:268-275`, `crew_npc_hands.dm:371-375`, `janitor.ts:457-459`).
+
+- `crew_npc_fail_errand` is the selector's second branch in the errand subtree (`crew_npc.bt.json`). It runs when `crew_npc_reach` fails: no path, or the `3 MINUTES` time limit. It writes `stubborn_messes[REF(target)] = TRUE` with no time. Then it calls `finish_errand(list(FALSE, "You could not get to it."))`, which adds one to `clean_failed_count`.
+- `stubborn_messes` is read at `remembered_mess_in` (288), `workable_mess_places` (334) and `messes_to_clean` (393), and cleared only by `mind_what_it_holds` on a change of tool type. `ways_reopened` (314) clears `blocked_places` only. So a door opened or fire doors lifted do not bring the mess back.
+- In the window, `messy.has(place) && !workable.has(place)` makes `beyondIt`. With no scrubbing kinds in `beyondKinds`, `whatIsLeft` gives "The rest would not come off with my mop." That is false for a mess it never touched.
+- `fire_alarms_failed` and `tidy_skipped` hold a time and are tried again (`crew_npc_doors.dm:760`, `crew_npc_tidying.dm:52`). The mess has no such time.
+- The point about recycled refs holds. tg's `REF` is `text_ref` for a datum without `DF_USE_TAG`, and BYOND reuses ref ids after deletion. A new decal can come back as stubborn. That is the smaller half.
+
+Nothing in the change log or plans chooses a write-off for the round. The comment in `fail_errand` says it, but no entry backs it. The fire-alarm case in `LLM_CREW_PLAN_ROUND_1428_SECURITY.md:143` shows walks failing on fire doors, which is one way in.
+
+I set effort to medium. The fix touches a new list, a helper used at three places, `finish_errand`'s counting and a detail sent to the window, plus one line in `janitor.ts`. That is more than about 20 lines in one file. I added a count of tries to step 3. The rest of the fix is sound and keeps the rules: only memory and words change.
+
+Read only. Nothing was run.
