@@ -29,20 +29,23 @@ import { addTask, findTask, finishTask } from '../tasks';
 import type { ChiefWork, NpcBrain, Plan, SenseEvent, Task } from '../types';
 import { batterySteps } from './engine';
 import {
-  ENGINE_TAKEN_WORDS,
+  beginsWith,
+  ENGINE_TAKEN,
   engineersAboard,
+  firstName,
   HEARD_WORDS,
   heardLine,
   isChiefEngineer,
   isEngineer,
-  LIGHT_AGAIN_WORDS,
+  isLightAgainOrder,
   LIGHT_WORDS,
-  LIT_WORDS,
   lightLine,
+  litLine,
+  matchAfterName,
   NOT_OFF_WORDS,
   NOT_ON_WORDS,
-  OFF_WORDS,
-  ON_AGAIN_WORDS,
+  offLine,
+  onAgainLine,
   RELIGHT_WORDS,
   relightLine,
   SHUT_WORDS,
@@ -101,6 +104,10 @@ const RELIGHT_EVERY_DS = 3000;
 const SHUT_AGAIN_DS = 900;
 /** How long (deciseconds) between orders to switch the emitters off once it has been told they will not go off. */
 const SHUT_STUCK_AGAIN_DS = 3000;
+/** How far (energy) over the lowest seen since the emitters went off the crystal must read to be taken as lit again by someone. */
+const RISING_BY = 50;
+/** How long (deciseconds) it looks for its engineer where its staff work before it tries their PDA again. */
+const LOOK_DS = 300;
 /** How far off (tiles) its engineer has to be standing before it walks up to them to speak. */
 const SPEAKING_DISTANCE = 2;
 /** The most characters a body can say at once, or send in one PDA message. Past that the end is cut off. */
@@ -171,6 +178,11 @@ function engineWords(brain: NpcBrain): string {
   const integrity = reading
     ? ` It is at ${Math.round(reading.integrity)} percent integrity.`
     : '';
+  if (chief.shut && !chief.emittersOff) {
+    return engineer(brain)
+      ? `The engine is losing integrity. I have ordered the emitters off, and have not heard that they are.${integrity}`
+      : `The engine is losing integrity and I have no engineer to switch the emitters off.${integrity}`;
+  }
   if (chief.shut) {
     return `The engine has been shut off: it was losing integrity.${integrity}`;
   }
@@ -285,23 +297,52 @@ function syncTasks(brain: NpcBrain): void {
     chief.shut = true;
     chief.emittersOff = false;
     chief.notOff = null;
+    chief.energyAt = null;
     chief.litAt = null;
     chief.order = { what: 'shut', givenAt: null, sent: false };
-    tellCaptain(
-      brain,
-      `The engine is losing integrity: ${Math.floor(reading.integrity)} percent. I am having the emitters switched off.`,
-      `The engine monitor on your PDA reads ${Math.floor(reading.integrity)} percent integrity. You are having the emitters switched off, and telling the Captain so by PDA.`,
-    );
+    const percent = Math.floor(reading.integrity);
+    if (engineer(brain)) {
+      tellCaptain(
+        brain,
+        `The engine is losing integrity: ${percent} percent. I am having the emitters switched off.`,
+        `The engine monitor on your PDA reads ${percent} percent integrity. You are having the emitters switched off, and telling the Captain so by PDA.`,
+      );
+    } else {
+      tellCaptain(
+        brain,
+        `The engine is losing integrity: ${percent} percent. I have no engineer to switch the emitters off.`,
+        `The engine monitor on your PDA reads ${percent} percent integrity, and you have no engineer aboard to switch the emitters off. You are telling the Captain so by PDA.`,
+      );
+    }
+  }
+  // Shut off, with the emitters said to be off: energy rising in the crystal means someone has
+  // lit it again by hand. Left alone the energy only falls, so the lowest seen is kept.
+  if (reading && chief.shut && chief.emittersOff) {
+    if (chief.energyAt == null || reading.energy < chief.energyAt) {
+      chief.energyAt = reading.energy;
+    } else if (reading.energy > chief.energyAt + RISING_BY) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+      chief.litAt = brain.now;
+      tellCaptain(
+        brain,
+        'The engine has been lit again.',
+        'The engine monitor on your PDA shows energy rising in the crystal again, after the emitters were switched off. You are telling the Captain by PDA.',
+      );
+    }
   }
   // The order to switch them off has been given, and nothing has been heard of it.
   if (
     chief.shut &&
     !chief.emittersOff &&
     !chief.order &&
-    chief.shutGivenAt !== null &&
-    // Told they will not go off, it gives the order again now and then, in case the way is open again.
-    brain.now - chief.shutGivenAt >
-      (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)
+    // Never given, for want of an engineer: it goes to the first one that turns up.
+    (chief.shutGivenAt === null ||
+      // Told they will not go off, it gives the order again now and then, in case the way is open again.
+      brain.now - chief.shutGivenAt >
+        (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)) &&
+    engineer(brain)
   ) {
     chief.order = { what: 'shut', givenAt: null, sent: false };
   }
@@ -426,9 +467,30 @@ function giveStep(brain: NpcBrain): Plan {
       act: { tool: 'go_to', place: brain.staffPost },
     };
   }
+  // It looks for a while, then tries the PDA again; after the first look it holds nothing else up.
+  order.lookedAt ??= brain.now;
+  if (brain.now - order.lookedAt > LOOK_DS) {
+    order.lookedAt = undefined;
+    order.looks = (order.looks ?? 0) + 1;
+    if (order.what === 'shut' && order.looks === 2) {
+      tellCaptain(
+        brain,
+        `I cannot reach ${firstName(name)} to switch the emitters off. The engine is still firing.`,
+        `You have looked for ${name} in the ${brain.staffPost ?? 'department'} and tried their PDA, and cannot reach them to have the emitters switched off. You are telling the Captain by PDA.`,
+      );
+    }
+    if (brain.hasPda) {
+      order.sent = false;
+      return {
+        ready: true,
+        step: `${why} ${name} is not here, so you are trying their PDA again: "${line}"`,
+        act: { tool: 'message', person: name, text: line },
+      };
+    }
+  }
   return {
     ready: false,
-    wait: true,
+    wait: !order.looks,
     step: `${why} You are looking for ${name}.`,
   };
 }
@@ -516,7 +578,9 @@ function cues(brain: NpcBrain): string[] {
     lines.push(
       chief.emittersOff
         ? 'Your engineer has told you the emitters are off. The engine is not to be lit again unless the Captain says so.'
-        : 'You have ordered the emitters off, and have not yet heard that they are.',
+        : engineer(brain)
+          ? 'You have ordered the emitters off, and have not yet heard that they are.'
+          : 'The emitters must come off, and you have no engineer aboard to switch them off.',
     );
   } else if (
     chief.lightGivenAt !== null &&
@@ -567,18 +631,24 @@ function hearEngineer(
       at: Date.now(),
     });
   };
-  if (ENGINE_TAKEN_WORDS.test(text)) {
+  if (beginsWith(text, ENGINE_TAKEN)) {
     chief.lightTaken = true;
     return;
   }
-  if (LIT_WORDS.test(text)) {
+  if (beginsWith(text, litLine(brain.name))) {
     heardIt();
     chief.litAt = brain.now;
     chief.lightTaken = true;
     chief.stuck = null;
+    // Lit after a shut-off, whoever lit it: the crystal is watched again.
+    if (chief.shut) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+    }
     return;
   }
-  const stuck = text.match(STUCK_WORDS);
+  const stuck = matchAfterName(text, brain.name, STUCK_WORDS);
   if (stuck) {
     heardIt();
     const what = stuck[1].trim();
@@ -592,7 +662,7 @@ function hearEngineer(
     }
     return;
   }
-  if (OFF_WORDS.test(text)) {
+  if (beginsWith(text, offLine(brain.name))) {
     heardIt();
     // They are off. An order for them to go off that it had yet to give again is not given.
     if (chief.order?.what === 'shut') {
@@ -609,7 +679,7 @@ function hearEngineer(
     }
     return;
   }
-  const notOff = text.match(NOT_OFF_WORDS);
+  const notOff = matchAfterName(text, brain.name, NOT_OFF_WORDS);
   if (notOff) {
     heardIt();
     if (chief.order?.what === 'shut') {
@@ -627,14 +697,19 @@ function hearEngineer(
     chief.notOff = what;
     return;
   }
-  if (NOT_ON_WORDS.test(text)) {
+  if (matchAfterName(text, brain.name, NOT_ON_WORDS)) {
     heardIt();
     return;
   }
-  if (ON_AGAIN_WORDS.test(text)) {
+  if (beginsWith(text, onAgainLine(brain.name))) {
     heardIt();
     // Give the crystal time to take the beams before reading it as stopped again.
     chief.litAt = brain.now;
+    if (chief.shut) {
+      chief.shut = false;
+      chief.emittersOff = false;
+      chief.energyAt = null;
+    }
   }
 }
 
@@ -648,6 +723,7 @@ function lightAgain(brain: NpcBrain): void {
   chief.emittersOff = false;
   chief.notOff = null;
   chief.shutGivenAt = null;
+  chief.energyAt = null;
   chief.stuck = null;
   chief.litAt = null;
   chief.lightTaken = false;
@@ -697,7 +773,7 @@ export const CHIEF_ENGINEER: Job = {
       }
       return;
     }
-    if (LIGHT_AGAIN_WORDS.test(text)) {
+    if (isLightAgainOrder(text, brain.name)) {
       lightAgain(brain);
     }
   },
@@ -727,7 +803,7 @@ export const CHIEF_ENGINEER: Job = {
       }
       return;
     }
-    if (LIGHT_AGAIN_WORDS.test(heard)) {
+    if (isLightAgainOrder(heard, brain.name)) {
       lightAgain(brain);
     }
   },

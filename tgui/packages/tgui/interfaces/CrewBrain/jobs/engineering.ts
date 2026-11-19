@@ -57,6 +57,33 @@ export function saidTo(brain: NpcBrain, line: string): boolean {
   return new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(line.trim());
 }
 
+/**
+ * TRUE if a line begins with the whole of a set line, whatever remark may follow it: "Ada, the
+ * engine is lit. All done in there." begins with litLine('Ada'). Not "Ada, I'll let you know once
+ * the engine is lit."
+ */
+export function beginsWith(text: string, line: string): boolean {
+  return text.trim().toLowerCase().startsWith(line.toLowerCase());
+}
+
+/**
+ * The set words with a reason in them, matched only straight after the listener's first name at
+ * the start of the line: "Ada, I cannot light the engine: the nitrogen canister will not connect."
+ */
+export function matchAfterName(
+  text: string,
+  name: string,
+  words: RegExp,
+): RegExpMatchArray | null {
+  const said = text.trim();
+  const prefix = `${firstName(name)}, `;
+  if (!said.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return null;
+  }
+  const found = said.slice(prefix.length).match(words);
+  return found && found.index === 0 ? found : null;
+}
+
 /** The Chief Engineer giving an engineer the engine, to its face: "Sam, the engine is yours. Light it now, please." */
 export function lightLine(to: string): string {
   return `${firstName(to)}, the engine is yours. Light it now, please.`;
@@ -154,4 +181,26 @@ export function heardLine(to: string): string {
 export const HEARD_WORDS = /\bI have that\b/i;
 
 /** How the Captain, or anyone the Chief Engineer answers to, tells it to have the engine lit again after it was shut off. */
-export const LIGHT_AGAIN_WORDS = /\blight the engine\b/i;
+const LIGHT_AGAIN_ORDER =
+  /(?:^|[.!,;]\s*|\bplease\s+)(?:re-?light|light|restart|start(?: up)?|turn on)\s+(?:the\s+)?(?:engine|emitters|supermatter|sm)\b|(?:^|[.!,;]\s*|\bplease\s+)(?:turn the engine back on|get the emitters back on|light it again)\b/i;
+const LIGHT_AGAIN_REFUSED =
+  /\b(?:do not|don't|dont|never|not to)\s+(?:re-?light|light|restart|start|turn on)\b/i;
+
+/**
+ * Whether a line is an order to light the engine again: "Light the engine.", "Relight the engine
+ * please.", "Ada, light the engine again." A line with "do not" just before the verb, or one that
+ * asks ("Why did you not light the engine?"), is not. A leading address to the Chief Engineer,
+ * by its first name or its title, is taken off first.
+ */
+export function isLightAgainOrder(text: string, myName: string): boolean {
+  const said = text.trim();
+  if (!said || said.endsWith('?') || LIGHT_AGAIN_REFUSED.test(said)) {
+    return false;
+  }
+  const first = firstName(myName).replace(/[^A-Za-z'-]/g, '');
+  const address = new RegExp(
+    `^(?:${first ? `${first}|` : ''}chief engineer|chief|ce)\\b[,:]?\\s*`,
+    'i',
+  );
+  return LIGHT_AGAIN_ORDER.test(said.replace(address, ''));
+}

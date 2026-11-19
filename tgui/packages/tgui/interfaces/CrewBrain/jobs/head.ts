@@ -103,6 +103,8 @@ const WORD_BACK_DS = 900;
 const GATHER_MAX_DS = 1800;
 /** How long (deciseconds) it waits for someone it has called on to give their report before it goes on to the next. */
 const TURN_WAIT_DS = 450;
+/** How long (deciseconds) after the last turn it waits for someone called who has not had one, before it ends the meeting. */
+const STRAGGLER_DS = 300;
 /** How long (deciseconds) a meeting may run in all before it is given up on. */
 const MEETING_MAX_DS = 4200;
 /** How near (tiles) it stands to someone before it calls them to a meeting aloud, or calls on them: near enough to be sure of being heard. */
@@ -120,8 +122,6 @@ const ORDER_OVERDUE_DS = 6000;
 const ANSWER_WAIT_DS = 300;
 /** How long (deciseconds) it waits for the Quartermaster's word that an order is noted before it takes the order to the counter instead. */
 const NOTED_WAIT_DS = 1800;
-/** How many people one crate of supplies is good for. */
-const PER_CRATE = 3;
 /** The most crates of one kind it asks for at once. Cargo will not order more than this in one go. */
 const CRATES_MAX = 4;
 /** How long (deciseconds) whoever was sent for a crate is given to collect it before someone else is sent instead. */
@@ -160,6 +160,9 @@ const SUPPLIES = [
     crate: 'Janitorial Supplies Crate',
     ordered: 'janitorial supplies',
     room: 'Custodial Closet',
+    // How many people one crate is good for: it holds one mop and one spray cleaner. Its rag is a
+    // poor tool, and a janitor left with only that is short again.
+    perCrate: 2,
   },
 ];
 
@@ -249,7 +252,7 @@ function orderFor(brain: NpcBrain): Requisition | null {
       lines.push({
         crate: supply.crate,
         what: supply.ordered,
-        count: Math.min(CRATES_MAX, Math.ceil(people.length / PER_CRATE)),
+        count: Math.min(CRATES_MAX, Math.ceil(people.length / supply.perCrate)),
         room: supply.room,
         people,
       });
@@ -383,6 +386,19 @@ function awaited(brain: NpcBrain, meeting: Meeting, name: string): boolean {
   return answer === 'coming' || brain.now - meeting.calledAt < WORD_BACK_DS;
 }
 
+/**
+ * The name it calls one of its staff on by: the first name, or the full name where another of its
+ * staff shares that first name.
+ */
+function callName(brain: NpcBrain, name: string): string {
+  const first = firstName(name);
+  return staff(brain).some(
+    (person) => person.name !== name && firstName(person.name) === first,
+  )
+    ? name
+    : first;
+}
+
 /** Who it calls on next: the first of those there it has not called on yet. Someone who comes in late gets their turn. */
 function nextTurn(brain: NpcBrain, meeting: Meeting): string | undefined {
   return present(brain, meeting).find(
@@ -454,7 +470,10 @@ function reportToCaptain(brain: NpcBrain, meeting: Meeting): string {
   const work = totalWords(workReported(brain, meeting));
   const order = orderFor(brain);
   const short = needing(brain);
-  const came = `Staff meeting in the ${meeting.room}: ${there} of ${meeting.invited.length} there${byPda > 0 ? `, ${byPda} reported by PDA` : ''}.`;
+  const came =
+    meeting.startedAt === null && !inPlace(brain, meeting)
+      ? `I could not get to the ${meeting.room} for the staff meeting; reports are coming by PDA.`
+      : `Staff meeting in the ${meeting.room}: ${there} of ${meeting.invited.length} there${byPda > 0 ? `, ${byPda} reported by PDA` : ''}.`;
   const done = work ? `${work}.` : 'No work to count yet.';
   const needs = order
     ? `${short} short of supplies: I am ordering ${orderWords(order)}.`
@@ -477,10 +496,14 @@ function endMeeting(brain: NpcBrain, way: MeetingWay): void {
   if (!meeting) {
     return;
   }
-  // Called and not heard from: they send their report by PDA, and are told so the same way. Not
-  // where the staff are called aloud: nothing between that head and its staff goes by PDA.
-  for (const name of way.aloud ? [] : meeting.invited) {
-    if (!meeting.reports[name]) {
+  // Called and not heard from: they send their report by PDA, and are told so the same way. Where
+  // the staff are called aloud, only those never called on: they did not hear the meeting end, and
+  // would stand waiting for it until their summons ran out.
+  for (const name of meeting.invited) {
+    if (
+      !meeting.reports[name] &&
+      !(way.aloud && meeting.turns.some((turn) => turn.who === name))
+    ) {
       brain.toTell.push({
         to: name,
         line: `${firstName(name)}, the staff meeting is over. Send me your report by PDA, please.`,
@@ -534,6 +557,8 @@ export function syncMeeting(
   if (
     !brain.meeting &&
     !held &&
+    // Not while it is shut in somewhere: its staff would wait for a head who cannot come.
+    !brain.shutIn &&
     people.length > 0 &&
     brain.now >= brain.nextMeetingAt
   ) {
@@ -581,6 +606,10 @@ export function syncMeeting(
       } else if (here.length === 0 && (noneCan || (inRoom && waited))) {
         // Nobody is coming: they have all sent word that they cannot, or none of them has turned
         // up. What they have to report reaches it by PDA instead.
+        meeting.closedAt = brain.now;
+      } else if (waited && !inRoom) {
+        // It has had as long as it waits for them to get there itself, and has not: its staff are
+        // told it is over, and send their reports by PDA.
         meeting.closedAt = brain.now;
       }
     }
@@ -837,7 +866,7 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
   // One at a time, by name. Nobody else speaks until they are called on.
   const next = nextTurn(brain, meeting);
   if (next) {
-    const first = firstName(next);
+    const first = callName(brain, next);
     const opening = meeting.turns.length === 0;
     // Whoever is called on has to hear it. Someone standing well off is walked up to first, once.
     const seen = brain.peopleInView.find((person) => person.name === next);
@@ -857,7 +886,24 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
       step: `${opening ? 'Your staff are here and the meeting begins' : 'The meeting goes on'}. It is ${next}'s turn: in "say", ${opening ? 'thank them all for coming and ' : ''}call on ${next}, by name, for their report. Ask for nothing else.`,
       say: `${opening ? 'Thank you for coming, everyone. ' : ''}${first}, ${CALLING_ON}.`,
       // Whoever is called on has to hear their own name, and that it is their report that is wanted.
-      needs: new RegExp(`\\b${first}\\b.*\\breport\\b`, 'i'),
+      // In those set words, so that nobody else named in its thanks takes it for their call.
+      needs: new RegExp(`\\b${first}, ${CALLING_ON}\\b`, 'i'),
+    };
+  }
+  // Someone called who has said they are coming, or has hardly had time to, and has not had a turn
+  // may only have stepped out of sight: it waits a short while for them before it ends.
+  const stragglers = meeting.invited.filter(
+    (name) =>
+      !meeting.turns.some((turn) => turn.who === name) &&
+      awaited(brain, meeting, name),
+  );
+  const lastHeard = meeting.turns.at(-1)?.askedAt ?? meeting.startedAt;
+  if (stragglers.length > 0 && brain.now - lastHeard < STRAGGLER_DS) {
+    return {
+      ready: false,
+      wait: true,
+      inside: brain.location === room,
+      step: `You are waiting for ${listed(stragglers)}, who ${stragglers.length === 1 ? 'is' : 'are'} on the way or somewhere in the ${room}, before you end the meeting.`,
     };
   }
   // Who security is looking for is read out at every head's meeting: see jobs/wanted.ts.
@@ -1052,6 +1098,21 @@ export function hearReport(
     return null;
   }
   meeting.reports[speaker] = report;
+  // Someone at the meeting who has given their report aloud has had their turn, called on or not:
+  // two who share a first name both answer the one call.
+  if (
+    meeting.startedAt !== null &&
+    present(brain, meeting).includes(speaker) &&
+    !meeting.turns.some((turn) => turn.who === speaker)
+  ) {
+    // Before the turn still being listened to, which listening reads as the last.
+    const last = meeting.turns.at(-1);
+    meeting.turns.splice(
+      last && !last.heard ? meeting.turns.length - 1 : meeting.turns.length,
+      0,
+      { who: speaker, askedAt: brain.now, heard: true },
+    );
+  }
   for (const turn of meeting.turns) {
     if (turn.who === speaker) {
       turn.heard = true;
@@ -1090,7 +1151,7 @@ export function meetingSaid(brain: NpcBrain, called: string): void {
   // Having called on someone, it listens for their report.
   if (called.includes(CALLING_ON)) {
     const who = present(brain, meeting).find((name) =>
-      called.includes(`${firstName(name)}, ${CALLING_ON}`),
+      called.includes(`${callName(brain, name)}, ${CALLING_ON}`),
     );
     if (who && !meeting.turns.some((turn) => turn.who === who)) {
       meeting.turns.push({ who, askedAt: brain.now, heard: false });

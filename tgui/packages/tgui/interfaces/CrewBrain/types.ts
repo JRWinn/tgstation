@@ -697,6 +697,10 @@ export type ChiefWork = {
     /** TRUE once it has gone by PDA as well. */
     sent: boolean;
     walkedUp?: boolean;
+    /** Server time it began looking for its engineer where its staff work, the PDA having failed (ENG-09). */
+    lookedAt?: number;
+    /** How many times it has looked its time and tried the PDA again (ENG-09). */
+    looks?: number;
   } | null;
   /** TRUE once it has ordered the emitters off. Nothing is lit again unless the Captain says so. */
   shut: boolean;
@@ -708,6 +712,8 @@ export type ChiefWork = {
   notOff?: string | null;
   /** Server time it last ordered the emitters on again, or 0. */
   relitAt: number;
+  /** The lowest energy read in the crystal since the emitters were said to be off (ENG-08), or null. */
+  energyAt?: number | null;
 };
 
 /** A PDA message cargo owes someone about their crates. */

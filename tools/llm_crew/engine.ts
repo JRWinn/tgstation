@@ -10,7 +10,7 @@ const { lightingSteps, nextLightingStep, emitterSteps, batterySteps } = await im
 const { ENGINEER } = await import(ROOT + 'jobs/engineer');
 const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
 const { jobFor } = await import(ROOT + 'jobs/index');
-const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isEngineer, LIGHT_WORDS, notOffLine, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
+const { ENGINE_TAKEN, ENGINE_TAKEN_WORDS, HEARD_WORDS, heardLine, isChiefEngineer, isLightAgainOrder, isEngineer, LIGHT_WORDS, notOffLine, LIT_WORDS, lightLine, litLine, OFF_WORDS, offLine, ON_AGAIN_WORDS, onAgainLine, RELIGHT_WORDS, relightLine, SHUT_WORDS, shutLine, STUCK_WORDS, stuckLine } = await import(ROOT + 'jobs/engineering');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -231,6 +231,17 @@ ENGINEER.readsMessage(sam, 'Ada Volt', relightLine('Sam Rees'), 0, 'Chief Engine
 acts = work(sam, 'emitters_on');
 add('told by PDA the emitters have stopped, it switches each on again', acts.map((act: any) => act.how), ['switch_on', 'switch_on', 'switch_on']);
 add('and says so', sam.engine.words.map((it: any) => it.line), ['Ada, the emitters are on again.']);
+// ENG-06: told to switch them on again while still lighting it, it carries on lighting.
+sam = engineer();
+said(sam, 'Ada Volt', lightLine('Sam Rees'));
+work(sam, 'light_engine', () => true, 8);
+said(sam, 'Ada Volt', relightLine('Sam Rees'));
+ENGINEER.syncTasks(sam);
+add('a relight order while the engine is still being lit is not taken', [sam.engine.lit, !!open(sam, 'emitters_on')], [false, false]);
+{
+  const forced = { kind: 'emitters_on', urgency: 'asked', state: 'open', source: 'asked', id: 999 };
+  add('nor, with one forced in, does it switch an emitter on', ENGINEER.plan(sam, forced as any)?.act ?? null, null);
+}
 // Someone else's order is not its order.
 sam = engineer();
 ENGINEER.overhears(sam, { details: { message: lightLine('Sam Rees'), speaker: 'Jan Itor' } } as any);
@@ -328,6 +339,57 @@ add('an engine it shut off is not lit again by itself', ada.chief.order, null);
 CHIEF_ENGINEER.readsMessage(ada, 'Cap Tain', 'Chief, light the engine again when you are ready.', 0, 'Captain');
 add('the Captain says light the engine: it gives its engineer the engine again', [ada.chief.shut, ada.chief.order?.what], [false, 'light']);
 
+// ENG-06: the engineer's set words are taken only as its set lines, not from its chat.
+for (const [line, want] of [
+  ["I'll tell you when the engine is lit.", null],
+  ["Ada, I'll let you know once the engine is lit.", null],
+  ['Ada, the engine is lit. All done in there.', 'lit'],
+] as [string, string | null][]) {
+  const it = chief();
+  heardBy(it, 'Sam Rees', line);
+  add(`overheard "${line}": ${want ? 'the engine is lit' : 'not taken'}`, it.chief.litAt !== null, want === 'lit');
+}
+{
+  const it = chief();
+  heardBy(it, 'Sam Rees', "The engine, right away. I'll tell you when the engine is lit.");
+  add('"The engine, right away." with a remark after it: taken, and not as lit', [it.chief.lightTaken, it.chief.litAt], [true, null]);
+  it.engineReading = { integrity: 90, energy: 500 };
+  CHIEF_ENGINEER.syncTasks(it);
+  it.toTell = [];
+  heardBy(it, 'Sam Rees', 'The emitters are off until the cooling is running.');
+  add('in a shut-off, "The emitters are off until ..." is not taken, and the Captain is told nothing', [it.chief.emittersOff, it.toTell.filter((tell: any) => tell.to === 'Cap Tain').length], [false, 0]);
+  CHIEF_ENGINEER.readsMessage(it, 'Sam Rees', offLine('Ada Volt'), 0, 'Station Engineer');
+  add('the set line by PDA is still taken', it.chief.emittersOff, true);
+}
+
+// ENG-08: shut off, then lit again by someone else.
+const shutOff = () => {
+  const it = chief();
+  it.engineReading = { integrity: 90, energy: 500 };
+  CHIEF_ENGINEER.syncTasks(it);
+  CHIEF_ENGINEER.afterSaying(it, shutLine('Sam Rees'));
+  heardBy(it, 'Sam Rees', offLine('Ada Volt'));
+  it.toTell = [];
+  return it;
+};
+ada = shutOff();
+for (const energy of [500, 400, 300]) {
+  ada.engineReading = { integrity: 90, energy };
+  ada.now += 100;
+  CHIEF_ENGINEER.syncTasks(ada);
+}
+add('shut off, the energy dying away is not taken for the engine lit again', [ada.chief.shut, ada.chief.order, ada.toTell.length], [true, null, 0]);
+ada = shutOff();
+for (const energy of [300, 400, 500]) {
+  ada.engineReading = { integrity: 90, energy };
+  ada.now += 100;
+  CHIEF_ENGINEER.syncTasks(ada);
+}
+add('shut off, energy rising: it is lit again, the Captain is told once and the emitters are ordered off again', [ada.chief.shut, ada.chief.order?.what, ada.toTell.filter((tell: any) => tell.line === 'The engine has been lit again.').length, ada.toTell.filter((tell: any) => /losing integrity/.test(tell.line)).length], [true, 'shut', 1, 1]);
+ada = shutOff();
+heardBy(ada, 'Sam Rees', litLine('Ada Volt'));
+add('shut off, then told the engine is lit: it is watched again', [ada.chief.shut, ada.chief.litAt !== null], [false, true]);
+
 // Its engineer is somewhere else.
 ada = chief(false);
 ada.engineReading = { integrity: 80, energy: 900 };
@@ -341,6 +403,24 @@ add('the PDA will not send: it goes to find them', [step.act?.tool, ada.chief.or
 ada.location = "Chief Engineer's Office";
 step = CHIEF_ENGINEER.plan(ada, give);
 add('from its office, that is a walk to where its staff work', [step.act?.tool, step.act?.place], ['go_to', 'Engineering']);
+// ENG-09: at Engineering, its engineer nowhere to be seen.
+ada.location = 'Engineering';
+ada.toTell = [];
+step = CHIEF_ENGINEER.plan(ada, give);
+add('at its staff post with its engineer not there, it waits and looks', [step.ready, step.wait], [false, true]);
+ada.now += 301;
+step = CHIEF_ENGINEER.plan(ada, give);
+add('thirty seconds on, it tries the PDA again', [step.act?.tool, step.act?.person], ['message', 'Sam Rees']);
+CHIEF_ENGINEER.afterActing(ada, step.act, give, false);
+step = CHIEF_ENGINEER.plan(ada, give);
+add('that fails too: it looks on, but holds nothing else up', [step.ready, !!step.wait], [false, false]);
+ada.now += 301;
+step = CHIEF_ENGINEER.plan(ada, give);
+add('the second time round the Captain is told it cannot reach its engineer', [step.act?.tool, ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line)], ['message', ['I cannot reach Sam to switch the emitters off. The engine is still firing.']]);
+CHIEF_ENGINEER.afterActing(ada, step.act, give, false);
+ada.now += 301;
+CHIEF_ENGINEER.plan(ada, give);
+add('and only once', ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').length, 1);
 
 // The emitters have stopped.
 ada = chief(false);
@@ -368,6 +448,39 @@ ada.engineReading = null;
 CHIEF_ENGINEER.syncTasks(ada);
 add('with no reading on its PDA it orders nothing', ada.chief.order, null);
 add('and is told that it has none', CHIEF_ENGINEER.cues(ada).some((line: string) => /no reading of the engine/.test(line)), true);
+
+// ENG-11: the crystal comes apart with no engineer aboard.
+ada = chief(false);
+ada.pdaPeople = [{ name: 'Atmos Tec', job: 'Atmospheric Technician' }, { name: 'Cap Tain', job: 'Captain' }];
+ada.engineReading = { integrity: 90, energy: 900 };
+CHIEF_ENGINEER.syncTasks(ada);
+add('no engineer aboard: the Captain is told there is nobody to switch the emitters off', ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line), ['The engine is losing integrity: 90 percent. I have no engineer to switch the emitters off.']);
+add('and it does not say the engine has been shut off', CHIEF_ENGINEER.cues(ada).some((line: string) => /has been shut off/.test(line)), false);
+add('and no shut order is kept open to hold its staff meetings back', ada.chief.order, null);
+ada.pdaPeople.push({ name: 'Sam Rees', job: 'Station Engineer' });
+CHIEF_ENGINEER.syncTasks(ada);
+give = openOf(ada, 'engine_order', 'shut');
+step = give && CHIEF_ENGINEER.plan(ada, give);
+add('an engineer turns up: the order goes to them by PDA', [step?.act?.tool, step?.act?.text], ['message', 'Sam, the engine is losing integrity. Emitters off, now.']);
+add('and what it says is that the order is given and not yet heard of', CHIEF_ENGINEER.cues(ada).some((line: string) => /have ordered the emitters off, and have not heard/.test(line)), true);
+
+// ENG-05: which lines are an order to light the engine again.
+for (const [line, want] of [
+  ['Light the engine.', true],
+  ['Relight the engine please.', true],
+  ['light the engine again', true],
+  ['Ada light the engine', true],
+  ['Chief, light the engine again when you are ready.', true],
+  ["Don't wait, light the engine now.", true],
+  ['Restart the engine.', true],
+  ['Light it again.', true],
+  ['Do not light the engine again until I say so.', false],
+  ['Why did you not light the engine?', false],
+  ['Did Sam light the engine', false],
+  ['Can engineering light the engine safely now?', false],
+] as [string, boolean][]) {
+  add(`"${line}" is ${want ? '' : 'not '}an order to light the engine again`, isLightAgainOrder(line, 'Ada Volt'), want);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

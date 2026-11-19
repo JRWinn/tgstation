@@ -363,6 +363,13 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     );
   }
   if (task.kind === RELIGHT) {
+    // The emitters are the last thing touched: never while the engine is still being lit.
+    if (lighting(engine)) {
+      return {
+        ready: false,
+        step: 'You are still lighting the engine. The emitters come last, in their turn.',
+      };
+    }
     const next = emitterSteps(brain.machines, 'switch_on').find(
       (action) => !engine.switched.includes(action.key),
     );
@@ -466,10 +473,15 @@ function takeWord(
     engine.switched = [];
     engine.switchTries = {};
     engine.wouldNot = null;
+    // Word owed from before that the engine is lit, or on again, is out of date now.
+    engine.words = engine.words.filter(
+      (word) => word.what !== 'lit' && word.what !== 'on',
+    );
     return;
   }
   if (RELIGHT_WORDS.test(text)) {
-    if (!engine.shutting && !engine.shut) {
+    // Only once the engine is lit: while it is still being lit the emitters come last, in their turn.
+    if (!engine.shutting && !engine.shut && engine.lit) {
       engine.relighting = true;
       engine.switched = [];
       engine.switchTries = {};
