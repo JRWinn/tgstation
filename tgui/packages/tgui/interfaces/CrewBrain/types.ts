@@ -531,6 +531,8 @@ export type BeatWarrant = {
     doorTries?: number;
     gaveUp?: boolean;
   };
+  /** Whom the server would not let it arrest (a Captain's ID), by handle, and when: passed over a while. */
+  refused?: { handle: string; at: number }[];
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */

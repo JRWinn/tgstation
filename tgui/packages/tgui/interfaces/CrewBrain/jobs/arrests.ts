@@ -83,6 +83,10 @@ const REST_DS = 300;
 const WILL_NOT_STAND = 'they will not stand still for the baton or the cuffs';
 /** Why there is no arrest yet, of someone in sight it cannot walk to and has nobody to ask to let it through. */
 const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
+/** Why there is no arrest of someone the server would not let it touch: they wear or hold a Captain's ID. */
+const CAPTAIN_CARD = "they carry a Captain's ID, and nobody lays a hand on the Captain";
+/** How long (deciseconds) someone the server would not let it arrest is passed over. They may take the card off. */
+const REFUSED_DS = 3000;
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -316,6 +320,10 @@ function target(
   const known =
     brain.pdaPeople.some((person) => person.name === warrant.name) ||
     brain.people.has(warrant.name);
+  // Someone the server would not let it arrest is passed over a while, so that it looks past them.
+  const refused = (warrant.refused ?? [])
+    .filter((it) => brain.now - it.at < REFUSED_DS)
+    .map((it) => it.handle);
   return brain.peopleInView.find(
     (person) =>
       (known
@@ -323,7 +331,8 @@ function target(
           person.name.startsWith(`${warrant.name} (as `)
         : sameName(warrant.name, person.name)) &&
       person.name !== brain.name &&
-      !shut.includes(person.name),
+      !shut.includes(person.name) &&
+      !refused.includes(person.handle),
   );
 }
 
@@ -1237,6 +1246,32 @@ export function beatAfterActing(
       return;
     }
     const reason = String(details.reason ?? '');
+    // The server would not let it lay a hand on them: they carry a Captain's ID. That is no try
+    // and no refusal to stand still. They are passed over a while, and the list is told why, once.
+    if (reason === 'captain') {
+      warrant.refused = [
+        ...(warrant.refused ?? []).filter(
+          (it) => brain.now - it.at < REFUSED_DS,
+        ),
+        { handle: String(details.handle ?? act.person ?? ''), at: brain.now },
+      ];
+      warrant.toldAt = null;
+      beat.cannotTold ??= {};
+      const key = `${warrant.name}|${CAPTAIN_CARD}`;
+      if (beat.cannotTold[key] === undefined) {
+        beat.cannotTold[key] = brain.now;
+        beat.outcomes.push({
+          what: 'cannot',
+          name: warrant.name,
+          why: CAPTAIN_CARD,
+        });
+      }
+      return;
+    }
+    // Refused for itself or for a kind of arrest it does not know: no try at them.
+    if (reason === 'self' || reason === 'how') {
+      return;
+    }
     // It could not get to them, and can still see them: a door or a counter is between them.
     // That is not losing them. It asks to be let in.
     // In its own room, behind a counter or a shut fire door, or with nobody to ask: there is no

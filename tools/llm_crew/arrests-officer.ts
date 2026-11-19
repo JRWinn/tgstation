@@ -148,6 +148,24 @@ const searching = () => {
   add('ARR-11: every hallway shut: the round ends, and it does not stand at one', [A.planBeat(f.o, f.task)?.act, A.beatOf(f.o).round.next], [undefined, 0]);
 }
 
+// ---- ARR-12: the server refusing an arrest for a Captain's ID is no try and no resisting
+{
+  const f = wanted('Bar');
+  f.o.peopleInView.push({ handle: 'p7', name: 'Pun Pun', job: '', place: 'Bar', distance: 2 });
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'captain', handle: 'p9' });
+  add('ARR-12: refused for a Captain\'s ID: no try counted, the true reason told once', [f.warrant.tries, A.takeOutcomes(f.o)], [0, [{ what: 'cannot', name: 'Pun Pun', why: 'they carry a Captain\'s ID, and nobody lays a hand on the Captain' }]]);
+  add('ARR-12: and it looks past them to anyone else whose name fits, and tells them first', A.planBeat(f.o, f.task)?.say ?? null, 'Pun Pun, you are under arrest, for theft. Stand still.');
+  f.warrant.toldAt = f.o.now;
+  add('ARR-12: then arrests that one', A.planBeat(f.o, f.task)?.act?.person ?? null, 'p7');
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'captain', handle: 'p9' });
+  add('ARR-12: refused again: not told again', A.takeOutcomes(f.o), []);
+  f.o.peopleInView = f.o.peopleInView.filter((it: any) => it.handle === 'p9');
+  add('ARR-12: with only them in view, nobody is arrested', A.planBeat(f.o, f.task)?.act?.tool === 'arrest', false);
+  f.o.now += 3100;
+  f.warrant.toldAt = f.o.now;
+  add('ARR-12: five minutes on, they may have taken the card off: they are tried again', A.planBeat(f.o, f.task)?.act?.person ?? null, 'p9');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
