@@ -18,38 +18,61 @@
 	return post_door_refs
 
 /**
- * TRUE if this person has a right to be in the body's post: a door into it opens for them. That
- * covers everyone who works there, and those whose rank lets them in anywhere.
+ * TRUE if this person has a right to be in the body's post: the job their card shows is let in by
+ * a door into it. That covers everyone who works there, and those whose rank lets them in anywhere.
+ * It goes by the job on the card, as a player reading it would, not by the card's own access list,
+ * which nobody can see: someone given extra access at the desk is asked their business all the same.
  */
 /datum/ai_controller/crew_npc/proc/belongs_in_post(mob/living/carbon/human/person)
 	// Someone shut in a brig cell on a running timer was put there. Security do not question their own prisoners.
 	if(!isnull(crew_npc_cell_holding(person)))
 		return TRUE
+	var/list/job_access = crew_npc_job_access(crew_npc_job_of(person))
 	var/any_door = FALSE
 	for(var/datum/weakref/door_ref as anything in post_doors())
 		var/obj/machinery/door/airlock/door = door_ref.resolve()
 		if(QDELETED(door))
 			continue
 		any_door = TRUE
-		if(door.allowed(person))
+		if(door.check_access_list(job_access))
 			return TRUE
 	// A room with no door to it is not locked to anyone.
 	return !any_door
 
-/// TRUE if this person is the Captain or a head of staff, going by the ID they carry.
-/proc/crew_npc_is_command(mob/living/carbon/human/person)
-	var/obj/item/card/id/card = person.get_idcard(FALSE)
-	return !isnull(card) && (ACCESS_COMMAND in card.GetAccess())
+/// Returns the access a job's card is printed with, or an empty list for no job.
+/proc/crew_npc_job_access(datum/job/job)
+	if(isnull(job))
+		return list()
+	var/datum/outfit/job/outfit = job.outfit
+	if(!ispath(outfit))
+		return list()
+	var/datum/id_trim/trim = SSid_access.trim_singletons_by_path[initial(outfit.id_trim)]
+	if(isnull(trim))
+		return list()
+	return trim.access | trim.wildcard_access
 
-/// Returns the job that goes with the ID this person carries, or null if it shows none.
+/// TRUE if this person is the Captain or a head of staff, going by the job on the ID they wear.
+/proc/crew_npc_is_command(mob/living/carbon/human/person)
+	var/datum/job/job = crew_npc_job_of(person)
+	return !isnull(job) && (istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF))
+
+/**
+ * Returns the job that goes with the ID this person wears, or null if it shows none. It goes by the
+ * title on the card, which is what examining them shows, not by the trim it was printed with. Only
+ * a title that is no job at all falls back to the trim, as before, until the owner says what such a
+ * card should count as.
+ */
 /proc/crew_npc_job_of(mob/living/carbon/human/person)
 	var/obj/item/card/id/card = person.get_idcard(FALSE)
 	if(isnull(card))
 		return null
+	var/datum/job/shown = SSjob.get_job(card.assignment)
+	if(!isnull(shown))
+		return shown
 	var/datum/id_trim/job/trim = card.trim
 	if(istype(trim) && istype(trim.job))
 		return trim.job
-	return SSjob.get_job(card.assignment)
+	return null
 
 /**
  * TRUE if the body answers to this person: the Captain is over everyone aboard, and a head of
