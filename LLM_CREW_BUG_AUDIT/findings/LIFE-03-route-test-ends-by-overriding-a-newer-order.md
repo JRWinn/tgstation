@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_tools.dm:265, code/modules/llm_crew/crew_npc_forcing.dm:190, code/modules/llm_crew/crew_npc_doors.dm:354, code/modules/llm_crew/crew_npc_hands.dm:449, code/modules/llm_crew/crew_npc_tools.dm:409
 fix: Note errand_serial before the route tests and drop the result if it has moved on, and report the body as busy while it tests routes
@@ -32,7 +33,7 @@ One concrete case:
 2. The Captain, standing by, says "come here, now". That is an order from someone it answers to, an emergency task. `orderToDrop` returns it and the driver sends `walk_to(captain)`. `tool_walk_to` → `start_walk`. The body turns to the Captain.
 3. The route tests finish. `tool_force_door` reaches `start_errand(best, CREW_TOOL_FORCE_DOOR, ...)`, which clears `BB_CREW_NPC_WALK_TARGET`.
 4. The walk leaf is reset and calls `walk_finished(captain, FALSE, null)`. The blackboard's walk key is now null, not the Captain, so it returns without a word.
-5. The Chief Engineer walks off to the Bar. The Captain's "come here" gets no answer for 12 seconds, then is backed off.
+5. The Chief Engineer walks off to the Bar. The window still has `walk_to(captain)` as `lastAct`, and it is worse than a 12 second wait: while the forcing errand runs, `walking` and `doing` are set, so `LOST_ACT_MS` does not fire, and `orderToDrop` returns null because `lastAct.task` is the Captain's own task ("already about that job"). The forcing errand's `action_result` is for `force_door`, which `noteResult` ignores as not the last step. So the Captain is ignored for the whole forcing job, and only when the body is idle again is the walk counted as failed and backed off.
 
 The same with explore: a janitor told by its head to come to a staff meeting while it is choosing where to explore walks off exploring, and the meeting walk is lost the same way.
 

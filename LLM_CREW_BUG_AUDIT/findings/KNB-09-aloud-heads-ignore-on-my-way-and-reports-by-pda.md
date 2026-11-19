@@ -3,10 +3,11 @@ id: KNB-09
 title: The Quartermaster and the Chief Engineer call absent staff to a meeting by PDA but read neither the On my way back nor a report sent by PDA, and never tell them it is over
 kind: bug
 severity: medium
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: head
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/quartermaster.ts:1445, tgui/packages/tgui/interfaces/CrewBrain/jobs/chiefengineer.ts:650, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:1313, tgui/packages/tgui/interfaces/CrewBrain/jobs/head.ts:482
 fix: Move the reading of On my way and of a report by PDA out of the Head of Personnel's readsMessage into one helper every head calls, and send the meeting-is-over word to anyone who was called by PDA
@@ -60,7 +61,9 @@ Concrete case: the Quartermaster calls its 10-minute meeting from the middle of 
 
       return answer === 'coming' || brain.now - meeting.calledAt < WORD_BACK_DS;
 
-(The Head of Security has its own copy of the report reading, `jobs/headofsecurity.ts:226`, and also no `COMING_WORDS`.)
+(The Head of Security holds its meeting aloud too, `SECURITY_WAY` with `aloud: true` at `jobs/headofsecurity.ts:114`, so points 1 and 2 hit its officers the same way. It does have its own copy of the report reading, `jobs/headofsecurity.ts:226`, so point 3 does not, but it has no `COMING_WORDS`.)
+
+See also LOGA-02 (the Quartermaster closes its meeting on a technician out of view for three seconds, who then stands seven minutes): its fix also sends the "meeting is over" word by PDA under an aloud way, which is step 3 below. Build the two together.
 
 ## How it was found
 

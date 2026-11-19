@@ -5,8 +5,9 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: confirmed
 found_by: Opus 5.5
+checked_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_tools.dm:484, code/modules/llm_crew/crew_npc_motor.dm:139, code/datums/ai/_ai_controller.dm:590, code/datums/ai/_ai_behavior.dm:137, tgui/packages/tgui/interfaces/CrewBrain/jobs/orders.ts:93
 fix: Give a walk that ends because the controller stopped running its own reason, and only mark blocked_places for a walk that found no way or ran out of time
@@ -100,3 +101,15 @@ Read from the code, following the base controller's stun path into the crew walk
 - Simulator: a scenario where the body is mid `go_to` and the fake server sends the action result with the new reason; check `blocked_places` stays empty in the next state and the order task is not finished with "I could not get in".
 - Compile with the DM compiler.
 - Next round: `grep "walk failed (go_to" game.log` and look for "knocked off your feet". After one, the next `go_to` to the same room should be sent within a minute, not five.
+
+## Check
+
+Confirmed, read from the code, not run. Every quote is what the code says today.
+
+- `crew_npc/get_able_to_run` (`crew_npc_controller.dm:313`) returns `AI_UNABLE_TO_RUN` when the body is incapacitated other than by cuffs, stasis or a grab, and `setup_able_to_run` hangs `update_able_to_run` on `COMSIG_MOB_INCAPACITATE_CHANGED`.
+- Base `update_able_to_run` sets `able_to_run = FALSE` and calls `fail_movement` first. That sends `COMSIG_MOB_AI_MOVEMENT_FAILED`, which sets `movement_failed` on the leaf, but `fail_reason` is only set from `movement_failed` inside `perform` (`crew_npc_motor.dm:135`), and `perform` does not run again. Then `get_expected_ai_status` gives `AI_STATUS_OFF` (`!able_to_run`), and `set_ai_status` sets `ai_status` and then calls `cancel_current_plan` → `reset_bt_tick_states`. The running leaf's `reset_tick_state` calls `finish_action(FALSE)` with `fail_reason` null.
+- `walk_finished` (`crew_npc_tools.dm:409`): the blackboard target is still the walk's own, so there is no early return; `why` is "you were interrupted"; for a `go_to` not yet in the room, `blocked_places[goal] = world.time` runs whatever the reason. `blocked_place_names` (`crew_npc_cleaning.dm:302`) keeps it for `CREW_NPC_BLOCKED_PLACE_TIME`, five minutes. `syncOrders` in `jobs/orders.ts` then finishes a look order with "I could not get in".
+- `put_out` (`crew_npc_guarding.dm:205`) says "You could not get [name] out of [post]: they got away from you." with a null reason, and `WOULD_NOT_GO` in `jobs/wanted.ts:58` is `/\bcould not get\b|.../`, so the trespass side holds too (API-01, confirmed, is the wider form of that).
+- Nothing in `LLM_CREW_CHANGELOG.md` or the plans deals with a walk ended by a stun. CORE-11, KNB-14 and HAND-09 are other causes with their own fixes, not the same fault.
+
+On the fix: at the moment `finish_action` runs from this path, `ai_status` is already `AI_STATUS_OFF` (it is set before `cancel_current_plan`), and for the stun path `able_to_run` is FALSE, so step 1's test works for a stun, death, sleep and a player taking the body over. `cancel_current_plan` is also called when an override subtree changes (`_ai_controller.dm`, the slot code), with the controller still on; there the reason stays null, which is right. Death is not "knocked off your feet", but a dead body's reply does not matter. Severity medium stands: it needs a stun mid-walk, which Pun Pun and security make common enough, and the work still gets done after five minutes.
