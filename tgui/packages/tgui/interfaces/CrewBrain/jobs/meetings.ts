@@ -64,7 +64,8 @@ const HAULING = /^hauling\b/i;
 /** The words that mark a PDA message as a call to a meeting: how a head's call begins, and nothing said in passing. */
 const CALL_WORDS = /^staff meeting in the\b/i;
 /** How a head tells someone by PDA that a meeting it was called to is over: see endMeeting in jobs/head.ts. */
-const OVER_BY_PDA_WORDS = /\bthe staff meeting is over\. Send me your report\b/i;
+const OVER_BY_PDA_WORDS =
+  /\bthe staff meeting is over\. Send me your report\b/i;
 /**
  * How a head calls a meeting aloud, to its staff's faces, where nothing between them goes by PDA.
  * Said word for word, and known by how it begins: nothing a head might say in passing begins so.
@@ -98,6 +99,22 @@ const MISSED = 'Sorry I missed the meeting.';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
+}
+
+/**
+ * TRUE if a line calls someone else who shares its first name, by their full name: "Alex Moor,
+ * your report, please." is not a call on Alex Reed. "Alex, your report" is a call on any Alex.
+ */
+function calledByAnotherName(brain: NpcBrain, heard: string): boolean {
+  const [first, ...rest] = brain.name.split(' ');
+  const surname = rest.join(' ');
+  if (!first || !surname) {
+    return false;
+  }
+  const quote = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${quote(first)}\\s+(?!${quote(surname)}\\b)[A-Z]`).test(
+    heard,
+  );
 }
 
 /** The head this NPC answers to who is in view, if one is. */
@@ -591,7 +608,10 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   // Left to the call alone, two technicians stood through a whole meeting and reported nothing.
   if (
     !brain.summons &&
-    new RegExp(`\\b${firstName(brain.name)}\\b.*\\byour report\\b`, 'i').test(heard)
+    new RegExp(`\\b${firstName(brain.name)}\\b.*\\byour report\\b`, 'i').test(
+      heard,
+    ) &&
+    !calledByAnotherName(brain, heard)
   ) {
     const head = brain.peopleInView.find((person) => person.name === speaker);
     const theirJob =
@@ -622,7 +642,8 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   if (
     summons.askedAt === null &&
     CALLED_ON_WORDS.test(heard) &&
-    new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard)
+    new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard) &&
+    !calledByAnotherName(brain, heard)
   ) {
     summons.askedAt = brain.now;
   }

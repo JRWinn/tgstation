@@ -386,6 +386,19 @@ function awaited(brain: NpcBrain, meeting: Meeting, name: string): boolean {
   return answer === 'coming' || brain.now - meeting.calledAt < WORD_BACK_DS;
 }
 
+/**
+ * The name it calls one of its staff on by: the first name, or the full name where another of its
+ * staff shares that first name.
+ */
+function callName(brain: NpcBrain, name: string): string {
+  const first = firstName(name);
+  return staff(brain).some(
+    (person) => person.name !== name && firstName(person.name) === first,
+  )
+    ? name
+    : first;
+}
+
 /** Who it calls on next: the first of those there it has not called on yet. Someone who comes in late gets their turn. */
 function nextTurn(brain: NpcBrain, meeting: Meeting): string | undefined {
   return present(brain, meeting).find(
@@ -844,7 +857,7 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
   // One at a time, by name. Nobody else speaks until they are called on.
   const next = nextTurn(brain, meeting);
   if (next) {
-    const first = firstName(next);
+    const first = callName(brain, next);
     const opening = meeting.turns.length === 0;
     // Whoever is called on has to hear it. Someone standing well off is walked up to first, once.
     const seen = brain.peopleInView.find((person) => person.name === next);
@@ -1075,6 +1088,15 @@ export function hearReport(
     return null;
   }
   meeting.reports[speaker] = report;
+  // Someone at the meeting who has given their report aloud has had their turn, called on or not:
+  // two who share a first name both answer the one call.
+  if (
+    meeting.startedAt !== null &&
+    present(brain, meeting).includes(speaker) &&
+    !meeting.turns.some((turn) => turn.who === speaker)
+  ) {
+    meeting.turns.push({ who: speaker, askedAt: brain.now, heard: true });
+  }
   for (const turn of meeting.turns) {
     if (turn.who === speaker) {
       turn.heard = true;
@@ -1113,7 +1135,7 @@ export function meetingSaid(brain: NpcBrain, called: string): void {
   // Having called on someone, it listens for their report.
   if (called.includes(CALLING_ON)) {
     const who = present(brain, meeting).find((name) =>
-      called.includes(`${firstName(name)}, ${CALLING_ON}`),
+      called.includes(`${callName(brain, name)}, ${CALLING_ON}`),
     );
     if (who && !meeting.turns.some((turn) => turn.who === who)) {
       meeting.turns.push({ who, askedAt: brain.now, heard: false });

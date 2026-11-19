@@ -3,8 +3,9 @@
 //
 //   bun run head-meetings.ts
 const { ROOT, makeBrain, know } = await import('./fixtures');
-const { needStep, readSummons } = await import(ROOT + 'jobs/meetings');
-const { HEAD_OF_PERSONNEL } = await import(ROOT + 'jobs/head');
+const { meetingsOverhear, needStep, readSummons } = await import(ROOT + 'jobs/meetings');
+const { workWords } = await import(ROOT + 'jobs/reports');
+const { HEAD_OF_PERSONNEL, hearReport, meetingSaid } = await import(ROOT + 'jobs/head');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -57,6 +58,37 @@ for (const [short, crates] of [[1, 1], [2, 1], [3, 2], [8, 4]] as [number, numbe
   hop.now = 5000;
   HEAD_OF_PERSONNEL.syncTasks(hop);
   add(`${short} janitor(s) short: ${crates} crate(s) ordered`, hop.requisition?.lines?.[0]?.count, crates);
+}
+
+// HEAD-03: two of its staff share a first name.
+{
+  const ALEX_R = { handle: 'a1', name: 'Alex Reed', job: 'Janitor', distance: 1, place: 'Bar Lounge' };
+  const ALEX_M = { handle: 'a2', name: 'Alex Moor', job: 'Janitor', distance: 1, place: 'Bar Lounge' };
+  const BEA = { handle: 'b1', name: 'Bea Hart', job: 'Janitor', distance: 1, place: 'Bar Lounge' };
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  hop.peopleInView = [ALEX_R, ALEX_M, BEA];
+  hop.pdaPeople = [ALEX_R, ALEX_M, BEA].map((person) => ({ name: person.name, job: person.job }));
+  hop.location = 'Bar Lounge';
+  hop.meeting = { calledAt: 0, room: 'Bar Lounge', calledIn: true, invited: [ALEX_R.name, ALEX_M.name, BEA.name], copied: true, answers: {}, startedAt: 10, turns: [], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  meetingSaid(hop, 'Thank you for coming, everyone. Alex Reed, your report, please.');
+  add('called on by full name, the turn is the right one', hop.meeting.turns.map((turn: any) => turn.who), ['Alex Reed']);
+  const report = `Hop, ${workWords({ cleaned: 2 }, 0)}. I need nothing.`;
+  hearReport(hop, 'Alex Reed', report);
+  hearReport(hop, 'Alex Moor', report);
+  add('the other Alex, who answered the same call, has had a turn too', hop.meeting.turns.map((turn: any) => [turn.who, turn.heard]), [['Alex Reed', true], ['Alex Moor', true]]);
+  // The staff side: a call on the other Alex by full name is not its own.
+  for (const [line, want] of [
+    ['Alex Moor, your report, please.', false],
+    ['Alex Reed, your report, please.', true],
+    ['Alex, your report, please.', true],
+  ] as [string, boolean][]) {
+    const alex: any = makeBrain('Alex Reed', 'Janitor');
+    alex.peopleInView = [{ ...HOP, distance: 1 }];
+    alex.pdaPeople = [{ name: HOP.name, job: HOP.job }];
+    alex.now = 100;
+    meetingsOverhear(alex, { details: { message: line, speaker: HOP.name } } as any);
+    add(`Alex Reed hears "${line}": ${want ? 'it is called on' : 'not its call'}`, !!alex.summons?.askedAt, want);
+  }
 }
 
 let failed = 0;
