@@ -69,7 +69,7 @@ Read from the code on both sides, not run and not seen in a round. It needs a st
 ## How to fix it
 
 1. In `crateLost`, when the order found is `own`, set `order.unpacked = true` (it can never be opened now). Do this whether or not it is reordered.
-2. In `afterActing`, when `act.tool === 'open_own_crate'` fails and the result's details carry `no_such_crate`, set `unpacked = true` on the order too, and leave `paperRetryAt` at 0 so `get_paper` is tried again at once (someone may have collected the crate's paper for it). `afterActing` receives `ok` but not the details today: pass the event's `details` through from `driver.ts` the way other jobs read `no_paper`, or read it from `brain.lastResult` if that is kept.
+2. In `afterActing`, when `act.tool === 'open_own_crate'` fails and the result's details carry `no_such_crate`, set `unpacked = true` on the order too, and leave `paperRetryAt` at 0 so `get_paper` is tried again at once (someone may have collected the crate's paper for it). `noteResult` in `driver.ts` already passes the result's `details` to `afterActing` as a sixth argument; the Quartermaster's `afterActing` only has to take it (`(brain, act, task, ok, looped, details)`) and read `details.no_such_crate`.
 3. Nothing else changes: the reorder made in `crateLost` goes through as now.
 
 ## How to test the fix
