@@ -415,6 +415,21 @@ CHIEF_ENGINEER.syncTasks(ada);
 add('with no reading on its PDA it orders nothing', ada.chief.order, null);
 add('and is told that it has none', CHIEF_ENGINEER.cues(ada).some((line: string) => /no reading of the engine/.test(line)), true);
 
+// ENG-11: the crystal comes apart with no engineer aboard.
+ada = chief(false);
+ada.pdaPeople = [{ name: 'Atmos Tec', job: 'Atmospheric Technician' }, { name: 'Cap Tain', job: 'Captain' }];
+ada.engineReading = { integrity: 90, energy: 900 };
+CHIEF_ENGINEER.syncTasks(ada);
+add('no engineer aboard: the Captain is told there is nobody to switch the emitters off', ada.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line), ['The engine is losing integrity: 90 percent. I have no engineer to switch the emitters off.']);
+add('and it does not say the engine has been shut off', CHIEF_ENGINEER.cues(ada).some((line: string) => /has been shut off/.test(line)), false);
+add('and no shut order is kept open to hold its staff meetings back', ada.chief.order, null);
+ada.pdaPeople.push({ name: 'Sam Rees', job: 'Station Engineer' });
+CHIEF_ENGINEER.syncTasks(ada);
+give = openOf(ada, 'engine_order', 'shut');
+step = give && CHIEF_ENGINEER.plan(ada, give);
+add('an engineer turns up: the order goes to them by PDA', [step?.act?.tool, step?.act?.text], ['message', 'Sam, the engine is losing integrity. Emitters off, now.']);
+add('and what it says is that the order is given and not yet heard of', CHIEF_ENGINEER.cues(ada).some((line: string) => /have ordered the emitters off, and have not heard/.test(line)), true);
+
 // ENG-05: which lines are an order to light the engine again.
 for (const [line, want] of [
   ['Light the engine.', true],

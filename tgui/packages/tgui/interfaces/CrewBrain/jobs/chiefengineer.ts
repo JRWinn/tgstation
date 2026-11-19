@@ -176,6 +176,11 @@ function engineWords(brain: NpcBrain): string {
   const integrity = reading
     ? ` It is at ${Math.round(reading.integrity)} percent integrity.`
     : '';
+  if (chief.shut && !chief.emittersOff) {
+    return engineer(brain)
+      ? `The engine is losing integrity. I have ordered the emitters off, and have not heard that they are.${integrity}`
+      : `The engine is losing integrity and I have no engineer to switch the emitters off.${integrity}`;
+  }
   if (chief.shut) {
     return `The engine has been shut off: it was losing integrity.${integrity}`;
   }
@@ -293,11 +298,20 @@ function syncTasks(brain: NpcBrain): void {
     chief.energyAt = null;
     chief.litAt = null;
     chief.order = { what: 'shut', givenAt: null, sent: false };
-    tellCaptain(
-      brain,
-      `The engine is losing integrity: ${Math.floor(reading.integrity)} percent. I am having the emitters switched off.`,
-      `The engine monitor on your PDA reads ${Math.floor(reading.integrity)} percent integrity. You are having the emitters switched off, and telling the Captain so by PDA.`,
-    );
+    const percent = Math.floor(reading.integrity);
+    if (engineer(brain)) {
+      tellCaptain(
+        brain,
+        `The engine is losing integrity: ${percent} percent. I am having the emitters switched off.`,
+        `The engine monitor on your PDA reads ${percent} percent integrity. You are having the emitters switched off, and telling the Captain so by PDA.`,
+      );
+    } else {
+      tellCaptain(
+        brain,
+        `The engine is losing integrity: ${percent} percent. I have no engineer to switch the emitters off.`,
+        `The engine monitor on your PDA reads ${percent} percent integrity, and you have no engineer aboard to switch the emitters off. You are telling the Captain so by PDA.`,
+      );
+    }
   }
   // Shut off, with the emitters said to be off: energy rising in the crystal means someone has
   // lit it again by hand. Left alone the energy only falls, so the lowest seen is kept.
@@ -321,10 +335,12 @@ function syncTasks(brain: NpcBrain): void {
     chief.shut &&
     !chief.emittersOff &&
     !chief.order &&
-    chief.shutGivenAt !== null &&
-    // Told they will not go off, it gives the order again now and then, in case the way is open again.
-    brain.now - chief.shutGivenAt >
-      (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)
+    // Never given, for want of an engineer: it goes to the first one that turns up.
+    (chief.shutGivenAt === null ||
+      // Told they will not go off, it gives the order again now and then, in case the way is open again.
+      brain.now - chief.shutGivenAt >
+        (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)) &&
+    engineer(brain)
   ) {
     chief.order = { what: 'shut', givenAt: null, sent: false };
   }
@@ -560,7 +576,9 @@ function cues(brain: NpcBrain): string[] {
     lines.push(
       chief.emittersOff
         ? 'Your engineer has told you the emitters are off. The engine is not to be lit again unless the Captain says so.'
-        : 'You have ordered the emitters off, and have not yet heard that they are.',
+        : engineer(brain)
+          ? 'You have ordered the emitters off, and have not yet heard that they are.'
+          : 'The emitters must come off, and you have no engineer aboard to switch them off.',
     );
   } else if (
     chief.lightGivenAt !== null &&
