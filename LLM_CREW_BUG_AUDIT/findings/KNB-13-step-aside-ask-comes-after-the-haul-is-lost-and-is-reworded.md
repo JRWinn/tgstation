@@ -3,10 +3,11 @@ id: KNB-13
 title: A hauler never asks whoever its crate caught on to step aside - the ask waits until every regrip is used up, and then the model's own line is said in its place
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: sure
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:470, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:726, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:1400, code/modules/llm_crew/crew_npc_grip.dm:118, code/modules/llm_crew/crew_brain_link.dm:195
 fix: Say the step-aside ask word for word and while the body is busy taking the crate up again, and have wait_for_way wait until the person has moved

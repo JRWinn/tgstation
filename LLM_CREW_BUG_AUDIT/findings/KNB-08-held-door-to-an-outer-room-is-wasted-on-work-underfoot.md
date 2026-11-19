@@ -3,10 +3,11 @@ id: KNB-08
 title: A door held open into an outer room is not gone through - the held door wipes every back-off, and work where the janitor stands wins - so it asks at the same door again and again
 kind: bug
 severity: high
-effort: small
+effort: medium
 confidence: likely
-status: found
+status: confirmed
 found_by: Fable 5.2
+checked_by: Opus 5.5
 area: driver
 files: tgui/packages/tgui/interfaces/CrewBrain/driver.ts:546, tgui/packages/tgui/interfaces/CrewBrain/driver.ts:235, tgui/packages/tgui/interfaces/CrewBrain/brain.ts:678, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:633
 fix: Put first the ready step that walks through the held door, whatever room its task is for, and stop a held door from clearing the back-off of work in the room the body is already in
