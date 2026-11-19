@@ -63,7 +63,7 @@ Three cases, by the code:
 
 ## How it was found
 
-Read from the code, both sides: `tool_say`, the base `say`, and a search of the window code for anything that removes an asterisk (there is none: `inOwnVoice` and `withoutHandles` in `prompt.ts` do not, and `isFiller` only matches a line that is nothing but `*...*`). Not looked for in a round log. To check one: `grep -n "told by its brain to say:.*\*" game.log`.
+Read from the code, both sides: `tool_say`, the base `say`, and a search of the window code for anything that removes an asterisk (there is none: `inOwnVoice` and `withoutHandles` in `prompt.ts` do not, and `isFiller` only matches a line that is nothing but `*...*`). Not looked for in a round log by the finder; the checker found it in five rounds (see `## Check`). To check one: `grep -n "told by its brain to say:.*\*" game.log`.
 
 ## How to fix it
 
@@ -78,3 +78,11 @@ Read from the code, both sides: `tool_say`, the base `say`, and a search of the 
 - Server compile to a side copy, type check for the window change.
 - `tools/llm_crew/addressing.ts` style: add three cases to a table for `inOwnVoice` (the three lines above) and check the output has no asterisk.
 - In a round: `grep -n "\*" game.log | grep "told by its brain to say"` should find nothing after the fix; before it, each hit is a line that was garbled or not heard.
+
+## Check
+
+Read `tool_say` (`crew_npc_tools.dm:140-170`): only `^[\s;:.,*#%!^]+` is stripped, then the line goes to `body.say`, which for a human is `/mob/living/say` (`living_say.dm:105-130`). It is not `forced`, so `check_for_custom_say_emote` (`mob_say.dm:177-189`) runs: it cuts at the first `*` anywhere, the ban check is skipped (a crew body has no ckey), and an empty remainder sets `MODE_CUSTOM_SAY_ERASE_INPUT`, which `on_pre_hear` (`crew_npc_senses.dm:390`) drops. The window has no asterisk handling: `isFiller` (`prompt.ts:323`) only drops a whole-line `*...*`, and `inOwnVoice` and `withoutHandles` leave asterisks in. No change log or plan entry mentions it.
+
+Seen in rounds as well as read: `grep "told by its brain to say:.*\*"` finds eight lines in five rounds. Each `GAME-SAY` beside it shows the split, for example `round-15.14.49` 21:23:50, "Cool? Greyson, you call *this* cool? ..." said as the emote "Cool? Greyson, you call " and the speech "this* cool? ...", and four lines in `round-10.00.41` from 16:01:44, where the model's "*I* shake slightly ..." lost its first asterisk to `say_prefixes` and was said as the emote "I" with the rest as speech.
+
+Ran: a throwaway bun script, outside the repo, of the two regexes in fix step 2 on the three lines in the write-up and the logged ones. All come out with no asterisk; the emphasised words are kept; "*nods*" comes out empty (step 3 then answers "nothing to say"); "*I* shake slightly" becomes "shake slightly", which is acceptable. Changed: fix step 2 now drops a span only at the start or end of a line, since dropping every `*...*` span would have cut the emphasised words seen in the logs; step 4 names where the window cleans the model's line. Severity medium and effort small kept. Not run: the DM compiler.

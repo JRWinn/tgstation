@@ -20,15 +20,21 @@ Every technician who hears a knock on a door of the department keeps it in its o
 
 A knock from inside names no one. `doorSought` takes it to be whoever the department has down as being inside that room (`stillInside`, the list both technicians share). So if the knocker is let out by one technician and let back in by the same or the other within that minute, the other technician reads the old knock as the janitor knocking again, walks to a door and holds it open "to let them out". The janitor, by its own rule, goes out through a door held open for it to leave (`The door is being held open to let you out of ...`), whatever it was doing. If it was scrubbing, the scrub is cut short and the mess is written off as beyond it (JAN-01, LIFE-02).
 
-Concrete case, `data/logs/2026/11/19/round-19.33.50`, Penelope Alekseev (janitor, space cleaner), Tamika Barrett and Marshall Alliman (cargo technicians):
+There is a second form of the same stale knock: once the knocker is out, nobody is on the list for that room and nobody is seen in it, so `doorSought` falls through to `!inside && brain.closedRooms.includes(knock.room) && mine(undefined)` and the other technician walks to the door "for someone inside" who has already gone. The server finds nobody at the door, so it costs a walk and a wait, not a wrong let-out.
 
-1. 01:43:36, Penelope's brain: "You are shut in Cargo Bay with nobody in sight to ask. You are knocking at the door". Marshall is in the Cargo Bay and hears it.
-2. 01:43:39 to 01:43:45: Tamika answers the PDA that follows and lets her out ("The door is being held open to let you out of Cargo Bay"). Marshall's `knockAt` for the Cargo Bay is untouched.
+The case needs: both technicians in knock range (`CREW_NPC_KNOCK_RANGE` from the door, `crew_npc_doors.dm` `tool_knock`); the other technician leaving it to the first while the first is in its view (or, with the work divided, for `KEEPER_WAIT_DS`); and then the first walking out of its view while the knock is under a minute old. Built from the code; **not seen in a round** (see the Check: the round below shows a different fault).
+
+The round first given for this, `data/logs/2026/11/19/round-19.33.50`, Penelope Alekseev (janitor, space cleaner), Tamika Barrett and Marshall Alliman (cargo technicians). It shows the same harm, a janitor let out mid-scrub, but **not from a knock**:
+
+1. 01:43:36, Penelope's brain: "You are shut in Cargo Bay with nobody in sight to ask. You are knocking at the door". Marshall did **not** hear it: his prompt at 01:44:25 lists every event he got from 19:42:58 to 19:44:22 (nine lines, none cut) and no knock from inside. Only Reuben Shirey's log has it.
+2. 01:43:39 to 01:43:45: Tamika lets her out ("The door is being held open to let you out of Cargo Bay").
 3. 01:44:02, `game.log`: "Tamika Barrett ... opened Quartermaster Maintenance to let Penelope Alekseev into Cargo Bay." Tamika's `noteLetIn` puts Penelope back on the shared list as inside the Cargo Bay.
 4. 01:44:24, `game.log`: Tamika "opened Deliveries to let Penelope Alekseev into Delivery Office". 01:44:29, Penelope's brain: "You are cleaning up the mess here in Delivery Office ... with your space cleaner." The mess is vomit, which space cleaner washes off.
-5. 01:44:29, Marshall's brain, 53 seconds after the knock: "Penelope Alekseev is inside the Cargo Bay and cannot get out by themselves: the door is locked to them. You are going to open the Deliveries door for them." 01:44:30 and 01:44:32, `game.log`: Marshall opens Deliveries "to let Penelope Alekseev into Cargo Bay", then "out of Delivery Office".
+5. 01:44:22, `game.log`: Penelope, standing in the Cargo Bay at the Deliveries door, says to Marshall "Marshall, I'm stuck out here; could you open the door for me so I can scrub that mess?" `LET_OUT_WORDS` (`/\bout\b/`) matches "out here", so Marshall's `doorAsked` is `out: true` (PARSE-08's fault). Marshall heard only his own share of the divided work, so `roomsKeeper` is undefined for him and `doorIsMine` is TRUE. `mayPass` finds her `seenInside` the Cargo Bay and returns a let-out. 01:44:25 and 01:44:29, Marshall's brain: "Penelope Alekseev is inside the Cargo Bay and cannot get out by themselves: the door is locked to them. You are going to open the Deliveries door for them." 01:44:30 and 01:44:32, `game.log`: Marshall opens Deliveries "to let Penelope Alekseev into Cargo Bay", then "out of Delivery Office".
 6. 01:44:42, Penelope: "The door is being held open to let you out of Delivery Office, and you are going out to Cargo Bay while it is." 01:44:50, `pda.log`: "I cannot shift the mess in the Delivery Office with my space cleaner."
 7. The vomit was still on cargo's list at 01:57:58, when Marshall sent another janitor for it.
+
+So that round belongs to PARSE-08. Fixing this finding would not have changed it.
 
 ## Where
 
