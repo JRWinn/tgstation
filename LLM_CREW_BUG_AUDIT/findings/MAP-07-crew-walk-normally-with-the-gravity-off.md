@@ -9,7 +9,7 @@ status: found
 found_by: Opus 5.5
 area: core
 files: code/modules/llm_crew/crew_npc_motor.dm:59, code/modules/llm_crew/crew_npc_motor.dm:39, code/controllers/subsystem/movement/movement_types.dm:215, code/modules/mob/mob_movement.dm:94
-fix: Give every crew step the check a player's step gets (Process_Spacemove when the body has no gravity), through the move loop's pre-step signal and in the idle shuffle, and tell the brain the body is floating
+fix: Give every crew step the check a player's step gets (no gravity and nothing to push off means no step), in an allowed_to_move override on the crew movement type and in the idle shuffle, and tell the brain the body is floating
 ---
 
 ## What is wrong
