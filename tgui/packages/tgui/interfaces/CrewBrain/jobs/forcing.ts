@@ -69,6 +69,7 @@ const ORDER_WORDS =
 export function forceSentLine(to: string, engineer: string, room: string): string {
   return `${to}, I am sending ${firstName(engineer)} to open the ${room}.`;
 }
+const SENT_WORDS = /\bI am sending (.+?) to open the (.+?)\./i;
 
 /** Whoever forced the door to whoever sent them, and that one on to whoever asked. */
 export function forceDoneLine(to: string, room: string): string {
@@ -87,21 +88,28 @@ export function forceOpenedLine(to: string, room: string): string {
 }
 const OPENED_WORDS = /\bengineering has opened the (.+?)\./i;
 
-/** Why a door would not open, in the engineer's words, from what its body said. */
-function whyNot(reason: string): string {
+/**
+ * Why a door would not open, from what the engineer's body said. The words are passed on as they
+ * stand by the Chief Engineer and the Head of Security, so there is no "I" in them: the Captain
+ * was sent "engineering could not open the Bar Backroom: I cannot get to it". `through` is the
+ * room in between that is locked to the engineer as well, if that is why there was no way.
+ */
+export function whyNot(reason: string, through?: string): string {
   switch (reason) {
     case 'bolted':
       return 'it is bolted';
     case 'welded':
       return 'it is welded shut';
     case 'no_tools':
-      return 'I have not the tools for it';
+      return 'the tools for it are not to hand';
     case 'no_knowledge':
-      return 'I do not know its wires';
+      return 'its wires are not known';
     case 'no_way':
-      return 'I cannot get to it';
+      return through
+        ? `the way to it is through the ${through}, which is locked to engineering as well`
+        : 'there is no way to it';
     case 'no_door':
-      return 'I can find no door to it';
+      return 'no door to it can be found';
     default:
       return 'it would not open';
   }
@@ -223,6 +231,16 @@ export function forcingReads(
       // No engineer to send, or it is the engineer: it goes itself.
       takeJob(brain, room, from);
     }
+    return true;
+  }
+  // Engineering telling security who is coming. There is nothing to do about it but know it,
+  // and it is taken here so that it is not read as an order: the Head of Security answered it
+  // with "I did not follow that. To declare a warrant, say...".
+  if (
+    SENT_WORDS.test(text) &&
+    security &&
+    (isEngineer(fromJob) || isChiefEngineer(fromJob))
+  ) {
     return true;
   }
   // The Chief Engineer sending its engineer.
@@ -372,7 +390,14 @@ export function forcingAfterActing(
     job.by,
     ok
       ? forceDoneLine(to, job.room)
-      : forceFailedLine(to, job.room, whyNot(reason)),
+      : forceFailedLine(
+          to,
+          job.room,
+          whyNot(
+            reason,
+            typeof details.through === 'string' ? details.through : undefined,
+          ),
+        ),
     ok
       ? `You have forced the door of the ${job.room}. You are telling ${job.by}, who sent you.`
       : `You could not open the door of the ${job.room}. You are telling ${job.by}, who sent you, and why.`,

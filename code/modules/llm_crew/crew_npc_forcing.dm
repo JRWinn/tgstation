@@ -72,6 +72,25 @@
 	return list(FALSE, words, details)
 
 /**
+ * TRUE if this is a hallway with doors of its own, none of which open for the body. The service
+ * hallway is one: only service staff walk it, and locked_out_of() takes every hallway for open.
+ */
+/datum/ai_controller/crew_npc/proc/hallway_locked_to(area/room)
+	if(!istype(room, /area/station/hallway))
+		return FALSE
+	var/mob/living/carbon/human/body = pawn
+	var/turf/here = get_turf(body)
+	if(isnull(here) || !isturf(body.loc))
+		return FALSE
+	var/list/doors = crew_npc_doors_of(room, here.z)
+	if(!length(doors))
+		return FALSE
+	for(var/obj/machinery/door/airlock/door as anything in doors)
+		if(door.allowed(body))
+			return FALSE
+	return TRUE
+
+/**
  * Tool: open a door of a room that is locked to the body, by taking the door's power away and
  * prying it. Engineering staff only.
  *
@@ -164,6 +183,10 @@
 	var/obj/machinery/door/airlock/best
 	var/tries_left = CREW_NPC_DOORS_TRIED
 	var/list/no_way_to = list()
+	// A door it has no way to that opens from a room locked to it as well: the name of that room.
+	var/through
+	// A door whose far side it can walk to already, by some other way: that one, and where it leads.
+	var/obj/machinery/door/airlock/leads_nowhere
 	finding_door_to_force = TRUE
 	while(length(scores) && tries_left > 0)
 		var/obj/machinery/door/airlock/nearest
@@ -172,11 +195,23 @@
 				nearest = door
 		scores -= nearest
 		var/turf/spot = spots[nearest]
+		var/list/nearest_sides = doors[nearest]
 		// Nobody stands working at a door where the air is bad.
 		if(!crew_npc_safe_turf(spot))
 			no_way_to += "[nearest.name] at ([nearest.x],[nearest.y]), where the air on its near side is bad"
 			continue
 		tries_left--
+		// A door that leads only to floor it can walk to already is no door to force. The bar has one:
+		// its kitchen door opens onto a square of the bar's own floor that stands open to the lounge.
+		// Forced, it would have let nobody into the bar. A door that was named is forced all the same.
+		var/turf/far_side = inside ? nearest_sides[2] : nearest_sides[1]
+		if(nearest != named)
+			var/list/round_it = get_path_to(body, far_side, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+			if(QDELETED(src) || QDELETED(body))
+				return
+			if((length(round_it) && !route_by_open_door(round_it)) || get_turf(body) == far_side)
+				leads_nowhere ||= nearest
+				continue
 		if(can_reach_target_now(nearest))
 			best = nearest
 			break
@@ -187,9 +222,18 @@
 			best = nearest
 			break
 		no_way_to += "[nearest.name] at ([nearest.x],[nearest.y])"
+		// Why there is no way to it, if that is a room in between that is locked to it as well.
+		var/area/outer = get_area(spot)
+		if(isnull(through) && outer != get_area(body) && (locked_out_of(outer) || hallway_locked_to(outer)))
+			through = format_text(outer.name)
 	finding_door_to_force = FALSE
 	if(QDELETED(best))
-		forcing_failure("no_way", "You cannot find a way to a door of [room_name].", first, room_name, first_label, "It found no way to: [english_list(no_way_to)]", tell_now = TRUE)
+		// Every door it looked at leads to floor it can walk to: there is a way in already.
+		if(!QDELETED(leads_nowhere) && !length(no_way_to))
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told to force a door of [room_name], and did not: it can walk in already.")
+			action_result(CREW_TOOL_FORCE_DOOR, TRUE, "There is a way into [room_name] already. There is no need to force a door.", list("place" = room_name, "door" = labels[leads_nowhere], "already_open" = TRUE))
+			return
+		forcing_failure("no_way", through ? "You cannot get to a door of [room_name]: the way to it is through [through], which is locked to you as well." : "You cannot find a way to a door of [room_name].", first, room_name, first_label, "It found no way to: [english_list(no_way_to)]", more_details = through ? list("through" = through) : null, tell_now = TRUE)
 		return
 	forcing_place = room_name
 	forcing_label = labels[best]

@@ -282,6 +282,15 @@
 		return null
 	return wanted_door_place
 
+/// TRUE if this route goes through an airlock that does not open to the body's ID: one that is standing open just now.
+/datum/ai_controller/crew_npc/proc/route_by_open_door(list/route)
+	var/mob/living/carbon/human/body = pawn
+	for(var/turf/tile as anything in route)
+		for(var/obj/machinery/door/airlock/door in tile)
+			if(!door.allowed(body))
+				return TRUE
+	return FALSE
+
 /**
  * Tool: go and stand at the door into a room, or with no room named, at the door out of the room
  * the body is in. Whoever can open it then knows which door is wanted, and for whom.
@@ -340,6 +349,8 @@
 	var/obj/machinery/door/airlock/best
 	var/turf/best_spot
 	var/tries_left = CREW_NPC_DOORS_TRIED
+	// The first door it had no way to that opens from a room locked to it as well: the name of that room.
+	var/outer_name
 	finding_door = TRUE
 	while(length(scores) && tries_left > 0)
 		tries_left--
@@ -353,25 +364,36 @@
 			best = nearest
 			best_spot = spot
 			break
-		// A locked room inside a locked room: the door it wants opens from a room it cannot get into
-		// either. It is told which, so that it goes and asks at that one first.
+		// Whether it can walk up to the door is tried before anything is made of the room the door
+		// opens from. A room none of whose doors open to it may be one it can walk into all the same:
+		// the kitchen, by its open shutters, and the bar's own door is in there.
 		var/list/nearest_sides = doors[nearest]
 		var/area/outer = get_area(nearest_sides[2])
-		if(outer != get_area(body) && locked_out_of(outer))
-			finding_door = FALSE
-			var/outer_name = format_text(outer.name)
-			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
-			return
+		var/outer_locked = outer != get_area(body) && locked_out_of(outer)
 		var/list/route = get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
 		if(QDELETED(src) || QDELETED(body))
 			return
+		// A way into a locked room that is only there because one of its doors happens to stand open
+		// this minute is no way in: it has no more right to walk through that door than it had.
+		if(outer_locked && length(route) && route_by_open_door(route))
+			route = null
 		if(length(route))
 			best = nearest
 			best_spot = spot
 			break
+		// A locked room inside a locked room: the door it wants opens from a room it cannot get into
+		// either. That is kept for when no door of the room can be walked up to, and the room's other
+		// doors are tried first. Told of it at the first such door, an officer after someone in the
+		// bar went off to the bar's back room and never tried the door it could have stood at.
+		if(outer_locked)
+			outer_name ||= format_text(outer.name)
+			continue
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door into [room_name], and looks for another.")
 	finding_door = FALSE
 	if(isnull(best))
+		if(outer_name)
+			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
+			return
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find a way to [goal].")
 		return
 	wanted_door = WEAKREF(best)

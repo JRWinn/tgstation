@@ -16,6 +16,52 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-18, 20:19 to 20:40: the last entry played, and why nobody could get into the bar (the commit that added this entry, on the branch `security-arrest`)
+
+**Tested:** type check, 152 cases in `tools/llm_crew/security.ts` (six new), server compile to a side copy (0 errors, 0 warnings), simulator: twelve scenarios with a quiet LLM (the nine security ones, `nested`, `engine`, `crew`), none failing. **Not played. No model tests. The normal build has not been run:** the server was up. The simulator runs none of the server code, so which door a body makes for, and which door an engineer forces, are compile-checked only.
+
+**Round that showed it:** `data/logs/2026/11/19/round-20.00.21` (MetaStation, read at 20:19, on the build made at 20:00:14, which has the last entry's commit `94e34e9a` in it).
+
+### The last entry, played once
+
+- **The arrest worked on its first go with the baton.** In the Kitchen: told at 20:16:05, cuffs alone at 20:16:09 (the monkey walked off), first hit at 20:16:15, second at 20:16:18, cuffed at 20:16:24, in Cell 1 at 20:16:53 for 15 minutes. Twenty seconds from the telling to the cuffs. The round before it was five minutes.
+- "was laid hands on by Pun Pun ... hit" came through for a rolling pin thrown at the officer. **The bite and the tackle have still not been seen:** nothing bit anyone.
+- Not seen: a swing that met nothing, the way round a table, the cuffs tried twice.
+
+### What went wrong: eleven minutes from the warrant to the arrest
+
+The Captain said "Pun Pun is in the Bar" at 20:05:16. The bar is locked to security.
+
+- **The officer gave up on the bar's own door without trying it** (`tool_go_to_door` in `crew_npc_doors.dm`). The bar has three doors. The nearest, from where the officer stood, opens from the Bar Backroom, which is locked to it as well, and the tool answered "it opens from the Bar Backroom" at that first door. The officer went to the back room's door, asked the Captain there, waited 90 seconds, and reported "nobody has opened the Bar Backroom for security". The bar's door at (135,127) can be stood at from the kitchen, which anyone can walk into by its open shutters: the officer walked into that kitchen ten minutes later to make the arrest.
+- **The engineer could not get to either door of the Bar Backroom** (`game.log` 20:07:53, "It found no way to: Bar at (130,123) and Bar Storage at (133,120)"). One opens from inside the bar. The other opens from the Service Hallway, whose doors take a service ID. An engineer has no way into either. **How this was found:** a script over the map file and the door access helpers, walking from where each body stood. It ignores machines and furniture, so a route it finds may not be walkable, but where it finds none there is none.
+- **How the officer came to be standing in the Service Hallway is inferred, not seen.** By the map it has no way in either. Janitors, who carry a service ID, were in that hallway at the time, and the pathfinder takes a door that is standing open for a way through.
+- **The Head of Security answered the Chief Engineer's "I am sending Kimberly to open the Bar Backroom" with "I did not follow that. To declare a warrant, say..."** Nothing read that line, so it went to the reader of orders.
+- **The Captain was sent "engineering could not open the Bar Backroom: I cannot get to it."** The engineer's reason is passed on word for word, twice.
+
+### What is changed
+
+- **Every door of a room is tried before the body is told the room lies inside another** (`tool_go_to_door`). A door it can walk up to is taken whatever room it opens from. Only when no door of the room can be reached is it told "it opens from X, which is locked to you as well". For the bar that means the kitchen side of the bar's own door, and the ask goes to whoever can open the bar.
+- **A way that is only there because a locked room's door stands open this minute is not taken** (`route_by_open_door`). Before this change the check on the outer room came first and no route was looked for, so this keeps that as it was for the Cargo Bay and its offices.
+- **An engineer does not force a door that leads only to floor it can walk to already** (`tool_force_door` in `crew_npc_forcing.dm`). The bar's kitchen door is one: it opens onto a square of the bar's floor that stands open to the lounge, and was the nearest "door of the Bar" to engineering. If every door of the room is like that, it says there is a way in already.
+- **An engineer with no way to a door says which room is in the way** (`through` in the tool's answer, `hallway_locked_to`): "I could not open the door of the Bar Backroom: the way to it is through the Service Hallway, which is locked to engineering as well."
+- **No reason for a door not opening has "I" in it** (`whyNot` in `jobs/forcing.ts`): "there is no way to it", "the tools for it are not to hand", "its wires are not known", "no door to it can be found".
+- **"I am sending X to open the Y" is taken by security and answered with nothing** (`SENT_WORDS`, `forcingReads`).
+
+### Known and not fixed
+
+- **An engineer does not force its way through a room in between.** Sent to a door behind a locked hallway it says so and stops. Forcing the hallway's door first is not built.
+- **The officer walked the five main hallways for eight minutes after it was shut out** (20:07:58 to 20:15:57) and never looked into the Bar Lounge, from where the bar is in plain sight across the counter. Where it looks when it has no fresh word is the owner's to decide.
+- The officer asks the Captain to let it in and waits 90 seconds, wherever the Captain is. The Captain was in the Bar Lounge.
+- The engineer said aloud "the Bar Backroom door is forced" at 20:10:03, when it was not. That was the LLM's own remark after the job was closed: nothing tells it how the job ended.
+- `crew_npc_doors_of` takes a door for a door of a room if it touches any square of that room's floor. The square of bar floor outside the bar's counter makes the kitchen's door a door of the bar.
+- Other walks that failed in this round, not looked into: a janitor with no route from the Mining Office to the Bar Lounge three times, and two bodies stopped at Cargo Bay (77,146) on a five-step route to the Cargo Lobby, six times between them.
+
+### What to grep for next round (`game.log`)
+
+"found no way to", "could not force" (and the room after "the way to it is through"), "did not: it can walk in already", and in `pda.log` "I am at the Kitchen door of the Bar".
+
+---
+
 ## 2026-11-18, 19:38 to 20:00: the officer took four tries and five minutes to arrest Pun Pun, and did not know it was bitten afterwards (the commit that added this entry, on the branch `security-arrest`)
 
 **This entry was added to at 20:00: the section "Added at 20:00" below. It changes one base-game file.**
