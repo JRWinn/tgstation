@@ -416,10 +416,21 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	if(succeeded && still_held && !QDELETED(hauled))
 		// It is tipped out where people can pick the things up, and the crate is this body's to take back.
 		var/list/names = tip_out(hauled)
-		crate_to_return = WEAKREF(hauled)
 		// It has been collected. Nobody is reminded of it again.
 		if(entry)
 			GLOB.crew_npc_held_crates -= entry
+		if(isnull(names))
+			// Hauled there, but shut still: nothing is out, and there is no empty crate to take back.
+			var/why = "The crate will not open for you."
+			if(istype(hauled, /obj/structure/closet/crate/large))
+				why = "It is a wooden crate: it wants prying open with a crowbar."
+			else if(hauled.welded)
+				why = "The crate will not open for you: it is welded shut."
+			else if(hauled.locked)
+				why = "The crate will not open for you: it is locked."
+			action_result(CREW_TOOL_COLLECT, FALSE, "You haul the [hauled_name] to [place], but you cannot unpack it. [why] It is left there, shut.", list("place" = place, "number" = entry?.number))
+			return
+		crate_to_return = WEAKREF(hauled)
 		action_result(CREW_TOOL_COLLECT, TRUE, "You haul the [hauled_name] to [place] and unpack it there[length(names) ? ": [english_list(names)]" : ""]. The empty crate is yours to take back to cargo.", list("place" = place, "number" = entry?.number))
 		return
 	// Left where it stopped, it is still there for the taking.

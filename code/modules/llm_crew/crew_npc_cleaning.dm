@@ -592,11 +592,20 @@
 
 /// TRUE if the body carries a PDA with the custodial locator, which shows where the station's cleaning gear is.
 /datum/ai_controller/crew_npc/proc/has_custodial_locator()
+	return !isnull(custodial_locator_pda())
+
+/**
+ * The PDA the body carries with a custodial locator on it that it could read: not broken, and the
+ * body able to read. Null if none. Asked on every update of the window, so nothing is switched on.
+ */
+/datum/ai_controller/crew_npc/proc/custodial_locator_pda()
 	var/mob/living/carbon/human/body = pawn
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
-		if(locate(/datum/computer_file/program/radar/custodial_locator) in computer.stored_files)
-			return TRUE
-	return FALSE
+		if(!(locate(/datum/computer_file/program/radar/custodial_locator) in computer.stored_files))
+			continue
+		if(pda_readable(computer))
+			return computer
+	return null
 
 /**
  * Tool: check the custodial locator on the body's PDA.
@@ -606,8 +615,13 @@
  */
 /datum/ai_controller/crew_npc/proc/tool_locate()
 	var/mob/living/carbon/human/body = pawn
-	if(!has_custodial_locator())
-		action_result(CREW_TOOL_LOCATE, FALSE, "You have no PDA with a custodial locator on it.")
+	var/obj/item/modular_computer/locator_pda = custodial_locator_pda()
+	if(isnull(locator_pda))
+		action_result(CREW_TOOL_LOCATE, FALSE, "You have no PDA with a custodial locator on it that you can read.")
+		return
+	// The locator is read on the screen: the PDA has to be switched on, which wants charge.
+	if(!pda_screen_usable(locator_pda))
+		action_result(CREW_TOOL_LOCATE, FALSE, "Your PDA will not turn on: it has no charge.")
 		return
 
 	// The locator shows every mop and cart on the station, strays in the tunnels included. What a

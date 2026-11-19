@@ -182,7 +182,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"meeting_room" = npc.meeting_place,
 			"orderable" = npc.works_in_cargo() ? assoc_to_keys(npc.orderable_crates()) : list(),
 			"order_pending" = npc.supply_run_active,
-			"has_pda" = !isnull(npc.pda_messenger()),
+			// A PDA it could use at the screen: not broken, and readable. Asked on every update, so it is
+			// not switched on here: a PDA that is off with no charge shows up as soon as it is tried.
+			"has_pda" = npc.pda_readable(npc.pda_messenger()?.computer),
 			// PDA messages it owes about crates: an order that has come in, or crates still waiting to be collected.
 			"notices" = npc.notices_owed,
 			// The crates being held for collection that it knows of, and whether it is its moment to go and look them over.

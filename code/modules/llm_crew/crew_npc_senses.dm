@@ -436,7 +436,12 @@
 		if(near_door)
 			details["near_door"] = format_text(near_door.name)
 	// Only tie the voice to a person the body has just been looking at.
+	// Whether it answers to them goes with the line too, so the window still knows it once they have
+	// walked out of view before its turn to answer. It is known from their ID, as in people_in_view,
+	// so only of someone it has just seen: a voice alone does not say who someone answers for.
+	details["superior"] = 0
 	if(ishuman(speaker) && recently_saw(speaker))
 		details["handle"] = handle_for(speaker)
+		details["superior"] = answers_to(speaker) ? 1 : 0
 
 	emit_sense(CREW_SENSE_SPEECH_HEARD, "[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\"", details)

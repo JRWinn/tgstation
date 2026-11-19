@@ -128,3 +128,7 @@ Checked by Opus 5.5, 2026-11-19. Confirmed.
 - No later change log entry mends it. The entry of 2026-11-18 that built `wait_for_way` says the body "asks them to step aside, as before" while it waits: that was the intent, and it never worked.
 - Severity high stands: hauls given up beside a person show up in most rounds, and the ask has never been said. Effort raised to medium: steps 1 to 3 are about 25 lines in `driver.ts`, and step 4 is a server change as well. Steps 1 and 2 are the fix proper and can go first; step 4 can follow.
 - Added to the fix: the line waits its turn for the model, and the server's early release must not cut short a hold set for talk. No script was run.
+
+## Fix notes, second round
+
+`CREW_NPC_REGRIP_WAIT` (`code/modules/llm_crew/_defines.dm`), unused since the first-round fix, is deleted (branch `r2-server`). A grep of the whole checkout found it only in its own definition, in this finding's quote of the old code and in the change log. Compile-checked.

@@ -308,14 +308,22 @@
 	var/taken = !QDELETED(found) && body.put_in_hands(found)
 	if(!taken && found)
 		inside[format_text(found.name)]++
+	// Shut again, unless someone (the body itself included) is on its tile: shutting it would take
+	// them in with everything else lying there. Then it is left open.
+	var/left_open = FALSE
 	if(!was_open && container.opened)
-		container.close(body)
+		if(crew_npc_someone_on(get_turf(container)))
+			left_open = TRUE
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) left the [container_name] open in [get_area_name(container, TRUE)]: someone is on it.")
+		else
+			container.close(body)
+	var/open_note = left_open ? " You leave it open: someone is in the way of shutting it." : ""
 	// What the body just saw replaces what it remembered of this container.
 	storage_checked_at[REF(container)] = world.time
 	report_storage(container, was_open ? "open" : "looked", inside)
 	if(taken)
-		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].")
-	return list(FALSE, "There is no [errand_item] in the [container_name] any more.")
+		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].[open_note]")
+	return list(FALSE, "There is no [errand_item] in the [container_name] any more.[open_note]")
 
 /// Hands what the body is holding to a person next to it.
 /datum/ai_controller/crew_npc/proc/hand_over(mob/living/carbon/human/person)
