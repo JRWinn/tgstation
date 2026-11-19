@@ -64,4 +64,4 @@ Read from the code. Not seen in a round.
 ## How to test the fix
 
 - Server compile to a side copy.
-- In a round: put a table in the Cargo Bay with crates on every side, and a few small things on the floor. The technician should put them on another table or leave them, and not carry each one at the boxed-in table. Grep `game.log` for "put away its" and watch the bay.
+- In a round: put a table in the Cargo Bay with crates on every side, and a few small things on the floor. The technician should put them on another table or leave them, and not carry each one at the boxed-in table. Tidying writes nothing to `game.log` today: add a `log_game` line in `crew_npc_fail_errand` for a tidy place it could not reach, and grep for it; there should be one per place, not one per thing.
