@@ -580,9 +580,18 @@
 	// walked out of view before its turn to answer. It is known from their ID, as in people_in_view,
 	// so only of someone it has just seen: a voice alone does not say who someone answers for.
 	details["superior"] = 0
+	// Someone in plain sight who speaks before the next look has taken them in (they have just come
+	// round a corner, or put a mask on and are seen anew) is looked at now, so that the voice goes
+	// with the face it is coming from (API-02). Only by what it can see: a voice from behind a wall
+	// or in the dark ties to nobody.
+	if(ishuman(speaker) && !recently_saw(speaker) && !body.is_blind() && can_see(body, speaker, CREW_NPC_VISION_RANGE))
+		look_around()
 	if(ishuman(speaker) && recently_saw(speaker))
 		details["handle"] = handle_for(speaker)
 		details["superior"] = answers_to(speaker) ? 1 : 0
+		// The name they are seen by, which may not be the voice's: "Captain John" with the honorific
+		// on their card, where the voice is "John Smith" (API-02).
+		details["seen_as"] = speaker.name
 
 	emit_sense(CREW_SENSE_SPEECH_HEARD, "[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\"", details)
 
