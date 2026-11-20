@@ -145,7 +145,8 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /**
  * What the brain is told of the crates being held: each one's number, who it is for, where it is
  * and how long it has waited. Cargo staff are told of all of them. Everyone else is told only of
- * those put out in the lobby, which anyone there can see.
+ * those put out in the lobby, and only while it is in the crate's room or can see it, or is the
+ * one hauling it.
  */
 /datum/ai_controller/crew_npc/proc/held_state()
 	var/list/held = list()
@@ -153,14 +154,26 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	// Looking over what is held is when one that has been lost is found to be.
 	crew_npc_held_crates()
 	write_off_lost_crates()
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	var/list/seen
 	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
 		if(!cargo && !entry.out)
 			continue
+		var/obj/structure/closet/crate/crate = entry.crate_ref.resolve()
+		// Anyone else knows of a crate put out only by being where it is: in its room, or in sight of
+		// it. A collector anywhere aboard used to set off for it the moment it was put out (JOBS-05).
+		// The one hauling it keeps it in mind wherever it has got to with it.
+		if(!cargo && entry.collected_by != body.real_name && get_area(crate) != here)
+			seen ||= view(CREW_NPC_VISION_RANGE, pawn)
+			if(!(crate in seen))
+				continue
 		held += list(list(
 			"number" = entry.number,
-			"for" = entry.for_name,
-			"what" = entry.what,
-			"place" = get_area_name(entry.crate_ref.resolve(), TRUE),
+			// What the order book at the counter says. Nobody else reads it.
+			"for" = cargo ? entry.for_name : null,
+			"what" = cargo ? entry.what : null,
+			"place" = get_area_name(crate, TRUE),
 			"out" = entry.out,
 			"taken_by" = entry.collected_by,
 			"waited" = entry.held_since ? world.time - entry.held_since : 0,
