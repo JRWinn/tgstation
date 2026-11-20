@@ -128,11 +128,16 @@ export function syncFreight(brain: NpcBrain): void {
   // The shuttle goes back once there is nothing left to come off it or go on it. A mail crate
   // that cannot be emptied just now is in the bay, not aboard, and does not keep it (JOBS-04).
   const mailStuck = findTask(brain, MAIL)?.state === 'blocked';
+  // Everything aboard, not only what is to come off: a crate it cannot move still keeps the
+  // shuttle, when the server says how much is aboard (full_aboard, SUP-05). Read loosely, as the
+  // field may not be there.
+  const fullAboard = (freight as { fullAboard?: number } | null)?.fullAboard;
   keep(
     brain,
     SEND,
     docked &&
-      freight?.toUnload === 0 &&
+      !!freight &&
+      (fullAboard ?? freight.toUnload) === 0 &&
       freight.emptyCrates === 0 &&
       (!freight.mailCrate || mailStuck) &&
       !brain.orderPending,
