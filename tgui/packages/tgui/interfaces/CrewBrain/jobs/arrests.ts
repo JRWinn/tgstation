@@ -1396,9 +1396,10 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       round.next = 0;
       round.at = brain.now;
     }
+    // What it cannot see, it does not know: in the dark it sees only what is beside it (CHEAT-15).
     return {
       ready: false,
-      step: `${name} is not in the ${hall}.`,
+      step: `You do not see ${name} in the ${hall}.`,
     };
   }
   return {
