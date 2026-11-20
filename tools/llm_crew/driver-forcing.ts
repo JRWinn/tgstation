@@ -104,6 +104,16 @@ function engineer() {
   add('the job is kept for the second go', b.forcing.jobs.length, 1);
 }
 add('the fire-door reason says no "I"', /\bI\b/.test(F.whyNot('fire_doors', undefined, 'Bar')), false);
+// DOOR-15: a door that shocked the body at its wires is not gone at twice.
+{
+  const b = engineer();
+  F.forcingAfterActing(b, { tool: 'force_door', place: 'Cargo Bay' }, false, { reason: 'electrified' });
+  add('an electrified door: told at once that it is electrified', sentBy(b), [
+    'PDA to Ada Voss: Ada, I could not open the door of the Cargo Bay: it is electrified.',
+  ]);
+  add('and no second go', b.forcing.jobs.length, 0);
+}
+add('the electrified reason says no "I"', /\bI\b/.test(F.whyNot('electrified')), false);
 
 let failed = 0;
 for (const [label, got, want] of cases) {

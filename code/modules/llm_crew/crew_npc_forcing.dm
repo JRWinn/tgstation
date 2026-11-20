@@ -35,6 +35,13 @@
 /datum/ai_controller/crew_npc/var/forcing_label
 /// That door, as a weak reference: kept so that a walk to it that comes to nothing can be logged by which door it was.
 /datum/ai_controller/crew_npc/var/datum/weakref/forcing_door
+/// TRUE once the body has felt a shock going into the wires of the door it is forcing (DOOR-15).
+/datum/ai_controller/crew_npc/var/shocked_at_door = FALSE
+
+/// The body is shocked while its multitool is at a door's wires. It feels that, as anyone would (DOOR-15).
+/datum/ai_controller/crew_npc/proc/felt_door_shock(datum/source, shock_damage, atom/shock_source, siemens_coeff, flags)
+	SIGNAL_HANDLER
+	shocked_at_door = TRUE
 
 /// Returns a tool of this kind (TOOL_SCREWDRIVER and the like) that the body has on it: in a hand first, then on its belt, in a pocket or in its bag. Null if it has none.
 /datum/ai_controller/crew_npc/proc/tool_carried(tool_kind)
@@ -432,8 +439,17 @@
 	// The click that brings the wires window up for a player. For this body no window comes, but
 	// the door does the rest of what it does to anyone who goes into its wires: one that is
 	// electrified shocks them.
+	// A shock is felt, and is the reason the wires will not take: without insulated gloves the wires
+	// of a live door cannot be worked at all (DOOR-15). The shock lands before the click returns.
 	var/why_not
-	if(!click_as_body(door))
+	shocked_at_door = FALSE
+	RegisterSignal(body, COMSIG_LIVING_ELECTROCUTE_ACT, PROC_REF(felt_door_shock), override = TRUE)
+	var/clicked = click_as_body(door)
+	if(!QDELETED(body))
+		UnregisterSignal(body, COMSIG_LIVING_ELECTROCUTE_ACT)
+	if(shocked_at_door)
+		why_not = "the door shocked you as you went for its wires: it is electrified"
+	else if(!clicked)
 		why_not = "you could not reach its wires with your multitool"
 	var/list/pulsed = list()
 	for(var/list/supply as anything in list(list(WIRE_POWER1, WIRE_POWER2), list(WIRE_BACKUP1, WIRE_BACKUP2)))
@@ -536,6 +552,19 @@
 		var/why_no_wires = door.is_secure() ? "its wires are behind a plate of armour" : take_door_power(door)
 		if(!still_forcing(door, serial))
 			return forcing_left_off(door, room_name, label, "at its wires")
+		// Shocked at the wires: the door is electrified, and a second go would only shock it again. The
+		// panel is left as it is if the body is down and cannot shut it (DOOR-15).
+		if(why_no_wires && shocked_at_door)
+			shocked_at_door = FALSE
+			var/panel_note = "Its panel is [door.panel_open ? "open" : "shut"]"
+			if(opened_panel && door.panel_open && !body.incapacitated)
+				use_tool_on_door(door, TOOL_SCREWDRIVER)
+				if(!still_forcing(door, serial))
+					return forcing_left_off(door, room_name, label, "shutting its panel")
+				panel_note = "Its panel is [door.panel_open ? "left open" : "shut again"]"
+			else if(door.panel_open)
+				panel_note = "Its panel is left open: the body was down after the shock"
+			return forcing_failure("electrified", "You could not take the power away from the [door_words]: [why_no_wires].", door, room_name, label, panel_note)
 		if(why_no_wires)
 			if(opened_panel && door.panel_open)
 				use_tool_on_door(door, TOOL_SCREWDRIVER)

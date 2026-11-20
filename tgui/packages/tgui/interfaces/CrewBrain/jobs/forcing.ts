@@ -125,6 +125,9 @@ export function whyNot(
         : 'there is no way to it';
     case 'no_door':
       return 'no door to it can be found';
+    // The door shocked whoever went for its wires (DOOR-15).
+    case 'electrified':
+      return 'it is electrified';
     // A shut fire door under the airlock (DOOR-12).
     case 'fire_doors':
       return fireDoors
@@ -445,8 +448,9 @@ export function forcingAfterActing(
   }
   const reason = String(details.reason ?? '');
   // A door that is bolted or welded, or one it has not the tools or the knowledge for, is not
-  // gone at twice, nor one a shut fire door bars (DOOR-12): a second go finds the same fire door.
-  // Anything else is tried once more.
+  // gone at twice, nor one a shut fire door bars (DOOR-12): a second go finds the same fire door,
+  // nor one that is electrified (DOOR-15): its wires cannot be worked without insulated gloves, and a
+  // second go is a second shock. Anything else is tried once more.
   const final = [
     'bolted',
     'welded',
@@ -454,6 +458,7 @@ export function forcingAfterActing(
     'no_knowledge',
     'no_door',
     'fire_doors',
+    'electrified',
   ];
   if (!ok) {
     job.tries++;
