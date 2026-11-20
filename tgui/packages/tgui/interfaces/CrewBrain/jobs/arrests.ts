@@ -74,8 +74,6 @@ const KIT_AGAIN_DS = 3000;
 const OWN_SIGHT_DS = 1200;
 /** How near (tiles) it stands to someone before it tells them they are under arrest. */
 const NEAR = 2;
-/** How long (deciseconds) having told someone they are under arrest stands before it is said again. */
-const TOLD_STANDS_DS = 450;
 /** How many tries at an arrest may come to nothing before they are left be a while, and how long (deciseconds) that is. */
 const ARREST_TRIES = 3;
 const REST_DS = 300;
@@ -416,13 +414,24 @@ function headSpared(brain: NpcBrain, warrant: BeatWarrant): boolean {
 /** The cell it left this warrant's person in, let go, and could not get out of past them (PLAY-01). */
 type StuckInside = { cell: string; at: number; tries: number };
 
+/**
+ * What a warrant keeps beyond BeatWarrant's own fields (types.ts is not this file's): the cell it
+ * is stuck in (PLAY-01), and how many tries at arresting them it has made in all, which numbers
+ * each try so that the driver does not hold the next one back (ARR-01).
+ */
+type WarrantMore = { stuckInside?: StuckInside; arrestAttempts?: number };
+
+function more(warrant: BeatWarrant): WarrantMore {
+  return warrant as BeatWarrant & WarrantMore;
+}
+
 /** The warrant's StuckInside, if any. Kept on the warrant beside its other cell counts. */
 function stuckOf(warrant: BeatWarrant): StuckInside | undefined {
-  return (warrant as BeatWarrant & { stuckInside?: StuckInside }).stuckInside;
+  return more(warrant).stuckInside;
 }
 
 function setStuck(warrant: BeatWarrant, stuck: StuckInside | undefined): void {
-  (warrant as BeatWarrant & { stuckInside?: StuckInside }).stuckInside = stuck;
+  more(warrant).stuckInside = stuck;
 }
 
 /** TRUE if it has this warrant's person by the arm. */
@@ -993,7 +1002,12 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         step: warrant.cuffedByMe
           ? `${seen.name} is in cuffs and not in your hold. You are taking them by the arm again.`
           : `${seen.name} is in cuffs, and nobody has them by the arm. You are taking them by the arm.`,
-        act: { tool: 'arrest', person: seen.handle, how: 'quiet' },
+        act: {
+          tool: 'arrest',
+          person: seen.handle,
+          how: 'quiet',
+          attempt: (more(warrant).arrestAttempts ?? 0) + 1,
+        },
       };
     }
     // The baton, once they have shown they will not stand still. Not when it is hurt, and not without one.
@@ -1042,10 +1056,10 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
           dropsWalk: true,
         };
       }
-      if (
-        warrant.toldAt === null ||
-        brain.now - warrant.toldAt > TOLD_STANDS_DS
-      ) {
+      // Said once, and again only where a fresh telling is right: after a rest, after losing them,
+      // after a door between them (each sets toldAt back to null). Said every 45 seconds, each
+      // saying was held back longer by the driver, and the arrest waited behind it (ARR-01).
+      if (warrant.toldAt === null) {
         const line = arrestLine(seen.name, warrant.reason);
         return {
           ready: true,
@@ -1060,10 +1074,13 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       step: force
         ? `${seen.name} will not stand still to be arrested. You are using your baton, and then the cuffs.`
         : `You have told ${seen.name} they are under arrest. You are putting the cuffs on them.`,
+      // Numbered, as the tries at a cell are: a try that came to nothing is not held back longer
+      // each time by the driver (ARR-01). The plan paces them itself: three, then a rest.
       act: {
         tool: 'arrest',
         person: seen.handle,
         how: force ? 'force' : 'quiet',
+        attempt: (more(warrant).arrestAttempts ?? 0) + 1,
       },
       dropsWalk: true,
     };
@@ -1474,6 +1491,10 @@ export function beatAfterActing(
     }
     warrant = served;
     warrant.walkedUp = false;
+    // Each try that came to nothing is numbered afresh, whatever stopped it (ARR-01).
+    if (!ok) {
+      more(warrant).arrestAttempts = (more(warrant).arrestAttempts ?? 0) + 1;
+    }
     // The cuffs went on, whether or not it then got a hold of them: they are its prisoner, and
     // whoever keeps the list is told so. Left unsaid, the list read "still wanted" for seven
     // minutes while it walked them about the station.
