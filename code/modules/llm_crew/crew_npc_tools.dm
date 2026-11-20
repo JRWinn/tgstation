@@ -442,6 +442,9 @@
 /datum/ai_controller/crew_npc/proc/start_walk(atom/target, tool, goal, timeout)
 	// Before walk_tool is set: it is the haul under way that is being broken off, if any (SUP-06).
 	break_off_haul(tool)
+	// A second go at a room, from the tile inside one of its doors, is only ever the one (KNB-01).
+	go_to_retried = go_to_retry_next
+	go_to_retry_next = FALSE
 	// A walk under way to somewhere else is ended first, so the walk leaf is set up afresh for the new
 	// one. The base game's route finder only re-plans to the old spot when the target changes under it.
 	// The old walk reports nothing: walk_finished sees the key no longer holds its target.
@@ -456,6 +459,55 @@
 	cancel_search()
 	cancel_errand()
 	set_blackboard_key(BB_CREW_NPC_WALK_TARGET, target)
+
+/// TRUE while the walk under way is a second go at a room, from the tile inside one of its doors (KNB-01).
+/datum/ai_controller/crew_npc/var/go_to_retried = FALSE
+/// Set just before start_walk() for that second go, which takes it into go_to_retried.
+/datum/ai_controller/crew_npc/var/go_to_retry_next = FALSE
+
+/**
+ * A walk to a room found no route at all to the spot picked in it: a room the body has not stood in
+ * may have its far side cut off by furniture (the Warehouse: crates across its floor just inside its
+ * only door) or a sealed part. Anyone would go in by a door they can open and stop inside it, and
+ * being in the room is arrival. So it walks once more, to the tile inside the nearest door of the room
+ * that its ID opens and that is not dead (KNB-01). Returns TRUE if it set off.
+ */
+/datum/ai_controller/crew_npc/proc/retry_by_door(atom/target, goal)
+	if(go_to_retried || !isturf(target) || !goal || last_route_steps != 0)
+		return FALSE
+	var/mob/living/carbon/human/body = pawn
+	var/area/room = get_area(target)
+	if(isnull(room) || room == get_area(body) || !isturf(body.loc))
+		return FALSE
+	var/list/doors = crew_npc_doors_of(room, body.z)
+	var/turf/best
+	var/best_distance = INFINITY
+	for(var/obj/machinery/door/airlock/door as anything in doors)
+		if(!door.allowed(body) || crew_npc_door_dead(door))
+			continue
+		var/list/sides = doors[door]
+		var/turf/inside = sides[1]
+		if(inside == target || !crew_npc_safe_floor(inside, body))
+			continue
+		var/distance = get_dist(body, inside)
+		if(distance < best_distance)
+			best_distance = distance
+			best = inside
+	if(isnull(best))
+		return FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no route to [goal] at [AREACOORD(target)], and tries the tile inside its door at [AREACOORD(best)].")
+	// Not from inside the walk that has just ended: the tree is still closing it off.
+	addtimer(CALLBACK(src, PROC_REF(walk_in_by_door), best, goal, errand_serial, tool_serial), 0.2 SECONDS)
+	return TRUE
+
+/// Sets off on the second go at a room (retry_by_door()), unless the body has been given something else to do meanwhile.
+/datum/ai_controller/crew_npc/proc/walk_in_by_door(turf/inside, goal, serial, calls)
+	if(QDELETED(src) || QDELETED(pawn) || isnull(inside))
+		return
+	if(errand_serial != serial || tool_serial != calls || blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	go_to_retry_next = TRUE
+	start_walk(inside, CREW_TOOL_GO_TO, goal, CREW_NPC_TRAVEL_TIMEOUT)
 
 /// Called by the walk leaf when a walk ends for any reason.
 /datum/ai_controller/crew_npc/proc/walk_finished(atom/target, succeeded, reason)
@@ -483,6 +535,10 @@
 		// A crate that got away is gone back for, and one that will not come is put clear of the
 		// doors, before anything is said about the haul. It is not over until that is done.
 		if(crate_got_away(tool, reason))
+			return
+		// No route at all to the spot picked in a room: once more, from the tile inside a door of it
+		// that its ID opens. Not counted as a locked room or as being shut in meanwhile (KNB-01).
+		if(tool == CREW_TOOL_GO_TO && reason == CREW_NPC_NO_WAY && get_area_name(pawn, TRUE) != goal && retry_by_door(target, goal))
 			return
 
 	if(tool == CREW_TOOL_PUT_CLEAR)
@@ -632,7 +688,15 @@
 				state += "welded"
 			if(!door.hasPower())
 				state += "no power"
-			door_lines += "[door.name] at ([door.x],[door.y]): [length(state) ? english_list(state) : "opens for it"]"
+			// Whether the tile just inside it can be walked to: crates across the floor inside a door
+			// were the whole of the Warehouse's trouble, and nothing in the log said so (KNB-01).
+			if(!length(state))
+				var/list/sides = crew_npc_doors_of(goal_room, heading_for.z)[door]
+				var/list/to_inside = sides ? get_path_to(body, sides[1], max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access()) : null
+				if(QDELETED(src) || QDELETED(body))
+					return
+				state += length(to_inside) ? "opens for it, inside tile reachable" : "opens for it, inside tile not reachable"
+			door_lines += "[door.name] at ([door.x],[door.y]): [english_list(state)]"
 	// What first stands in the way going straight there: a wall, most often, but now and then a
 	// shutter, a windoor or a crate that the planner took for shut.
 	var/first_shut = "nothing"

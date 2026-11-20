@@ -128,3 +128,13 @@ Checked by Opus 5.5. Confirmed.
 - Logs: `grep "walk failed (go_to, to Warehouse)"` over every `game.log` of 2026/11/18-19 gives 32, in 14 rounds; I mended the counts. The round-20.43.32 lines quoted are there. Round-20.00.21 has a technician in the Warehouse, which fits a random roll.
 - Change log: the Warehouse is listed as known and not run down at lines 292, 380, 512, 781, 808, 1047. Nothing has fixed it.
 - I did not see which tiles held crates in any round. The cause comes from the map and the odds, not from watching it. Severity medium stands: one duty of one job fails in most rounds, and the work gets done elsewhere. Effort medium: step 1 and the log line are small, the button tool is more.
+
+## Fix so far
+
+Step 1 and its log line built by group m-doors (2026-11-19, night), compile only, not played. Step 3 (the shutter button) is the owner's question and is not built.
+
+- The spot for a room the body has not stood in is now picked from the part of it the body can get into (`open_part_of`, built under KNA-19): crates are dense, so the flood from the Warehouse Maintenance door stops at them and the spot is in the pocket inside the door.
+- As a fallback, `retry_by_door` (`crew_npc_tools.dm`): a `go_to` that fails with no route at all (`last_route_steps == 0`) to a room the body is not in walks once more, 0.2 s later, to the tile inside the nearest door of that room its ID opens and that is not dead, logged "found no route to X at ..., and tries the tile inside its door at ...". It returns before the failure is counted as a blocked room or towards being shut in. `go_to_retried` makes it once only; any other walk or tool given meanwhile wins (`walk_in_by_door`).
+- `log_no_route`: each door that opens for it now says "inside tile reachable" or "inside tile not reachable" (a route test per such door, in the log proc's own async call).
+
+Not done: HAND-04 (once in the pocket, things out of reach on the far side are not gone for over and over) was not looked at.
