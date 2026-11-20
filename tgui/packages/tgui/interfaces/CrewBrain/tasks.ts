@@ -41,7 +41,7 @@ import {
 } from './jobs/pickups';
 import { syncWanted } from './jobs/wanted';
 import { allPlaces, knowsPlace } from './memory';
-import type { NpcBrain, Plan, Task, Urgency } from './types';
+import type { NpcBrain, Plan, SenseEvent, Task, Urgency } from './types';
 
 /** How long (deciseconds of server time) a finished task is kept, so whoever asked can be told. */
 const KEEP_DONE_DS = 6000;
@@ -357,6 +357,37 @@ export function workInWords(
       if (orderIn(kind, asWork, place, heard)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
+    }
+  }
+  return null;
+}
+
+/**
+ * Work of its own job in a line it heard that was put to nobody in particular, or to everyone
+ * there, taken on whoever answers it (PARSE-17): "someone threw up in the bar", said in front of
+ * a janitor and a technician nearer the speaker, is the janitor's mess. Only the job's own words
+ * and a room named; never an order (that is for whoever it was said to), never a line said to
+ * someone else by name, and not a line said to it, which its answer deals with. A question, being
+ * told not to bother, or word that it is done already is not work (orderClauses).
+ */
+export function workOverheard(
+  brain: NpcBrain,
+  event: SenseEvent,
+): Task | null {
+  const to = event.details.said_to;
+  if (to !== 'group' && to !== 'nobody') {
+    return null;
+  }
+  const job = jobFor(brain.job);
+  const heard = orderClauses(String(event.details.message ?? '').toLowerCase());
+  const place = placeNamedIn(brain, heard);
+  if (!place) {
+    return null;
+  }
+  const speaker = String(event.details.speaker ?? '') || undefined;
+  for (const [kind, words] of Object.entries(job.soundsLike ?? {})) {
+    if (job.takes?.[kind] && words.test(heard)) {
+      return takeToldWork(brain, job.takes[kind], place, speaker, false);
     }
   }
   return null;

@@ -10,9 +10,11 @@
  * and how many people there are to mean. The LLM is then told plainly who it was said to.
  *
  * The rules, in order:
- * 1. It calls on this NPC by name (or by its job, if it serves at a post): it was said to this NPC.
- * 2. It uses someone else's name: it was said to them, and is none of this NPC's business.
- * 3. It is put to several people at once ("can either of you"): one of them answers, the nearest.
+ * 1. It calls on this NPC by name or by its job: it was said to this NPC (and to anyone there who
+ *    shares the first name or the job, so the nearest answers).
+ * 2. It uses someone else's name or job: it was said to them, and is none of this NPC's business.
+ * 3. It is put to several people at once ("can either of you"; "can anyone", unless the speaker
+ *    is beside it): one of them answers, the nearest.
  * 4. No name at all: it is for this NPC if nobody else is there, if the speaker is beside it or
  *    turned towards it, or if the two of them were just talking. Otherwise it is for nobody.
  */
@@ -28,7 +30,18 @@ export type SaidTo = {
 
 /** Words that put a thing to everyone there, or to whoever will take it up. */
 const GROUP_WORDS =
-  /\b(either of you|both of you|any of you|one of you|all of you|you two|you both|you all|you lot|you guys|everyone|everybody|anyone|anybody|someone|somebody|guys|folks)\b/i;
+  /\b(either of you|both of you|any of you|one of you|all of you|you two|you both|you all|you lot|you guys|guys|folks)\b/i;
+/**
+ * "Someone", "anyone", "everyone" put a thing to everyone there only when they are the one asked:
+ * "Can anyone help?", "anyone know where the bar is", "Everyone, listen up". When they are the
+ * one who did something ("someone threw up in the bar") the line is said to whoever is meant by
+ * the other rules (PARSE-17).
+ */
+const ANYONE = '(?:anyone|anybody|someone|somebody|everyone|everybody)';
+const ANYONE_ASKED = new RegExp(
+  `\\b(?:can|could|would|will|does|did|has|is|can't|cannot)\\s+${ANYONE}\\b|^\\W*(?:hey\\W+|ok\\W+|okay\\W+|right\\W+)?${ANYONE}\\s+(?:know|knows|seen|got|here|there|around|free|want|wants|help|fancy)\\b|^\\W*(?:hey\\W+|ok\\W+|okay\\W+|right\\W+)?${ANYONE}\\s*[,:!?]`,
+  'i',
+);
 /** How close (in tiles) a speaker must be for talk with no name in it to be meant for whoever is beside them. */
 const BESIDE = 1;
 /** How close (in tiles) a speaker turned towards the NPC must be for it to count as talking to it. */
@@ -298,6 +311,10 @@ export function saidTo(
   const turnedAway = facing !== undefined && !facing;
   if (distance <= BESIDE && (!turnedAway || nearest)) {
     return { to: 'me' };
+  }
+  // Asked of anyone there, from further off than beside it: the nearest answers.
+  if (ANYONE_ASKED.test(heard)) {
+    return { to: 'group' };
   }
   if (!!facing && distance <= FACING_RANGE && nearest) {
     return { to: 'me' };
