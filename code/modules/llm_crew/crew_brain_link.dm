@@ -153,6 +153,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"awake" = npc.can_sense(),
 			// The room the body is standing in, which it knows the way anyone does: by looking.
 			"location" = get_area_name(body, TRUE),
+			// Too dark where it stands to make out more than what is right beside it (CHEAT-15). The window does not read it yet.
+			"dark" = isturf(body.loc) && !body.has_light_nearby() && !body.has_nightvision(),
 			"people_in_view" = npc.people_in_view,
 			"things_in_view" = npc.things_in_view,
 			"holding" = holding,

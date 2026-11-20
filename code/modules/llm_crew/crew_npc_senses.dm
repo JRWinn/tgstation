@@ -25,6 +25,34 @@
 	deltimer(look_timer)
 	look_timer = null
 
+/**
+ * Keeps, of what is in line of sight, only what the body could make out: what stands on a lit tile,
+ * or on a tile right beside it. view() and oview() leave nothing out for want of light here (every
+ * mob sees in the dark, and the lighting plane does the hiding on a player's screen), so a body in
+ * a dark room would otherwise see the whole room as if the lights were on (CHEAT-15). A light that
+ * someone carries lights their tile, and an area with no lighting is lit throughout. Eyes that see
+ * in the dark (meson or night-vision glasses) see it all.
+ */
+/proc/crew_npc_visible(list/in_view, mob/living/viewer)
+	if(viewer.has_nightvision())
+		return in_view
+	var/turf/here = get_turf(viewer)
+	// Each tile is asked once, however many things stand on it.
+	var/list/lit = list()
+	var/list/seen = list()
+	for(var/atom/thing as anything in in_view)
+		var/turf/spot = get_turf(thing)
+		if(isnull(spot))
+			seen += thing
+			continue
+		var/known = lit[spot]
+		if(isnull(known))
+			known = get_dist(spot, here) <= 1 || spot.check_lumcount_above(LIGHTING_TILE_IS_DARK)
+			lit[spot] = known
+		if(known)
+			seen += thing
+	return seen
+
 /// TRUE if this thing lying on the floor would slip a runner, and can be seen for what it is: oil, a peel, soap, foam.
 /proc/crew_npc_slippery_thing(atom/movable/thing)
 	return isturf(thing.loc) && !thing.invisibility && thing.alpha > 0 && !isnull(thing.GetComponent(/datum/component/slippery))
@@ -51,7 +79,8 @@
 			return TRUE
 		if(!crew_npc_slippery_thing(thing))
 			continue
-		// Not seen before. The tile in front of it is in plain sight, unless it is too dark to see.
+		// Not seen before. The tile in front of it is in plain sight: a tile right beside the body is
+		// made out even in the dark (crew_npc_visible), so this needs no test of the light.
 		in_reach ||= oview(1, pawn)
 		if(thing in in_reach)
 			slippery_seen[REF(thing)] = WEAKREF(thing)
@@ -162,7 +191,8 @@
 
 	drop_disguise()
 	note_place(body)
-	var/list/in_sight = oview(CREW_NPC_VISION_RANGE, body)
+	// In the dark it makes out only what a light falls on, and what is right beside it.
+	var/list/in_sight = crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body)
 	things_in_view = notable_things(in_sight)
 	// Water to wet a mop with: the bucket it carries, a mop bucket or cart with water in, or a sink.
 	var/atom/water = water_to_hand(in_sight)
