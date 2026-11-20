@@ -692,18 +692,26 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
  * Who it can ask to open a room it is shut out of: those the server says have an ID for one of
  * its doors, and failing them the Captain, whose ID opens every door. Never itself, and never
  * anyone it has a warrant on: the person it has come for is not asked to open the door.
+ * Those are struck first, and the Captain is the one asked when nobody is left: a head wanted in
+ * its own office is the only one listed for it, and the Captain's ID opens it too (PLAY-09).
  */
-function keepersOf(brain: NpcBrain, place: string, given?: unknown): string[] {
+export function keepersOf(
+  brain: NpcBrain,
+  place: string,
+  given?: unknown,
+): string[] {
   const listed = Array.isArray(given)
     ? given.map(String)
     : (brain.security?.keepers?.[place] ?? []);
-  const captain = captainName(brain);
-  const names = listed.length > 0 ? listed : captain ? [captain] : [];
   const wanted = beatOf(brain).warrants.map((warrant) => warrant.name);
-  return names.filter(
-    (name) =>
-      name !== brain.name && !wanted.some((other) => sameName(other, name)),
-  );
+  const askable = (name: string) =>
+    name !== brain.name && !wanted.some((other) => sameName(other, name));
+  const names = listed.filter(askable);
+  if (names.length > 0) {
+    return names;
+  }
+  const captain = captainName(brain);
+  return captain && askable(captain) ? [captain] : [];
 }
 
 /** Notes that someone it has a warrant on is in a room it cannot get into. Returns FALSE if there is nobody to ask. */
