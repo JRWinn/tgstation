@@ -39,8 +39,8 @@ const said = (b: any) => b.toTell.map((tell: any) => `${tell.byPda ? 'PDA' : 'sa
   add('PLAY-02: "in cuffs", then "cannot": both wait', words(o), ['cuffed', 'cannot']);
   A.beatOf(o).outcomes.push({ what: 'jailed', name: 'Walker Wolfe', cell: 'Cell 2', minutes: 5, resisted: false });
   OFFICER.syncTasks(o);
-  add('PLAY-02: then "in Cell 2": only that is left', words(o), ['jailed']);
-  add('PLAY-02: and only its task is open', o.tasks.filter((task: any) => task.kind === 'word_for_security_head' && task.state !== 'done').length, 1);
+  add('PLAY-02: then "in Cell 2": "cannot" is dropped, "in cuffs" stays true', words(o), ['cuffed', 'jailed']);
+  add('PLAY-02: and the dropped one\'s task is closed', o.tasks.filter((task: any) => task.kind === 'word_for_security_head' && task.state !== 'done').length, 2);
 }
 {
   const o = officer();

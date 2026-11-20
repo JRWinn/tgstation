@@ -103,13 +103,14 @@ const SOUGHT_DS = 200;
 
 /**
  * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
- * attacked or robbed of its baton stays true whatever comes after.
+ * attacked or robbed of its baton stays true whatever comes after, and so does having had
+ * them in cuffs once they are in a cell or let go: the Captain is told of the cuffs.
  */
 const STALE_AFTER: Partial<
   Record<SecurityOutcome['what'], SecurityOutcome['what'][]>
 > = {
-  jailed: ['cuffed', 'cannot', 'lost'],
-  freed: ['cuffed', 'cannot', 'lost'],
+  jailed: ['cannot', 'lost'],
+  freed: ['cannot', 'lost'],
   lost: ['cuffed', 'cannot'],
   cuffed: ['cannot', 'lost'],
   cannot: ['cannot'],
