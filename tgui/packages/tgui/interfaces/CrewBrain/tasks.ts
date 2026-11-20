@@ -300,10 +300,24 @@ export function workInWords(
         .filter((line) => line.includes(`] ${toldBy} says: `))
         .slice(-ORDER_LINES)
     : [];
-  const heard = (theirs.length > 0 ? theirs : spoken)
-    .flatMap((line) => line.match(/"[^"]*"/g) ?? [])
-    .join(' ')
-    .toLowerCase();
+  const lines = (theirs.length > 0 ? theirs : spoken).map((line) =>
+    (line.match(/"[^"]*"/g) ?? []).join(' ').toLowerCase(),
+  );
+  // The work is read from the last line that names a room and sounds like work or an order, so
+  // a room named in a remark before it ("The Kitchen looks great.") is not where it is sent
+  // (MEM-04). With no such line, all of it is read together, as before.
+  const sounds = [
+    ...Object.values(job.soundsLike ?? {}),
+    ...(fromSuperior ? Object.values(ORDER_SOUNDS) : []),
+  ];
+  const heard =
+    lines
+      .filter(
+        (line) =>
+          !!placeNamedIn(brain, line) &&
+          sounds.some((words) => words.test(line)),
+      )
+      .pop() ?? lines.join(' ');
   const place = placeNamedIn(brain, heard);
   // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
   // That is not an order to go and look at a room, even if one is named.
@@ -399,16 +413,56 @@ export function stillIn(brain: NpcBrain, place: string): boolean {
   );
 }
 
-/** The room the NPC knows that these words name, if they name one. The words must be in lower case. */
+/**
+ * Words that, among the three before a room's name, set that room aside: it is the room not
+ * meant ("Forget the Kitchen", "the Bar, not the Chapel", "ran from the Bar into the Kitchen").
+ */
+const SET_ASIDE = /\b(not|forget|leave|instead of|from)\b/;
+
+/**
+ * The room the NPC knows that these words name, if they name one. The words must be in lower case.
+ *
+ * Of two rooms named, the one meant is the first that is not set aside (MEM-04): "Check the Bar,
+ * then come back to the Library" is the Bar, and "Forget the Kitchen, there is blood all over
+ * the Bar" is the Bar. A name inside a longer one is not a room of its own: "Medbay Central" is
+ * not "Medbay". If every room named is set aside, the first is taken all the same: "I came from
+ * the Bar, there is blood there" names the Bar.
+ */
 export function placeNamedIn(brain: NpcBrain, heard: string): string | undefined {
-  // Longest names first, so "Medbay Central" is not taken for "Medbay".
-  return allPlaces(brain)
-    .sort((a, b) => b.length - a.length)
-    .find((name) =>
-      new RegExp(
-        `\\b${name.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
-      ).test(heard),
+  const found: { name: string; start: number; end: number }[] = [];
+  for (const name of allPlaces(brain)) {
+    const pattern = new RegExp(
+      `\\b${name.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
+      'g',
     );
+    for (const match of heard.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      found.push({ name, start, end: start + match[0].length });
+    }
+  }
+  const named = found
+    .filter(
+      (one) =>
+        !found.some(
+          (other) =>
+            other.end - other.start > one.end - one.start &&
+            other.start <= one.start &&
+            other.end >= one.end,
+        ),
+    )
+    .sort((a, b) => a.start - b.start);
+  const meant = named.find(
+    (one) =>
+      !SET_ASIDE.test(
+        heard
+          .slice(0, one.start)
+          .split(/[^a-z']+/)
+          .filter(Boolean)
+          .slice(-3)
+          .join(' '),
+      ),
+  );
+  return (meant ?? named[0])?.name;
 }
 
 /** What doing a task comes down to right now, from whoever knows how that kind of work is done. */
