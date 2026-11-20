@@ -1605,6 +1605,18 @@ export type NpcBrain = {
   mustSayFor?: SayFor | null;
   /** When the line its work calls for was handed over to be said (this window's clock): after a few seconds it is said plainly (BRAIN-02). */
   mustSayAt?: number;
+  /**
+   * The line last sent to be said (this window's clock), whether it was the line its work called
+   * for, and how many times that line had been tried: a refusal from the server is matched to it (BRAIN-04).
+   */
+  sentSay?: {
+    text: string;
+    at: number;
+    carried: boolean;
+    tries: number;
+  } | null;
+  /** A refused line its work called for, to be said again word for word once the server will let it speak (BRAIN-04). */
+  resay?: { text: string; at: number; tries: number; fired: boolean } | null;
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
