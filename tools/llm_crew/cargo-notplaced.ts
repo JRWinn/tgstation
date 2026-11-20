@@ -91,6 +91,37 @@ const notPlaced = (b: any) => b.tasks.find((t: any) => t.kind === 'not_placed' &
   add('placed: no word owed', notPlaced(b) ?? null, null);
 }
 
+// KNB-15: word that a crate would not come is not dropped when the Quartermaster is not found,
+// and a body that cannot reach the office door does not hold it until it is stale.
+{
+  const b: any = makeBrain(SAM.name, SAM.job);
+  b.id = 'knb15';
+  b.post = 'Cargo Bay';
+  b.location = 'Supply Shuttle';
+  b.now = 10_000;
+  b.pdaPeople = [{ name: QM.name, job: QM.job }];
+  b.peopleInView = [];
+  b.headOffice = 'Quartermaster\'s Office';
+  b.gaveUp = { tool: 'unload', what: 'crate #7', leftIn: 'Supply Shuttle', at: 10_000 };
+  CARGO.syncTasks(b);
+  const task = b.tasks.find((t: any) => t.kind === 'wont_come' && t.state !== 'done');
+  add('KNB-15: a give-up with the Quartermaster away: word is owed', !!task, true);
+  add('KNB-15: it goes to the office door', CARGO.plan(b, task)?.act, { tool: 'go_to_door', place: 'Quartermaster\'s Office' });
+  CARGO.afterActing(b, { tool: 'go_to_door', place: 'Quartermaster\'s Office' }, task, false, false, {}, 'You could not get there.');
+  add('KNB-15: one failed walk: it tries the door again', CARGO.plan(b, task)?.act?.tool, 'go_to_door');
+  CARGO.afterActing(b, { tool: 'go_to_door', place: 'Quartermaster\'s Office' }, task, false, false, {}, 'You could not get there.');
+  const left = CARGO.plan(b, task);
+  add('KNB-15: two failed walks: no PDA, the word is left a while', [left?.ready, left?.act ?? null, b.toTell.length], [false, null, 0]);
+  CARGO.syncTasks(b);
+  add('KNB-15: and kept, blocked, not dropped', [task.state, b.gaveUp?.what], ['blocked', 'crate #7']);
+  b.now += 1300;
+  CARGO.syncTasks(b);
+  add('KNB-15: the wait over, it goes to the door again', [task.state, CARGO.plan(b, task)?.act?.tool], ['open', 'go_to_door']);
+  b.now = 10_000 + 3100;
+  CARGO.syncTasks(b);
+  add('KNB-15: five minutes on, the word is stale and let go', [task.state, b.gaveUp], ['done', null]);
+}
+
 // The Quartermaster's side.
 const qm = () => {
   const b: any = makeBrain(QM.name, QM.job);

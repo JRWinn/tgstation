@@ -173,6 +173,10 @@ const NOT_PLACED_TASK = 'not_placed';
 const NOT_PLACED_AGAIN_DS = 1200;
 /** How long (deciseconds) word of an order not placed is kept, all told, before it is let go. */
 const NOT_PLACED_KEPT_DS = 18000;
+/** How many times running the walk to the Quartermaster's office door may fail before word for it is left a while (KNB-15). */
+const DOOR_MISSES = 2;
+/** For each NPC and task (`id:task`), how many times running the walk to the Quartermaster's office door has failed. */
+const doorMisses = new Map<string, number>();
 /** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of. */
 const WONT_COME_DS = 3000;
 /** How long (deciseconds) the shuttle and the rooms are its to see to as well, once the Quartermaster has sent it to help a workmate. */
@@ -502,7 +506,11 @@ function tellQuartermaster(
   const office = brain.headOffice;
   const waitedAtDoor =
     task.knockedAt !== undefined && brain.now - task.knockedAt > AT_QM_DOOR_DS;
-  if (!office || waitedAtDoor) {
+  // A body that cannot get to the office door, shut aboard the shuttle or in a room, does not hold
+  // the word until it is stale: it gives up on the door as it would after knocking (KNB-15).
+  const cannotReach =
+    (doorMisses.get(`${brain.id}:${task.id}`) ?? 0) >= DOOR_MISSES;
+  if (!office || waitedAtDoor || cannotReach) {
     task.byPda = true;
     return null;
   }
@@ -815,9 +823,10 @@ function syncWontCome(brain: NpcBrain): void {
     brain.now - gaveUp.at < WONT_COME_DS &&
     brain.now - (brain.wontComeTold[gaveUp.what] ?? -Infinity) > WONT_COME_DS &&
     !!quartermasterAboard(brain);
-  // Told and heard, or the Quartermaster was not to be found or did not answer: either way it is
-  // done with. Nothing between the two of them goes by PDA, so there is no other way to send it.
-  if (telling && (telling.passedOn || telling.byPda || !owed)) {
+  // Told and heard, or no longer worth telling: done with. Not found, or not answered, it is not
+  // dropped: wontComeStep leaves it a while and takes it to the Quartermaster again, while it is
+  // still owed. Whether it may go by PDA instead is the owner's to say (KNB-15, CARGO-02).
+  if (telling && (telling.passedOn || !owed)) {
     if (telling.passedOn && telling.item) {
       brain.wontComeTold[telling.item] = brain.now;
       // A crate it could not bring out to the lobby is the Quartermaster's to see to now: it
@@ -849,6 +858,29 @@ function syncWontCome(brain: NpcBrain): void {
       source: 'own',
     });
   }
+  if (telling) {
+    blockTask(
+      telling,
+      telling.retryAt !== undefined && brain.now < telling.retryAt
+        ? 'you could not find the Quartermaster to tell them, and will try again shortly'
+        : null,
+    );
+  }
+}
+
+/**
+ * Word for the Quartermaster that could not be got to it this time: not found, not at its office,
+ * or not answering. It is left a while (NOT_PLACED_AGAIN_DS) and then taken to it afresh: the
+ * counts that sent it away are started again (KNB-15, CARGO-03).
+ */
+function tellAgainLater(brain: NpcBrain, task: Task): void {
+  task.byPda = false;
+  task.unheard = 0;
+  task.walkedUp = false;
+  task.knockedAt = undefined;
+  task.toldAt = undefined;
+  doorMisses.delete(`${brain.id}:${task.id}`);
+  task.retryAt = brain.now + NOT_PLACED_AGAIN_DS;
 }
 
 /** What telling the Quartermaster of a crate that would not come comes down to right now. */
@@ -859,22 +891,28 @@ function wontComeStep(brain: NpcBrain, task: Task): Plan {
   if (!gaveUp || !how || !quartermaster || task.passedOn) {
     return { ready: false, step: 'There is nothing left to tell of it.' };
   }
-  return (
-    tellQuartermaster(
-      brain,
-      task,
-      quartermaster,
-      wontComeLine(
-        firstName(quartermaster.name),
-        gaveUp.what,
-        how,
-        gaveUp.leftIn,
-      ),
-      `that you could not get ${gaveUp.what} ${how}`,
-      // Never taken: once the Quartermaster has it, the task is closed and nothing more is done.
-      { tool: 'rest' },
-    ) ?? { ready: false, step: 'There is nobody to tell of it.' }
+  const step = tellQuartermaster(
+    brain,
+    task,
+    quartermaster,
+    wontComeLine(
+      firstName(quartermaster.name),
+      gaveUp.what,
+      how,
+      gaveUp.leftIn,
+    ),
+    `that you could not get ${gaveUp.what} ${how}`,
+    // Never taken: once the Quartermaster has it, the task is closed and nothing more is done.
+    { tool: 'rest' },
   );
+  if (step) {
+    return step;
+  }
+  tellAgainLater(brain, task);
+  return {
+    ready: false,
+    step: `You could not find ${quartermaster.name} to tell them that you could not get ${gaveUp.what} ${how}. You will try again shortly.`,
+  };
 }
 
 /** Why the console would not take an order, in the technician's words, from what the server said. */
@@ -939,12 +977,7 @@ function notPlacedStep(brain: NpcBrain, task: Task): Plan {
     return step;
   }
   // Not found, or twice not heard: left a while, then taken to it afresh.
-  task.byPda = false;
-  task.unheard = 0;
-  task.walkedUp = false;
-  task.knockedAt = undefined;
-  task.toldAt = undefined;
-  task.retryAt = brain.now + NOT_PLACED_AGAIN_DS;
+  tellAgainLater(brain, task);
   return {
     ready: false,
     step: `You could not find ${by} to tell them that order ${task.item} could not be placed. You will try again shortly.`,
@@ -2569,6 +2602,15 @@ export const CARGO: Job = {
     // Word of an order that has come in is passed on, or it knocked for the Quartermaster.
     if (task && act.tool === 'knock' && ok) {
       task.knockedAt = brain.now;
+    }
+    // The walk to the Quartermaster's office door, counted while it keeps failing (KNB-15).
+    if (task && act.tool === 'go_to_door') {
+      const key = `${brain.id}:${task.id}`;
+      if (ok) {
+        doorMisses.delete(key);
+      } else {
+        doorMisses.set(key, (doorMisses.get(key) ?? 0) + 1);
+      }
     }
     if (task && act.tool === 'word_passed') {
       task.passedOn = false;
