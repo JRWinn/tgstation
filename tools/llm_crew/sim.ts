@@ -1184,6 +1184,8 @@ function uiData(body: Body) {
     freight: body.post ? {
       shuttle_docked: shuttle.docked ? 1 : 0,
       to_unload: shuttle.docked ? shuttle.aboard.filter((box) => !spent(box)).length : 0,
+      // Every full crate aboard, one a workmate is hauling off too (SUP-05). Nothing here is claimed, so it is the same count.
+      full_aboard: shuttle.docked ? shuttle.aboard.filter((box) => !spent(box)).length : 0,
       empties_aboard: shuttle.docked ? shuttle.aboard.filter(spent).length : 0,
       mail_crate: rooms['Cargo Bay'].boxes.some((box) => box.mail?.length) ? 1 : 0,
       mail_for: [...new Set(body.mail)],
