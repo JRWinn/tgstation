@@ -977,7 +977,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	var/mob/living/carbon/human/body = pawn
 	var/obj/machinery/door/firedoor/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/machinery/door/firedoor/door in view(CREW_NPC_FIRE_DOOR_RANGE, body))
+	for(var/obj/machinery/door/firedoor/door in crew_npc_visible(view(CREW_NPC_FIRE_DOOR_RANGE, body), body))
 		if(!door.density)
 			continue
 		var/distance = get_dist(body, door)
