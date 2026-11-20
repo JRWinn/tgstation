@@ -50,6 +50,7 @@ import {
   meetingSaid,
   meetStep,
   present,
+  staffMeetingWord,
   syncMeeting,
   workReported,
 } from './head';
@@ -1899,7 +1900,12 @@ export const QUARTERMASTER: Job = {
   describeTask,
   // An order from a head, the Captain's answer about one, or the Captain telling it to find out
   // how its staff are doing, by PDA.
-  readsMessage: (brain, from, text, _at, job) => {
+  readsMessage: (brain, from, text, at, job) => {
+    // A technician sending word that they are on their way to its meeting, or their report
+    // because they cannot come, as the other heads read it (KNB-09).
+    if (staffMeetingWord(brain, from, text, at)) {
+      return;
+    }
     if (/captain/i.test(job) && readAnswer(brain, from, text, false)) {
       return;
     }
