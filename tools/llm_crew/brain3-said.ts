@@ -15,7 +15,14 @@ const add = (label: string, got: unknown, want: unknown) => cases.push([label, J
 let holding = false;
 let release: (() => void) | null = null;
 let answer = 'Hello there.';
+/** While TRUE, the stand-in model takes each call and never answers, until the caller gives up on it. */
+let hanging = false;
 (globalThis as any).fetch = async (_url: string, init: any) => {
+  if (hanging) {
+    await new Promise<void>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new Error('The operation was aborted.')));
+    });
+  }
   if (holding) {
     await new Promise<void>((resolve) => {
       release = resolve;
@@ -134,6 +141,59 @@ const update = (id: string, people: any[], more: any = {}) => {
   add('DRV-07: Zim back: Zim is asked', said.slice(saidBefore).some((line) => /^Zim, could you open the door/.test(line)), true);
   add('DRV-07: and now down as asked', brain.outAsks.asked, ['Zim Fire']);
 }
+
+// ---- BRAIN-02: a model that takes the call and never answers
+hanging = true;
+{
+  // Alone with the model free, the call starts at once and is given up after 15 seconds, not 60.
+  const id = `said${++ids}`;
+  update(id, []);
+  const brain: any = B.getBrain(id);
+  const LINE = 'Zim, crate 12 is out in the lobby for you.';
+  brain.toTell.push({ to: 'Zim Fire', line: LINE, why: 'Crate 12 is out.', at: Date.now(), needs: /crate 12/i });
+  const started = Date.now();
+  update(id, [zim]);
+  while (Date.now() - started < 20000 && !said.includes(LINE)) {
+    await wait(200);
+    update(id, [zim]);
+  }
+  const took = Date.now() - started;
+  add('BRAIN-02: the model hangs: the plain line is said', said.includes(LINE), true);
+  add('BRAIN-02: within about 15 seconds, not 60', took > 13000 && took < 18000, true);
+}
+{
+  // The model is held by someone else's talk. One with a line to word waits 8 seconds, not its
+  // place in the queue times a minute; one with a word-for-word line says it as soon as it may.
+  const talker = `said${++ids}`;
+  const plain = `said${++ids}`;
+  const exact = `said${++ids}`;
+  const all = (people: any[], more: any = {}, events: any[] = []) => {
+    tick += 10;
+    B.ingest([body(talker, [zim], { events }), body(plain, people, more), body(exact, people, more)] as any, tick);
+  };
+  all([]);
+  const P = 'Zim, the bay is clear now.';
+  const E = 'Order 9, right away.';
+  // The talker is spoken to, so its call (with no line of its own) holds the model up to a minute.
+  all([], {}, [{ seq: 1, time: '', at: tick, kind: 'speech_heard', text: 'Zim Fire says: "Hello there"', details: { source: 'person', handle: 'p7', speaker: 'Zim Fire', message: 'Hello there', said_to: 'me' } }]);
+  await wait(300);
+  (B.getBrain(plain) as any).toTell.push({ to: 'Zim Fire', line: P, why: 'x', at: Date.now(), needs: /clear/i });
+  (B.getBrain(exact) as any).toTell.push({ to: 'Zim Fire', line: E, why: 'x', at: Date.now(), exact: true });
+  const started = Date.now();
+  let exactAt = 0;
+  let plainAt = 0;
+  while (Date.now() - started < 14000 && !(exactAt && plainAt)) {
+    all([zim]);
+    await wait(250);
+    if (!exactAt && said.some((line) => line.startsWith(E))) exactAt = Date.now() - started;
+    if (!plainAt && said.includes(P)) plainAt = Date.now() - started;
+  }
+  add('BRAIN-02: the model busy elsewhere: a word-for-word line is said within a few seconds', exactAt > 0 && exactAt < 6000, true);
+  add('BRAIN-02: a line to be worded is said plainly after about 8 seconds', plainAt > 7500 && plainAt < 11000, true);
+  add('BRAIN-02: and is struck off toTell (it was said with Zim in view)', (B.getBrain(plain) as any).toTell.length, 0);
+  add('BRAIN-02: and the body is no longer waiting its turn', (B.getBrain(plain) as any).status, 'idle');
+}
+hanging = false;
 
 let failed = 0;
 for (const [label, got, want] of cases) {

@@ -73,6 +73,7 @@ import type {
   Decision,
   Npc,
   NpcBrain,
+  SayFor,
   SenseEvent,
 } from './types';
 
@@ -81,6 +82,13 @@ export const OLLAMA_URL = 'http://127.0.0.1:11434';
 const PREFERRED_MODEL = 'qwen3.5:9b';
 /** How long one LLM call may take before it is abandoned. */
 const THINK_TIMEOUT_MS = 60000;
+/**
+ * How long (milliseconds) a body stands waiting its turn with the LLM to word a line its work calls
+ * for, before the plain line is said without it (BRAIN-02). The same wait a choice between jobs gets.
+ */
+const MUST_SAY_WAIT_MS = 8000;
+/** The longest a talk call carrying such a line may take: nobody is still standing there after a minute (BRAIN-02). */
+const MUST_SAY_CALL_MS = 15000;
 /** Shortest pause between two LLM calls for the same NPC. */
 const MIN_THINK_GAP_MS = 1500;
 /** Events older than this (in deciseconds of server time) are remembered but do not wake the LLM. */
@@ -829,6 +837,9 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     // With the body's state and the latest events folded in, the task list is brought up to date.
     syncTasks(brain);
+    // A line its work calls for that has waited its turn with the LLM too long is said plainly now,
+    // so that the body, freed of it, gets its next step on this same pass (BRAIN-02).
+    sayIfOutOfTime(brain);
     // The body gets on with its work. The one thing it asks the LLM is which job comes first, when
     // there is more than one, and it does not wait long for the answer.
     const chooser = brain.id;
@@ -840,6 +851,7 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.mustSayNeeds = needs ?? null;
         brain.mustSayIf = sayIf ?? null;
         brain.mustSayExact = !!exact;
+        brain.mustSayAt = Date.now();
         brain.wake = true;
       },
       () => {
@@ -881,6 +893,92 @@ export function ingest(npcs: Npc[], now: number): void {
     notify();
     pump();
   }
+}
+
+/**
+ * Says a line its work calls for as it stands, with no word from the LLM, and does all that comes
+ * of having said it. Not to an empty room, and not when whoever it was for has gone (ASYNC-05).
+ * Returns TRUE if it was said. Used when the LLM is down and when it is too slow (BRAIN-02).
+ */
+function sayPlainly(
+  brain: NpcBrain,
+  line: string,
+  sayFor: SayFor | null,
+): boolean {
+  const gone = sayForGone(brain, sayFor);
+  if (brain.peopleInView.length === 0 || gone) {
+    lineNotSaid(brain, sayFor, gone);
+    return false;
+  }
+  runTool(brain, { tool: 'say', text: line });
+  brain.lastSayAt = Date.now();
+  jobFor(brain.job).afterSaying?.(brain, line);
+  guardAfterSaying(brain, line);
+  meetingsAfterSaying(brain, line);
+  ordersAfterSaying(brain, line);
+  roundsAfterSaying(brain, line);
+  pickupsAfterSaying(brain, line);
+  afterSaying(brain, [line]);
+  lineSaid(brain, sayFor);
+  return true;
+}
+
+/**
+ * A line its work calls for, still waiting its turn with the LLM, is said plainly if it has waited
+ * MUST_SAY_WAIT_MS, or at once if it is a word-for-word line and the LLM is busy with someone else:
+ * the LLM would only add a remark to it (BRAIN-02). Not before the server would let it speak again.
+ * A model that takes calls and does not answer must not stand every body with a line still.
+ */
+function sayIfOutOfTime(brain: NpcBrain): void {
+  const line = brain.mustSay;
+  if (line === null || brain.status !== 'queued') {
+    return;
+  }
+  const now = Date.now();
+  const waited = now - (brain.mustSayAt ?? now);
+  if (
+    !(waited > MUST_SAY_WAIT_MS || (brain.mustSayExact && running)) ||
+    now - brain.lastSayAt <= SAY_COOLDOWN_MS
+  ) {
+    return;
+  }
+  const busy = running;
+  const sayIf = brain.mustSayIf;
+  const sayFor = brain.mustSayFor ?? null;
+  brain.mustSay = null;
+  brain.mustSayNeeds = null;
+  brain.mustSayIf = null;
+  brain.mustSayExact = false;
+  brain.mustSayFor = null;
+  const needed = !(sayIf && !sayIf());
+  const said = needed && sayPlainly(brain, line, sayFor);
+  if (!needed) {
+    lineNotSaid(brain, sayFor, false);
+  }
+  // Nobody else is waiting on an answer: it need not wait its turn at all now.
+  if (brain.pendingSpeakers.size === 0) {
+    const at = queue.indexOf(brain.id);
+    if (at >= 0) {
+      queue.splice(at, 1);
+    }
+    brain.status = 'idle';
+    brain.wake = false;
+    heldToTalk.delete(brain);
+  }
+  const send = act;
+  const record = {
+    npc: brain.id,
+    kind: 'decision',
+    trigger: `ROUTINE (no LLM) in ${brain.location}: the line its work called for had waited ${Math.round(waited / 1000)} s for the LLM${busy ? ', which was busy with someone else' : ''}, so it is said plainly.`,
+    context: '',
+    reply: said
+      ? `say(${JSON.stringify(line)})`
+      : `[not said: ${needed ? 'nobody it was for is in view' : 'no longer needed'}]`,
+    error: '',
+    ms: 0,
+    tokens: 0,
+  };
+  setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
 }
 
 /**
@@ -1370,31 +1468,36 @@ async function readOrder(
 
 /** Starts the next waiting NPC's talk, if it is time for it. Returns TRUE if a call was started. */
 function startTalk(): boolean {
-  while (queue.length > 0 && !brains.get(queue[0])) {
-    queue.shift();
-  }
-  const brain = brains.get(queue[0]);
-  if (!brain) {
-    return false;
-  }
-  const wait =
-    Math.max(
-      brain.lastThinkEnd + MIN_THINK_GAP_MS,
-      brain.lastSayAt + SAY_COOLDOWN_MS,
-    ) - Date.now();
-  if (wait > 0) {
-    if (retryTimer === null) {
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        pump();
-      }, wait);
+  // The first in the queue that may speak now goes. One that spoke a moment ago waits out its own
+  // pause without holding up everyone behind it (BRAIN-02).
+  let soonest = Number.POSITIVE_INFINITY;
+  for (let at = 0; at < queue.length; at++) {
+    const brain = brains.get(queue[at]);
+    if (!brain) {
+      queue.splice(at, 1);
+      at--;
+      continue;
     }
-    return false;
+    const wait =
+      Math.max(
+        brain.lastThinkEnd + MIN_THINK_GAP_MS,
+        brain.lastSayAt + SAY_COOLDOWN_MS,
+      ) - Date.now();
+    if (wait <= 0) {
+      queue.splice(at, 1);
+      running = true;
+      void think(brain);
+      return true;
+    }
+    soonest = Math.min(soonest, wait);
   }
-  queue.shift();
-  running = true;
-  void think(brain);
-  return true;
+  if (soonest < Number.POSITIVE_INFINITY && retryTimer === null) {
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      pump();
+    }, soonest);
+  }
+  return false;
 }
 
 /** Starts the next choice between jobs that some NPC is still waiting on. */
@@ -1716,7 +1819,9 @@ async function think(brain: NpcBrain): Promise<void> {
   // Set once the line its work called for has gone out, with whatever it was for settled.
   let lineSettled = false;
   try {
-    let answer = await callOllama(messages, call.schema);
+    // A line its work calls for has someone standing waiting on it: it gets a shorter limit (BRAIN-02).
+    const limit = mustSay !== null ? MUST_SAY_CALL_MS : THINK_TIMEOUT_MS;
+    let answer = await callOllama(messages, call.schema, undefined, limit);
     let reply = answer.text;
     decision.promptTokens = answer.promptTokens;
     if (mySession !== session) {
@@ -1725,9 +1830,18 @@ async function think(brain: NpcBrain): Promise<void> {
     // A reply cut off by the length limit is not valid JSON, and it is nearly always the "think"
     // part that ran on. Ask once more without it.
     if (!isCompleteReply(reply)) {
+      // With most of the time for a line its work calls for gone, the plain line is said instead.
+      const left = limit - (Date.now() - started);
+      if (mustSay !== null && left < limit / 2) {
+        throw new Error(
+          'The reply was cut off, and there was no time left to ask again for a line its work calls for.',
+        );
+      }
       answer = await callOllama(
         messages,
         buildReplySchema({ ...call.parts, think: false }),
+        undefined,
+        mustSay !== null ? left : THINK_TIMEOUT_MS,
       );
       reply = answer.text;
       if (mySession !== session) {
@@ -2100,26 +2214,14 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // The LLM being down must not leave the body dumb: what had to be said is said plainly. Unless
     // it has stopped needing saying in the time the call took.
-    const gone = sayForGone(brain, sayFor);
-    if (
-      mustSay &&
-      brain.peopleInView.length > 0 &&
-      !gone &&
-      !(mustSayIf && !mustSayIf())
-    ) {
-      runTool(brain, { tool: 'say', text: mustSay });
-      decision.calls.push(`say(${JSON.stringify(mustSay)}) [the LLM gave none]`);
-      brain.lastSayAt = Date.now();
-      jobFor(brain.job).afterSaying?.(brain, mustSay);
-      guardAfterSaying(brain, mustSay);
-      meetingsAfterSaying(brain, mustSay);
-      ordersAfterSaying(brain, mustSay);
-      roundsAfterSaying(brain, mustSay);
-      pickupsAfterSaying(brain, mustSay);
-      afterSaying(brain, [mustSay]);
-      lineSaid(brain, sayFor);
+    if (mustSay && !(mustSayIf && !mustSayIf())) {
+      if (sayPlainly(brain, mustSay, sayFor)) {
+        decision.calls.push(
+          `say(${JSON.stringify(mustSay)}) [the LLM gave none]`,
+        );
+      }
     } else {
-      lineNotSaid(brain, sayFor, gone);
+      lineNotSaid(brain, sayFor, false);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment
     // to answer that has gone, and left in, it would be heard as said again every time after.

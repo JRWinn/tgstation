@@ -1603,6 +1603,8 @@ export type NpcBrain = {
    * tell is struck off, and the person marked asked, only once the line has gone out with them in view.
    */
   mustSayFor?: SayFor | null;
+  /** When the line its work calls for was handed over to be said (this window's clock): after a few seconds it is said plainly (BRAIN-02). */
+  mustSayAt?: number;
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
