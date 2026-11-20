@@ -151,6 +151,48 @@ const SHUT_IN_WORDS =
 const SHUT_IN_AGAIN_DS = 3000;
 /** When each head last passed on word of someone shut in (server time), by the head, the person and the room. */
 const shutInPassedOn = new Map<string, number>();
+/** How many times it goes to the counter and finds nobody from cargo to take an order, before it puts the order by until after the next meeting. */
+const COUNTER_VISITS_MAX = 3;
+/** How many times it says the same order at the counter in one visit with no answer, before it puts the order by. */
+const COUNTER_ASKS_MAX = 2;
+
+/**
+ * How an order has fared at the counter, beyond what the brain keeps of it: the visits on which
+ * nobody from cargo came, how often it was said on this visit with no answer, and whether it is
+ * put by until after the next meeting (HEAD-01). Kept beside the order: a new order starts afresh.
+ */
+type AtCounter = {
+  /** When it came into the Cargo Lobby on the visit last counted empty (inPlaceSince), or null. */
+  visit: number | null;
+  /** Visits on which nobody from cargo came to take it. */
+  empty: number;
+  /** When it came into the lobby on the visit `said` counts for. */
+  saidVisit: number | null;
+  /** How often it has said the order on that visit. */
+  said: number;
+  /** When it was put by (server time), or null while it is not put by. */
+  parkedAt: number | null;
+  /** The head's nextMeetingAt when it was put by: once a meeting is over, that has moved on. */
+  parkedNext: number;
+};
+const atCounter = new WeakMap<Requisition, AtCounter>();
+function counterOf(order: Requisition): AtCounter {
+  let state = atCounter.get(order);
+  if (!state) {
+    state = {
+      visit: null,
+      empty: 0,
+      saidVisit: null,
+      said: 0,
+      parkedAt: null,
+      parkedNext: 0,
+    };
+    atCounter.set(order, state);
+  }
+  return state;
+}
+/** What it has told the Captain about orders it had to put by, so that each is said once a round. */
+const parkToldCaptain = new WeakMap<NpcBrain, Set<string>>();
 
 /** What each kind of staff is sent when they are short, and the room they take it to when it comes: where they work from. */
 const SUPPLIES = [
@@ -645,6 +687,21 @@ export function syncMeeting(
   }
 }
 
+/**
+ * TRUE if a meeting it was told to hold would be called, given the time: it has staff to call, a
+ * room it knows the way to, and is not shut in. What it says about the order is kept to this, so
+ * that it never tells the Captain a meeting is being called when none will be (HEAD-01).
+ */
+function meetingCallable(brain: NpcBrain): boolean {
+  const room = HOP_WAY.room(brain);
+  return (
+    !brain.shutIn &&
+    staff(brain).length > 0 &&
+    !!room &&
+    knowsPlace(brain, room)
+  );
+}
+
 /** How the Head of Personnel holds its meeting: in a room all its staff can walk into, called by PDA. */
 const HOP_WAY: MeetingWay = {
   // The server names a room all its staff can walk into. Failing that, the department's own.
@@ -655,14 +712,95 @@ const HOP_WAY: MeetingWay = {
   report: reportToCaptain,
 };
 
+/** TRUE if this order goes to the Quartermaster by PDA, and not to the counter face to face. */
+function byQuartermaster(brain: NpcBrain, order: Requisition): boolean {
+  return !!quartermasterAboard(brain) && !order.viaCounter && brain.hasPda;
+}
+
+/** TRUE while this order is put by until after the next staff meeting: nobody at the counter would take it (HEAD-01). */
+function parked(order: Requisition): boolean {
+  return atCounter.get(order)?.parkedAt != null;
+}
+
+/**
+ * TRUE while the order holds back a staff meeting: it has been said or sent, and the answer is
+ * not yet in and is still to be looked for. Only that short wait: walking to the counter, or
+ * going between visits, is no reason to put a meeting off. Held for as long as an order stood
+ * unanswered, a counter nobody came to stopped every meeting for the rest of the round (HEAD-01).
+ */
+function orderHolds(brain: NpcBrain): boolean {
+  const order = brain.requisition;
+  if (!order || order.askedAt === null || order.heardBack || parked(order)) {
+    return false;
+  }
+  return (
+    brain.now - order.askedAt <
+    (byQuartermaster(brain, order) ? NOTED_WAIT_DS : ANSWER_WAIT_DS)
+  );
+}
+
+/**
+ * Puts an order nobody at the counter will take by until after the next staff meeting, and tells
+ * the Captain, once a round for each reason, so that a dead counter is not silent.
+ */
+function parkOrder(
+  brain: NpcBrain,
+  order: Requisition,
+  reason: 'empty' | 'unanswered' | 'no_way',
+): Plan {
+  const wanted = orderWords(order);
+  const state = counterOf(order);
+  if (state.parkedAt === null) {
+    state.parkedAt = brain.now;
+    state.parkedNext = brain.nextMeetingAt;
+    const told = parkToldCaptain.get(brain) ?? new Set<string>();
+    parkToldCaptain.set(brain, told);
+    const captain = captainName(brain);
+    if (captain && captain !== brain.name && !told.has(reason)) {
+      told.add(reason);
+      brain.toTell.push({
+        to: captain,
+        line:
+          reason === 'no_way'
+            ? `I do not know the way to the cargo counter, so my order for ${wanted} is not in. I will try again after the next staff meeting.`
+            : `Nobody at the cargo counter will take my order for ${wanted}. I will try again after the next staff meeting.`,
+        why: `Your staff's order for ${wanted} could not be put in at the cargo counter. You are sending ${captain}, the Captain, a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+  }
+  return {
+    ready: false,
+    step: `Nobody at the cargo counter would take your order for ${wanted}. You have put it by until after the next staff meeting.`,
+  };
+}
+
 /** Keeps the head's meetings and orders true to the time, to what has been asked for, and to what has come. */
 function syncTasks(brain: NpcBrain): void {
-  // A meeting is called when one is due and there are staff to call. Not while it is on its way
-  // to the counter with an order, or at it waiting for cargo's answer: that is seen through first.
-  const ordering =
-    !!brain.requisition &&
-    (brain.requisition.askedAt === null || !brain.requisition.heardBack);
-  syncMeeting(brain, HOP_WAY, ordering);
+  // An order put by is taken up again once the next meeting is over (or a meeting gap has gone by
+  // with none held): those it was for are ordered for afresh, with whatever that meeting added.
+  const put = brain.requisition;
+  const putState = put ? atCounter.get(put) : undefined;
+  if (
+    put &&
+    putState?.parkedAt != null &&
+    !brain.meeting &&
+    (brain.nextMeetingAt !== putState.parkedNext ||
+      brain.now > putState.parkedAt + MEETING_EVERY_DS)
+  ) {
+    const people = orderedFor(put);
+    for (const ask of brain.asks) {
+      if (people.includes(ask.who) && !ask.told) {
+        ask.ordered = false;
+      }
+    }
+    brain.requisition = null;
+  }
+  // A meeting is called when one is due and there are staff to call. Not while it has just put an
+  // order to cargo and is waiting for the answer: that is seen through first.
+  const held = orderHolds(brain);
+  syncMeeting(brain, HOP_WAY, held);
 
   // What has been asked for is ordered together: after a meeting, or once the first of it has
   // waited long enough that nobody else is likely to add to it.
@@ -688,11 +826,15 @@ function syncTasks(brain: NpcBrain): void {
   ) {
     order.askedAt = null;
     order.heardBack = false;
-    order.startedAt = brain.now;
   }
   const task = findTask(brain, REQUISITION);
-  // While a meeting is on, an order already put to cargo is left to cargo.
-  const toSee = !!brain.requisition && !(brain.meeting && !ordering);
+  // While a meeting is on, an order already put to cargo is left to cargo, and one still to put
+  // waits for it: the head does not walk out of its own meeting to the counter. Nor is an order
+  // put by seen to until it is taken up again.
+  const toSee =
+    !!brain.requisition &&
+    !parked(brain.requisition) &&
+    !(brain.meeting && !held);
   if (toSee && !task) {
     addTask(brain, { kind: REQUISITION, urgency: 'asked', source: 'own' });
   } else if (!toSee && task) {
@@ -972,10 +1114,18 @@ function requisitionStep(brain: NpcBrain): Plan {
     }
     order.viaCounter = true;
     order.askedAt = null;
-    order.startedAt = brain.now;
   }
+  if (parked(order)) {
+    return {
+      ready: false,
+      step: `Nobody at the cargo counter would take your order for ${wanted}. You have put it by until after the next staff meeting.`,
+    };
+  }
+  const counter = counterOf(order);
   // Asked, and nobody from cargo has answered: whoever it asked may not have heard. It waits at
-  // the counter a little, and then asks again, of whoever is there now.
+  // the counter a little, and then asks again, of whoever is there now. Asked twice on one visit
+  // with no answer, it is put by: said every half minute for good, it was 43 times in half an
+  // hour to a technician lying on the floor (HEAD-01).
   if (order.askedAt !== null && !order.heardBack) {
     if (brain.now - order.askedAt < ANSWER_WAIT_DS) {
       return {
@@ -985,6 +1135,12 @@ function requisitionStep(brain: NpcBrain): Plan {
       };
     }
     order.askedAt = null;
+    if (
+      counter.saidVisit === brain.inPlaceSince &&
+      counter.said >= COUNTER_ASKS_MAX
+    ) {
+      return parkOrder(brain, order, 'unanswered');
+    }
   }
   if (order.askedAt !== null) {
     return {
@@ -999,15 +1155,23 @@ function requisitionStep(brain: NpcBrain): Plan {
           step: `Your staff need supplies (${people}). You are going to the Cargo Lobby to ask a cargo technician, face to face, to order ${wanted}.`,
           act: { tool: 'go_to', place: CARGO_LOBBY },
         }
-      : { ready: false, step: 'You do not know the way to the cargo counter.' };
+      : parkOrder(brain, order, 'no_way');
   }
-  const technician = brain.peopleInView.find((person) =>
-    isTechnician(person.job),
+  // Someone lying on the floor cannot take an order.
+  const technician = brain.peopleInView.find(
+    (person) => isTechnician(person.job) && !person.down,
   );
   if (!technician) {
-    // Nobody at the counter. It waits a while, and then tries again later.
+    // Nobody at the counter. It waits a while, and then tries again later. After a few visits
+    // like that the order is put by until after the next meeting, and the Captain told.
     if (brain.now - brain.inPlaceSince > COUNTER_WAIT_DS) {
-      order.startedAt = brain.now;
+      if (counter.visit !== brain.inPlaceSince) {
+        counter.visit = brain.inPlaceSince;
+        counter.empty++;
+      }
+      if (counter.empty >= COUNTER_VISITS_MAX) {
+        return parkOrder(brain, order, 'empty');
+      }
       return {
         ready: false,
         step: 'Nobody from cargo came to the counter. You will try again shortly.',
@@ -1234,7 +1398,11 @@ export const HEAD_OF_PERSONNEL: Job = {
       ? [
           brain.meeting && !brain.meeting.orderedBy
             ? 'You have just been told to find out how your staff are doing. You have a staff meeting on already: say so, and that your report will follow it.'
-            : 'You have just been told to find out how your staff are doing. Your body is calling a staff meeting for that now, by PDA: say that you are calling one, and that your report will follow it.',
+            : meetingCallable(brain)
+              ? orderHolds(brain)
+                ? 'You have just been told to find out how your staff are doing. Your body will call a staff meeting for that by PDA as soon as cargo has answered the order you have just put in: say so, and that your report will follow it.'
+                : 'You have just been told to find out how your staff are doing. Your body is calling a staff meeting for that now, by PDA: say that you are calling one, and that your report will follow it.'
+              : 'You have just been told to find out how your staff are doing. You cannot call a staff meeting just now: there is nowhere you know of to hold one, or nobody to call to it. Say so plainly, and do not say that one is being called.',
         ]
       : []),
   ],
@@ -1438,6 +1606,13 @@ export const HEAD_OF_PERSONNEL: Job = {
     meetingSaid(brain, called);
     const order = brain.requisition;
     if (order && called.includes(ORDERING)) {
+      // How often it has said it on this visit to the counter: see requisitionStep.
+      const counter = counterOf(order);
+      if (counter.saidVisit !== brain.inPlaceSince) {
+        counter.saidVisit = brain.inPlaceSince;
+        counter.said = 0;
+      }
+      counter.said++;
       order.askedAt = brain.now;
       order.heardBack = false;
       const people = orderedFor(order);
