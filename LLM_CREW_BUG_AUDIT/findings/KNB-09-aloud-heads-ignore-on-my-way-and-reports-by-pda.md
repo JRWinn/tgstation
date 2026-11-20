@@ -95,3 +95,7 @@ Checked by Opus 5.5. Every quote is still what the code says (line numbers drift
 - Listed and left in the change log's "Known and not fixed" (`LLM_CREW_CHANGELOG.md:811`) for the Quartermaster only; no later entry fixes it.
 
 Effort raised to medium: the helper and its four callers span `head.ts`, `quartermaster.ts`, `chiefengineer.ts` and `headofsecurity.ts`, plus a field on the meeting. Severity medium stands: the work goes on, a player sees a technician standing idle and a wrong head count.
+
+## Fix so far
+
+Done in part (group m-heads, 2338810bf4b): `staffMeetingWord` in `jobs/head.ts` reads "On my way" and a report by PDA; the Head of Personnel and the Chief Engineer call it. Step 3 was already in place (`endMeeting` tells those never called on, under an aloud way; LOGA-02). Left: call `staffMeetingWord(brain, from, text, at)` near the top of `readsMessage` in `jobs/quartermaster.ts` and `jobs/headofsecurity.ts` (the latter can drop its own copy, keeping `KEPT_AWAY`), and step 4 for the Quartermaster's needs.

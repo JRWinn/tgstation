@@ -101,3 +101,7 @@ Checked by Opus 5.5. Confirmed.
 - Nothing in `LLM_CREW_CHANGELOG.md` or the plans records the any-word rule as chosen or the fault as known.
 
 Severity medium stands: the order is still placed, ten minutes late, in a case (the counter busy with a collection or a door) that comes up in some rounds. Effort medium stands: `supply.ts`, `cargo.ts` and `head.ts`, all on the window side. Not run in the simulator.
+
+## Fix so far
+
+Head side done (group m-heads, 402c7192c22): steps 2, 3 and 5. The head's `overhears` takes as the answer only a line matching `PLACED_WORDS` ("I have put your order in"), or a line said to it (`said_to === 'me'`) that is not about other cargo work; nothing on the Quartermaster path; "orders go through the Quartermaster" sends it back to the PDA path. Re-asks are capped by HEAD-01. Left, in `jobs/cargo.ts` (and the constant in `supply.ts`): step 1, the technician saying "<first>, I have put your order in: <what>. I will send you the manifest number when it comes in." after an `order` placed for a head comes back ok. Once that is said, the stop-gap branch in `head.ts` can be dropped.
