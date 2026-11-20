@@ -36,7 +36,7 @@
 		if(CREW_TOOL_WALK_TO)
 			tool_walk_to(arguments["person"])
 		if(CREW_TOOL_GO_TO)
-			tool_go_to(arguments["place"], arguments["middle"])
+			tool_go_to(arguments["place"], arguments["middle"], arguments["far"])
 		if(CREW_TOOL_EXPLORE)
 			// Choosing somewhere to explore means testing routes, which takes time.
 			INVOKE_ASYNC(src, PROC_REF(tool_explore))
@@ -214,7 +214,7 @@
  * office door and its staff at their counter, eight tiles apart and out of each other's sight,
  * and the meeting was reported as nobody there.
  */
-/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle)
+/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle, far)
 	var/known_place = istext(place) ? find_known_place(place) : null
 	if(isnull(known_place))
 		action_result(CREW_TOOL_GO_TO, FALSE, "You do not know of anywhere aboard by that name.")
@@ -222,6 +222,13 @@
 	// Where the body stands this instant, not the room it last noted being in: pushed out of a room
 	// since its last look, it is not in it, and telling it that it is sends it nowhere.
 	var/turf/here = get_turf(pawn)
+	// The far side of the room from the body, to look round all of it (KNA-23). Routes are tested,
+	// which takes a while; with none found it goes to the middle.
+	if(far)
+		var/area/station/far_room = crew_npc_station_places()[known_place]
+		if(far_room)
+			INVOKE_ASYNC(src, PROC_REF(go_to_far_side), known_place, far_room)
+			return
 	if(middle)
 		var/area/station/room = crew_npc_station_places()[known_place]
 		var/turf/spot = room ? middle_of(room.type) : null
@@ -250,6 +257,32 @@
 		action_result(CREW_TOOL_GO_TO, FALSE, "You cannot work out the way back to [known_place].")
 		return
 	start_walk(destination, CREW_TOOL_GO_TO, known_place, CREW_NPC_TRAVEL_TIMEOUT)
+
+/**
+ * Walks the body to the far side of a room from where it stands: the clear square of the part of
+ * the room it can get into that lies furthest from it, that it can find a way to. With none, the
+ * middle of the room, as `go_to` with `middle` does. Sleeps while routes are tested.
+ */
+/datum/ai_controller/crew_npc/proc/go_to_far_side(known_place, area/station/room)
+	var/mob/living/carbon/human/body = pawn
+	var/serial = errand_serial
+	var/calls = tool_serial
+	var/turf/spot = far_spot_in(room)
+	if(QDELETED(src) || QDELETED(body))
+		return
+	// Anything it was given to do meanwhile wins, as for go_to_door (LIFE-03, CORE-07).
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		return
+	var/turf/here = get_turf(body)
+	if(isnull(spot))
+		spot = middle_of(room.type)
+	if(isnull(spot))
+		action_result(CREW_TOOL_GO_TO, FALSE, "You cannot work out the way across [known_place].")
+		return
+	if(get_area(here) == room && get_dist(here, spot) <= 2)
+		action_result(CREW_TOOL_GO_TO, TRUE, "You are on the far side of [known_place].", list("place" = known_place))
+		return
+	start_walk(spot, CREW_TOOL_GO_TO, known_place, get_area(here) == room ? CREW_NPC_WALK_TIMEOUT : CREW_NPC_TRAVEL_TIMEOUT)
 
 /// Matches a place name from the brain against the station's rooms: those the body has been in first. Returns the room's real name, or null.
 /datum/ai_controller/crew_npc/proc/find_known_place(place)
