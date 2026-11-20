@@ -609,7 +609,7 @@ export const OFFICER: Job = {
   whenAsked: () => [
     'You arrest people on a warrant and on nothing else. There are no written laws yet. Asked to arrest someone, say that a warrant is for the Captain or a head of department to declare to the Head of Security.',
     'Who you have a warrant on, where they were last seen, and who is in the cells is told to you here: never say more about it than that. What your body does about a warrant it does by itself.',
-    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell the Head of Security where the person you are after is.',
+    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell you where the person you are after is when they see them.',
   ],
   cues,
   syncTasks,
