@@ -89,12 +89,61 @@ function calledOn(brain: NpcBrain, heard: string): boolean {
 /** The words by which a head says the meeting is over, out loud or by PDA. */
 export const OVER_WORDS = /\bmeeting is over\b/i;
 /**
- * The words by which someone tells a head to call its staff together: "hold a meeting", "find out
- * how your section is doing". Not the same order as being sent to look at a room, though both may
- * begin "find out": this one names no room, and is about people.
+ * The words by which someone tells a head to call its staff together: "hold a meeting", "check on
+ * your janitors". Not the same order as being sent to look at a room, though both may begin "find
+ * out": this one names no room, and is about people. Not taken in a question, after "no need",
+ * "don't" or the like, or for later (MEETING_NOT_NOW).
  */
 const MEETING_ORDER_WORDS =
-  /\b(hold|call|have|run|convene|get)\b[^.?!]*\bmeeting\b|\bhow\b[^.?!]*\b(section|department|staff|team|people|janitors|lot)\b[^.?!]*\b(doing|getting on|going|coping|managing)\b|\b(check|check in|look in) (on|with) your (section|department|staff|team|people|janitors)\b/i;
+  /\b(hold|call|have|run|convene|get|start|arrange|organi[sz]e)\b[^.?!]*\bmeetin(?:g|gs)?\b|^\W*(?:a\s+|staff\s+|team\s+)?meetin(?:g)?\b|\b(check|check in|look in) (on|with) your (section|department|staff|team|people|janitors|crew)\b/i;
+/**
+ * Asks for how its staff are doing, taken even when put as a question: "how are your guys doing",
+ * "status report on your department", "gather your staff". A status report on anything but its
+ * department ("status report on the order?") is not one.
+ */
+const STAFF_ASK_WORDS =
+  /\bhow\b[^.?!]*\b(section|department|staff|team|people|janitors|lot|guys|crew|lads|techs|technicians|engineers|officers)\b[^.?!]*\b(doing|getting on|going|coping|managing)\b|\bhow\s+(?:is|are)\s+(?:service|supply|cargo|engineering|security|your\s+\w+)\s+(?:doing|going|getting on)\b|\b(?:status|progress)\s+report\b(?!\s+(?:on|of|for|about)\s+(?!your\b))|\breport\s+(?:on|from)\s+(?:your|the)\s+(?:section|department|staff|team|people|crew)\b|\b(?:gather|round up|assemble)\b[^.?!]*\b(?:staff|team|people|section|department|janitors|crew)\b|\bget\s+(?:your|the)\s+(?:staff|team|people|crew|janitors)\s+together\b|\bhave\s+your\s+(?:staff|team|people|crew)\s+report\b/i;
+/** A clause that asks rather than tells, typed with or without its question mark: "did you hold a meeting", "have you had a meeting yet". */
+const MEETING_ASKED =
+  /\?\s*$|^\W*(?:did|has|is|are|was|were|do|does|when|why|what|where|have\s+(?:you|we|they))\b/i;
+/** A clause that says no meeting is wanted now: "no need for a meeting", "don't call a meeting", "we can have a meeting later". */
+const MEETING_NOT_NOW =
+  /\b(?:no need|don'?t|do not|not|never mind|no|without|skip|cancel)\b[^.?!]*\bmeetin|\b(?:later|tomorrow|next time|another time)\b/i;
+
+/** The clauses of a line, each with its question mark if it had one. */
+function meetingClauses(heard: string): string[] {
+  return heard
+    .split(/(?<=[?])|[.!,;]| but | and /i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0);
+}
+
+/** TRUE if this one clause tells a head to call its staff together (PARSE-15). */
+function clauseCallsMeeting(clause: string): boolean {
+  // The plain asks first: "have your staff report in" begins as a question does.
+  if (STAFF_ASK_WORDS.test(clause)) {
+    return true;
+  }
+  return (
+    MEETING_ORDER_WORDS.test(clause) &&
+    !MEETING_ASKED.test(clause) &&
+    !MEETING_NOT_NOW.test(clause)
+  );
+}
+
+/**
+ * What a superior said, less the clauses that tell a head to call its staff together, so an order
+ * in another clause still stands: "Hold a meeting, and go and check the Bar" still sends it to
+ * look at the Bar (PARSE-15). Unchanged for an NPC that cannot be told to hold one.
+ */
+export function withoutMeetingOrder(brain: NpcBrain, heard: string): string {
+  if (!isMeetingOrder(brain, heard)) {
+    return heard;
+  }
+  return meetingClauses(heard)
+    .filter((clause) => !clauseCallsMeeting(clause))
+    .join('. ');
+}
 /** The plain words it asks its head for something in, by which that line is known afterwards. */
 const ASKING_HEAD = 'could you get it ordered';
 /** How a message begins that says it is coming to a meeting, or will when it can. A head knows the message by them. */
@@ -174,7 +223,7 @@ export function isMeetingOrder(brain: NpcBrain, heard: string): boolean {
   return (
     (departmentHeadedBy(brain.job)?.jobs.length ?? 0) > 0 &&
     !/captain/i.test(brain.job) &&
-    MEETING_ORDER_WORDS.test(heard)
+    meetingClauses(heard).some(clauseCallsMeeting)
   );
 }
 

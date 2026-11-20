@@ -21,6 +21,7 @@ import {
 import {
   describeOrders,
   noteOrdered,
+  orderIn,
   ORDER_SOUNDS,
   ORDERS,
   orderTakesHere,
@@ -29,7 +30,7 @@ import {
 } from './jobs/orders';
 import {
   describeMeetings,
-  isMeetingOrder,
+  withoutMeetingOrder,
   planMeetings,
   syncMeetings,
 } from './jobs/meetings';
@@ -40,7 +41,7 @@ import {
 } from './jobs/pickups';
 import { syncWanted } from './jobs/wanted';
 import { allPlaces, knowsPlace } from './memory';
-import type { NpcBrain, Plan, Task, Urgency } from './types';
+import type { NpcBrain, Plan, SenseEvent, Task, Urgency } from './types';
 
 /** How long (deciseconds of server time) a finished task is kept, so whoever asked can be told. */
 const KEEP_DONE_DS = 6000;
@@ -242,6 +243,17 @@ export function takeToldWork(
   if (!kind || typeof room !== 'string' || !knowsPlace(brain, room)) {
     return null;
   }
+  // Work its job's code has just turned down is not taken on by the model's say-so, nor from the
+  // words of the line: a call to a mess it said it cannot shift (LOGA-07). The job says so
+  // through refusesWork, if it has one.
+  const refuses = (
+    jobFor(brain.job) as {
+      refusesWork?: (brain: NpcBrain, kind: string, place: string) => boolean;
+    }
+  ).refusesWork;
+  if (own && refuses?.(brain, kind, room)) {
+    return null;
+  }
   // Work in the room it is standing in is work it can see for itself. If it sees none, there is
   // none to take on; if it does, it has the task already, and this only says who is waiting on it.
   if (
@@ -300,16 +312,31 @@ export function workInWords(
         .filter((line) => line.includes(`] ${toldBy} says: `))
         .slice(-ORDER_LINES)
     : [];
-  const heard = (theirs.length > 0 ? theirs : spoken)
-    .flatMap((line) => line.match(/"[^"]*"/g) ?? [])
-    .join(' ')
-    .toLowerCase();
-  const place = placeNamedIn(brain, heard);
+  const lines = (theirs.length > 0 ? theirs : spoken).map((line) =>
+    (line.match(/"[^"]*"/g) ?? []).join(' ').toLowerCase(),
+  );
+  // The work is read from the last line that names a room and sounds like work or an order, so
+  // a room named in a remark before it ("The Kitchen looks great.") is not where it is sent
+  // (MEM-04). With no such line, all of it is read together, as before.
+  const sounds = [
+    ...Object.values(job.soundsLike ?? {}),
+    ...(fromSuperior ? Object.values(ORDER_SOUNDS) : []),
+  ];
   // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
-  // That is not an order to go and look at a room, even if one is named.
-  if (fromSuperior && isMeetingOrder(brain, heard)) {
-    return null;
-  }
+  // That is not an order to go and look at a room, even if one is named, so the clauses that
+  // call the meeting are left out. An order in another clause still stands (PARSE-15).
+  const read = (line: string) =>
+    fromSuperior ? withoutMeetingOrder(brain, line) : line;
+  const heard = read(
+    lines
+      .filter(
+        (line) =>
+          !!placeNamedIn(brain, read(line)) &&
+          sounds.some((words) => words.test(read(line))),
+      )
+      .pop() ?? lines.join(' '),
+  );
+  const place = placeNamedIn(brain, heard);
   // An order that needs no room named, given with none, is for the room it stands in (PLAY-10).
   if (!place) {
     if (!fromSuperior || !brain.location) {
@@ -334,12 +361,44 @@ export function workInWords(
     }
   }
   if (fromSuperior) {
-    for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
-      // Sending for a janitor is read, as the job's own work is, from the clauses that are orders:
-      // "don't call a janitor for the bar" sends for nobody.
-      if (words.test(orderTakesHere(kind) ? asWork : heard)) {
+    // Orders are read, as the job's own work is, from the clauses that are orders: "don't call a
+    // janitor for the bar" sends for nobody. A look needs the look word right before the room
+    // (orderIn): any other line with "check" or "look" in it is left to the model (MEM-08).
+    for (const kind of Object.keys(ORDER_SOUNDS)) {
+      if (orderIn(kind, asWork, place, heard)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
+    }
+  }
+  return null;
+}
+
+/**
+ * Work of its own job in a line it heard that was put to nobody in particular, or to everyone
+ * there, taken on whoever answers it (PARSE-17): "someone threw up in the bar", said in front of
+ * a janitor and a technician nearer the speaker, is the janitor's mess. Only the job's own words
+ * and a room named; never an order (that is for whoever it was said to), never a line said to
+ * someone else by name, and not a line said to it, which its answer deals with. A question, being
+ * told not to bother, or word that it is done already is not work (orderClauses).
+ */
+export function workOverheard(
+  brain: NpcBrain,
+  event: SenseEvent,
+): Task | null {
+  const to = event.details.said_to;
+  if (to !== 'group' && to !== 'nobody') {
+    return null;
+  }
+  const job = jobFor(brain.job);
+  const heard = orderClauses(String(event.details.message ?? '').toLowerCase());
+  const place = placeNamedIn(brain, heard);
+  if (!place) {
+    return null;
+  }
+  const speaker = String(event.details.speaker ?? '') || undefined;
+  for (const [kind, words] of Object.entries(job.soundsLike ?? {})) {
+    if (job.takes?.[kind] && words.test(heard)) {
+      return takeToldWork(brain, job.takes[kind], place, speaker, false);
     }
   }
   return null;
@@ -399,16 +458,56 @@ export function stillIn(brain: NpcBrain, place: string): boolean {
   );
 }
 
-/** The room the NPC knows that these words name, if they name one. The words must be in lower case. */
+/**
+ * Words that, among the three before a room's name, set that room aside: it is the room not
+ * meant ("Forget the Kitchen", "the Bar, not the Chapel", "ran from the Bar into the Kitchen").
+ */
+const SET_ASIDE = /\b(not|forget|leave|instead of|from)\b/;
+
+/**
+ * The room the NPC knows that these words name, if they name one. The words must be in lower case.
+ *
+ * Of two rooms named, the one meant is the first that is not set aside (MEM-04): "Check the Bar,
+ * then come back to the Library" is the Bar, and "Forget the Kitchen, there is blood all over
+ * the Bar" is the Bar. A name inside a longer one is not a room of its own: "Medbay Central" is
+ * not "Medbay". If every room named is set aside, the first is taken all the same: "I came from
+ * the Bar, there is blood there" names the Bar.
+ */
 export function placeNamedIn(brain: NpcBrain, heard: string): string | undefined {
-  // Longest names first, so "Medbay Central" is not taken for "Medbay".
-  return allPlaces(brain)
-    .sort((a, b) => b.length - a.length)
-    .find((name) =>
-      new RegExp(
-        `\\b${name.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
-      ).test(heard),
+  const found: { name: string; start: number; end: number }[] = [];
+  for (const name of allPlaces(brain)) {
+    const pattern = new RegExp(
+      `\\b${name.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`,
+      'g',
     );
+    for (const match of heard.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      found.push({ name, start, end: start + match[0].length });
+    }
+  }
+  const named = found
+    .filter(
+      (one) =>
+        !found.some(
+          (other) =>
+            other.end - other.start > one.end - one.start &&
+            other.start <= one.start &&
+            other.end >= one.end,
+        ),
+    )
+    .sort((a, b) => a.start - b.start);
+  const meant = named.find(
+    (one) =>
+      !SET_ASIDE.test(
+        heard
+          .slice(0, one.start)
+          .split(/[^a-z']+/)
+          .filter(Boolean)
+          .slice(-3)
+          .join(' '),
+      ),
+  );
+  return (meant ?? named[0])?.name;
 }
 
 /** What doing a task comes down to right now, from whoever knows how that kind of work is done. */

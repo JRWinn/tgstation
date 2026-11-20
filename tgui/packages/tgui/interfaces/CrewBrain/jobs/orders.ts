@@ -46,6 +46,47 @@ export function orderTakesHere(kind: string): boolean {
   return kind === CALL;
 }
 
+/** Words that make a look order of a room named straight after them: "check the Bar", "look in on the Kitchen". */
+const LOOK_AT =
+  '(?:look at|look in(?: on)?|look into|look round|look around|look over|check(?: in)? on|check|inspect|go and see|go see|see what is in|see what\'s in|find out what is in|find out what\'s in|find out what is going on in|report on)';
+/** In a clause, what makes a look word no order to this NPC: "I'll check the Bar myself", "no need to look at the Bar". */
+const NOT_ITS_TO_DO =
+  /\b(i'll|i will|i'm going to|i am going to|i'm gonna|myself|don'?t|do not|no need|never mind)\b/;
+
+/**
+ * TRUE if these clauses of a superior's (orderClauses in tasks.ts: no questions, nothing said
+ * not to do) give this order for this room. Sending for a janitor goes by its words anywhere in
+ * them. A look is an order only with the look word right before the room, with nothing but "at",
+ * "on", "in" or "the" between, in a clause that is not the speaker saying they will look (MEM-08):
+ * "Tolly, go and check the Bar" is one; "I'll check the Bar myself" and "Look, Tolly, the Kitchen
+ * staff are upset with you" are not, and are left to the model. So is a look asked as a question
+ * ("Could you check on the Bar, Tolly?"): `heard`, all that was said, shows where one ends in "?".
+ */
+export function orderIn(
+  kind: string,
+  clauses: string,
+  room: string,
+  heard: string,
+): boolean {
+  if (kind !== LOOK) {
+    return ORDER_SOUNDS[kind]?.test(clauses) ?? false;
+  }
+  const name = room.toLowerCase().replace(/[^a-z0-9 ]/g, '.');
+  const look = new RegExp(
+    `\\b${LOOK_AT}\\s+(?:(?:at|on|in)\\s+)?(?:the\\s+)?${name}\\b`,
+  );
+  const sentences: string[] = heard.match(/[^.!?]+[.!?]*/g) ?? [];
+  const said = sentences.some(
+    (sentence) => look.test(sentence) && !sentence.trim().endsWith('?'),
+  );
+  return (
+    said &&
+    clauses
+      .split(/[.!?;,]/)
+      .some((clause) => look.test(clause) && !NOT_ITS_TO_DO.test(clause))
+  );
+}
+
 /** How long (deciseconds) a janitor it sent for counts as still coming: it is not sent for again on an order. */
 const CALL_STANDS_DS = 3000;
 
