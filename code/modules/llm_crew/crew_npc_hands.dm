@@ -444,17 +444,27 @@
 	if(isnull(held))
 		return list(FALSE, "You are not holding anything to give.")
 	var/held_name = format_text(held.name)
+	// Into a hand of theirs that is empty and works. With none, it stays in the body's hand: a player's
+	// offer cannot be taken with full hands, and nobody can put a thing down on the floor a tile off.
+	// It used to be moved to their feet by code.
+	var/their_hand
+	for(var/index in person.get_empty_held_indexes())
+		if(person.can_put_in_hand(held, index))
+			their_hand = index
+			break
+	if(isnull(their_hand))
+		return list(FALSE, "[person.name] has no free hand to take the [held_name]. You still have it.")
 	if(!body.temporarilyRemoveItemFromInventory(held))
 		return list(FALSE, "You cannot let go of the [held_name].")
 	// One of the crew taking it knows it was handed over, and keeps it.
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
 		their_controller.being_handed_something()
-	if(person.put_in_hands(held))
+	if(person.put_in_hand(held, their_hand))
 		return list(TRUE, "You hand the [held_name] to [person.name].")
-	// Their hands were full, so it ends up at their feet.
-	held.forceMove(person.drop_location())
-	return list(TRUE, "[person.name] has no free hand, so you put the [held_name] down beside them.")
+	// Not taken after all: the body keeps it, or if its own hand will not take it back, it falls at its feet.
+	body.put_in_hands(held)
+	return list(FALSE, "[person.name] could not take the [held_name].")
 
 /// Called by the errand leaves when the errand is over, with the outcome from do_errand().
 /datum/ai_controller/crew_npc/proc/finish_errand(list/outcome)
