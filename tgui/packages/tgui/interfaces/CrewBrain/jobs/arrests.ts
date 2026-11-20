@@ -90,6 +90,8 @@ const CAPTAIN_CARD =
 const REFUSED_DS = 3000;
 /** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
 const DROPPED_DS = 600;
+/** How long (deciseconds) after an arrest it sent another step over, someone seen in cuffs is taken as cuffed by that arrest. */
+const OWN_CUFFS_DS = 100;
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -370,6 +372,33 @@ function heldByAnother(brain: NpcBrain, person: PersonInView): boolean {
 }
 
 /**
+ * TRUE if it has just made an arrest of this warrant's person itself: one still under way, or one
+ * the driver sent another step over in the last few seconds (brain.droppedArrest), for this
+ * warrant's serve task or on this person.
+ */
+function ownArrestOf(
+  brain: NpcBrain,
+  warrant: BeatWarrant,
+  seen: PersonInView,
+): boolean {
+  const serve = findTask(brain, SERVE, { item: warrant.name });
+  const last = brain.lastAct;
+  if (
+    last?.act.tool === 'arrest' &&
+    last.act.how !== 'stop' &&
+    ((serve && last.task === serve.id) || last.act.person === seen.handle)
+  ) {
+    return true;
+  }
+  const dropped = brain.droppedArrest;
+  return (
+    !!dropped &&
+    brain.now - dropped.at < OWN_CUFFS_DS &&
+    ((!!serve && dropped.task === serve.id) || dropped.person === seen.handle)
+  );
+}
+
+/**
  * TRUE if whoever the warrant is on, in view, is a head of staff by their ID, and the Captain did
  * not declare it. Only the Captain may have a head arrested: such a warrant is not served on them.
  */
@@ -470,6 +499,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     if (seen) {
       warrant.ownSeenAt = brain.now;
       warrant.lastSeen = { place: seen.place ?? brain.location, at: brain.now };
+    }
+    // Seen in cuffs nobody else holds them by, just after its own arrest of them: the cuffs are
+    // its own, though the answer never came (ARR-08: another step was sent over the arrest).
+    if (
+      seen?.cuffed &&
+      !warrant.cuffedByMe &&
+      !heldByAnother(brain, seen) &&
+      ownArrestOf(brain, warrant, seen)
+    ) {
+      warrant.cuffedByMe = true;
+      warrant.shutOut = undefined;
+      beat.outcomes.push({ what: 'cuffed', name: warrant.name });
     }
   }
   // What stops it serving a warrant is word for whoever keeps the list, once for each reason:
@@ -1216,6 +1257,71 @@ export function beatAfterSaying(brain: NpcBrain, called: string | null): void {
   }
 }
 
+/**
+ * An arrest has come back with the cuffs on, and no warrant in its hands is for it: the warrant
+ * was pardoned, taken back or handed back while the cuffs were going on, and its serve task may
+ * be finished and gone too. Whoever the arrest was on is named by the task, by whom the server
+ * says it was on, or by whom it now holds.
+ *
+ * Someone a list it keeps still has a warrant on (handed back mid-arrest, ARR-13) is wanted: the
+ * warrant is taken back into its hands and they go to a cell. Only one whose warrant was dropped
+ * by a pardon or taken back (TRB-02) is let go. Returns the warrant taken back, if one was.
+ */
+function cuffedOnNoWarrant(
+  brain: NpcBrain,
+  act: Action,
+  task: Task | undefined,
+  details: SenseEvent['details'],
+): BeatWarrant | undefined {
+  const beat = beatOf(brain);
+  const handle = String(details.handle ?? act.person ?? '');
+  const name =
+    (task?.kind === SERVE ? task.item : undefined) ??
+    brain.peopleInView.find((person) => !!handle && person.handle === handle)
+      ?.name ??
+    brain.security?.holding ??
+    undefined;
+  if (!name) {
+    return undefined;
+  }
+  const fits = (wanted: string) =>
+    sameName(wanted, name) || sameName(name, wanted);
+  // Another warrant on them in its hands since (declared again): that one is served.
+  const held = beat.warrants.find((it) => fits(it.name));
+  if (held) {
+    return held;
+  }
+  // Still on the list it keeps: it was handed back, not given up. It sees it through.
+  const listed = brain.desk?.warrants.find((it) => fits(it.name));
+  if (listed) {
+    giveWarrant(brain, {
+      name: listed.name,
+      reason: listed.reason,
+      minutes: listed.minutes,
+      byCaptain: /captain/i.test(listed.byJob),
+    });
+    const desk = brain.desk;
+    // Its officer is not given it as well, until it lets go of them.
+    if (desk?.servedBy && !desk.keptBack?.includes(listed.name)) {
+      desk.keptBack = [...(desk.keptBack ?? []), listed.name];
+    }
+    return beat.warrants.find((it) => it.name === listed.name);
+  }
+  // Pardoned or taken back while the cuffs were going on: they are let go, as a pardon of
+  // someone already by the arm is.
+  const dropped = (beat.dropped ?? []).find(
+    (it) => fits(it.name) && brain.now - it.at < DROPPED_DS,
+  );
+  if (dropped && !beat.toFree.some((it) => sameName(it.name, dropped.name))) {
+    beat.toFree.push({
+      name: dropped.name,
+      pardoned: dropped.pardoned,
+      tries: 0,
+    });
+  }
+  return undefined;
+}
+
 /** Notes how a step of its legwork went. `details` is what the body said of it. */
 export function beatAfterActing(
   brain: NpcBrain,
@@ -1231,7 +1337,7 @@ export function beatAfterActing(
     beat.kitTries = ok ? 0 : beat.kitTries + 1;
     return;
   }
-  const warrant =
+  let warrant =
     task?.kind === SERVE
       ? beat.warrants.find((it) => it.name === task.item)
       : undefined;
@@ -1305,29 +1411,18 @@ export function beatAfterActing(
       }
       return;
     }
-    // The warrant was pardoned or taken back while the cuffs were going on, and they went on:
-    // they are let go, as a pardon of someone already by the arm is.
-    const dropped =
-      task?.kind === SERVE
-        ? (beat.dropped ?? []).find(
-            (it) => it.name === task.item && brain.now - it.at < DROPPED_DS,
-          )
-        : undefined;
-    if (
-      !warrant &&
-      dropped &&
-      (ok || details.cuffed) &&
-      !beat.toFree.some((it) => sameName(it.name, dropped.name))
-    ) {
-      beat.toFree.push({
-        name: dropped.name,
-        pardoned: dropped.pardoned,
-        tries: 0,
-      });
-    }
-    if (!warrant) {
+    // The cuffs went on, and the warrant left its hands while they were going on (TRB-02,
+    // ARR-13). Its serve task may be gone with it, so the person is found by whom the arrest
+    // named.
+    const served =
+      warrant ??
+      (ok || details.cuffed
+        ? cuffedOnNoWarrant(brain, act, task, details)
+        : undefined);
+    if (!served) {
       return;
     }
+    warrant = served;
     warrant.walkedUp = false;
     // The cuffs went on, whether or not it then got a hold of them: they are its prisoner, and
     // whoever keeps the list is told so. Left unsaid, the list read "still wanted" for seven
@@ -1647,5 +1742,21 @@ export function beatCues(brain: NpcBrain): string[] {
 
 /** The room the cells are in, if this NPC knows the way there. */
 export function brigPlace(brain: NpcBrain): string | null {
+  // Where no cell it knows of is in the Brig (Tramstation's are in the department checkpoints),
+  // it waits by the nearest cell's room instead (MAP-04).
+  const rooms = (brain.security?.cells ?? []).filter((cell) => !!cell.room);
+  if (
+    rooms.length > 0 &&
+    !rooms.some((cell) => new RegExp(`^${BRIG}\\b`).test(cell.room as string))
+  ) {
+    const nearest = rooms
+      .filter((cell) => knowsPlace(brain, cell.room as string))
+      .sort(
+        (a, b) => (a.dist ?? Number.MAX_VALUE) - (b.dist ?? Number.MAX_VALUE),
+      )[0];
+    if (nearest) {
+      return nearest.room as string;
+    }
+  }
   return knowsPlace(brain, BRIG) ? BRIG : null;
 }

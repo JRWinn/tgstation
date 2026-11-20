@@ -959,6 +959,20 @@ export function drive(
     return null;
   }
   noteDone(brain, step);
+  // An arrest sent over before its answer came will never be answered, though the cuffs may have
+  // gone on. Whose job it was is kept a while, so that the job can tell its own prisoner (ARR-08).
+  const over = brain.lastAct;
+  if (
+    over?.act.tool === 'arrest' &&
+    over.act.how !== 'stop' &&
+    over.task !== step.task
+  ) {
+    brain.droppedArrest = {
+      task: over.task,
+      person: String(over.act.person ?? ''),
+      at: brain.now,
+    };
+  }
   brain.lastAct = {
     key: step.key,
     tool: serverTool,
