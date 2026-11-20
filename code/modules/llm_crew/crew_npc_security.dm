@@ -868,49 +868,59 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return names
 
 /**
- * Returns the names of those with a PDA whose own ID opens a door of this room, for a body that
+ * Returns the names on the body's PDA list whose job opens a door of this room, for a body that
  * is shut out of it with a warrant on someone inside: those who work behind the door first, then
  * heads of department, then the Captain, whose card opens every door. It is what anyone aboard
- * knows: cargo's people open cargo's doors. Empty if the room has no door that is locked to it.
+ * knows: cargo's people open cargo's doors. Going by job titles, not by anyone's card (CHEAT-02).
+ * Empty if the room has no door that is locked to it.
  */
 /datum/ai_controller/crew_npc/proc/room_keepers(area/room)
-	if(isnull(room))
-		return list()
-	var/list/names = list()
-	var/list/heads = list()
-	var/list/captains = list()
 	var/mob/living/carbon/human/body = pawn
 	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
-	if(isnull(room) || isnull(own_messenger))
-		return names
+	if(isnull(room) || isnull(own_messenger) || QDELETED(body))
+		return list()
 	var/list/doors = list()
 	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
 		if(!door.allowed(body))
 			doors += door
+	return crew_npc_contacts_who_open(doors, own_messenger)
+
+/**
+ * Returns the names on a PDA's messenger list whose job, by the title the list shows, is one whose
+ * card opens one of these doors: those who work behind them first, then heads of department, then
+ * the Captain. What anyone reading the list knows (CHEAT-02): names and job titles, nothing of
+ * where anyone is or what is on their card. A title that is no job (renamed, or one the Head of
+ * Personnel made up) opens nothing, as someone reading it would take it. Someone far off or with
+ * no card is written to all the same, and does not come; the wait then moves on to the next name.
+ */
+/proc/crew_npc_contacts_who_open(list/doors, datum/computer_file/program/messenger/own_messenger)
+	var/list/names = list()
+	var/list/heads = list()
+	var/list/captains = list()
 	if(!length(doors))
 		return names
+	// What each title's card opens, worked out once a call: many on the list share a job.
+	var/list/opens_by_title = list()
 	for(var/messenger_ref in GLOB.pda_messengers)
 		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
-		if(candidate == own_messenger || isnull(candidate.computer) || !candidate.computer.saved_identification)
+		// As the messenger's own list goes (get_messengers()): not itself, not hidden, with a computer.
+		if(candidate == own_messenger || candidate.invisible || isnull(candidate.computer) || !candidate.computer.saved_identification)
 			continue
-		var/turf/where = get_turf(candidate.computer)
-		if(isnull(where) || !is_station_level(where.z))
+		var/title = candidate.computer.saved_job
+		if(!istext(title) || !length(title))
 			continue
-		// The card in the PDA, or failing that the one its holder wears, as door_keepers() goes by.
-		var/obj/item/card/id/card = candidate.computer.stored_id
-		if(isnull(card))
-			var/mob/living/holder = get(candidate.computer, /mob/living)
-			card = holder?.get_idcard(TRUE)
-		if(isnull(card))
+		if(isnull(opens_by_title[title]))
+			var/list/job_access = crew_npc_job_access(SSjob.get_job(title))
+			var/opens = FALSE
+			if(length(job_access))
+				for(var/obj/machinery/door/airlock/door as anything in doors)
+					if(door.check_access_list(job_access))
+						opens = TRUE
+						break
+			opens_by_title[title] = opens
+		if(!opens_by_title[title])
 			continue
-		var/opens = FALSE
-		for(var/obj/machinery/door/airlock/door as anything in doors)
-			if(door.check_access(card))
-				opens = TRUE
-				break
-		if(!opens)
-			continue
-		var/datum/job/their_job = SSjob.get_job(candidate.computer.saved_job)
+		var/datum/job/their_job = SSjob.get_job(title)
 		if(istype(their_job, /datum/job/captain))
 			captains += candidate.computer.saved_identification
 		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
