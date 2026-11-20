@@ -227,7 +227,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"water_from" = npc.water_from,
 			"bucket_to_fill" = npc.bucket_to_fill,
 			// Only with a hand to carry it in, or one it would free for it (DESK-10).
-			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(body.get_empty_held_indexes()) || !isnull(npc.spare_held_item())),
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(npc.free_hands()) || !isnull(npc.spare_held_item())),
+			// How many of its hands work: an arm hurt past using, or gone, holds nothing (HOLE-18).
+			"working_hands" = npc.working_hand_count(),
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
 			"door_open" = npc.open_door_in_view,
@@ -307,6 +309,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"custody" = npc.custody_cell,
 			// Holding a mop that will not clean until it is wetted, with no sink in sight to wet it at.
 			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()) && !npc.sink_in_view,
+			// Holding a rag too filthy to clean with until it is rinsed or wrung out (JAN-03).
+			"rag_filthy" = !isnull(npc.filthy_rag()),
 			"place_kind" = npc.place_kind(),
 			// On the way somewhere, on an errand, or working through a room's storage.
 			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.
