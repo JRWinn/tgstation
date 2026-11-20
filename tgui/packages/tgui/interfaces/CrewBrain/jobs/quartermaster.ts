@@ -68,6 +68,7 @@ import {
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_AT_CARGO,
   LOST_TOLD_WORDS,
   letOutLine,
   NOT_PLACED_WORDS,
@@ -76,6 +77,7 @@ import {
   ORDERING,
   orderSpoken,
   orderWritten,
+  REORDERED,
   SHUT_IN_WORDS,
   seeToLine,
   TAKEN_WORDS,
@@ -1803,7 +1805,7 @@ function crateLost(
     sendWord(
       brain,
       whose,
-      `Lost at cargo: ${written} from your order. ${capital(why)}. ${again ? `I am having it ordered again, as order ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
+      `${LOST_AT_CARGO} ${written} from your order. ${capital(why)}. ${again ? `I am having it ${REORDERED} ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
       `One of your technicians has told you that ${written}, which ${whose} ordered, ${numbers.length === 1 ? 'has' : 'have'} been lost: ${why}. You are sending ${whose} word of it${again ? ', and having it ordered again' : ''}.`,
     );
   }

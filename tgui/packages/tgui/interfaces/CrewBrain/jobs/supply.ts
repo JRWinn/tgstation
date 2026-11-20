@@ -103,6 +103,33 @@ export const DOCKED_WORDS = /\border (\d+) has come in: (.+)$/i;
 export const WORD_HEARD = 'I have that';
 export const WORD_HEARD_WORDS = /\bI have that\b/i;
 
+/**
+ * A technician telling a head, at the counter, that it has placed their order: "Hal, I have put
+ * your order in: a crate of janitorial supplies. I will send you the manifest number when it comes
+ * in." The head reads this as its order taken (TRA-04): jobs/head.ts.
+ */
+export const PLACED = 'I have put your order in';
+export const PLACED_WORDS = /\bI have put your order in\b/i;
+export function placedLine(first: string, what: string): string {
+  return `${first}, ${PLACED}: ${what}. I will send you the manifest number when it comes in.`;
+}
+
+/**
+ * Cargo telling whoever ordered that crates of their order are lost, and whether they are being
+ * ordered again: "Lost at cargo: crate #12 (Janitorial Supplies Crate) from your order. ...". Sent
+ * by cargo.ts and quartermaster.ts, read by jobs/head.ts (HEAD-02).
+ */
+export const LOST_AT_CARGO = 'Lost at cargo:';
+export const LOST_WORDS = /^lost at cargo: (.+?) from your order\b/i;
+export const REORDERED = 'ordered again, as order';
+export const REORDERED_WORDS = /\bordered again, as order \d+/i;
+
+/** What someone sent for a crate tells whoever sent them when cargo says there is no such crate (pickups.ts; read by head.ts). */
+export function noSuchCrateLine(number: string | number): string {
+  return `Cargo says there is no crate #${number} to collect: it has been lost, or the number is wrong. I have not got it.`;
+}
+export const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
+
 /** The technician telling the Quartermaster that an order could not be placed. */
 export const NOT_PLACED = 'did not go through';
 export const NOT_PLACED_WORDS = /\border (\d+) did not go through\b/i;

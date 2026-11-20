@@ -68,9 +68,13 @@ import {
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_AT_CARGO,
   NOT_PLACED,
   nameCalled,
+  orderSpoken,
   orderWritten,
+  PLACED_WORDS,
+  placedLine,
   QM_SILENT_WORDS,
   quartermasterAboard,
   SEE_TO_WORDS,
@@ -770,7 +774,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
         tool: 'message',
         person: notice.to,
         // What cannot be done without comes first: a PDA message that runs long is cut off at the end.
-        text: `Lost at cargo: ${written}${notice.what ? ` (${notice.what})` : ''} from your order. ${why[0].toUpperCase()}${why.slice(1)}. It will have to be ordered again, and nobody need come for it.`,
+        text: `${LOST_AT_CARGO} ${written}${notice.what ? ` (${notice.what})` : ''} from your order. ${why[0].toUpperCase()}${why.slice(1)}. It will have to be ordered again, and nobody need come for it.`,
       },
     };
   }
@@ -2581,6 +2585,37 @@ function sayerOf(
   );
 }
 
+/** Of the crates held for this person in the bay (heldFor), the ones of a kind asked for in these words. A crate whose kind it does not know counts. */
+function heldAskedFor(brain: NpcBrain, name: string, said: string): HeldCrate[] {
+  const kinds = itemsAskedFor(
+    said.toLowerCase(),
+    brain.orderable,
+    brain.pdaPeople.map((person) => person.name),
+  ).map((item) => item.crate);
+  return heldFor(brain, name).filter(
+    (crate) => !crate.what || kinds.includes(crate.what),
+  );
+}
+
+/** The words a crate held for someone is told of: "crate #12 (Janitorial Supplies Crate); crates #13 and #14 (Replacement Lights)". */
+function heldWritten(crates: HeldCrate[]): string {
+  const kinds = [...new Set(crates.map((crate) => crate.what))];
+  return kinds
+    .map((kind) => {
+      const numbers = crates
+        .filter((crate) => crate.what === kind)
+        .map((crate) => crate.number);
+      return `${cratesWritten(numbers)}${kind ? ` (${kind})` : ''}`;
+    })
+    .join('; ');
+}
+
+/**
+ * Who has just asked at the counter for a kind it is holding for them, and when (server time), by
+ * this NPC's id. No order is offered for them meanwhile: they are told it has come in (TRA-02).
+ */
+const askedForHeld = new Map<string, { name: string; at: number }>();
+
 function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
   // With a Quartermaster aboard, an order is taken from the Quartermaster and nobody else, and
   // that is done by code from its own words (see overhears). The one way round it is a head who
@@ -2594,7 +2629,17 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     // unseen stopped every order at the post for the rest of the round (CARGO-09).
     (doorWanted(brain) && !doorWanted(brain)?.unasked) ||
     // Likewise someone come to collect a crate: "I am here for crate 12" is not an order for one.
-    (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS)
+    (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS) ||
+    // Or a head asking again for what has come in for them and is waiting in the bay: a second
+    // crate was bought each time its PDA word was lost (TRA-02).
+    askers.some((person) => {
+      const held = askedForHeld.get(brain.id);
+      return (
+        !!held &&
+        held.name === person.name &&
+        brain.now - held.at < PICKUP_ASK_DS
+      );
+    })
   ) {
     return [];
   }
@@ -2645,6 +2690,41 @@ export const CARGO: Job = {
         });
         telling.from = given.by;
         telling.found = notPlacedWhy(String(text ?? ''));
+      }
+    }
+    // An order placed at the counter for whoever asked: they are told so, in so many words, and
+    // that is what the head goes by as its order taken. Any word from cargo in its hearing was
+    // taken for it before, and an order nobody took was not asked for again for ten minutes
+    // (TRA-04). Only the placing ("You order ..."), not the shuttle docking with it later, and not
+    // an order the Quartermaster gave, whose word goes back to the Quartermaster.
+    if (
+      ok &&
+      act.tool === 'order' &&
+      task?.kind !== GIVEN &&
+      !act.via &&
+      /^you order /i.test(text ?? '')
+    ) {
+      const asker =
+        brain.peopleInView.find((person) => person.handle === act.for)?.name ??
+        String(text ?? '')
+          .match(/^you order .+ for (.+?) at the supply console/i)?.[1]
+          ?.trim();
+      if (asker && asker !== brain.name) {
+        const items =
+          Array.isArray(act.items) && act.items.length > 0
+            ? (act.items as { crate: string; count: number }[])
+            : [{ crate: String(act.crate ?? ''), count: Number(act.count ?? 1) }];
+        const line = placedLine(firstName(asker), orderSpoken(items));
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+        brain.toTell.push({
+          to: asker,
+          line,
+          why: `You have placed the order ${asker} asked you for at the counter: ${orderWritten(items)}. You are telling them it is in.`,
+          needs: PLACED_WORDS,
+          exact: true,
+          whileBusy: true,
+          at: Date.now(),
+        });
       }
     }
     // Word of an order that has come in is passed on, or it knocked for the Quartermaster.
@@ -2873,6 +2953,8 @@ export const CARGO: Job = {
       asksToOrder(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
       !comeForCrate(words, crateNumberIn(words)) &&
+      // Nor asking for a kind that has come in for them already (TRA-02).
+      heldAskedFor(brain, sayer.name, words).length === 0 &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
     );
   },
@@ -3035,6 +3117,40 @@ export const CARGO: Job = {
           // there waiting to hear it, and gives the order to someone else if it does not. Left to
           // its turn, it was said eighty seconds late, after the order was placed, and the same
           // order was bought a second time by the other technician.
+          exact: true,
+          whileBusy: true,
+          at: Date.now(),
+        });
+      }
+      return;
+    }
+    // A head asking at the counter for a kind of crate that has come in for them and is waiting in
+    // the bay: told so, in the words of the PDA it was sent, and nothing is ordered. Its PDA word
+    // lost, the head came back every ten minutes and a crate was bought each time (TRA-02).
+    const askingSeen = brain.peopleInView.find(
+      (person) => person.name === speaker,
+    );
+    const heldAsked =
+      askingSeen &&
+      !isCargo(speakerJob) &&
+      (!!askingSeen.command || isHead(speakerJob)) &&
+      atMyCounter(brain, event, speaker) &&
+      ORDERING_WORDS.test(heard) &&
+      !comeForCrate(heard, crateNumberIn(heard))
+        ? heldAskedFor(brain, speaker, heard)
+        : [];
+    if (heldAsked.length > 0) {
+      askedForHeld.set(brain.id, { name: speaker, at: brain.now });
+      if (
+        takeOrder(brain.post ?? '', `${speaker}, held for them`, brain.name, brain.now)
+      ) {
+        const line = `${firstName(speaker)}, your order has come in: ${heldWritten(heldAsked)}. Send someone to the Cargo Lobby counter with the number to collect ${heldAsked.length > 1 ? 'each one' : 'it'}.`;
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+        brain.toTell.push({
+          to: speaker,
+          line,
+          why: `${speaker} is asking you to order what has already come in for them and is waiting in the bay. You are telling them the number, so that they can send someone for it.`,
+          needs: /\border has come in\b/i,
           exact: true,
           whileBusy: true,
           at: Date.now(),
@@ -3276,6 +3392,7 @@ export const CARGO: Job = {
       items.length > 0 &&
       asksToOrder(said) &&
       !comeForCrate(said, crateNumberIn(said)) &&
+      heldAskedFor(brain, asker.name, said).length === 0 &&
       !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       offers(brain, [asker]).length > 0 &&
       takeOrder(brain.post ?? '', asker.name, brain.name, brain.now)

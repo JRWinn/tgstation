@@ -15,7 +15,7 @@ import { CARGO_LOBBY, knowsPlace } from '../memory';
 import { addTask, blockTask, finishTask, placeNamedIn } from '../tasks';
 import type { Action, NpcBrain, Plan, SenseEvent, Task } from '../types';
 import { isCargo } from './cargo';
-import { isTechnician } from './supply';
+import { isTechnician, noSuchCrateLine } from './supply';
 
 /** A crate to collect from cargo. The task's item is its manifest number, and its place the room it is to go to. */
 const COLLECT = 'collect';
@@ -392,7 +392,7 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
     } else if (task.askedBy && brain.hasPda) {
       brain.toTell.push({
         to: task.askedBy,
-        line: `Cargo says there is no crate #${task.item} to collect: it has been lost, or the number is wrong. I have not got it.`,
+        line: noSuchCrateLine(task.item ?? ''),
         why: `${speaker}, at the cargo counter, has told you there is no crate #${task.item} to be had. You are sending ${task.askedBy}, who sent you for it, a PDA message to say so.`,
         byPda: true,
         at: Date.now(),
