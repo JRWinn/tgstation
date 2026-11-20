@@ -58,6 +58,7 @@
 //   bun run sim.ts quiet twolocked   two warrants: the monkey is in the locked Cargo Bay, Dana Reyes in the Library; the officer asks to be let into the bay and waits at its door, not walking off to Dana (ARR-14)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 //   bun run sim.ts quiet stuckcell  as the plain arrest, but the officer cannot get back out past the monkey it let go in the cell: the next jail only starts the timer, so one jailing and no second arrest (PLAY-01)
+//   bun run sim.ts quiet nocell   as the plain arrest, but every cell is in use: the officer takes the monkey to the Brig and waits there, and the Head of Security is told once that every cell is in use (ARR-04)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -324,7 +325,7 @@ const steppedAside: { who: string; at: number }[] = [];
 let asideFailedAt = 0;
 const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell', 'nocell'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
@@ -552,7 +553,9 @@ function busy(body: Body, seconds: number, text: string, walking: boolean, done:
   body.busyUntil = clock + seconds * 1000; body.busyText = text; body.walking = walking; body.onDone = done;
 }
 function arrive(body: Body, place: string, tool: string) {
-  moveTo(body, place); body.waysOut = 0; body.letOutUntil = 0; if (body.letInto !== place) { body.letInto = null; body.letInBy = null; } body.visited.add(place); body.known.add(place);
+  moveTo(body, place);
+  // Whoever it has by the arm comes with it.
+  if (punPun && kits.get(body.name)?.holding === punPun.name) punPun.room = place; body.waysOut = 0; body.letOutUntil = 0; if (body.letInto !== place) { body.letInto = null; body.letInBy = null; } body.visited.add(place); body.known.add(place);
   body.atDoorOf = null; body.doorwayOf = null; body.nextTo = null;
   if (pushedOut(body) && place === 'Bar' && meetingOn()) body.bumpAt = clock + 3000;
   // The door is shut behind whoever it was opened for, the moment they are through.
@@ -1064,7 +1067,8 @@ function toolCall(body: Body, tool: string, args: any) {
         });
       }
       if (!name) { note(false, { reason: 'no_hold' }); return result(body, 'jail', false, 'You have nobody by the arm.', { reason: 'no_hold' }); }
-      const cell = cells.find((it) => !it.occupant && !refusedCells.has(it.name)) ?? cells.find((it) => !it.occupant);
+      // ARR-04: in one scenario every cell is taken, as by prisoners someone else brought in. The server answers at once, with no walk.
+      const cell = VARIANT === 'nocell' ? undefined : cells.find((it) => !it.occupant && !refusedCells.has(it.name)) ?? cells.find((it) => !it.occupant);
       if (!cell) { note(false, { reason: 'no_cell' }); return result(body, 'jail', false, 'Every cell is in use.', { reason: 'no_cell' }); }
       // In one scenario the first cell will not take anyone, as in the round of 15:52: its door did not open in time.
       if (process.argv[3] === 'badcell' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'no_way', cell: cell.name }); result(body, 'jail', false, `You cannot get into ${cell.name} with ${name}.`, { reason: 'no_way', prisoner: name, cell: cell.name }); });
@@ -2114,7 +2118,7 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
   // Someone in cuffs already is taken by the arm with nothing said (TRB-01).
   if (VARIANT !== 'cuffedfree') check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
   check('nobody is hit who was not first given the chance to stand still', firstHand?.how === 'quiet', listed(arrests));
-  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
+  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid' && VARIANT !== 'nocell') {
     check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === cellFor, listed(secWork));
   }
   // Bitten by the monkey it is arresting, the officer adds five minutes for resisting arrest.
@@ -2153,8 +2157,8 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
     check('the Head of Security calls no staff meeting inside five minutes of a sighting', !call || callAt >= SIGHTING_AT + 295, call ? `${callAt} s in` : 'none called');
     check('called to one while it is with the monkey, the officer sends its report by PDA and stays', !call || sentTo(hale, joan!.name, /I cannot come to the meeting: I am after someone on a warrant\./).length === 1, call ? '' : 'no meeting was called in the time');
   }
-  if (VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${resisted ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
-  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
+  if (VARIANT !== 'nobaton' && VARIANT !== 'pardonmid' && VARIANT !== 'nocell') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${resisted ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
+  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid' && VARIANT !== 'nocell') {
     check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in ${cellFor} for ${minutes} minutes`)) >= 1);
   }
 
@@ -2254,6 +2258,17 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
     check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
     check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
     check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
+  }
+  if (VARIANT === 'nocell') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const tries = secWork.filter((work) => work.tool === 'jail');
+    check('every jail is answered that every cell is in use, and it tries more than once', tries.length >= 2 && tries.every((work) => !work.ok && work.reason === 'no_cell'), listed(tries));
+    const firstNo = tries[0]?.at ?? Infinity;
+    const toBrig = hale.log.find((line) => line.slice(0, 8) >= clockAt(firstNo) && / go_to /.test(line) && line.includes(`"place":"${BRIG}"`));
+    check('the officer takes the monkey to the Brig', !!toBrig && hale.room === BRIG && kitOf(hale).holding === 'Pun Pun', `${toBrig?.trim() ?? 'never went'}; ends in ${hale.room} holding ${kitOf(hale).holding ?? 'nobody'}`);
+    const words = /Joan, I cannot bring in Pun Pun: every cell is in use\./;
+    check('the Head of Security is told once that every cell is in use', told(hale, joan!.name, words) === 1, `${told(hale, joan!.name, words)} time(s); ${[...saidBy(hale.name, /^Joan, /).map((line) => line.text), ...sentTo(hale, joan!.name, /./)].join(' | ')}`);
+    check('and the Captain is told once', sentTo(joan, SEC_CAPTAIN, /Captain, Hale cannot bring in Pun Pun: every cell is in use\./).length === 1, sentTo(joan, SEC_CAPTAIN, /cannot/).join(' | ') || 'never');
   }
   if (VARIANT === 'stuckcell') {
     const stuck = secWork.find((work) => work.tool === 'jail' && work.reason === 'stuck_inside');
