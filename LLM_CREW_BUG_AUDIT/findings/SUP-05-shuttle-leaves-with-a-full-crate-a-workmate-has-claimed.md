@@ -137,3 +137,5 @@ Not done (not this group's files): step 5's window half, step 6.
 Window part on branch `m-cargo` (`jobs/freight.ts` `syncFreight`; cases in `tools/llm_crew/cargo-freight.ts`; simulator rounds, crew, qmno passed; not played): the SEND task now needs `(freight.fullAboard ?? freight.toUnload) === 0`, so a full crate still aboard keeps the shuttle when the server says what is aboard. `fullAboard` is read through a cast, since `types.ts` and `brain.ts` are another group's.
 
 Held: `types.ts`, add `fullAboard?: number` to `Freight`; `brain.ts`, fill it from `npc.freight.full_aboard` where `freight` is built. Until then the old test (`toUnload`) stands. The server part is on branch `m-cargosrv`.
+
+Round M2 (g-brain): the held window part is built. `types.ts`: `full_aboard?: number` on the server's freight and `fullAboard?: number` on `Freight`; `brain.ts` `ingest` fills it from `npc.freight.full_aboard` (a number only; unset when not sent, so `toUnload` is read in its place). `jobs/freight.ts` still reads it through its cast, which keeps working: for g-cargo to drop next round (`freight?.fullAboard` direct). Table `tools/llm_crew/brain4-ingest.ts`.

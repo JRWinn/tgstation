@@ -603,6 +603,10 @@ export function ingest(npcs: Npc[], now: number): void {
           mailFor: npc.freight.mail_for ?? [],
           emptyCrates: npc.freight.empty_crates ?? 0,
           misplaced: npc.freight.misplaced ?? 0,
+          fullAboard:
+            typeof npc.freight.full_aboard === 'number'
+              ? npc.freight.full_aboard
+              : undefined,
         }
       : null;
     brain.areaMesses = npc.work_area_messes ?? {};

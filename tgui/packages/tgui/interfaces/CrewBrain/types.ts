@@ -269,6 +269,8 @@ export type Npc = {
     empty_crates: number;
     /** Crates left within a tile of a door, where they are in the way. */
     misplaced?: number;
+    /** Crates aboard the shuttle with something in them, claimed by a workmate or not (SUP-05). */
+    full_aboard?: number;
   } | null;
   /** Messes it remembers in the rooms that are its to keep fit to work in: room name -> what they are. */
   work_area_messes: Record<string, string[]> | null;
@@ -928,6 +930,11 @@ export type Freight = {
   emptyCrates: number;
   /** Crates in cargo's rooms left within a tile of a door, where they are in the way. */
   misplaced: number;
+  /**
+   * Crates aboard the shuttle with something in them, claimed by a workmate or not (SUP-05).
+   * Unset while the server does not send it: toUnload is read in its place.
+   */
+  fullAboard?: number;
 };
 
 /** What doing a task comes down to right now. */
