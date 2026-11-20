@@ -84,6 +84,12 @@
 #define CREW_NPC_CLEAN_TIME (8 SECONDS)
 /// How long a crew NPC watches a mess it sprayed for the puff to reach it and wash it.
 #define CREW_NPC_PUFF_TIME (1.5 SECONDS)
+/// A rag this bloody cleans nothing ("too dirty"): the blood_level at which /obj/item/rag refuses to clean.
+#define CREW_NPC_RAG_FILTHY 10
+/// The most times a crew NPC wrings out a filthy rag in one go, with no sink in sight to rinse it at.
+#define CREW_NPC_RAG_WRINGS 3
+/// How long a crew NPC waits on a sink washing its rag: the sink's own wash takes 4 seconds.
+#define CREW_NPC_RINSE_TIME (6 SECONDS)
 /// The most containers a crew NPC looks inside in one search of a room.
 #define CREW_NPC_STORAGE_PER_SEARCH 6
 /// How long before a container, or a room's storage, is worth a second look.

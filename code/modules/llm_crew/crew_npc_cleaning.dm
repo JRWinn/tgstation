@@ -36,7 +36,68 @@
 		return tool.reagents?.total_volume >= 0.1
 	if(istype(tool, /obj/item/reagent_containers/spray/cleaner))
 		return tool.reagents?.total_volume > 0
+	// A rag grows bloody with what it wipes up, and once filthy says "too dirty" and cleans nothing. A
+	// janitor that went on counting it wrote off every mess after as one that would not come off.
+	if(rag_is_filthy(tool))
+		return FALSE
 	return !isnull(tool.GetComponent(/datum/component/cleaner))
+
+/// TRUE if this is a rag too bloody to clean anything until it is rinsed at a sink or wrung out.
+/datum/ai_controller/crew_npc/proc/rag_is_filthy(obj/item/tool)
+	var/obj/item/rag/rag = tool
+	return istype(rag) && rag.blood_level >= CREW_NPC_RAG_FILTHY
+
+/// Returns a rag in the body's hands that is too bloody to clean with, or null.
+/datum/ai_controller/crew_npc/proc/filthy_rag()
+	var/mob/living/carbon/human/body = pawn
+	for(var/obj/item/rag/held in body.held_items)
+		if(rag_is_filthy(held))
+			return held
+	return null
+
+/**
+ * Makes the filthy rag the body holds fit to clean with again, the way a player does. At a sink it
+ * is rinsed, by a plain click on the sink with the rag (the sink washes it, four seconds). Anywhere
+ * else it is wrung out, used in hand, until it is no longer too dirty: that takes it down by a
+ * quarter a time, and never to clean. Sleeps while it does.
+ *
+ * Returns a list, as wet_mop does: whether there is something to clean with now, the words for the
+ * brain, and a marker that this was about the tool, not a mess.
+ */
+/datum/ai_controller/crew_npc/proc/clean_rag(obj/item/rag/rag, atom/source)
+	var/mob/living/carbon/human/body = pawn
+	if(!hand_to(rag))
+		return list(!isnull(cleaning_tool()), "You cannot get your rag into your hand.", TRUE)
+	if(istype(source, /obj/structure/sink) && !QDELETED(source))
+		var/source_name = format_text(source.name)
+		if(click_as_body(source))
+			// The sink's wash is a do_after on the body: it is waited out, and a little more.
+			var/rinse_until = world.time + CREW_NPC_RINSE_TIME
+			while(length(body.do_afters) && world.time < rinse_until)
+				sleep(0.5 SECONDS)
+				if(QDELETED(src) || QDELETED(body) || QDELETED(rag))
+					return list(FALSE, "You could not get to it.", TRUE)
+		if(QDELETED(rag))
+			return list(!isnull(cleaning_tool()), "Your rag is gone.", TRUE)
+		if(!rag_is_filthy(rag))
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) rinsed its filthy rag at the [source_name] at [AREACOORD(source)].")
+			return list(TRUE, "You rinse your rag at the [source_name]. It is clean again.", TRUE)
+		// Run dry, or someone else at it: wrung out instead, below.
+	for(var/wring in 1 to CREW_NPC_RAG_WRINGS)
+		if(!rag_is_filthy(rag))
+			break
+		sleep(1 SECONDS)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(rag) || body.get_active_held_item() != rag)
+			return list(FALSE, "You could not wring out your rag.", TRUE)
+		var/before = rag.blood_level
+		// Used in hand, as a player uses it: the rag's own wringing, a do_after of a few seconds.
+		body.execute_mode()
+		if(QDELETED(rag) || rag.blood_level >= before)
+			break
+	if(QDELETED(rag) || rag_is_filthy(rag))
+		return list(!isnull(cleaning_tool()), "Your rag is too dirty to clean with, and you could not wring it out. It wants rinsing at a sink.", TRUE)
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrung out its filthy rag at [AREACOORD(body)]: no sink to hand.")
+	return list(TRUE, "You wring out your rag. It will do for a few more wipes.", TRUE)
 
 /// Returns a mop in the body's hands that has no water on it, or null.
 /datum/ai_controller/crew_npc/proc/dry_mop()
@@ -46,9 +107,9 @@
 			return held
 	return null
 
-/// Returns what the body can clean with here: a proper tool that works now, or a dry mop if there is a sink in view to wet it at, or failing both a rag.
+/// Returns what the body can clean with here: a proper tool that works now, or a dry mop if there is a sink in view to wet it at, or failing both a rag. A filthy rag counts: it can always be wrung out, and is rinsed at a sink when there is one.
 /datum/ai_controller/crew_npc/proc/working_tool()
-	return proper_tool() || (sink_in_view ? dry_mop() : null) || cleaning_tool()
+	return proper_tool() || (sink_in_view ? dry_mop() : null) || cleaning_tool() || filthy_rag()
 
 /// Says what the body has to clean with here, in words for the brain, or null if it has nothing that will work.
 /datum/ai_controller/crew_npc/proc/describe_cleaning_tool()
@@ -62,6 +123,13 @@
  */
 /datum/ai_controller/crew_npc/proc/wet_mop(atom/source)
 	var/mob/living/carbon/human/body = pawn
+	// A filthy rag is seen to first: rinsed at the sink gone to, or wrung out anywhere else (the
+	// errand to where it stands comes here with the bucket in its other hand, or with nothing).
+	var/obj/item/rag/filthy = filthy_rag()
+	if(filthy)
+		var/list/rag_outcome = clean_rag(filthy, source)
+		if(!rag_outcome[1] || isnull(dry_mop()) || isnull(source) || QDELETED(source))
+			return rag_outcome
 	var/obj/item/mop/mop = dry_mop()
 	if(isnull(mop))
 		return list(!isnull(cleaning_tool()), "You have no mop to wet.", TRUE)
@@ -170,6 +238,12 @@
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
 	if(isnull(bucket) || QDELETED(source))
 		return list(!isnull(cleaning_tool()), "You have no bucket to fill.", TRUE)
+	// At a sink with a filthy rag in hand, the rag is rinsed while it is there.
+	var/obj/item/rag/filthy = filthy_rag()
+	if(filthy && istype(source, /obj/structure/sink))
+		clean_rag(filthy, source)
+		if(QDELETED(src) || QDELETED(body) || QDELETED(bucket) || QDELETED(source))
+			return list(FALSE, "You could not get to it.", TRUE)
 	var/source_name = format_text(source.name)
 	var/bucket_hand = body.get_held_index_of_item(bucket)
 	if(bucket_hand && bucket_hand != body.active_hand_index)
@@ -231,7 +305,7 @@
 /datum/ai_controller/crew_npc/proc/could_shift(obj/effect/decal/cleanable/mess)
 	var/mob/living/carbon/human/body = pawn
 	for(var/obj/item/held in body.held_items)
-		if((can_clean_with(held) || istype(held, /obj/item/mop)) && can_clean_mess(held, mess))
+		if((can_clean_with(held) || istype(held, /obj/item/mop) || rag_is_filthy(held)) && can_clean_mess(held, mess))
 			return TRUE
 	return FALSE
 
@@ -308,9 +382,9 @@
 	stubborn_messes -= oldest_key
 	return TRUE
 
-/// Returns what the body could clean with: a proper tool that works now, or a mop that would once it is wet, or failing both a rag.
+/// Returns what the body could clean with: a proper tool that works now, or a mop that would once it is wet, or failing both a rag, one too dirty for now among them.
 /datum/ai_controller/crew_npc/proc/tool_in_hand()
-	return proper_tool() || dry_mop() || cleaning_tool()
+	return proper_tool() || dry_mop() || cleaning_tool() || filthy_rag()
 
 /**
  * What would not come off with one thing may with another. Once the body holds a different kind of
@@ -476,6 +550,20 @@
 			clean_failed_count = 0
 			start_errand(filling_at, CREW_TOOL_CLEAN, null)
 			return
+	// A filthy rag cleans nothing. It is rinsed at the nearest sink in sight it could get to, or with
+	// none wrung out where it stands. Seen to before the dry mop: the sink it goes to wets that too.
+	if(filthy_rag())
+		var/atom/rinse_at
+		var/rinse_distance = INFINITY
+		for(var/obj/structure/sink/sink in around)
+			if(get_dist(body, sink) < rinse_distance && water_reachable(sink))
+				rinse_distance = get_dist(body, sink)
+				rinse_at = sink
+		clean_queue = list()
+		cleaned_count = 0
+		clean_failed_count = 0
+		start_errand(rinse_at || get_turf(body), CREW_TOOL_CLEAN, null)
+		return
 	if(isnull(proper_tool()) && dry_mop())
 		// A dry mop cleans nothing. Wet it first: from the bucket it carries, at a mop bucket or a
 		// cart with water in it, or at the nearest sink in sight.
