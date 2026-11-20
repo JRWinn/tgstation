@@ -1746,6 +1746,12 @@ export function beatAfterActing(
     if (!ok) {
       more(warrant).arrestAttempts = (more(warrant).arrestAttempts ?? 0) + 1;
     }
+    // Someone else from security put their cuffs on them first (MULTI-01): no try at them, and
+    // not its own cuffs, so it does not say it has them. The next look sees them cuffed and
+    // leaves them, or takes them by the arm if nobody has them.
+    if (!ok && String(details.reason ?? '') === 'other_cuffs') {
+      return;
+    }
     // The cuffs went on, whether or not it then got a hold of them: they are its prisoner, and
     // whoever keeps the list is told so. Left unsaid, the list read "still wanted" for seven
     // minutes while it walked them about the station.
