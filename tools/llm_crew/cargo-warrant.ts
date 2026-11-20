@@ -92,6 +92,16 @@ function after(b: any, who: any, ds: number, others: any[] = []) {
   after(b, TOLLY, 0);
   add('a janitor whose mess is gone is still seen out after a minute', after(b, TOLLY, 700), 'go');
 }
+{
+  // CARGO-04: the step for letting security in speaks of a warrant, not of a mess.
+  const b = tech();
+  b.pdaPeople = [{ name: NOVA.name, job: NOVA.job }];
+  CARGO.readsMessage(b, NOVA.name, ASK, b.now, NOVA.job);
+  CARGO.syncTasks(b);
+  const task = b.tasks.find((it: any) => it.kind === 'door' && it.item === NOVA.name && it.state !== 'done');
+  const step = task ? String(CARGO.plan(b, task)?.step ?? '') : '';
+  add('CARGO-04: the step to let security in says it is security, about a warrant', [/is security, at the door of the Cargo Bay about a warrant/.test(step), /mess/.test(step)], [true, false]);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

@@ -94,3 +94,11 @@ The owner ruled that word between the Quartermaster and a technician goes face t
 ## Check
 
 Checked by Opus 5.5. Read `tellQuartermaster` (`cargo.ts:328-410`): `byPda` is set only after two unheard tellings (362) or, with the Quartermaster out of sight, when there is no office or the knock was 90 seconds ago (`AT_QM_DOOR_DS = 900`, 385-390). `knockedAt` is set only in `afterActing` on a successful `knock` (`cargo.ts:1931`), so a body whose `go_to_door` keeps failing never reaches that give-up. Read `syncWontCome` (`cargo.ts:637-675`): `byPda` closes the task and clears `brain.gaveUp` with nothing sent, and `wontComeStep` (678-700) has no PDA step either; `WONT_COME_DS = 3000` is the five minutes. Read the Quartermaster's `readsMessage` (`quartermaster.ts:1445-1494`): a technician's PDA is read for `DOCKED_WORDS`, `ARRIVED_WORDS` and `SHUT_IN_WORDS` only; `WONT_COME_WORDS` and `crateHeldUp` are reached only from `overhears` (1538-1547). The two lines quoted from the 09:20 entry are at `LLM_CREW_CHANGELOG.md:995-996` and no later entry touches them. Not a duplicate: CARGO-02 is the order-came-in word on the same give-up, and CARGO-18 and LOGB-07 are about the face-to-face path. Confirmed. I raised effort to medium (three changes across `cargo.ts`, `quartermaster.ts` and a `Task` field) and put the PDA step in `wontComeStep`, since `syncWontCome` gives no step.
+
+## Fix so far
+
+The part that needs no PDA, on branch `m-cargo` (`jobs/cargo.ts`; cases in `tools/llm_crew/cargo-notplaced.ts`; simulator qmstuck, qmgone, qmquiet, qmwait passed; not played). The PDA steps (1 and 3) wait on the owner's answer to CARGO-02.
+
+- In place of dropping the word when the Quartermaster is not found or does not answer, `wontComeStep` leaves it for two minutes (`tellAgainLater`, `NOT_PLACED_AGAIN_DS`) and `syncWontCome` keeps it blocked, then it is taken to the Quartermaster again, until the word is five minutes old (`WONT_COME_DS`) as before. The comment is mended (step 4).
+- Step 2: two failed walks running to the Quartermaster's office door (`doorMisses`, counted in cargo's `afterActing` on `go_to_door`) count as not finding it. That reaches the order-came-in and still-waiting words too, which then go by PDA to whoever ordered as they always did after a knock.
+- Step 5 (log the drop) not done: the window has no game.log line of its own to add.

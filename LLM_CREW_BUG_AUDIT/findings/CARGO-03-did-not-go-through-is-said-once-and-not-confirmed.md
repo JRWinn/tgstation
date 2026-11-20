@@ -102,3 +102,14 @@ Checked by Opus 5.5. The quotes are what the code says today: the `toTell` push 
 Traced the Quartermaster's side: an order is `given` and `taken` once the technician answers (`quartermaster.ts:1596`). The re-give after `TAKEN_WAIT_DS` (`quartermaster.ts:800`) skips a taken order. The only ways out of `given` are the not-placed line (`order.state = 'new'`) and `noteDocked`. A taken order stuck in `given` keeps the technician out of `freeTechnicians` (`quartermaster.ts:674`) and its cost in `moneyFree` (`quartermaster.ts:215`). So a lost line leaves the order stuck for the round. `tool_order` does refuse for want of money (`crew_npc_cargo.dm:354`), so the case is a real way in.
 
 One thing in the write-up was wrong and is mended above: the Quartermaster seen through its office window does hear the line, since `send_speech` uses `get_hearers_in_view` (`code/__HELPERS/spatial_info.dm:83`) with range 7, the same as `CREW_NPC_VISION_RANGE`. The fault is the case where it is not in sight within two minutes, and that the line gets none of the knock, retry and answer the other words get. Read from the code, not run. Severity medium stands. Effort raised to medium: a new task kind with its plan and sync in `cargo.ts`, plus two branches in `quartermaster.ts`, is more than twenty lines in two files. Step 4 (the reason) is extra and touches the server.
+
+## Fix so far
+
+Done on branch `m-cargo` (window only; table `tools/llm_crew/cargo-notplaced.ts`, 17 cases; simulator qm, qmpoor, qmgone passed; not played):
+
+- Step 1: a refused order now opens a `not_placed` task in `jobs/cargo.ts` (`NOT_PLACED_TASK`, `syncNotPlaced`, `notPlacedStep`) in place of the one-off `toTell` line. It goes through `tellQuartermaster`: said word for word if the Quartermaster is in sight, walked up to if not heard, the office door knocked at if not in sight. It is done once the Quartermaster says "Sam, I have that.". No PDA (CARGO-02 is still the owner's): when the Quartermaster is not found or twice does not answer, the task is blocked for two minutes (`NOT_PLACED_AGAIN_DS`) and taken to it afresh, for up to half an hour (`NOT_PLACED_KEPT_DS`). It is let go if no Quartermaster is aboard.
+- Step 2: `quartermaster.ts` `overhears` calls `heardIt()` on `NOT_PLACED_WORDS`. `readsMessage` is not changed, since no technician sends it by PDA.
+- Step 3: `brain.givenOrder = null` kept.
+- Step 4, window part: `afterActing` already gets the server's text, so the line now says why (`notPlacedWhy`): "There is not enough money in the cargo budget for it.", "I could not find a supply console to order from.", "I could not get to the console.", else "The console would not take it.". The Quartermaster, hearing "not enough money", gives the order out again in ten minutes, not two. No server change was needed.
+
+Not done: the driver.ts part (held for its owner) and a simulator scenario that refuses the order with the Quartermaster out of earshot.

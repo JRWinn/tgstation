@@ -165,3 +165,7 @@ Not done: step 1 (`lies_in` from `gave_up_report`, a .dm file) and step 2 (`brai
 Then on branch `m-cargosrv` (server, compile only, not played): step 1. `gave_up_report` (`crew_npc_grip.dm`) sends `lies_in` (the crate's room) when the crate could not be put clear, and the body is told "It lies in ROOM." `brain.ts` already keeps it as `brain.gaveUp.liesIn`.
 
 Still left: `pickupsAfterActing` (`jobs/pickups.ts`) names `gaveUp.leftIn ?? brain.location`; it should be `gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location`. Step 6 (`take_back`) not done.
+Done on branch `m-cargo` (window only; table `tools/llm_crew/cargo-play.ts`, 47 cases; not played):
+
+- Step 2 use: `pickupsAfterActing` now tells the head `brain.gaveUp.liesIn` (the server's `lies_in`, read by `ingest`) when the crate was not put clear, and the body's room only when the server sends neither `left_in` nor `lies_in`.
+- Step 6: a failed `take_back` with a `take_back` give-up sends the head who sent it one PDA, "I could not get the empty crate from #N back to cargo. It is left in the PLACE[, clear of the doors]. I will try again." It is told once per errand (`task.toldAt`), `brain.gaveUp` is cleared, and the errand stands so the empty is tried again as before. The words do not match `GAVE_UP_WORDS`, so the head sends nobody. Cargo and the Quartermaster are still not told of a lost empty: that would want the Quartermaster to read the line, which is left.

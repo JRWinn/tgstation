@@ -101,3 +101,12 @@ Confirmed, Opus 5.5, 2026-11-19. Read from the code, nothing run.
 - No later change log entry touched the server check. The 16:50 entry (H9) changed `mayPass` only, and the 18:15 note "the technicians, who let security in" was never true on the server. `grep "no call to let"` finds only the two copies of the refusal.
 
 Changed: severity to medium. The arrest is not lost for good: the officer asks up to three keepers in turn, 45 seconds each (staff of the room, then heads, then the Captain, change log 16:50), and after that the Head of Security can have an engineer force the door (18:50 entry). With two technicians and a Quartermaster aboard, all three asks may go to cargo staff, and the Quartermaster's `open_door` is refused the same way, so the arrest then waits on the engineer. It is still a fault the owner named ("no one is opening the door for security") and that the change log says is fixed. Effort to medium, since the fix is the server line, the simulator's copy and, for the wording, `doorCue`. Step 1 of the fix: the security test should read the job shown on the person, as the janitor test does, not `works_in_security`, which reads the card itself.
+
+## Fix so far
+
+Done on branch `m-cargo` (window only; cases in `tools/llm_crew/cargo-warrant.ts` and `cargo-play.ts`; simulator office, evict, vouch, bydoor passed; not played):
+
+- Step 3: `mayPass` marks a security officer's want `security: true`, and `doorCue` says "NAME is security, at the door of the ROOM about a warrant, and the door is locked to them." in place of the mess wording.
+- Step 4, in part: `letOutFailed` now keeps a let-in ask, as it kept a let-out one, for one more try when the body "could not get to it" (`DOOR_TRIES`, `DOOR_RETRY_DS`). Any other refusal, "You have no call to let ..." among them, still drops the ask, so a refusal by the server is not tried over and over.
+
+Held: step 1 (`tool_open_door` in `crew_npc_doors.dm`: let in someone outside whose shown job has "Security Officer" or "Head of Security") and step 5 (the same in `tools/llm_crew/sim.ts:768`). Until step 1 is built, the technician still walks to the door and is refused. The owner's question (let security in on asking, or only with word of a warrant) is still open; the window is as built (on asking).

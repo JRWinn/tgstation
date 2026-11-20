@@ -91,6 +91,17 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('asked of Maria, who is standing there: left to her', said(false), null);
   add('asked of Maria, who is lying there: taken by this one', said(true), 12);
 }
+// TRUST-04 step 3: a crate is not handed out by its owner's job, only by number or by their name.
+{
+  const ask = (said: string) => {
+    const b = tech([{ number: 37, for: 'Hop Kins' }]);
+    b.pdaPeople.push({ name: 'Hop Kins', job: 'Head of Personnel' });
+    hear(b, said);
+    return b.pickupAsked?.number ?? null;
+  };
+  add('TRUST-04: "here to collect the crate for the Head of Personnel": not by the job', ask('I am here to collect the crate for the Head of Personnel.'), null);
+  add('TRUST-04: "here to collect the crate for Hop Kins": by the name, as before', ask('I am here to collect the crate for Hop Kins.'), 37);
+}
 // CARGO-15: an order that says who will come for it is an order.
 {
   const { comeForCrate } = await import(ROOT + 'jobs/pickups');
@@ -214,6 +225,60 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
     const b = collector(['13']);
     hearFrom(b, CORA, 'Sorry, I am not holding a crate by that number.', 'nobody');
     add('a numberless no said to nobody: its errand stands', open(b), ['13']);
+  }
+  // JOBS-05: cargo saying someone else has the crate already ends the errand, and its head is told.
+  {
+    const b = collector(['12']);
+    hearFrom(b, CORA, 'Jan, Mo Pper has taken crate 12 already.', 'me');
+    add('JOBS-05: "Mo Pper has taken crate 12 already": the errand ends', open(b), []);
+    add('JOBS-05: and its head is told who has it', b.toTell.map((t: any) => [t.to, t.line, !!t.byPda]), [['Hop Kins', 'Cargo says Mo Pper has taken crate #12 already. I have not got it.', true]]);
+  }
+  {
+    const b = collector(['13']);
+    hearFrom(b, CORA, 'Jan, Mo Pper has taken crate 12 already.', 'me');
+    add('JOBS-05: taken word of another crate: its errand stands', open(b), ['13']);
+  }
+}
+// JOBS-05: a crate out in the lobby is taken up only by a collector in the room with it.
+{
+  const { planPickups } = await import(ROOT + 'jobs/pickups');
+  const b: any = makeBrain('Jan Mopp', 'Janitor');
+  b.location = 'Custodial Closet';
+  b.knownPlaces = new Set(['Cargo Lobby', 'Custodial Closet']);
+  b.now = 5000;
+  b.toTell = [];
+  b.heldCrates = [{ number: 12, for: 'Hop Kins', what: null, place: 'Cargo Lobby', out: true, takenBy: null, waited: 100 }];
+  const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+  b.tasks = [task];
+  add('JOBS-05: the crate out, the collector elsewhere: it goes to the lobby, not to the crate', planPickups(b, task)?.act?.tool, 'go_to');
+  b.location = 'Cargo Lobby';
+  add('JOBS-05: in the lobby with it: it takes it up', planPickups(b, task)?.act?.tool, 'collect_crate');
+}
+// MULTI-07: someone else has hold of the crate: the errand ends quietly.
+{
+  const { pickupsAfterActing } = await import(ROOT + 'jobs/pickups');
+  const collecting = () => {
+    const b: any = makeBrain('Jan Mopp', 'Janitor');
+    b.now = 5000;
+    b.toTell = [];
+    const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+    b.tasks = [task];
+    return { b, task };
+  };
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, {}, 'Mo Pper already has hold of the janitorial supplies crate.');
+    add('MULTI-07: "already has hold of": the errand ends, nothing said', [task.state, b.toTell.length], ['done', 0]);
+  }
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, { held_by: 'Mo Pper' }, 'You could not take it.');
+    add('MULTI-07: held_by in the details: the errand ends', task.state, 'done');
+  }
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, {}, 'You lost your grip on it.');
+    add('MULTI-07: a lost grip is not that: the errand stands', task.state, 'open');
   }
 }
 

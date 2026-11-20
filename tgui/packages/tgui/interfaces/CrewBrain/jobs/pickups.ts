@@ -97,6 +97,8 @@ export const UNPACKED_WORDS = /crate #(\d+) is unpacked in/i;
 const GAVE_UP = 'I could not get crate #';
 /** The words by which a head hears that whoever it sent has given up hauling a crate, with its number (PLAY-12). */
 export const GAVE_UP_WORDS = /\bI could not get crate #(\d+) to the\b/i;
+/** The words by which it tells its head it has given up taking the empty crate back. Not GAVE_UP_WORDS: nobody need be sent. */
+const EMPTY_GAVE_UP = 'I could not get the empty crate from #';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -235,8 +237,10 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
         }
       : { ready: false, step: 'The crate is unpacked and back with cargo.' };
   }
-  // Cargo has put it out in the lobby: it is there for the taking.
-  if (crateOf(brain, task)?.out) {
+  // Cargo has put it out in the lobby: it is there for the taking, once the body is in the room
+  // with it. From anywhere else it has not seen it, and goes to the counter as before (JOBS-05).
+  const crate = crateOf(brain, task);
+  if (crate?.out && crate.place === brain.location) {
     return {
       ready: true,
       step: `Cargo has put crate #${number} out for you. You are hauling it to the ${room}, where ${by} wants it, to unpack it there.`,
@@ -319,6 +323,8 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
 
 /** The words by which cargo says there is no crate to be had by the number it was asked for. */
 const NO_SUCH_CRATE = /not holding a crate|(has|have) been lost|is lost\b/i;
+/** The words by which cargo says someone else has the crate already, with who (JOBS-05). */
+const TAKEN_ALREADY = /^(?:[^,]+, )?(.+?) has taken crate #?\d+ already\b/i;
 
 /**
  * Hears cargo say, at the counter, that there is no crate by the number it asked for: the crate
@@ -344,10 +350,13 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
     }
     return;
   }
+  // "Jan, Mo has taken crate 12 already.": someone else has it, so the errand is over (JOBS-05).
+  const takenBy = heard.match(TAKEN_ALREADY)?.[1];
   if (
     !isCargo(theirJob) ||
     event.details.said_to === 'other' ||
-    !NO_SUCH_CRATE.test(heard)
+    (!NO_SUCH_CRATE.test(heard) && !takenBy) ||
+    takenBy === brain.name
   ) {
     return;
   }
@@ -372,7 +381,15 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
     }
     task.reported = true;
     finishTask(brain, task);
-    if (task.askedBy && brain.hasPda) {
+    if (task.askedBy && brain.hasPda && takenBy) {
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `Cargo says ${takenBy} has taken crate #${task.item} already. I have not got it.`,
+        why: `${speaker}, at the cargo counter, has told you that ${takenBy} has already taken crate #${task.item}, which ${task.askedBy} sent you for. You are sending ${task.askedBy} a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    } else if (task.askedBy && brain.hasPda) {
       brain.toTell.push({
         to: task.askedBy,
         line: `Cargo says there is no crate #${task.item} to collect: it has been lost, or the number is wrong. I have not got it.`,
@@ -427,8 +444,23 @@ export function pickupsAfterActing(
   act: Action,
   task: Task | undefined,
   ok: boolean,
+  details?: Record<string, unknown>,
+  text?: string,
 ): void {
   if (task?.kind !== COLLECT) {
+    return;
+  }
+  // Someone else has hold of the crate: they are taking it, and it is not this one's to pull out
+  // of their hands. The errand is over, with no word to anyone: whoever has it tells the head
+  // when it is unpacked (MULTI-07).
+  if (
+    act.tool === 'collect_crate' &&
+    !ok &&
+    (details?.held_by ||
+      /\b(already has hold of|has taken hold of)\b/i.test(text ?? ''))
+  ) {
+    task.reported = true;
+    finishTask(brain, task);
     return;
   }
   // The haul given up on the way: the crate got away too often, or there was no way through
@@ -443,7 +475,8 @@ export function pickupsAfterActing(
     task.askedBy &&
     brain.hasPda
   ) {
-    const lies = gaveUp.leftIn ?? brain.location;
+    // Where the crate lies, not where the body is, when the server says (lies_in).
+    const lies = gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location;
     brain.toTell.push({
       to: task.askedBy,
       line: `${GAVE_UP}${task.item} to the ${task.place}. It is left in the ${lies}${gaveUp.leftIn ? ', clear of the doors' : ''}. Could you send someone else for it, please?`,
@@ -454,6 +487,29 @@ export function pickupsAfterActing(
     brain.gaveUp = null;
     task.reported = true;
     finishTask(brain, task);
+    return;
+  }
+  // The empty crate given up on the way back to cargo. It is still this errand's to bring back,
+  // and it is tried again as before, but whoever sent it is told once where it lies (PLAY-12).
+  if (
+    act.tool === 'take_back' &&
+    !ok &&
+    gaveUp?.tool === 'take_back' &&
+    task.askedBy &&
+    brain.hasPda
+  ) {
+    brain.gaveUp = null;
+    if (task.toldAt === undefined) {
+      task.toldAt = brain.now;
+      const lies = gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location;
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `${EMPTY_GAVE_UP}${task.item} back to cargo. It is left in the ${lies}${gaveUp.leftIn ? ', clear of the doors' : ''}. I will try again.`,
+        why: `You could not get the empty crate from crate #${task.item} back to the Cargo Lobby: it kept getting away from you. You are sending ${task.askedBy}, who sent you for it, a PDA message to say where it is.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
     return;
   }
   if (act.tool === 'collect_crate' && ok) {

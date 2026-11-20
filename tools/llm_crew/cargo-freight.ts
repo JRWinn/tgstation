@@ -50,6 +50,18 @@ const NO_ROOM = 'You have no room in your bag for the mail in the mail crate.';
   syncFreight(b);
   add('a failed walk, a success, then two more failures: unload not blocked', unload.state, 'open');
 }
+// SUP-05: a crate still aboard that is not to come off (fullAboard) keeps the shuttle.
+{
+  const sends = (fullAboard?: number) => {
+    const b = tech();
+    b.freight = { shuttleDocked: true, toUnload: 0, mailCrate: false, emptyCrates: 0, misplaced: 0, mailFor: [], ...(fullAboard === undefined ? {} : { fullAboard }) };
+    syncFreight(b);
+    return b.tasks.some((t: any) => t.kind === 'send' && t.state !== 'done');
+  };
+  add('SUP-05: nothing to unload, no word of what is aboard: the shuttle goes, as before', sends(), true);
+  add('SUP-05: nothing to unload but a full crate aboard: it stays', sends(1), false);
+  add('SUP-05: nothing aboard at all: it goes', sends(0), true);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {
