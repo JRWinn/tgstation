@@ -133,6 +133,31 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	data["places"] = assoc_to_keys(crew_npc_station_places())
 	return data
 
+/datum/ai_controller/crew_npc
+	/// What the brain window is sent that comes from the body's senses and memory, worked out once a
+	/// look rather than on every update (PERF-08). Null until the first look.
+	var/list/look_snapshot
+
+/**
+ * Works out the parts of the window's record that change only when the body looks round or does
+ * something: walks of its remembered messes, of every PDA aboard, of everything it has on it. Every
+ * tool that does anything ends in action_result, which looks round first, so this is fresh for each
+ * result. The order is the one ui_data asked them in: workable_mess_places minds what it holds.
+ */
+/datum/ai_controller/crew_npc/proc/take_look_snapshot()
+	look_snapshot = list(
+		"inventory" = inventory_list(),
+		"has_locator" = has_custodial_locator(),
+		"beyond_kinds" = beyond_kinds_here(),
+		"mess_places" = mess_places(),
+		"workable_mess_places" = workable_mess_places(),
+		"door_keepers" = door_keepers(),
+		"pda_people" = people_on_pda(),
+		"work_area_messes" = work_area_messes(),
+		"pda_janitors" = janitors_on_pda(),
+	)
+	return look_snapshot
+
 /datum/crew_brain_link/ui_data(mob/user)
 	var/list/data = list()
 	var/list/npc_list = list()
@@ -140,6 +165,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		var/mob/living/carbon/human/body = npc.pawn
 		if(QDELETED(body))
 			continue
+		var/list/snapshot = npc.look_snapshot || npc.take_look_snapshot()
 		var/list/holding = list()
 		for(var/obj/item/held in body.held_items)
 			holding += format_text(held.name)
@@ -159,19 +185,19 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"things_in_view" = npc.things_in_view,
 			"holding" = holding,
 			// Everything it has on it, for the window to show. The LLM is not told of this.
-			"inventory" = npc.inventory_list(),
+			"inventory" = snapshot["inventory"],
 			"cleaning_tool" = npc.describe_cleaning_tool(),
 			// All it has to clean with is a rag, which shifts little.
 			"poor_tool" = npc.has_poor_tool(),
 			// How much of its work it has done so far this shift: messes cleaned up, and things put away.
 			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away, "crates_in" = npc.work_crates_in, "crates_out" = npc.work_crates_out, "machines_set" = npc.work_machines_set, "arrests" = npc.work_arrests),
-			"has_locator" = npc.has_custodial_locator(),
+			"has_locator" = snapshot["has_locator"],
 			"cleanable_messes" = npc.cleanable_messes,
 			// The kinds of mess in this room that nothing it holds will shift: those that want scrubbing.
-			"beyond_kinds" = npc.beyond_kinds_here(),
-			"mess_places" = npc.mess_places(),
+			"beyond_kinds" = snapshot["beyond_kinds"],
+			"mess_places" = snapshot["mess_places"],
 			// Those of them where what the body holds would do some good.
-			"workable_mess_places" = npc.workable_mess_places(),
+			"workable_mess_places" = snapshot["workable_mess_places"],
 			// Holding a mop with no water on it and nothing else that cleans, whether or not there is a sink in sight.
 			"mop_needs_water" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()),
 			"sink_in_view" = npc.sink_in_view,
@@ -193,7 +219,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"wants_out" = npc.wants_out,
 			"way_out_to" = npc.way_out_to(),
 			// Those on its PDA whose own ID opens the door it came in by, for when nobody comes to it.
-			"door_keepers" = npc.door_keepers(),
+			"door_keepers" = snapshot["door_keepers"],
 			// The room whose door it is standing at, wanting through, or null.
 			"at_door_of" = npc.at_door_of(),
 			// What that door is called, to tell it from the room's other doors.
@@ -218,19 +244,19 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// Whether a crate it unpacked has yet to be taken back to cargo.
 			"crate_to_return" = !QDELETED(npc.crate_to_return?.resolve()),
 			// Everyone its PDA lists, with their jobs: who it can send word to, and who answers to whom.
-			"pda_people" = npc.people_on_pda(),
+			"pda_people" = snapshot["pda_people"],
 			// What is waiting on the supply shuttle and in the bay, for cargo staff. Null for everyone else.
 			"freight" = npc.freight_state(),
 			// How much is lying about in its work area that it could put away. Null if it has no work area.
 			"tidy" = npc.tidy_state(),
 			// Messes in the rooms it works in, and the janitors its PDA lists, so it can call one over.
-			"work_area_messes" = npc.work_area_messes(),
+			"work_area_messes" = snapshot["work_area_messes"],
 			// The other rooms of its department, to look in on when it is quiet, and which of its rooms are locked to the crew.
 			"look_in_rooms" = npc.look_in_rooms,
 			"closed_rooms" = npc.closed_rooms,
 			// Those of its rooms that lie inside another of them: each with the room it is got into through.
 			"rooms_through" = npc.reached_through,
-			"pda_janitors" = npc.janitors_on_pda(),
+			"pda_janitors" = snapshot["pda_janitors"],
 			// Someone else at its post has lately sent for a janitor.
 			"workmate_called" = npc.workmate_called_janitor(),
 			// Someone has it by the arm and is walking it out of a room.

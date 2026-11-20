@@ -236,8 +236,17 @@
 		handle_people[handle] = WEAKREF(person)
 	return handle
 
-/// Checks who is in view and emits an event for each person who was not in view a moment ago.
+/**
+ * Looks round (see_around), then works out once what the brain window is sent of its senses and
+ * memory (take_look_snapshot), so that each of the window's updates need not work it out again.
+ */
 /datum/ai_controller/crew_npc/proc/look_around()
+	see_around()
+	if(!QDELETED(pawn))
+		take_look_snapshot()
+
+/// Checks who is in view and emits an event for each person who was not in view a moment ago.
+/datum/ai_controller/crew_npc/proc/see_around()
 	var/mob/living/carbon/human/body = pawn
 	// A body stunned for a moment still looks about: only one that cannot perceive (CORE-02) or is blind sees nothing.
 	var/perceives = can_perceive()
