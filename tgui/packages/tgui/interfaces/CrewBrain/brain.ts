@@ -28,7 +28,16 @@ import { deskRead } from './jobs/desk';
 import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
-import { drive, isWalk, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
+import {
+  drive,
+  isWalk,
+  LEAD_PAUSE_MS,
+  lineNotSaid,
+  lineSaid,
+  noteResult,
+  type Step,
+  sayForGone,
+} from './driver';
 import { jobFor } from './jobs';
 import {
   addNote,
@@ -64,6 +73,7 @@ import type {
   Decision,
   Npc,
   NpcBrain,
+  SayFor,
   SenseEvent,
 } from './types';
 
@@ -72,6 +82,28 @@ export const OLLAMA_URL = 'http://127.0.0.1:11434';
 const PREFERRED_MODEL = 'qwen3.5:9b';
 /** How long one LLM call may take before it is abandoned. */
 const THINK_TIMEOUT_MS = 60000;
+/**
+ * How long (milliseconds) a body stands waiting its turn with the LLM to word a line its work calls
+ * for, before the plain line is said without it (BRAIN-02). The same wait a choice between jobs gets.
+ */
+const MUST_SAY_WAIT_MS = 8000;
+/** The longest a talk call carrying such a line may take: nobody is still standing there after a minute (BRAIN-02). */
+const MUST_SAY_CALL_MS = 15000;
+/**
+ * The server's limit on one body: this many tool calls in TOOL_WINDOW_MS, and the rest are dropped
+ * with no word (tool_call_allowed in crew_npc_tools.dm). The window keeps its own count, so that
+ * the limit is never met and nothing it sends is lost unseen (BRAIN-04).
+ */
+const SERVER_CALL_LIMIT = 8;
+const TOOL_WINDOW_MS = 10000;
+/** Past this many calls in the window, no hold is sent: a body already told to stand need not be told again (BRAIN-04). */
+const HOLD_CALL_LIMIT = 6;
+/** A refusal of a line this soon after it was sent (milliseconds) is the refusal of that line (BRAIN-04). */
+const REFUSED_WITHIN_MS = 10000;
+/** How many times a refused line its work called for is said again before it is given up (BRAIN-04). */
+const RESAY_TRIES = 1;
+/** A line to be said again that has not been by this long (milliseconds) after it was due is given up. */
+const RESAY_STANDS_MS = 20000;
 /** Shortest pause between two LLM calls for the same NPC. */
 const MIN_THINK_GAP_MS = 1500;
 /** Events older than this (in deciseconds of server time) are remembered but do not wake the LLM. */
@@ -168,6 +200,13 @@ const heardFrom = new WeakMap<NpcBrain, Map<string, Speaker>>();
 const linesForMe = new WeakMap<NpcBrain, Set<string>>();
 /** NPCs waiting on or with the LLM that have been told to stand still for it. */
 const heldToTalk = new WeakSet<NpcBrain>();
+/** When each NPC's last tool calls went to the server (this window's clock), to keep under its limit (BRAIN-04). */
+const toolCalls = new WeakMap<NpcBrain, number[]>();
+/**
+ * What the say now being sent carries: whether it is the line its work called for, and how many
+ * times that line has been tried. Set around the sending, which is all done in one go (BRAIN-04).
+ */
+let sayCarries: { carried: boolean; tries: number } | null = null;
 /** Ids of NPCs waiting for the LLM. One GPU serves one request at a time, so they take turns. */
 const queue: string[] = [];
 /** Ids of NPCs waiting to be asked which job comes first. Talk goes ahead of these: someone is waiting on it. */
@@ -784,6 +823,16 @@ export function ingest(npcs: Npc[], now: number): void {
       // Someone has hit it, shoved it or taken hold of it. Only security staff are told, for now.
       securityFeels(brain, event);
       noteResult(brain, event);
+      // A line the server would not say (spoken too soon after the last, or the body cannot
+      // speak) was not heard by anyone: it is taken back, and a line its work called for is said
+      // again once, when the server will let it (BRAIN-04).
+      if (
+        event.kind === 'action_result' &&
+        event.details.tool === 'say' &&
+        !event.details.ok
+      ) {
+        sayRefused(brain, event.text);
+      }
       const line = describeEvent(event, brain);
       brain.pending.push(line);
       if (
@@ -820,10 +869,16 @@ export function ingest(npcs: Npc[], now: number): void {
     }
     // With the body's state and the latest events folded in, the task list is brought up to date.
     syncTasks(brain);
+    // A line its work calls for that has waited its turn with the LLM too long is said plainly now,
+    // so that the body, freed of it, gets its next step on this same pass (BRAIN-02).
+    resayIfDue(brain);
+    sayIfOutOfTime(brain);
     // The body gets on with its work. The one thing it asks the LLM is which job comes first, when
     // there is more than one, and it does not wait long for the answer.
     const chooser = brain.id;
-    const step = drive(
+    // At the server's limit, no step is sent this pass: it would be dropped with no word (BRAIN-04).
+    const atLimit = callsLately(brain) >= SERVER_CALL_LIMIT;
+    const step = atLimit ? null : drive(
       brain,
       (action) => runTool(brain, action),
       (fallback, needs, sayIf, exact) => {
@@ -831,6 +886,7 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.mustSayNeeds = needs ?? null;
         brain.mustSayIf = sayIf ?? null;
         brain.mustSayExact = !!exact;
+        brain.mustSayAt = Date.now();
         brain.wake = true;
       },
       () => {
@@ -875,6 +931,200 @@ export function ingest(npcs: Npc[], now: number): void {
 }
 
 /**
+ * Says a line its work calls for as it stands, with no word from the LLM, and does all that comes
+ * of having said it. Not to an empty room, and not when whoever it was for has gone (ASYNC-05).
+ * Returns TRUE if it was said. Used when the LLM is down and when it is too slow (BRAIN-02).
+ */
+function sayPlainly(
+  brain: NpcBrain,
+  line: string,
+  sayFor: SayFor | null,
+  tries = 0,
+): boolean {
+  const gone = sayForGone(brain, sayFor);
+  if (brain.peopleInView.length === 0 || gone) {
+    lineNotSaid(brain, sayFor, gone);
+    return false;
+  }
+  sayCarries = { carried: true, tries };
+  runTool(brain, { tool: 'say', text: line });
+  sayCarries = null;
+  brain.lastSayAt = Date.now();
+  jobFor(brain.job).afterSaying?.(brain, line);
+  guardAfterSaying(brain, line);
+  meetingsAfterSaying(brain, line);
+  ordersAfterSaying(brain, line);
+  roundsAfterSaying(brain, line);
+  pickupsAfterSaying(brain, line);
+  afterSaying(brain, [line]);
+  lineSaid(brain, sayFor);
+  return true;
+}
+
+/**
+ * A line its work calls for, still waiting its turn with the LLM, is said plainly if it has waited
+ * MUST_SAY_WAIT_MS, or at once if it is a word-for-word line and the LLM is busy with someone else:
+ * the LLM would only add a remark to it (BRAIN-02). Not before the server would let it speak again.
+ * A model that takes calls and does not answer must not stand every body with a line still.
+ */
+function sayIfOutOfTime(brain: NpcBrain): void {
+  const line = brain.mustSay;
+  if (line === null || brain.status !== 'queued') {
+    return;
+  }
+  const now = Date.now();
+  const waited = now - (brain.mustSayAt ?? now);
+  if (
+    !(waited > MUST_SAY_WAIT_MS || (brain.mustSayExact && running)) ||
+    now - brain.lastSayAt <= SAY_COOLDOWN_MS
+  ) {
+    return;
+  }
+  const busy = running;
+  const tries = takeResayTries(brain);
+  const sayIf = brain.mustSayIf;
+  const sayFor = brain.mustSayFor ?? null;
+  brain.mustSay = null;
+  brain.mustSayNeeds = null;
+  brain.mustSayIf = null;
+  brain.mustSayExact = false;
+  brain.mustSayFor = null;
+  const needed = !(sayIf && !sayIf());
+  const said = needed && sayPlainly(brain, line, sayFor, tries);
+  if (!needed) {
+    lineNotSaid(brain, sayFor, false);
+  }
+  // Nobody else is waiting on an answer: it need not wait its turn at all now.
+  if (brain.pendingSpeakers.size === 0) {
+    const at = queue.indexOf(brain.id);
+    if (at >= 0) {
+      queue.splice(at, 1);
+    }
+    brain.status = 'idle';
+    brain.wake = false;
+    heldToTalk.delete(brain);
+  }
+  const send = act;
+  const record = {
+    npc: brain.id,
+    kind: 'decision',
+    trigger: `ROUTINE (no LLM) in ${brain.location}: the line its work called for had waited ${Math.round(waited / 1000)} s for the LLM${busy ? ', which was busy with someone else' : ''}, so it is said plainly.`,
+    context: '',
+    reply: said
+      ? `say(${JSON.stringify(line)})`
+      : `[not said: ${needed ? 'nobody it was for is in view' : 'no longer needed'}]`,
+    error: '',
+    ms: 0,
+    tokens: 0,
+  };
+  setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
+}
+
+/** How many tool calls this NPC has sent the server in the last TOOL_WINDOW_MS (BRAIN-04). */
+function callsLately(brain: NpcBrain): number {
+  const now = Date.now();
+  const times = (toolCalls.get(brain) ?? []).filter(
+    (at) => now - at < TOOL_WINDOW_MS,
+  );
+  toolCalls.set(brain, times);
+  return times.length;
+}
+
+/** Notes a tool call sent to the server for this NPC (BRAIN-04). */
+function noteCall(brain: NpcBrain): void {
+  callsLately(brain);
+  toolCalls.get(brain)?.push(Date.now());
+}
+
+/**
+ * The server would not say the line last sent (BRAIN-04). Nobody heard it, so it is taken back out
+ * of what the NPC has said lately and of its talk. If it was the line its work called for, it is
+ * said again, word for word, once the server will let it speak; a second refusal gives it up, and
+ * the round's brain log says so. A refused piece of small talk is simply lost. `wasSent` is FALSE
+ * for a line held back before it went: there is nothing to take back.
+ */
+function sayRefused(brain: NpcBrain, why: string, wasSent = true): void {
+  const sent = brain.sentSay;
+  brain.sentSay = null;
+  if (!sent || Date.now() - sent.at > REFUSED_WITHIN_MS) {
+    return;
+  }
+  // Taken back out of what it has said, if it had got as far as being sent.
+  if (wasSent) {
+    const lately = brain.saidLately
+      .map((said) => said.text)
+      .lastIndexOf(sent.text);
+    if (lately >= 0) {
+      brain.saidLately.splice(lately, 1);
+    }
+    for (let at = brain.talkLog.length - 1; at >= 0; at--) {
+      if (brain.talkLog[at].own && brain.talkLog[at].text === sent.text) {
+        brain.talkLog.splice(at, 1);
+        break;
+      }
+    }
+  }
+  if (!sent.carried) {
+    return;
+  }
+  if (sent.tries >= RESAY_TRIES) {
+    const send = act;
+    const record = {
+      npc: brain.id,
+      kind: 'decision',
+      trigger: `ROUTINE (no LLM) in ${brain.location}: the server would not say a line its work called for, twice.`,
+      context: '',
+      reply: `[line lost: ${JSON.stringify(sent.text)}]`,
+      error: why || 'The line was refused.',
+      ms: 0,
+      tokens: 0,
+    };
+    setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
+    return;
+  }
+  brain.resay = {
+    text: sent.text,
+    at: Date.now() + SAY_COOLDOWN_MS,
+    tries: sent.tries + 1,
+    fired: false,
+  };
+}
+
+/** A refused line due to be said again is handed over to be said, word for word, when it is time (BRAIN-04). */
+function resayIfDue(brain: NpcBrain): void {
+  const resay = brain.resay;
+  if (!resay || resay.fired) {
+    return;
+  }
+  const now = Date.now();
+  if (now - resay.at > RESAY_STANDS_MS) {
+    brain.resay = null;
+    return;
+  }
+  if (now < resay.at || brain.mustSay !== null || brain.sayingNow) {
+    return;
+  }
+  resay.fired = true;
+  brain.mustSay = resay.text;
+  brain.mustSayNeeds = null;
+  brain.mustSayIf = null;
+  brain.mustSayExact = true;
+  brain.mustSayFor = null;
+  brain.mustSayAt = now;
+  brain.wake = true;
+}
+
+/** How many times the line now being said has been tried before, if it is one said again: and that is now in hand. */
+function takeResayTries(brain: NpcBrain): number {
+  const resay = brain.resay;
+  if (!resay?.fired || brain.mustSay !== resay.text) {
+    return 0;
+  }
+  brain.resay = null;
+  return resay.tries;
+}
+
+/**
  * Tells the body to stand still, because it is about to talk with someone. The words take the LLM
  * a few seconds, and a body that keeps walking meanwhile says them over its shoulder from the far
  * end of the hallway. It turns to whoever spoke to it, or failing that whoever is there.
@@ -886,10 +1136,15 @@ function stopToTalk(brain: NpcBrain): void {
   if (brain.lastAct?.act.tool === 'step_aside') {
     return;
   }
+  // Near the server's limit the hold is left out, so that the line itself is not dropped (BRAIN-04).
+  if (callsLately(brain) >= HOLD_CALL_LIMIT) {
+    return;
+  }
   const person =
     brain.peopleInView.find((seen) => brain.pendingSpeakers.has(seen.handle)) ??
     brain.peopleInView[0];
   if (person) {
+    noteCall(brain);
     act?.('tool_call', {
       npc: brain.id,
       tool: 'hold',
@@ -1361,31 +1616,36 @@ async function readOrder(
 
 /** Starts the next waiting NPC's talk, if it is time for it. Returns TRUE if a call was started. */
 function startTalk(): boolean {
-  while (queue.length > 0 && !brains.get(queue[0])) {
-    queue.shift();
-  }
-  const brain = brains.get(queue[0]);
-  if (!brain) {
-    return false;
-  }
-  const wait =
-    Math.max(
-      brain.lastThinkEnd + MIN_THINK_GAP_MS,
-      brain.lastSayAt + SAY_COOLDOWN_MS,
-    ) - Date.now();
-  if (wait > 0) {
-    if (retryTimer === null) {
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        pump();
-      }, wait);
+  // The first in the queue that may speak now goes. One that spoke a moment ago waits out its own
+  // pause without holding up everyone behind it (BRAIN-02).
+  let soonest = Number.POSITIVE_INFINITY;
+  for (let at = 0; at < queue.length; at++) {
+    const brain = brains.get(queue[at]);
+    if (!brain) {
+      queue.splice(at, 1);
+      at--;
+      continue;
     }
-    return false;
+    const wait =
+      Math.max(
+        brain.lastThinkEnd + MIN_THINK_GAP_MS,
+        brain.lastSayAt + SAY_COOLDOWN_MS,
+      ) - Date.now();
+    if (wait <= 0) {
+      queue.splice(at, 1);
+      running = true;
+      void think(brain);
+      return true;
+    }
+    soonest = Math.min(soonest, wait);
   }
-  queue.shift();
-  running = true;
-  void think(brain);
-  return true;
+  if (soonest < Number.POSITIVE_INFINITY && retryTimer === null) {
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      pump();
+    }, soonest);
+  }
+  return false;
 }
 
 /** Starts the next choice between jobs that some NPC is still waiting on. */
@@ -1601,6 +1861,8 @@ export function vetLines(
 /** Asks the LLM what one NPC does about its pending sense reports, then carries out its tool calls. */
 async function think(brain: NpcBrain): Promise<void> {
   const mySession = session;
+  // How many times the line its work calls for has been tried already, if it is one said again.
+  const tries = takeResayTries(brain);
   // A line its work called for may have stopped needing to be said while it waited its turn: a
   // workmate asked the question first, say. With nothing else to answer, it says nothing at all.
   if (brain.mustSay !== null && brain.mustSayIf && !brain.mustSayIf()) {
@@ -1608,6 +1870,8 @@ async function think(brain: NpcBrain): Promise<void> {
     brain.mustSayNeeds = null;
     brain.mustSayIf = null;
     brain.mustSayExact = false;
+    lineNotSaid(brain, brain.mustSayFor ?? null, false);
+    brain.mustSayFor = null;
     // Its work would ask for the same line again on the next update, and the server sends one
     // after every tool call: without a pause the two go round as fast as they can talk.
     holdDriverAfterDrop(brain);
@@ -1639,6 +1903,8 @@ async function think(brain: NpcBrain): Promise<void> {
   let mustSay = brain.mustSay;
   const mustSayNeeds = brain.mustSayNeeds;
   const mustSayIf = brain.mustSayIf;
+  // Whom the line is for, if it is word for someone or an ask for the door (ASYNC-05, DRV-07).
+  const sayFor = brain.mustSayFor ?? null;
   // A line that carries numbers is said word for word. The LLM is asked only for a remark to follow it.
   const exact = brain.mustSayExact && mustSay !== null;
   // A remark of its own is only for when nobody is waiting on an answer and no line is called for.
@@ -1679,6 +1945,7 @@ async function think(brain: NpcBrain): Promise<void> {
   brain.mustSayNeeds = null;
   brain.mustSayIf = null;
   brain.mustSayExact = false;
+  brain.mustSayFor = null;
   brain.sayingNow = mustSay !== null;
   brain.status = 'thinking';
   brain.remarking = remark;
@@ -1699,8 +1966,12 @@ async function think(brain: NpcBrain): Promise<void> {
   };
 
   let rawReply = '';
+  // Set once the line its work called for has gone out, with whatever it was for settled.
+  let lineSettled = false;
   try {
-    let answer = await callOllama(messages, call.schema);
+    // A line its work calls for has someone standing waiting on it: it gets a shorter limit (BRAIN-02).
+    const limit = mustSay !== null ? MUST_SAY_CALL_MS : THINK_TIMEOUT_MS;
+    let answer = await callOllama(messages, call.schema, undefined, limit);
     let reply = answer.text;
     decision.promptTokens = answer.promptTokens;
     if (mySession !== session) {
@@ -1709,9 +1980,18 @@ async function think(brain: NpcBrain): Promise<void> {
     // A reply cut off by the length limit is not valid JSON, and it is nearly always the "think"
     // part that ran on. Ask once more without it.
     if (!isCompleteReply(reply)) {
+      // With most of the time for a line its work calls for gone, the plain line is said instead.
+      const left = limit - (Date.now() - started);
+      if (mustSay !== null && left < limit / 2) {
+        throw new Error(
+          'The reply was cut off, and there was no time left to ask again for a line its work calls for.',
+        );
+      }
       answer = await callOllama(
         messages,
         buildReplySchema({ ...call.parts, think: false }),
+        undefined,
+        mustSay !== null ? left : THINK_TIMEOUT_MS,
       );
       reply = answer.text;
       if (mySession !== session) {
@@ -1722,6 +2002,17 @@ async function think(brain: NpcBrain): Promise<void> {
     rawReply = reply;
     // With nobody in view and nobody just heard, speech would be talking to an empty room.
     const alone = brain.peopleInView.length === 0 && speakers.length === 0;
+    // Word for someone who has walked out of sight while it waited its turn is not said: not to
+    // an empty room, and not to whoever else is about with the absent person's name on it. It stays
+    // to be told when they are next in view (ASYNC-05, DRV-07). Nor is the LLM's own line said
+    // then, unless someone who spoke to it is still there to hear it.
+    const forGone = mustSay !== null && sayForGone(brain, sayFor);
+    const speakerHere = brain.peopleInView.some((person) =>
+      speakers.includes(person.handle),
+    );
+    if (forGone) {
+      mustSay = null;
+    }
     // Nor is anything said of its own accord that it has said before: a remark made twice is a
     // broken record. An answer to someone, or a line its work calls for, is said regardless.
     // The same goes for the seconds the LLM took: if the line no longer needs saying, it is not
@@ -1790,6 +2081,7 @@ async function think(brain: NpcBrain): Promise<void> {
       }
       return !(
         alone ||
+        (forGone && !speakerHere) ||
         (dropped && speakers.length === 0) ||
         (unprompted && (isFiller(text) || saidBefore(brain, text)))
       );
@@ -1840,6 +2132,7 @@ async function think(brain: NpcBrain): Promise<void> {
       );
     }
     let ledSomeone = false;
+    sayCarries = { carried: mustSay !== null, tries };
     for (const action of actions) {
       if (action.tool === 'remember') {
         // A note that repeats one the NPC already has, or only says who was where, is dropped,
@@ -1941,6 +2234,7 @@ async function think(brain: NpcBrain): Promise<void> {
       }
       decision.calls.push(formatAction(action));
     }
+    sayCarries = null;
     // If it was told of work in so many words and did not say so, the work goes on its list anyway.
     if (told && !tookWork) {
       const caught = workInWords(brain, report, toldBy, !!superior, forMe);
@@ -1993,6 +2287,11 @@ async function think(brain: NpcBrain): Promise<void> {
       ordersAfterSaying(brain, mustSay);
       roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
+      // The word it was for is told, the ask for the door made.
+      if (mustSay) {
+        lineSaid(brain, sayFor);
+        lineSettled = true;
+      }
       // Anyone in view who was waiting to hear that a task was done, and was told so, now knows.
       afterSaying(
         brain,
@@ -2012,6 +2311,14 @@ async function think(brain: NpcBrain): Promise<void> {
     if (unanswered) {
       answerAgain(brain, asked);
       decision.calls.push('[whoever spoke is still to be answered]');
+    }
+    if (sayFor && !lineSettled) {
+      lineNotSaid(brain, sayFor, forGone);
+      decision.calls.push(
+        forGone
+          ? `[${sayFor.to} is out of sight: the line waits until they are back]`
+          : '[the line was not said: it waits]',
+      );
     }
   } catch (error) {
     if (mySession !== session) {
@@ -2044,9 +2351,18 @@ async function think(brain: NpcBrain): Promise<void> {
         jobFor(brain.job).fills?.(brain, request, heard);
       }
       runTool(brain, request);
-      runTool(brain, { tool: 'say', text: 'I will see to it.' });
+      // Not when the line its work calls for is about to be said as well: two lines in the same
+      // instant, and the server refuses the second (BRAIN-04).
+      const lineToSay =
+        !!mustSay &&
+        !(mustSayIf && !mustSayIf()) &&
+        brain.peopleInView.length > 0 &&
+        !sayForGone(brain, sayFor);
+      if (!lineToSay) {
+        runTool(brain, { tool: 'say', text: 'I will see to it.' });
+        brain.lastSayAt = Date.now();
+      }
       decision.calls.push(`${formatAction(request)} [made out without the LLM]`);
-      brain.lastSayAt = Date.now();
     }
     // Likewise work it was plainly told of, or ordered to do, still goes on its list.
     if (speakers.length > 0 && !ordered) {
@@ -2059,21 +2375,14 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // The LLM being down must not leave the body dumb: what had to be said is said plainly. Unless
     // it has stopped needing saying in the time the call took.
-    if (
-      mustSay &&
-      brain.peopleInView.length > 0 &&
-      !(mustSayIf && !mustSayIf())
-    ) {
-      runTool(brain, { tool: 'say', text: mustSay });
-      decision.calls.push(`say(${JSON.stringify(mustSay)}) [the LLM gave none]`);
-      brain.lastSayAt = Date.now();
-      jobFor(brain.job).afterSaying?.(brain, mustSay);
-      guardAfterSaying(brain, mustSay);
-      meetingsAfterSaying(brain, mustSay);
-      ordersAfterSaying(brain, mustSay);
-      roundsAfterSaying(brain, mustSay);
-      pickupsAfterSaying(brain, mustSay);
-      afterSaying(brain, [mustSay]);
+    if (mustSay && !(mustSayIf && !mustSayIf())) {
+      if (sayPlainly(brain, mustSay, sayFor, tries)) {
+        decision.calls.push(
+          `say(${JSON.stringify(mustSay)}) [the LLM gave none]`,
+        );
+      }
+    } else {
+      lineNotSaid(brain, sayFor, false);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment
     // to answer that has gone, and left in, it would be heard as said again every time after.
@@ -2232,11 +2541,31 @@ function runTool(brain: NpcBrain, action: Action): string | null {
   if (!serverTool || !act) {
     return null;
   }
+  // At the server's limit the call would be dropped with no word: it is not sent. A line held
+  // back so is taken as refused, and said again if its work called for it (BRAIN-04).
+  const atLimit = callsLately(brain) >= SERVER_CALL_LIMIT;
   if (tool === 'say') {
     const text = String(action.text ?? '');
+    brain.sentSay = {
+      text,
+      at: Date.now(),
+      carried: sayCarries?.carried ?? false,
+      tries: sayCarries?.tries ?? 0,
+    };
+    if (atLimit) {
+      sayRefused(
+        brain,
+        'Too many tool calls in ten seconds: the line was held back.',
+        false,
+      );
+      return null;
+    }
     logTalk(brain, brain.name, text, true);
     brain.lastSaid = { time: new Date().toLocaleTimeString(), text };
+  } else if (atLimit) {
+    return null;
   }
+  noteCall(brain);
   act('tool_call', { npc: brain.id, tool: serverTool, args });
   return serverTool;
 }

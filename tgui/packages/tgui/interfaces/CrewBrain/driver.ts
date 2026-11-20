@@ -32,7 +32,7 @@ import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
 import { describeShutIn, SHUT_IN_KEY, whoToAskForTheDoor } from './situation';
 import { wordOwed, workInOrder } from './tasks';
-import type { Action, NpcBrain, SenseEvent, Task } from './types';
+import type { Action, NpcBrain, SayFor, SenseEvent, Task } from './types';
 
 /** How long after telling the body to do something before the driver looks again, in milliseconds. */
 const SETTLE_MS = 2500;
@@ -75,6 +75,12 @@ const STAYS = new Set([
   'note',
   'word_passed',
 ]);
+/**
+ * Steps that do not touch what the body is doing: a PDA message, a note. Sent while it waits on a
+ * longer step (a haul, a walk), they are kept beside that step, not in its place, so that its
+ * result is still heard (LOGB-02).
+ */
+const ASIDE_FROM_HANDS = new Set(['message', 'note', 'word_passed']);
 /** TRUE if this tool takes the body off where it stands: anything that is not done on the spot. */
 export function isWalk(tool: string): boolean {
   return !STAYS.has(tool);
@@ -210,6 +216,8 @@ const OPEN_DOOR_TRIES = 2;
 function nextToWrite(
   brain: NpcBrain,
   cannotReachDoor: boolean,
+  /** TRUE to ask who it would write to next, whether or not it is time yet (KNA-02). */
+  anyTime = false,
 ): { name: string; head: boolean } | null {
   const asks = brain.outAsks;
   if (
@@ -217,7 +225,7 @@ function nextToWrite(
     !brain.hasPda ||
     // Whoever let it in is written to first, where there is such a person.
     (!!brain.letInBy && !asks?.messaged) ||
-    Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS
+    (!anyTime && Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS)
   ) {
     return null;
   }
@@ -241,6 +249,27 @@ function nextToWrite(
   return head && !written(head.name) ? { name: head.name, head: true } : null;
 }
 
+/** Steps done where it stands that still take it across the room, away from the door it waits at (KNA-02). */
+const LEAVES_THE_DOOR = new Set(['search', 'find_supplies']);
+
+/**
+ * TRUE if a shut-in NPC waiting for the door has something left to do about it: a knock not yet
+ * made, word not yet sent to whoever let it in, or someone it will write to once it has waited for
+ * the last (KNA-02).
+ */
+function moreToTryAtDoor(
+  brain: NpcBrain,
+  atDoor: boolean,
+  cannotReachDoor: boolean,
+): boolean {
+  const asks = brain.outAsks;
+  return (
+    (atDoor && !asks?.knocked) ||
+    (!asks?.messaged && !!brain.letInBy && brain.hasPda) ||
+    nextToWrite(brain, cannotReachDoor, true) !== null
+  );
+}
+
 /**
  * TRUE if the NPC is shut in and can see a door standing open that may yet be a way out. One it
  * has walked at more than once and still not got out by leads nowhere it can go.
@@ -253,6 +282,47 @@ function wayOutOpen(brain: NpcBrain): boolean {
 
 /** The tools that take the body out of the room it is in, or may. */
 const WALKS = new Set(['go_to', 'go_to_door', 'explore']);
+
+/**
+ * TRUE if a step of its work failed in this room lately and is still being left alone, so that a
+ * walk back to the room would come to nothing (DRV-12). Stale notes are dropped as it looks.
+ */
+function heldAt(brain: NpcBrain, place: string): boolean {
+  const now = Date.now();
+  brain.heldAt = (brain.heldAt ?? []).filter((held) => held.until > now);
+  return brain.heldAt.some((held) => held.place === place);
+}
+
+/** The most rooms it keeps a note of a failed step in (DRV-12). */
+const HELD_AT_KEPT = 4;
+
+/**
+ * Notes the room a failed step of its work was in, for as long as that step is left alone
+ * (DRV-12). Only a step that belongs to a task and is done where it stands: not a walk, a PDA
+ * message (which can fail anywhere) or a spoken line, and never one of an order from a head.
+ */
+function noteHeldAt(
+  brain: NpcBrain,
+  last: NonNullable<NpcBrain['lastAct']>,
+): void {
+  if (
+    last.task === undefined ||
+    WALKS.has(last.act.tool) ||
+    last.act.tool === 'message'
+  ) {
+    return;
+  }
+  const task = brain.tasks.find((it) => it.id === last.task);
+  const until = brain.failures.get(last.key)?.until ?? 0;
+  if (!task || task.urgency === 'emergency' || until <= Date.now()) {
+    return;
+  }
+  const kept = (brain.heldAt ?? []).filter(
+    (held) => held.place !== brain.location && held.until > Date.now(),
+  );
+  kept.push({ place: brain.location, until });
+  brain.heldAt = kept.slice(-HELD_AT_KEPT);
+}
 
 /**
  * TRUE if this step failed lately and is being left alone for now. `act` is what the step does,
@@ -536,6 +606,15 @@ export function nextStep(brain: NpcBrain): Step | null {
     }
   }
 
+  // Shut in with no way out in view, it waits for the door: at it, or where it stands if it cannot
+  // get to it. Nothing that walks it off is offered, not its work elsewhere, a meeting it cannot
+  // reach, or a look through the lockers across the room. Whoever comes to the door would find
+  // nobody there (KNA-02). Not yet at the door, with the walk there held back a moment, it waits
+  // for that walk and takes no other.
+  const holdAtDoor = stuck && (atDoor || cannotReachDoor);
+  if (stuck && !holdAtDoor) {
+    return null;
+  }
   const work = workInOrder(brain);
   // Whether a step of its work failed lately and is being left alone a while.
   let heldBack = false;
@@ -574,9 +653,32 @@ export function nextStep(brain: NpcBrain): Step | null {
     if (!plan.ready || (!plan.act && !plan.say)) {
       continue;
     }
+    // Waiting at the door, only what is done where it stands (KNA-02).
+    if (
+      holdAtDoor &&
+      plan.act &&
+      (!STAYS.has(plan.act.tool) || LEAVES_THE_DOOR.has(plan.act.tool))
+    ) {
+      continue;
+    }
     const key = keyOf(task, plan.act, plan.say);
     const act = plan.act ?? null;
     if (inBackoff(brain, key, act) || inBackoff(brain, jobKey(task.id), act)) {
+      heldBack = true;
+      continue;
+    }
+    // Nor does it walk back to a room where a step of its work has just failed, for whichever
+    // task, until that step is let off: it would only find it still held back there, and walk
+    // off again (DRV-12). Not an order from someone it answers to, which it goes on with, nor
+    // through a door standing open or held for it, which will not wait.
+    if (
+      act?.tool === 'go_to' &&
+      typeof act.place === 'string' &&
+      task.urgency !== 'emergency' &&
+      !wayOutOpen(brain) &&
+      !brain.doorHeld &&
+      heldAt(brain, act.place)
+    ) {
       heldBack = true;
       continue;
     }
@@ -643,8 +745,14 @@ export function nextStep(brain: NpcBrain): Step | null {
   if (job.keepsPost || work.some(({ plan }) => plan.wait)) {
     return null;
   }
+  // Waiting at the door, it stays there while it has anyone left to knock for or write to. Only
+  // with nobody left does it try another way out now and then (drive holds that to one try in a
+  // while), and it does not go looking through the lockers (KNA-02).
+  if (holdAtDoor && moreToTryAtDoor(brain, atDoor, cannotReachDoor)) {
+    return null;
+  }
   const idle: Action | null =
-    brain.storageHere > 0
+    brain.storageHere > 0 && !holdAtDoor
       ? { tool: 'search' }
       : brain.resting
         ? null
@@ -787,6 +895,10 @@ export function drive(
     fail(brain, brain.lastAct.key);
     brain.lastAct = null;
   }
+  if (brain.sideAct && now - brain.sideAct.at > LOST_ACT_MS) {
+    fail(brain, brain.sideAct.key);
+    brain.sideAct = null;
+  }
   // An answer someone is waiting on is given whatever the hands are doing. Talking takes no
   // hands, and "why are you in here?" does not wait until the floor is clean.
   if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
@@ -797,6 +909,7 @@ export function drive(
     const key = owed ? keyOf(owed.task, undefined, owed.plan.say) : '';
     if (owed?.plan.say && !inBackoff(brain, key)) {
       fail(brain, key);
+      brain.mustSayFor = null;
       speak(owed.plan.say, owed.plan.needs, owed.plan.sayIf, owed.plan.exact);
       return {
         key,
@@ -828,7 +941,7 @@ export function drive(
       };
       saidLine(brain, key);
       speak(quick.line, quick.needs, undefined, quick.exact);
-      noteDone(brain, step);
+      noteDone(brain, step, true);
       return step;
     }
   }
@@ -838,6 +951,7 @@ export function drive(
     const aside = askAside(brain);
     if (aside?.say) {
       fail(brain, aside.key);
+      brain.mustSayFor = null;
       speak(aside.say, undefined, undefined, true);
       noteDone(brain, aside);
       return aside;
@@ -943,10 +1057,19 @@ export function drive(
       fail(brain, step.key);
     }
     speak(step.say, step.needs, step.sayIf, step.exact);
-    noteDone(brain, step);
+    noteDone(brain, step, true);
     return step;
   }
   if (!step.act) {
+    return null;
+  }
+  // A PDA message sent in the middle of a haul or a walk is sent beside it: the haul's result is
+  // still to come, and is what the job is waiting on (LOGB-02). One such at a time.
+  const beside =
+    !!brain.lastAct &&
+    !ASIDE_FROM_HANDS.has(brain.lastAct.act.tool) &&
+    ASIDE_FROM_HANDS.has(step.act.tool);
+  if (beside && brain.sideAct) {
     return null;
   }
   // What it dropped its work to do, having been told to leave, it drops it for once.
@@ -961,7 +1084,7 @@ export function drive(
   noteDone(brain, step);
   // An arrest sent over before its answer came will never be answered, though the cuffs may have
   // gone on. Whose job it was is kept a while, so that the job can tell its own prisoner (ARR-08).
-  const over = brain.lastAct;
+  const over = beside ? null : brain.lastAct;
   if (
     over?.act.tool === 'arrest' &&
     over.act.how !== 'stop' &&
@@ -973,55 +1096,125 @@ export function drive(
       at: brain.now,
     };
   }
-  brain.lastAct = {
+  const sent = {
     key: step.key,
     tool: serverTool,
     at: now,
     act: step.act,
     task: step.task,
   };
+  if (beside) {
+    brain.sideAct = sent;
+  } else {
+    brain.lastAct = sent;
+  }
   brain.driveAfter = now + (step.idle ? IDLE_GAP_MS : SETTLE_MS);
   commitTo(brain, step.task, now);
   return step;
 }
 
+/** The record of what it has done about being shut in, made if it has none yet. */
+function outAsksOf(brain: NpcBrain): NonNullable<NpcBrain['outAsks']> {
+  brain.outAsks ??= {
+    room: brain.location,
+    asked: [],
+    knocked: false,
+    messaged: false,
+    wrote: [],
+    wroteAt: 0,
+  };
+  return brain.outAsks;
+}
+
+/**
+ * What a spoken step is for, if it is word for someone or an ask for the door. The line is said
+ * only when the NPC's turn with the LLM comes, seconds or a minute later, and by then whoever it
+ * was for may have gone (ASYNC-05, DRV-07). So it is kept beside the line, and settled by
+ * lineSaid or lineNotSaid once it is known whether the line went out.
+ */
+function sayForOf(brain: NpcBrain, step: Step): SayFor | null {
+  if (step.asks) {
+    return { key: step.key, to: step.asks, asks: step.asks };
+  }
+  const tell = step.tells
+    ? brain.toTell.find((it) => !it.byPda && it.line === step.tells)
+    : undefined;
+  return tell ? { key: step.key, to: tell.to, tells: tell.line } : null;
+}
+
+/** TRUE if whoever a waiting line is for is no longer in view, so that saying it would reach nobody. */
+export function sayForGone(brain: NpcBrain, sayFor: SayFor | null): boolean {
+  return (
+    !!sayFor && !brain.peopleInView.some((person) => person.name === sayFor.to)
+  );
+}
+
+/** The line was said with its person in view: the word is told, the person asked for the door. */
+export function lineSaid(brain: NpcBrain, sayFor: SayFor | null): void {
+  if (!sayFor) {
+    return;
+  }
+  if (sayFor.tells) {
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== sayFor.tells);
+  }
+  if (sayFor.asks && brain.shutIn) {
+    const asks = outAsksOf(brain);
+    if (!asks.asked.includes(sayFor.asks)) {
+      asks.asked.push(sayFor.asks);
+    }
+  }
+}
+
+/**
+ * The line was not said. The word stays on toTell and the person stays unasked, so the step comes
+ * up again. If they had gone out of view, its hold is let off as well, so that it is said as soon
+ * as they are back; otherwise the hold stands, and it is not asked again on every update.
+ */
+export function lineNotSaid(
+  brain: NpcBrain,
+  sayFor: SayFor | null,
+  gone: boolean,
+): void {
+  if (sayFor && gone) {
+    brain.failures.delete(sayFor.key);
+  }
+}
+
 /**
  * Notes what a step that has just been taken settles: who has now been asked for the door, that
  * it has knocked or sent word, and what it has now told someone. Each of these is done once.
+ * For a spoken step (`spoken`), the ask and the tell are settled only once the line is said: they
+ * are kept in brain.mustSayFor until then (ASYNC-05, DRV-07).
  */
-function noteDone(brain: NpcBrain, step: Step): void {
+function noteDone(brain: NpcBrain, step: Step, spoken = false): void {
+  if (spoken) {
+    brain.mustSayFor = sayForOf(brain, step);
+  }
   if (
-    step.asks ||
+    (step.asks && !spoken) ||
     step.writes ||
     step.key === KNOCK_OUT_KEY ||
     step.key === WORD_OUT_KEY
   ) {
-    brain.outAsks ??= {
-      room: brain.location,
-      asked: [],
-      knocked: false,
-      messaged: false,
-      wrote: [],
-      wroteAt: 0,
-    };
-    if (step.asks) {
-      brain.outAsks.asked.push(step.asks);
+    const asks = outAsksOf(brain);
+    if (step.asks && !spoken) {
+      asks.asked.push(step.asks);
     }
     if (step.key === KNOCK_OUT_KEY) {
-      brain.outAsks.knocked = true;
+      asks.knocked = true;
       // The wait for someone to come runs from the knock, and again from each word sent after it.
-      brain.outAsks.wroteAt = Date.now();
+      asks.wroteAt = Date.now();
     }
     if (step.key === WORD_OUT_KEY) {
-      brain.outAsks.messaged = true;
-      brain.outAsks.wroteAt = Date.now();
+      asks.messaged = true;
+      asks.wroteAt = Date.now();
     }
     if (step.writes) {
-      brain.outAsks.wrote.push(step.writes);
-      brain.outAsks.wroteAt = Date.now();
+      asks.wrote.push(step.writes);
+      asks.wroteAt = Date.now();
     }
   }
-  if (step.tells) {
+  if (step.tells && !(spoken && brain.mustSayFor)) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
   }
   // Once asked to step aside, they have been asked. A new lost grip on them notes them again;
@@ -1112,14 +1305,36 @@ function fail(brain: NpcBrain, key: string): void {
  * asked for, a failure means leaving that step alone for a while and a success clears its record.
  */
 export function noteResult(brain: NpcBrain, event: SenseEvent): void {
-  const last = brain.lastAct;
-  if (
-    !last ||
-    event.kind !== 'action_result' ||
-    event.details.tool !== last.tool
-  ) {
+  if (event.kind !== 'action_result') {
     return;
   }
+  const last = brain.lastAct;
+  if (last && event.details.tool === last.tool) {
+    settleResult(brain, last, event);
+    brain.lastAct = null;
+    // Nobody goes from one job to the next without a breath. It takes a moment, and not the same
+    // moment every time.
+    brain.driveAfter = Math.max(
+      brain.driveAfter,
+      Date.now() + BREATH_MIN_MS + Math.random() * BREATH_SPREAD_MS,
+    );
+    return;
+  }
+  // A message sent beside a longer step: heard through the same hooks, and the longer step is
+  // still waited on (LOGB-02).
+  const side = brain.sideAct;
+  if (side && event.details.tool === side.tool) {
+    brain.sideAct = null;
+    settleResult(brain, side, event);
+  }
+}
+
+/** What the result of one step it sent settles: its job's hooks, and whether it is left alone a while. */
+function settleResult(
+  brain: NpcBrain,
+  last: NonNullable<NpcBrain['lastAct']>,
+  event: SenseEvent,
+): void {
   // A walk to a room that the server says got there, asked for again, and again: the body is
   // told it has arrived and each time is found not to have. Whatever the cause, a fourth walk
   // will not mend it. Whoever asked for the walk is told, and it is left alone a while.
@@ -1192,7 +1407,16 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     const cleaned = brain.tasks.find((task) => task.id === last.task);
     if (last.act.tool === 'clean' && cleaned?.place === brain.location) {
       fail(brain, jobKey(cleaned.id));
+      // The job is let off no sooner than the clean. With the clean failed more often (wetting
+      // the mop at a sink on the way fails the same key), the walk back was let off first, and it
+      // walked back to find the clean still held back, then out again (DRV-12).
+      const step = brain.failures.get(last.key);
+      const job = brain.failures.get(jobKey(cleaned.id));
+      if (step && job) {
+        job.until = Math.max(job.until, step.until);
+      }
     }
+    noteHeldAt(brain, last);
     // A knock that did not land, because the body was not at the door after all, is no knock.
     // It goes and stands at the door again, and knocks when it is there.
     if (last.act.tool === 'knock') {
@@ -1207,11 +1431,4 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
       brain.openDoorTries++;
     }
   }
-  brain.lastAct = null;
-  // Nobody goes from one job to the next without a breath. It takes a moment, and not the same
-  // moment every time.
-  brain.driveAfter = Math.max(
-    brain.driveAfter,
-    Date.now() + BREATH_MIN_MS + Math.random() * BREATH_SPREAD_MS,
-  );
 }

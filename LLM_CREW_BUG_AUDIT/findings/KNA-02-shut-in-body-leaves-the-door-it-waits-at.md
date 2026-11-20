@@ -117,3 +117,9 @@ Opus 5.5, 2026-11-19. Confirmed.
 - Read the round log: `data/logs/2026/11/19/round-20.00.21/crew_brain.log` lines 597-660 and `game.log` lines 623-686 are as quoted. She was at (74,160) at 02:13:56 and at (64,163) when the Bar Lounge walk failed at 02:14:35, after two storage searches.
 - Searched `LLM_CREW_CHANGELOG.md` and the plans: the case is listed at line 100 as "not looked into"; no later entry and no later commit to `driver.ts` on any branch.
 - Changed: effort to medium (two files); noted the throttle; the meeting gate should leave an open door to be tried; a one-flag form of the fix.
+
+## Fix so far
+
+Steps 1, 2 and 5 are built in `driver.ts` (`nextStep`). Shut in with no open door in view and at the door (or unable to reach it, DRV-11), `holdAtDoor` lets through only work done where it stands: an act in `STAYS` other than `search` and `find_supplies` (`LEAVES_THE_DOOR`), or a line to say. The idle step is `null` while there is still a knock to make, word to send to whoever let it in, or someone it will write to when the wait is up (`moreToTryAtDoor`, `nextToWrite(..., anyTime)`); with nobody left it may `explore` (never `search`), held to one try in a while by `tryLeavingAt` in `drive` as before. Shut in and not yet at the door, with the walk there held back, it waits and takes no other step. A door standing open still lets everything be tried. Table: `tools/llm_crew/driver3-door.ts`.
+
+Held (step 3, `jobs/meetings.ts`, not this group's): where the staff walk to the meeting is planned (the `act: { tool: 'go_to', place: room }` return after the `HAULING` guard), return `{ ready: false, step: 'You are shut in the ' + brain.location + ' and will go to the meeting when you are let out.' }` while `brain.shutIn && !brain.doorOpen`. The driver already keeps the walk from being taken; this makes the plan say so truly, and lets the "missed" path cover the meeting.

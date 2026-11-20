@@ -1597,6 +1597,42 @@ export type NpcBrain = {
   droppedArrest?: { task?: number; person: string; at: number } | null;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
   floating?: boolean;
+  /**
+   * What the line now waiting to be said is for, when it is word for someone face to face or an
+   * ask for the door (ASYNC-05, DRV-07): the step's key, the person, and the tell or the ask. The
+   * tell is struck off, and the person marked asked, only once the line has gone out with them in view.
+   */
+  mustSayFor?: SayFor | null;
+  /** When the line its work calls for was handed over to be said (this window's clock): after a few seconds it is said plainly (BRAIN-02). */
+  mustSayAt?: number;
+  /**
+   * The line last sent to be said (this window's clock), whether it was the line its work called
+   * for, and how many times that line had been tried: a refusal from the server is matched to it (BRAIN-04).
+   */
+  sentSay?: {
+    text: string;
+    at: number;
+    carried: boolean;
+    tries: number;
+  } | null;
+  /** A refused line its work called for, to be said again word for word once the server will let it speak (BRAIN-04). */
+  resay?: { text: string; at: number; tries: number; fired: boolean } | null;
+  /** Rooms where a step of its work failed lately, and until when that step is left alone (this window's clock): it does not walk back to them before then (DRV-12). */
+  heldAt?: { place: string; until: number }[];
+  /** A PDA message (or the like) sent while a longer step was still waited on, kept beside it so that the longer step's result is still heard (LOGB-02). */
+  sideAct?: NpcBrain['lastAct'];
+};
+
+/** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
+export type SayFor = {
+  /** The driver step's key, so that its hold can be let off if the line was not said. */
+  key: string;
+  /** Whom it is for, by name. */
+  to: string;
+  /** The line from toTell it is, if it is one. */
+  tells?: string;
+  /** Who is being asked to let it out, if it is that. */
+  asks?: string;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
