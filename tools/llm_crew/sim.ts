@@ -57,6 +57,7 @@
 //   bun run sim.ts quiet cuffedheld  the monkey is in cuffs already and the Head of Security has it by the arm: the officer leaves it be (TRB-01)
 //   bun run sim.ts quiet twolocked   two warrants: the monkey is in the locked Cargo Bay, Dana Reyes in the Library; the officer asks to be let into the bay and waits at its door, not walking off to Dana (ARR-14)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
+//   bun run sim.ts quiet stuckcell  as the plain arrest, but the officer cannot get back out past the monkey it let go in the cell: the next jail only starts the timer, so one jailing and no second arrest (PLAY-01)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -323,7 +324,7 @@ const steppedAside: { who: string; at: number }[] = [];
 let asideFailedAt = 0;
 const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
@@ -342,7 +343,9 @@ const isSecurityJob = (job: string) => job === 'Security Officer' || job === 'He
 const kits = new Map<string, { baton: boolean; cuffs: boolean; holding: string | null; health: number; arrests: number }>();
 const kitOf = (body: { name: string }) => { if (!kits.has(body.name)) kits.set(body.name, { baton: false, cuffs: true, holding: null, health: 100, arrests: 0 }); return kits.get(body.name)!; };
 // The brig's three cells: who is in each, and when their time is up.
-const cells = [1, 2, 3].map((n) => ({ name: `Cell ${n}`, occupant: null as string | null, until: 0, by: null as string | null }));
+// PLAY-01: a cell someone was let go in whose timer is not started yet, the officer being stuck inside with them, and for how long it was to be.
+const cells = [1, 2, 3].map((n) => ({ name: `Cell ${n}`, occupant: null as string | null, until: 0, by: null as string | null, stuck: false, stuckMinutes: 0 }));
+let stuckOnce = false;
 // The bar's monkey: no NPC, and on nobody's PDA. Where it is, the rooms it goes round and from when, whether it is in cuffs or a cell, how many bites it has in it and how hard, and how many times it slips a baton.
 type Roamer = { name: string; job: string; room: string; route: string[]; from: number; every: number; movedAt: number; cuffed: boolean; cell: string | null; busy: boolean; bites: number; hard: number; slips: number };
 let punPun: Roamer | null = null;
@@ -1047,6 +1050,19 @@ function toolCall(body: Body, tool: string, args: any) {
       const mine = kitOf(body);
       const name = mine.holding;
       const note = (ok: boolean, extra: any = {}) => secWork.push({ at: clock, who: body.name, tool: 'jail', ok, target: name ?? undefined, ...extra });
+      // PLAY-01: back at a cell it let its prisoner go in and could not get out of, the timer is all that is left: it steps out and starts
+      // it, nobody taken by the arm again (tool_jail with jail_left_inside).
+      const leftIn = cells.find((it) => it.stuck && it.occupant && it.by === body.name);
+      if (leftIn && !name) {
+        return busy(body, 4, `stepping out to the timer of ${leftIn.name}`, false, () => {
+          const minutes = leftIn.stuckMinutes;
+          leftIn.stuck = false; leftIn.until = clock + minutes * 60_000;
+          if (!jailedBy.has(body.name)) jailedBy.set(body.name, new Map());
+          jailedBy.get(body.name)!.set(leftIn.occupant!, leftIn.name);
+          secWork.push({ at: clock, who: body.name, tool: 'jail', ok: true, target: leftIn.occupant!, cell: leftIn.name, minutes });
+          result(body, 'jail', true, `You put ${leftIn.occupant} in ${leftIn.name} and start its timer: ${minutes} minutes.`, { cell: leftIn.name, minutes, prisoner: leftIn.occupant, cuffs_left: 1 });
+        });
+      }
       if (!name) { note(false, { reason: 'no_hold' }); return result(body, 'jail', false, 'You have nobody by the arm.', { reason: 'no_hold' }); }
       const cell = cells.find((it) => !it.occupant && !refusedCells.has(it.name)) ?? cells.find((it) => !it.occupant);
       if (!cell) { note(false, { reason: 'no_cell' }); return result(body, 'jail', false, 'Every cell is in use.', { reason: 'no_cell' }); }
@@ -1054,6 +1070,17 @@ function toolCall(body: Body, tool: string, args: any) {
       if (process.argv[3] === 'badcell' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'no_way', cell: cell.name }); result(body, 'jail', false, `You cannot get into ${cell.name} with ${name}.`, { reason: 'no_way', prisoner: name, cell: cell.name }); });
       // SEC-04: in its twin the first cell's timer will not start. The server passes a cell over for that as well (cell_refuses in put_in_cell).
       if (process.argv[3] === 'badtimer' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'timer', cell: cell.name }); result(body, 'jail', false, `The timer of ${cell.name} will not start.`, { reason: 'timer', prisoner: name, cell: cell.name }); });
+      // PLAY-01: the first time, it walks the monkey into the cell and lets go, and the monkey stands where it would step out.
+      if (VARIANT === 'stuckcell' && !stuckOnce && punPun?.name === name) {
+        stuckOnce = true;
+        return busy(body, 10, `taking ${name} to the brig`, true, () => {
+          moveTo(body, BRIG); punPun!.room = BRIG; punPun!.cell = cell.name;
+          cell.occupant = name; cell.until = Infinity; cell.by = body.name; cell.stuck = true; cell.stuckMinutes = Math.min(15, Math.max(1, Number(args.minutes) || 5));
+          mine.holding = null;
+          note(false, { reason: 'stuck_inside', cell: cell.name });
+          result(body, 'jail', false, `You cannot get past ${name} to the door of ${cell.name}.`, { reason: 'stuck_inside', prisoner: name, cell: cell.name });
+        });
+      }
       return busy(body, 10, `taking ${name} to the brig`, true, () => {
         const minutes = Math.min(15, Math.max(1, Number(args.minutes) || 5));
         const npc = bodies.find((other) => other.name === name);
@@ -1214,7 +1241,7 @@ function uiData(body: Body) {
     in_hand: clock < body.inHandUntil ? 1 : 0,
     // The cell it is held in. And for security staff: their kit, who they have by the arm, how well they are, and the cells, which are only seen from the brig.
     custody: custody.get(body.name) ?? null,
-    security: isSecurityJob(body.job) ? { has_baton: kitOf(body).baton ? 1 : 0, has_cuffs: kitOf(body).cuffs ? 1 : 0, holding: kitOf(body).holding, health: kitOf(body).health, baton_seen: null, cells: cells.map((cell) => (body.room === BRIG ? { name: cell.name, running: cell.occupant ? 1 : 0, left: cell.occupant ? Math.round((cell.until - clock) / 1000) : 0, occupants: cell.occupant ? [cell.occupant] : [], room: BRIG } : { name: cell.name, running: null, left: null, occupants: null, room: BRIG })) } : null,
+    security: isSecurityJob(body.job) ? { has_baton: kitOf(body).baton ? 1 : 0, has_cuffs: kitOf(body).cuffs ? 1 : 0, holding: kitOf(body).holding, health: kitOf(body).health, baton_seen: null, cells: cells.map((cell) => (body.room === BRIG ? { name: cell.name, running: cell.occupant && !cell.stuck ? 1 : 0, left: cell.occupant && !cell.stuck ? Math.round((cell.until - clock) / 1000) : 0, occupants: cell.occupant ? [cell.occupant] : [], room: BRIG } : { name: cell.name, running: null, left: null, occupants: null, room: BRIG })) } : null,
     out_of_bounds: LOCKED.includes(body.room) && !hasKeys(body) ? 1 : 0,
     pda_janitors: bodies.filter((other) => other !== body && other.job === 'Janitor').map((other) => other.name),
     blocked_places: [...body.blocked.keys()].filter(shut),
@@ -2227,6 +2254,14 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
     check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
     check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
     check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
+  }
+  if (VARIANT === 'stuckcell') {
+    const stuck = secWork.find((work) => work.tool === 'jail' && work.reason === 'stuck_inside');
+    check('the first jail leaves the officer stuck inside the cell with the monkey', !!stuck, listed(secWork));
+    const after = secWork.filter((work) => !!stuck && work.at > stuck.at && work.tool === 'arrest');
+    check('it is not arrested again', after.length === 0 && arrests.filter((work) => work.ok).length === 1, listed(after) || listed(arrests));
+    const next = secWork.find((work) => !!stuck && work.at > stuck.at && work.tool === 'jail');
+    check('the next jail starts the timer of the same cell, within half a minute', !!next?.ok && next.cell === 'Cell 1' && next.at - stuck!.at <= 30_000, next ? `${next.ok ? 'ok' : next.reason} ${next.cell ?? '?'} ${Math.round((next.at - stuck!.at) / 1000)} s after` : 'no jail after');
   }
   if (VARIANT === 'pdadown') {
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
