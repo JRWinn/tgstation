@@ -342,8 +342,9 @@
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		var/list/sides = doors[door]
 		var/turf/spot = leaving ? sides[1] : sides[2]
-		// Nobody waits at a door where the air is bad, on this side of it or the other.
-		if(!crew_npc_safe_turf(spot) || (leaving && !crew_npc_safe_turf(sides[2])))
+		// Nobody waits at a door where the air is bad, on this side of it or the other: as far as it
+		// can tell, by what it can see or has found there (CHEAT-11). Behind a shut door it cannot.
+		if(!far_spot_safe(spot) || (leaving && !far_spot_safe(sides[2])))
 			continue
 		var/area/beyond = get_area(sides[2])
 		var/score = get_dist(body, spot)

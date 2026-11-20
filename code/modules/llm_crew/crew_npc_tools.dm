@@ -394,7 +394,8 @@
 	var/best_clear_distance = INFINITY
 	for(var/sample in 1 to min(length(place_turfs), 40))
 		var/turf/candidate = pick(place_turfs)
-		if(!crew_npc_safe_turf(candidate, pawn) || candidate.is_blocked_turf())
+		// Rooms away, its air is known only as a player would know it (CHEAT-11).
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf())
 			continue
 		// Keep well clear of airlocks to space.
 		if(locate(/obj/machinery/door/airlock/external) in range(2, candidate))
@@ -530,8 +531,9 @@
 			var/turf/other_spot = meeting_room ? safe_spot_in(meeting_room, get_turf(pawn)) : null
 			if(other_spot)
 				visited_places[goal] = list(other_spot.x, other_spot.y, other_spot.z)
-		// Somewhere new that turned out not to be reachable after all is not tried again.
-		if(tool == CREW_TOOL_EXPLORE && isturf(target))
+		// Somewhere new that turned out not to be reachable after all is not tried again. Bad air is
+		// not for good: a vented room is mended (CHEAT-11). It is kept clear of by bad_air_seen meanwhile.
+		if(tool == CREW_TOOL_EXPLORE && isturf(target) && reason != CREW_NPC_BAD_AIR)
 			unreachable_places[get_area_name(target, TRUE)] = TRUE
 		action_result(tool, FALSE, "You stop on the way to [goal]: [why].[fire_doors] You are in [arrived_in].", stop_details)
 

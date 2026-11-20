@@ -196,8 +196,8 @@
 		scores -= nearest
 		var/turf/spot = spots[nearest]
 		var/list/nearest_sides = doors[nearest]
-		// Nobody stands working at a door where the air is bad.
-		if(!crew_npc_safe_turf(spot))
+		// Nobody stands working at a door where the air is bad, as far as it can tell from here (CHEAT-11).
+		if(!far_spot_safe(spot))
 			no_way_to += "[nearest.name] at ([nearest.x],[nearest.y]), where the air on its near side is bad"
 			continue
 		tries_left--

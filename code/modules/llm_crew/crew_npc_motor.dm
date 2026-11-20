@@ -4,6 +4,10 @@
 
 /// How many times running a walking body walks into the same person from the same tile before it takes it that they are in its way.
 #define CREW_NPC_BLOCKED_BUMPS 4
+/// How long a body keeps clear of a room where it found the air bad (CHEAT-11). A vented room is mended in the end.
+#define CREW_NPC_BAD_AIR_KEPT (5 MINUTES)
+/// Why a walk stopped at the edge of bad air. Kept defined: walk_finished() in crew_npc_tools.dm reads it.
+#define CREW_NPC_BAD_AIR "the air in there is bad"
 
 /// Default wandering for crew NPCs. Unlike the generic wander it will not walk the body into places that kill it.
 /datum/bt_node/ai_behavior/idle_random_walk/crew_npc
@@ -51,6 +55,14 @@
  * below, a chasm or lava are no floor: MAP-11); with none to hand, those are looked for by kind.
  */
 /proc/crew_npc_safe_turf(turf/destination, mob/living/walker)
+	return crew_npc_safe_floor(destination, walker) && crew_npc_air_ok(destination)
+
+/**
+ * The part of crew_npc_safe_turf() that is the map, which a body may know of anywhere: solid
+ * floor, and not an airlock to space. The air is left out: that is felt or seen, not known from
+ * across the station (CHEAT-11).
+ */
+/proc/crew_npc_safe_floor(turf/destination, mob/living/walker)
 	if(!isopenturf(destination) || isspaceturf(destination))
 		return FALSE
 	if(walker)
@@ -67,11 +79,46 @@
 	// Stepping into an external airlock opens it and starts it cycling, which ends in vacuum.
 	if(locate(/obj/machinery/door/airlock/external) in destination)
 		return FALSE
-	var/datum/gas_mixture/air = destination.return_air()
+	return TRUE
+
+/// TRUE if the air on this turf is fit to breathe: its pressure between the warning limits a player's HUD shows.
+/proc/crew_npc_air_ok(turf/destination)
+	var/datum/gas_mixture/air = destination?.return_air()
 	if(isnull(air))
 		return FALSE
 	var/pressure = air.return_pressure()
 	return pressure >= WARNING_LOW_PRESSURE && pressure <= WARNING_HIGH_PRESSURE
+
+/// Room name -> world.time the body last found the air bad there, on a square next to it or in sight (CHEAT-11).
+/datum/ai_controller/crew_npc/var/list/bad_air_seen = list()
+
+/// Notes that the body has found the air bad on this square, so that the room is kept clear of for a while.
+/datum/ai_controller/crew_npc/proc/note_bad_air(turf/spot)
+	var/room_name = get_area_name(spot, TRUE)
+	if(!bad_air_seen[room_name])
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found the air bad at [AREACOORD(spot)].")
+	bad_air_seen[room_name] = world.time
+
+/**
+ * TRUE if the body would pick this square, which may be rooms away, to walk to or stand at
+ * (CHEAT-11). The floor is the map, which it knows. The air it knows only as a player would: on a
+ * square it can see now, or in a room where it found the air bad not long ago. A square out of
+ * its sight in a room it has no such memory of is taken to have good air. The walk itself stops
+ * at the edge of bad air (crew_npc_walk/perform), so a body is never walked into it unawares.
+ */
+/datum/ai_controller/crew_npc/proc/far_spot_safe(turf/spot)
+	if(!crew_npc_safe_floor(spot, pawn))
+		return FALSE
+	var/room_name = get_area_name(spot, TRUE)
+	var/seen_at = bad_air_seen[room_name]
+	if(seen_at)
+		if(world.time - seen_at < CREW_NPC_BAD_AIR_KEPT)
+			return FALSE
+		bad_air_seen -= room_name
+	if(can_see(pawn, spot, CREW_NPC_VISION_RANGE) && !crew_npc_air_ok(spot))
+		note_bad_air(spot)
+		return FALSE
+	return TRUE
 
 /**
  * TRUE if the body has no gravity and nothing it could push off from, so that a player in its place
@@ -212,6 +259,20 @@
 		crew_controller.blocked_by = null
 		crew_controller.blocked_bumps = 0
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// The next square of the way has bad air (CHEAT-11). A body feels the cold and sees its HUD's
+	// warning on the square in front of it, and goes no further. Out of good air already, it walks
+	// on: that is the way out of it. Its room is kept clear of for a while.
+	var/datum/move_loop/has_target/navmap_astar/loop = controller.ai_movement ? controller.ai_movement.moving_controllers[controller] : null
+	if(istype(loop) && length(loop.movement_path))
+		var/turf/standing = get_turf(puller)
+		var/turf/next_square = loop.movement_path[1]
+		if(isturf(next_square) && get_dist(standing, next_square) <= 1 && crew_npc_air_ok(standing) && !crew_npc_air_ok(next_square))
+			crew_controller.note_bad_air(next_square)
+			fail_reason = CREW_NPC_BAD_AIR
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		// Standing in good air in a room it once found bad: the room is mended.
+		if(istype(crew_controller) && length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
+			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
 	if(movement_failed)
 		// The move loop gives up on steps the body is not let take, as well as on a way that is shut.
 		// A body held, strapped in or shut in something knows that is what stopped it (CORE-11).
@@ -245,3 +306,4 @@
 		crew_controller.walk_finished(finished_target, succeeded, reason)
 
 #undef CREW_NPC_BLOCKED_BUMPS
+#undef CREW_NPC_BAD_AIR_KEPT
