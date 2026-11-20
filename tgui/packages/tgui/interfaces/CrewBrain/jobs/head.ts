@@ -1435,6 +1435,48 @@ export function hearReport(
   return report;
 }
 
+/**
+ * Reads a PDA message from one of a head's staff about its meeting: word that they are coming, or
+ * their report because they could not be there. Every head that holds a meeting calls this from
+ * its readsMessage: only the Head of Personnel read these, and a technician or engineer called by
+ * PDA who sent "On my way" was not waited for, and its report was lost (KNB-09). Returns TRUE if
+ * the message was one of these. A need in a report is noted where this head notes needs.
+ */
+export function staffMeetingWord(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+  at: number,
+): boolean {
+  if (!staff(brain).some((person) => person.name === from)) {
+    return false;
+  }
+  const meeting = brain.meeting;
+  // One of its staff sending word that they are coming to the meeting.
+  if (COMING_WORDS.test(text)) {
+    if (meeting) {
+      meeting.answers[from] = 'coming';
+    }
+    return true;
+  }
+  // One of them sending their report because they could not be there. After the meeting is
+  // over, the work in it goes into the next one's count.
+  const report = REPORT_BY_PDA.test(text) ? readReport(text) : null;
+  if (!report) {
+    return false;
+  }
+  if (meeting) {
+    meeting.reports[from] = report;
+    meeting.answers[from] = 'cannot';
+  } else {
+    addCounts(brain.lateWork, report.counts);
+  }
+  if (report.need) {
+    noteAsk(brain, from, at);
+  }
+  return true;
+}
+
 /** Notes what a head has just said at its meeting: who it called together, who it called on, and that it is over. */
 export function meetingSaid(brain: NpcBrain, called: string): void {
   const meeting = brain.meeting;
@@ -1785,30 +1827,8 @@ export const HEAD_OF_PERSONNEL: Job = {
       }
       return;
     }
-    const meeting = brain.meeting;
-    if (staff(brain).some((person) => person.name === from)) {
-      // One of its staff sending word that they are coming to the meeting.
-      if (COMING_WORDS.test(text)) {
-        if (meeting) {
-          meeting.answers[from] = 'coming';
-        }
-        return;
-      }
-      // One of them sending their report because they could not be there. After the meeting is
-      // over, the work in it goes into the next one's count.
-      const report = REPORT_BY_PDA.test(text) ? readReport(text) : null;
-      if (report) {
-        if (meeting) {
-          meeting.reports[from] = report;
-          meeting.answers[from] = 'cannot';
-        } else {
-          addCounts(brain.lateWork, report.counts);
-        }
-        if (report.need) {
-          noteAsk(brain, from, at);
-        }
-        return;
-      }
+    if (staffMeetingWord(brain, from, text, at)) {
+      return;
     }
     if (NEED_WORDS.test(text) && !NO_NEED_WORDS.test(text)) {
       noteAsk(brain, from, at);

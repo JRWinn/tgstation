@@ -70,6 +70,7 @@ import {
   meetingSaid,
   meetStep,
   present,
+  staffMeetingWord,
   syncMeeting,
   workReported,
 } from './head';
@@ -755,9 +756,14 @@ export const CHIEF_ENGINEER: Job = {
   describeTask,
   // Word from its engineer that could not be said to its face, or the Captain telling it to
   // find out how its staff are doing, or to have the engine lit again.
-  readsMessage: (brain, from, text, _at, job) => {
+  readsMessage: (brain, from, text, at, job) => {
     // Security asking for a door to be forced, or its engineer saying how that went.
     if (forcingReads(brain, from, job, text)) {
+      return;
+    }
+    // An engineer called to its meeting by PDA sending word that it is coming, or its report
+    // because it missed the meeting: read as every head reads them (KNB-09).
+    if (staffMeetingWord(brain, from, text, at)) {
       return;
     }
     if (isEngineer(job)) {

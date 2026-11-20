@@ -157,6 +157,18 @@ for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', false]]
   add(`a technician's line said to ${saidTo}: ${want ? '' : 'not '}taken for the answer`, hop.requisition.heardBack, want);
 }
 
+// KNB-09: a head that calls its meeting aloud reads its staff's "On my way" and a report sent by PDA.
+{
+  const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
+  const ce: any = makeBrain('Fay Chief', 'Chief Engineer');
+  ce.pdaPeople = [{ name: 'Sam Rees', job: 'Station Engineer' }];
+  ce.meeting = { calledAt: 0, room: 'Engineering', calledIn: true, invited: ['Sam Rees'], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null };
+  CHIEF_ENGINEER.readsMessage(ce, 'Sam Rees', 'On my way to the Engineering.', 50, 'Station Engineer');
+  add('the Chief Engineer reads an engineer\'s "On my way"', ce.meeting.answers['Sam Rees'], 'coming');
+  CHIEF_ENGINEER.readsMessage(ce, 'Sam Rees', `Sorry I missed the meeting. ${workWords({ cleaned: 2 }, 0)}. I need nothing.`, 60, 'Station Engineer');
+  add('and a report it sends by PDA', [!!ce.meeting.reports['Sam Rees'], ce.meeting.answers['Sam Rees']], [true, 'cannot']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
