@@ -1027,7 +1027,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /// The body's PDA has received a message. It reads it if the PDA is still on it.
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
-	if(!can_sense() || !crew_npc_carries(computer))
+	if(!crew_npc_carries(computer))
 		return
 	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
 	var/mob/living/carbon/human/body = pawn
@@ -1035,6 +1035,12 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		return
 	var/message = html_decode("[signal.data["message"]]")
 	var/sender = "[sender_name || "Someone"]"
+	// A stunned body still sees its PDA buzz. One out cold misses it, and the message sits on the PDA
+	// until it comes to and reads it (CORE-02). A dead body, or one a player has, keeps nothing.
+	if(!can_perceive())
+		if(!QDELETED(body) && body.stat != DEAD && !body.client)
+			keep_missed_pda(computer, sender, "[sender_job]", message)
+		return
 	emit_sense(CREW_SENSE_PDA_MESSAGE, "Your PDA buzzes with a message from [sender][sender_job ? ", [sender_job]" : ""]: \"[message]\"", list(
 		"speaker" = sender,
 		"job" = "[sender_job]",
