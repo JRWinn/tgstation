@@ -264,3 +264,21 @@ Step 2a of SENSE-11 (drop a name from the workmates whenever that person is seen
 - **MAP-06:** should a cargo post be the room with the counter window to the lobby, whatever console stands there? On MetaStation both answers are the Cargo Bay.
 - **JOBS-02 / CARGO-13 (round two):** open work that runs past its time limit is now given up and shown only in the window. Should whoever asked be sent word, as asked under MEM-11 for blocked work? One answer could serve both.
 - **DESK-10, step 3:** with a mop and soap in hand and a bucket known, should the janitor put the soap in its bag to carry water? As built it goes without the bucket.
+
+---
+
+# From the night fixes (2026-11-19 to 20, branch `crew-bug-fixes-night`)
+
+## PLAY-10: three choices about calling a janitor on an order
+
+Built: any crew member told by a superior to call or ask for a janitor sends one janitor a PDA for the room it stands in (or the room named), and tells whoever asked whom it sent for. A model answer the same as a line the NPC said in the last minute is not said.
+
+1. A model answer the same as one said in the last minute:
+   - A. Say nothing (as built).
+   - B. Ask the model once more, telling it "You said that just now", then say nothing.
+2. A superior's "I'll ask for a janitor myself" is taken as an order:
+   - A. Err towards taking it (as built).
+   - B. Take it only from an imperative or a line with the NPC's name.
+3. A janitor called on an order to a cargo room whose mess no technician has seen is refused at the door (`mayPass` needs `areaMesses`):
+   - A. Let that janitor in for a while.
+   - B. Keep it as built.

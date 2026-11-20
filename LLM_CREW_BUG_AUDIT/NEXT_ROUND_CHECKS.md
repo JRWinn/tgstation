@@ -237,3 +237,19 @@ Written by the fixers. Where a check greps crew_brain.log for a marker, nobody h
 New faults are PLAY-01 to PLAY-13. Known faults seen in play for the first time: TRB-07 (prisoner let go when the cuffs come off in the cell), SENSE-03 (Pun Pun as a gorilla is never seen, so his warrant cannot be served), GAP-24 (the Captain's PDA to the Quartermaster gets no answer), ENG-02 (the emitters lost power and the engine was reported lit), HEAD-08 (a crate credited to the wrong janitor), MULTI-07 and JOBS-05 (a late "still waiting" sends a second janitor), DRV-08 (no step for 15 s after stepping aside), PARSE-04 (a refusal with "step aside" in it read as an ask).
 
 Fixes seen working: DRV-03, TRUST-06 (the Captain's half), KNB-04 step 7 (failed once, see PLAY-05), SUP-01, KNB-08, CHEAT-01 (bodies stop at people). Not set up in that round: ASYNC-08, MEM-05, ARR-02, SEC-05, SEC-01, CARGO-06, KNB-06, TRC-01, TRUST-11, a head's warrant on a head.
+
+## From the night fixes, round P: PLAY-01 to PLAY-13 (branch `crew-bug-fixes-night`)
+
+- PLAY-01: game.log: no "could not walk back out to the timer"; "took the cuffs off" followed within a few seconds by "put ... in Cell N", with the prisoner on the bed tile.
+- PLAY-02: a prisoner cuffed several times before "put ... in Cell" still gives "1 arrests made" at the meeting. pda.log: any "cannot bring in ... no cell would take them" comes while the officer is still in the brig, never after "is in Cell".
+- PLAY-03: after the Captain tells the officer to its face where someone wanted is, with a Head of Security aboard: game.log "I have that:" then a walk there; pda.log "Security: X is in the Y." from the officer to the Head of Security.
+- PLAY-04: game.log "went round MULEbot ... which will not move" and "found no way round"; at most about one "MULEbot ... is standing in your way" per body.
+- PLAY-05: crew_brain.log "You are done holding the door of <room> for X" after each "opened ... to let X into" in game.log; no "has asked you about the door. You are not opening it" for someone the technician sent for.
+- PLAY-06: game.log "did not open <door> ... for <person>"; "took hold of <janitor> to walk them out of" only after "I could not get to the door to let you out" or "that door will not open for me".
+- PLAY-07: `grep -c '"calls"' crew_brain.log` is about the number of model-call records. From now on the crew_brain.log greps above for "[an order, made out from what was said]", "[sounded like an order: not said]" and "[nothing said called for it: not done]" can be trusted.
+- PLAY-08: no "did not reach" for a head while they are in a cell; one "Security notice." to them soon after "is free to go".
+- PLAY-09: with a head on a warrant shut in their own office, a let-in PDA from the officer to the Captain before any "no way into the ..." line.
+- PLAY-10: after the Captain says "call a janitor" or "ask for a janitor" to any crew member: pda.log "<Captain> has asked for a janitor" to one janitor, and game.log the crew member telling the Captain whom it sent for. crew_brain.log "[said word for word just now: not said]"; game.log: no NPC says the same long line twice within a minute.
+- PLAY-11: game.log: no crew line with "before I can step aside", "finish" or "first" within 5 s of a "step aside" said to them; crew_brain.log prompts carry "You have broken off".
+- PLAY-12: after "has given up hauling ... (collect_crate:" in game.log, a PDA from the collector within seconds starting "I could not get crate #", then the head sending another staff member for that number.
+- PLAY-13: attack.log: after a puff with no "sprayed" line, the same body's next puff within about 2 s, not 8 or more; game.log "wrote off the dirt" should be rare.

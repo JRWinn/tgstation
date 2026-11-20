@@ -5,7 +5,8 @@ kind: gap
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: ca0fd5941bf, f6b61e0a350
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
