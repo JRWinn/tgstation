@@ -161,3 +161,7 @@ Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`
 - Step 4: the head (`jobs/head.ts`, `readsMessage`) reads those words (`GAVE_UP_WORDS`) from the one it sent for that number and calls `sendFor` with the give-up, which skips `SENT_GRACE_DS` and passes over the one who gave up when there is anyone else. The `why` names where it lies. The line sent (step 5) is kept as it is ("is waiting at cargo"), since the collector's `readPickup` knows the message by those words.
 
 Not done: step 1 (`lies_in` from `gave_up_report`, a .dm file) and step 2 (`brain.ts`), neither owned by this group; the body's place stands in for now. Step 6 (`take_back` give-ups) not done.
+
+Then on branch `m-cargosrv` (server, compile only, not played): step 1. `gave_up_report` (`crew_npc_grip.dm`) sends `lies_in` (the crate's room) when the crate could not be put clear, and the body is told "It lies in ROOM." `brain.ts` already keeps it as `brain.gaveUp.liesIn`.
+
+Still left: `pickupsAfterActing` (`jobs/pickups.ts`) names `gaveUp.leftIn ?? brain.location`; it should be `gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location`. Step 6 (`take_back`) not done.
