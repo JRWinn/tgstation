@@ -243,6 +243,33 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   b.location = 'Cargo Lobby';
   add('JOBS-05: in the lobby with it: it takes it up', planPickups(b, task)?.act?.tool, 'collect_crate');
 }
+// MULTI-07: someone else has hold of the crate: the errand ends quietly.
+{
+  const { pickupsAfterActing } = await import(ROOT + 'jobs/pickups');
+  const collecting = () => {
+    const b: any = makeBrain('Jan Mopp', 'Janitor');
+    b.now = 5000;
+    b.toTell = [];
+    const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+    b.tasks = [task];
+    return { b, task };
+  };
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, {}, 'Mo Pper already has hold of the janitorial supplies crate.');
+    add('MULTI-07: "already has hold of": the errand ends, nothing said', [task.state, b.toTell.length], ['done', 0]);
+  }
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, { held_by: 'Mo Pper' }, 'You could not take it.');
+    add('MULTI-07: held_by in the details: the errand ends', task.state, 'done');
+  }
+  {
+    const { b, task } = collecting();
+    pickupsAfterActing(b, { tool: 'collect_crate', number: 12 }, task, false, {}, 'You lost your grip on it.');
+    add('MULTI-07: a lost grip is not that: the errand stands', task.state, 'open');
+  }
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

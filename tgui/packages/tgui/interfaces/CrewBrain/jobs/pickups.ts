@@ -444,8 +444,23 @@ export function pickupsAfterActing(
   act: Action,
   task: Task | undefined,
   ok: boolean,
+  details?: Record<string, unknown>,
+  text?: string,
 ): void {
   if (task?.kind !== COLLECT) {
+    return;
+  }
+  // Someone else has hold of the crate: they are taking it, and it is not this one's to pull out
+  // of their hands. The errand is over, with no word to anyone: whoever has it tells the head
+  // when it is unpacked (MULTI-07).
+  if (
+    act.tool === 'collect_crate' &&
+    !ok &&
+    (details?.held_by ||
+      /\b(already has hold of|has taken hold of)\b/i.test(text ?? ''))
+  ) {
+    task.reported = true;
+    finishTask(brain, task);
     return;
   }
   // The haul given up on the way: the crate got away too often, or there was no way through
