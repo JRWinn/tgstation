@@ -862,6 +862,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 /// room_keepers() for a room, worked out afresh once a minute at most: it is asked for with every look the body takes.
 /datum/ai_controller/crew_npc/proc/keepers_known(area/room, place)
+	// With no PDA it goes by who is in sight, which changes from one look to the next.
+	if(isnull(pda_messenger()))
+		return room_keepers(room)
 	var/list/known = keepers_cache[place]
 	if(known && world.time - known[1] < 1 MINUTES)
 		return known[2]
@@ -874,18 +877,31 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * is shut out of it with a warrant on someone inside: those who work behind the door first, then
  * heads of department, then the Captain, whose card opens every door. It is what anyone aboard
  * knows: cargo's people open cargo's doors. Going by job titles, not by anyone's card (CHEAT-02).
- * Empty if the room has no door that is locked to it.
+ * With no PDA of its own (taken, or lost), those in sight whose ID says a job that opens it
+ * (KNA-26): someone it could call out to. Empty if the room has no door that is locked to it.
  */
 /datum/ai_controller/crew_npc/proc/room_keepers(area/room)
 	var/mob/living/carbon/human/body = pawn
-	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
-	if(isnull(room) || isnull(own_messenger) || QDELETED(body))
+	if(isnull(room) || QDELETED(body))
 		return list()
 	var/list/doors = list()
 	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
 		if(!door.allowed(body))
 			doors += door
-	return crew_npc_contacts_who_open(doors, own_messenger)
+	if(!length(doors))
+		return list()
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(!isnull(own_messenger))
+		return crew_npc_contacts_who_open(doors, own_messenger)
+	var/list/titles = list()
+	if(can_sense() && isturf(body.loc) && !body.is_blind())
+		for(var/mob/living/carbon/human/person in view(CREW_NPC_VISION_RANGE, body))
+			if(person == body || person.stat > SOFT_CRIT)
+				continue
+			var/datum/job/their_job = crew_npc_job_of(person)
+			if(their_job)
+				titles[person.name] = their_job.title
+	return crew_npc_keepers_by_title(doors, titles)
 
 /**
  * Returns the names on a PDA's messenger list whose job, by the title the list shows, is one whose
@@ -896,19 +912,29 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * no card is written to all the same, and does not come; the wait then moves on to the next name.
  */
 /proc/crew_npc_contacts_who_open(list/doors, datum/computer_file/program/messenger/own_messenger)
-	var/list/names = list()
-	var/list/heads = list()
-	var/list/captains = list()
-	if(!length(doors))
-		return names
-	// What each title's card opens, worked out once a call: many on the list share a job.
-	var/list/opens_by_title = list()
+	var/list/titles = list()
 	for(var/messenger_ref in GLOB.pda_messengers)
 		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
 		// As the messenger's own list goes (get_messengers()): not itself, not hidden, with a computer.
 		if(candidate == own_messenger || candidate.invisible || isnull(candidate.computer) || !candidate.computer.saved_identification)
 			continue
-		var/title = candidate.computer.saved_job
+		titles[candidate.computer.saved_identification] = candidate.computer.saved_job
+	return crew_npc_keepers_by_title(doors, titles)
+
+/**
+ * Of these people, by name with the job title each is known by, those whose job opens one of
+ * these doors: those who work behind them first, then heads of department, then the Captain.
+ */
+/proc/crew_npc_keepers_by_title(list/doors, list/titles)
+	var/list/names = list()
+	var/list/heads = list()
+	var/list/captains = list()
+	if(!length(doors))
+		return names
+	// What each title's card opens, worked out once a call: many share a job.
+	var/list/opens_by_title = list()
+	for(var/name in titles)
+		var/title = titles[name]
 		if(!istext(title) || !length(title))
 			continue
 		if(isnull(opens_by_title[title]))
@@ -924,11 +950,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			continue
 		var/datum/job/their_job = SSjob.get_job(title)
 		if(istype(their_job, /datum/job/captain))
-			captains += candidate.computer.saved_identification
+			captains += name
 		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
-			heads += candidate.computer.saved_identification
+			heads += name
 		else
-			names += candidate.computer.saved_identification
+			names += name
 	return names + heads + captains
 
 /**

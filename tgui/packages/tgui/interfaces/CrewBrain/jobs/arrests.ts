@@ -436,6 +436,9 @@ type WarrantMore = {
   lookLeg?: number;
   lookLegAt?: number;
   lookWalks?: number;
+  /** The door it last knocked at, asking to be let in, and whom it is asking aloud (KNA-26). */
+  knockedAt?: string;
+  sayingTo?: string;
 };
 /** How long (deciseconds) it looks from the middle of the room of a sighting (KNA-23). */
 const LOOK_MIDDLE_DS = 100;
@@ -892,12 +895,72 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       step: `${name} is in the ${shut.place}${within}, which is locked to you. You have asked ${last} to let you into the ${door}, and are waiting${atDoor ? ' at the door' : ''}.`,
     };
   }
-  const keepers = keepersOf(
+  // Whoever can open it and is in sight comes first, and is asked to their face (KNA-26). The
+  // server's list as it is now is added to the one it gave when it was shut out: someone who has
+  // come into sight since may be on it, and with no PDA it is only who is in sight.
+  const listed = keepersOf(
     brain,
     door,
     door === shut.place ? shut.keepers : undefined,
   );
+  const live = keepersOf(brain, door).filter(
+    (keeper) => !listed.some((other) => sameName(other, keeper)),
+  );
+  const inSight = (keeper: string) =>
+    brain.peopleInView.some((person) => sameName(person.name, keeper));
+  const keepers = [
+    ...[...listed, ...live].filter(inSight),
+    ...listed.filter((keeper) => !inSight(keeper)),
+  ];
   const next = keepers.find((keeper) => !shut.asked.includes(keeper));
+  const extra = more(warrant);
+  // At the door, it knocks first, once, for whoever is inside: as a janitor does, and a player.
+  if (atDoor && extra.knockedAt !== door) {
+    return {
+      ready: true,
+      step: `${name} is in the ${shut.place}${within}, which is locked to you. You are at the door of the ${door}, and are knocking.`,
+      act: { tool: 'knock' },
+    };
+  }
+  if (
+    next &&
+    atDoor &&
+    inSight(next) &&
+    shut.asked.length < LET_IN_ASKS
+  ) {
+    extra.sayingTo = next;
+    const to = addressOf(next, jobOf(brain, next));
+    return {
+      ready: true,
+      step: `${name} is in the ${shut.place}${within}, which is locked to you. ${next}'s ID opens the ${door}, and ${next} is in sight. You are asking them outright to let you in.`,
+      say: letInLine(to, doorCalled(brain, door), door, name),
+      exact: true,
+      // The words take a moment. If the door has been opened for it meanwhile, asking would only
+      // have it opened twice.
+      sayIf: () =>
+        !(
+          (brain.doorHeld &&
+            !brain.doorHeldOut &&
+            brain.doorHeldFor === door) ||
+          atDoorOpen(brain)
+        ),
+    };
+  }
+  // With no PDA there is nobody to write to: it waits at the door for someone who can open it to
+  // come into sight, as long as three asks by PDA would have taken, before it gives up.
+  if (
+    !brain.hasPda &&
+    atDoor &&
+    shut.asked.length < LET_IN_ASKS &&
+    brain.now - shut.at < LET_IN_ASKS * LET_IN_WAIT_DS
+  ) {
+    return {
+      ready: false,
+      wait: true,
+      asked: true,
+      step: `${name} is in the ${shut.place}${within}, which is locked to you. You have no PDA to ask anyone with, and are waiting at the door for someone who can open it to come by.`,
+    };
+  }
   if (!next || shut.asked.length >= LET_IN_ASKS || !brain.hasPda) {
     shut.gaveUp = true;
     return {
@@ -1416,8 +1479,22 @@ export function describeBeat(task: Task): string | null {
   }
 }
 
-/** Notes that it has told someone they are under arrest. */
+/** Notes that it has told someone they are under arrest, or asked someone aloud to let it in. */
 export function beatAfterSaying(brain: NpcBrain, called: string | null): void {
+  // Asked aloud to be let in (KNA-26): that is one asked, as a PDA message is, and the wait runs
+  // from here.
+  if (called && LET_IN_WORDS.test(called)) {
+    for (const warrant of beatOf(brain).warrants) {
+      const extra = more(warrant);
+      const shut = warrant.shutOut;
+      if (shut && extra.sayingTo && called.includes(warrant.name)) {
+        shut.asked.push(extra.sayingTo);
+        shut.askedAt = brain.now;
+        extra.sayingTo = undefined;
+      }
+    }
+    return;
+  }
   if (!called || !ARREST_WORDS.test(called)) {
     return;
   }
@@ -1535,6 +1612,11 @@ export function beatAfterActing(
       }
       return;
     }
+  }
+  // A knock at the door it asks at (KNA-26): once a door, whether or not anyone heard it.
+  if (warrant?.shutOut && act.tool === 'knock') {
+    more(warrant).knockedAt = warrant.shutOut.door ?? warrant.shutOut.place;
+    return;
   }
   // The walk to the middle of the room of a sighting (KNA-23): the look from there starts now. One
   // that came to nothing is tried once more, then it looks from where it stands.

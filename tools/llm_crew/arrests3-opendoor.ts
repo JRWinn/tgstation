@@ -54,7 +54,9 @@ const officer = (asked: string[] = ['Zim Fire']) => {
   const f = officer([]);
   f.o.atDoorOpen = true;
   const plan = A.planBeat(f.o, f.task);
-  add('open, but it has asked nobody: it asks, it does not walk in', plan?.act?.tool, 'message');
+  add('open, but it has asked nobody: it knocks, it does not walk in', plan?.act?.tool, 'knock');
+  A.beatAfterActing(f.o, plan?.act, f.task, true, {});
+  add('then it asks, and still does not walk in', A.planBeat(f.o, f.task)?.act?.tool, 'message');
 }
 {
   // Open, but it is not standing at that door.
