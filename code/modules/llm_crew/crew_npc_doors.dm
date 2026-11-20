@@ -462,7 +462,10 @@
 			// By what it is called among the room's doors, or by the name on it: a door someone was
 			// only heard to be standing at is known by the name on it.
 			if((LOWER_TEXT(crew_npc_door_label(door, room, sides[2])) == wanted_label || LOWER_TEXT(format_text(door.name)) == wanted_label) && door.allowed(pawn))
-				return door
+				// A dead one is still the one if they stand at it: another door across the room is not
+				// where they are. Otherwise a working door is looked for first (DOOR-14).
+				if(!crew_npc_door_dead(door) || get_dist(person, door) <= CREW_NPC_AT_DOOR)
+					return door
 	// The door they have gone to stand at, and knocked on, is the one they want. Opening another
 	// that happens to be as near lets them out into the wrong place, or leaves them where they are.
 	// A door of this room, that is, and one they are still standing at. The door they wanted out
@@ -497,10 +500,18 @@
 			score += 50
 		else if(!istype(beyond, /area/station/hallway) && !findtext(beyond.name, "lobby"))
 			score += 25
+		// A door that is bolted, welded or without power will not open for it: any other door of the
+		// room that does comes first (DOOR-14).
+		if(crew_npc_door_dead(door))
+			score += 300
 		if(score < best_score)
 			best_score = score
 			best = door
 	return best
+
+/// TRUE if this airlock is shut and will not open to anyone's ID as it stands: bolted, welded, or without power (DOOR-14). Its lights show it.
+/proc/crew_npc_door_dead(obj/machinery/door/airlock/door)
+	return door.density && (door.locked || door.welded || !door.hasPower())
 
 /// Returns the name of a room that is the body's to open the door of, from a name it was given, or null: its post, or another room of its department.
 /datum/ai_controller/crew_npc/proc/own_room_named(place)
@@ -620,8 +631,17 @@
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	if(QDELETED(person))
 		return list(FALSE, "Whoever wanted the door has gone.")
-	if(door.locked || door.welded || !door.hasPower() || !door.allowed(body))
-		return list(FALSE, "The door will not open for you.")
+	// Each cause in its own words, with a reason the brain can go by (DOOR-14). A door standing open
+	// is not refused for having no power or bolts: it can be walked through as it is.
+	if(door.density)
+		if(door.welded)
+			return list(FALSE, "The door is welded shut.", list("reason" = "welded"))
+		if(door.locked)
+			return list(FALSE, "The door is bolted.", list("reason" = "bolted"))
+		if(!door.hasPower())
+			return list(FALSE, "The door has no power: its lights are out.", list("reason" = "no_power"))
+		if(!door.allowed(body))
+			return list(FALSE, "Your ID does not open this door.", list("reason" = "no_access"))
 	var/room_name = door_room || post_place
 	var/area/room = room_by_name(room_name)
 	if(isnull(room))
@@ -631,12 +651,12 @@
 	// standing at it sees it (DOOR-12). The airlock is not opened for nothing.
 	var/obj/machinery/door/firedoor/fire = crew_npc_fire_door_on(door)
 	if(fire)
-		return list(FALSE, "The fire door at the door is shut: the fire alarm is on in [crew_npc_fire_door_room(fire)].")
+		return list(FALSE, "The fire door at the door is shut: the fire alarm is on in [crew_npc_fire_door_room(fire)].", list("reason" = "fire_doors", "fire_doors" = crew_npc_fire_door_room(fire)))
 	// Opened as a player opens it: a click with an empty hand, from beside it. The door makes its
 	// own checks, and shuts itself after its own few seconds. One standing open already is left
 	// open: a click would shut it.
 	if(door.density && !click_door(door, TRUE))
-		return list(FALSE, "The door will not open for you.")
+		return list(FALSE, "The door will not open for you.", list("reason" = "stuck"))
 	// It stays by the door while it is wanted open, opens it again if it shuts too soon, and shuts
 	// it behind them once they are through. If it is being held for someone else as well, it is
 	// shut only when nobody it is held for is still to come through (DOOR-01).
