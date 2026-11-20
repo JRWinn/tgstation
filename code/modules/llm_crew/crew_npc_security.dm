@@ -1957,11 +1957,15 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			names = list()
 			for(var/mob/living/carbon/human/person as anything in cell.occupants())
 				names += person.name
+		// The room the cell is in, and how far off it is on this level (null on another): where to
+		// wait with a prisoner when no cell is in the Brig, as on Tramstation (MAP-04).
 		cells += list(list(
 			"name" = cell.name,
 			"running" = seen ? !!timer.timing : null,
 			"left" = seen ? round(timer.time_left(seconds = TRUE)) : null,
 			"occupants" = names,
+			"room" = get_area_name(timer, TRUE),
+			"dist" = timer.z == body.z ? get_dist(body, timer) : null,
 		))
 	var/mob/living/held = body.pulling
 	// Who it can ask to open each room it lately found no way into, and each other room it can see

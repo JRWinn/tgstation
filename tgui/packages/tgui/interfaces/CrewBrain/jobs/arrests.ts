@@ -1742,5 +1742,21 @@ export function beatCues(brain: NpcBrain): string[] {
 
 /** The room the cells are in, if this NPC knows the way there. */
 export function brigPlace(brain: NpcBrain): string | null {
+  // Where no cell it knows of is in the Brig (Tramstation's are in the department checkpoints),
+  // it waits by the nearest cell's room instead (MAP-04).
+  const rooms = (brain.security?.cells ?? []).filter((cell) => !!cell.room);
+  if (
+    rooms.length > 0 &&
+    !rooms.some((cell) => new RegExp(`^${BRIG}\\b`).test(cell.room as string))
+  ) {
+    const nearest = rooms
+      .filter((cell) => knowsPlace(brain, cell.room as string))
+      .sort(
+        (a, b) => (a.dist ?? Number.MAX_VALUE) - (b.dist ?? Number.MAX_VALUE),
+      )[0];
+    if (nearest) {
+      return nearest.room as string;
+    }
+  }
   return knowsPlace(brain, BRIG) ? BRIG : null;
 }

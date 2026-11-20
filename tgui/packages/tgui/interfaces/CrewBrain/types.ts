@@ -335,6 +335,10 @@ export type SecurityCell = {
   left: number | null;
   /** The names of whoever is inside. */
   occupants: string[] | null;
+  /** The room the cell is in (MAP-04): not always the Brig, as on Tramstation. */
+  room?: string;
+  /** How far off it is, in tiles, on this level; null on another level. */
+  dist?: number | null;
 };
 
 /** What the server tells security staff of themselves and of the brig. */
