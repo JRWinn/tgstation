@@ -254,6 +254,50 @@ const jailedBy = () => {
   add('TRB-06: a new warrant on someone still on the cells list: "in cuffs" is passed on', said(h), ['PDA to Zim Fire: Captain, Hale has Dana Reyes in cuffs.']);
 }
 
+// ---- TRB-11: a pardon for someone in a cell, the officer out of the way
+{
+  const h = jailedBy();
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  add('TRB-11: pardoned in a cell: the officer is told, and the Captain told who is letting them out', said(h), ['PDA to Hale Stone: Hale, Dana Reyes is to be let go: the Captain has pardoned them.', 'PDA to Zim Fire: Captain, Dana Reyes is pardoned. Hale is letting them out.']);
+  h.toTell = [];
+  at(h, 3000 + 600, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-11: a minute on, no word: it waits on the officer', [open(h, 'release_prisoner', 'Dana Reyes'), said(h)], [undefined, []]);
+  at(h, 3000 + 1300, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-11: two minutes on, no word: the Captain is told, and it goes to the Brig itself', [said(h), HOS_JOB.plan(h, open(h, 'release_prisoner', 'Dana Reyes'))?.act], [['PDA to Zim Fire: Captain, Hale has not let Dana Reyes out. I am going to do it.'], { tool: 'go_to', place: 'Brig' }]);
+  h.toTell = [];
+  at(h, 3000 + 1400, 'Brig');
+  HOS_JOB.syncTasks(h);
+  add('TRB-11: at the Brig, its own hands let them go', [A.beatOf(h).toFree.map((it: any) => it.name), open(h, 'release_prisoner', 'Dana Reyes'), open(h, 'let_go', 'Dana Reyes')?.urgency, said(h)], [['Dana Reyes'], undefined, 'emergency', []]);
+}
+{
+  const h = jailedBy();
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, Dana Reyes is free.', false);
+  h.toTell = [];
+  at(h, 3000 + 1300, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-11: the officer says they are free: nothing more to do', [open(h, 'release_prisoner', 'Dana Reyes'), said(h)], [undefined, []]);
+}
+{
+  const h = jailedBy();
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  h.toTell = [];
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  at(h, 3100, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-11: the officer is hurt: it goes at once, and the Captain is not told the officer is letting them out', [HOS_JOB.plan(h, open(h, 'release_prisoner', 'Dana Reyes'))?.act, said(h).filter((it: string) => /Zim Fire/.test(it))], [{ tool: 'go_to', place: 'Brig' }, ['PDA to Zim Fire: Captain, Dana Reyes is pardoned.']]);
+}
+{
+  const h = jailedBy();
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  h.toTell = [];
+  at(h, 3000 + 15 * 600 + 10, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-11: their time ran out first: the cell let them out, nothing to do', [open(h, 'release_prisoner', 'Dana Reyes'), said(h).filter((it: string) => /Dana/.test(it))], [undefined, []]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

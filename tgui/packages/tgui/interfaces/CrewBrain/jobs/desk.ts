@@ -40,6 +40,7 @@ import type {
 import {
   arrestAgain,
   beatOf,
+  brigPlace,
   dropWarrant,
   forgetWarrant,
   giveWarrant,
@@ -54,10 +55,8 @@ import {
   againLine,
   cancelAsked,
   closeIn,
-  mendWords,
-  type Reading,
-  readingAsOrder,
   copyLine,
+  EARLY,
   firstName,
   GIVE_WORDS,
   giveLine,
@@ -65,11 +64,11 @@ import {
   heardLine,
   isNoName,
   isOfficer,
-  EARLY,
   isSecurity,
-  looksLikeOrder,
   letGoLine,
+  looksLikeOrder,
   MINUTES_USUAL,
+  mendWords,
   NOTICE_ACK_WORDS,
   nameIn,
   notFollowedLine,
@@ -82,12 +81,13 @@ import {
   pardonNamed,
   pardonToldLine,
   REFUSALS,
+  type Reading,
   readGiven,
+  readingAsOrder,
   readOutcome,
   readPardon,
   readTerm,
   readWarrant,
-  termLine,
   SIGHTING_WORDS,
   sameName,
   seenLine,
@@ -95,6 +95,7 @@ import {
   sightedName,
   TRY_AGAIN_WORDS,
   takenLine,
+  termLine,
   WARRANT_ACK_WORDS,
   withdrawnLine,
 } from './security';
@@ -103,6 +104,10 @@ import {
 const NOTICE = 'security_notice';
 /** Giving its officer a warrant. The task's item is who the warrant is on. */
 const GIVE = 'give_warrant';
+/** Going to the cells to let out someone its officer has not let out. The task's item is who (TRB-11). */
+const RELEASE = 'release_prisoner';
+/** How long (deciseconds) it waits for its officer to say someone is free before it goes to let them out itself (TRB-11). */
+const RELEASE_WAIT_DS = 1200;
 
 /** How long (deciseconds) it waits for a head's word that it has the notice, and how many times the notice is sent. */
 const ACK_WAIT_DS = 600;
@@ -132,6 +137,20 @@ const SAME_WORD_DS = 6000;
 type DeskMore = DeskWork & {
   /** Each word from its staff on how a warrant went, by "what|name|from|cell|why", and when it came (ARR-05). */
   lately?: Record<string, number>;
+  /**
+   * Prisoners its officer put in a cell and has been told to let go, until it says they are free
+   * (TRB-11): the cell, when the word went, whether it was a pardon, which officer was told, and
+   * whether it has gone to do it itself.
+   */
+  toRelease?: {
+    name: string;
+    cell: string;
+    until: number;
+    pardoned: boolean;
+    at: number;
+    officer: string | null;
+    going?: boolean;
+  }[];
 };
 
 /** The desk with what it keeps beyond DeskWork. */
@@ -413,7 +432,32 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
       officer,
     );
   }
+  // Someone its officer put in a cell is let out by the officer. If no word comes that they are
+  // free, it goes and does it itself (TRB-11). One it put there itself is in its own hands.
+  const more = moreOf(brain);
+  more.toRelease = (more.toRelease ?? []).filter(
+    (it) => !sameName(who, it.name),
+  );
+  if (held && heldBy && (heldBy as HeldMore).by !== brain.name) {
+    more.toRelease.push({
+      name: held,
+      cell: heldBy.cell,
+      until: heldBy.until,
+      pardoned,
+      at: brain.now,
+      // An officer out hurt is letting nobody out: it goes itself at once.
+      officer: serving(brain) ? (officer ?? null) : null,
+    });
+  }
   dropWarrant(brain, who, pardoned);
+}
+
+/** The officer who is letting someone out of a cell for it, if one is (TRB-11). */
+function releasedBy(brain: NpcBrain, name: string): string | null {
+  return (
+    moreOf(brain).toRelease?.find((it) => sameName(name, it.name))?.officer ??
+    null
+  );
 }
 
 /** How long (deciseconds) after a warrant is declared a time said with no name is taken to be for it. */
@@ -577,10 +621,14 @@ export function deskTakes(
     } else {
       const warrant = desk.warrants.find((it) => it.name === pardoned);
       strike(brain, pardoned, true);
+      // Someone in a cell is not out yet: the Captain is told who is letting them out (TRB-11).
+      const letting = releasedBy(brain, pardoned);
       reply(
         brain,
         from,
-        pardonedLine(to, pardoned),
+        letting
+          ? `${pardonedLine(to, pardoned)} ${firstName(letting)} is letting them out.`
+          : pardonedLine(to, pardoned),
         aloud,
         `The Captain has pardoned ${pardoned}. You are saying that it is done.`,
       );
@@ -1074,6 +1122,13 @@ export function deskOutcome(
       if (held) {
         delete desk.held[held];
       }
+      // Let out: nobody need go to the cell (TRB-11).
+      {
+        const more = moreOf(brain);
+        more.toRelease = more.toRelease?.filter(
+          (it) => !sameName(outcome.name, it.name),
+        );
+      }
       // Out before their time, and not by security's hand: the Captain is told (TRB-06).
       if (outcome.why === EARLY && held) {
         tellCaptain(
@@ -1302,6 +1357,7 @@ export function syncDesk(brain: NpcBrain): void {
       }
     }
   }
+  syncRelease(brain, officer);
   keep(
     brain,
     NOTICE,
@@ -1318,6 +1374,61 @@ export function syncDesk(brain: NpcBrain): void {
   }
   for (const warrant of desk.warrants) {
     keep(brain, GIVE, !!officer && warrant.given === 'no', warrant.name);
+  }
+}
+
+/**
+ * Someone its officer was told to let out of a cell, and has not said is free: after two minutes,
+ * or at once with no officer fit to send, whoever keeps the list goes to the cells and lets them
+ * out with its own hands (TRB-11). The Captain is told so, in fixed words. Once there, it is its
+ * own legwork's to do: from the cells the cell is found by sight.
+ */
+function syncRelease(brain: NpcBrain, officer: string | null): void {
+  const more = moreOf(brain);
+  const brig = brigPlace(brain);
+  more.toRelease = (more.toRelease ?? []).filter((release) => {
+    // Their time is up: the cell has let them out.
+    if (brain.now > release.until) {
+      return false;
+    }
+    if (
+      !release.going &&
+      (!officer || brain.now - release.at > RELEASE_WAIT_DS)
+    ) {
+      release.going = true;
+      if (release.officer) {
+        tellCaptain(
+          brain,
+          `Captain, ${firstName(release.officer)} has not let ${release.name} out. I am going to do it.`,
+          `${release.officer} was told to let ${release.name} out of ${release.cell} and has not said they are free. You are telling the Captain you are going to do it yourself.`,
+        );
+      }
+    }
+    // At the cells, it lets them out itself.
+    if (release.going && brig && brain.location === brig) {
+      const beat = beatOf(brain);
+      if (!beat.toFree.some((it) => sameName(it.name, release.name))) {
+        beat.toFree.push({
+          name: release.name,
+          pardoned: release.pardoned,
+          tries: 0,
+        });
+      }
+      return false;
+    }
+    return true;
+  });
+  for (const task of brain.tasks) {
+    if (
+      task.kind === RELEASE &&
+      task.state !== 'done' &&
+      !more.toRelease.some((it) => it.going && it.name === task.item)
+    ) {
+      finishTask(brain, task);
+    }
+  }
+  for (const release of more.toRelease) {
+    keep(brain, RELEASE, !!release.going && !!brig, release.name);
   }
 }
 
@@ -1407,6 +1518,19 @@ export function planDesk(brain: NpcBrain, task: Task): Plan | null {
       ? giveStep(brain, warrant)
       : { ready: false, step: 'That warrant is off the list.' };
   }
+  if (task.kind === RELEASE) {
+    const release = moreOf(brain).toRelease?.find(
+      (it) => it.name === task.item,
+    );
+    const brig = brigPlace(brain);
+    return release && brig
+      ? {
+          ready: true,
+          step: `${release.name} is to be let out of ${release.cell}${release.pardoned ? ': the Captain has pardoned them' : ': the warrant on them is withdrawn'}, and nobody has said they are free. You are going to the ${brig} to let them out yourself.`,
+          act: { tool: 'go_to', place: brig },
+        }
+      : { ready: false, step: 'Nobody is waiting to be let out.' };
+  }
   return null;
 }
 
@@ -1416,6 +1540,9 @@ export function describeDesk(task: Task): string | null {
   }
   if (task.kind === GIVE) {
     return `give your officer the warrant on ${task.item}`;
+  }
+  if (task.kind === RELEASE) {
+    return `let ${task.item} out of their cell`;
   }
   return null;
 }
