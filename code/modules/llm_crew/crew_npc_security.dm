@@ -981,8 +981,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(istype(crew_npc_job_of(person), /datum/job/captain))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is the Captain. Nobody lays a hand on the Captain.", list("handle" = handle, "reason" = "captain"))
 		return
-	// Stopping someone is the baton with no warrant, so it is no lawful arrest: never on a head of staff.
-	if(how == CREW_ARREST_STOP && crew_npc_is_command(person))
+	// Stopping someone is the baton with no warrant, so it is no lawful arrest: never on a head of
+	// staff, known by the card they wear or, with none, by their face and the PDA list (SENSE-08).
+	if(how == CREW_ARREST_STOP && (crew_npc_is_command(person) || known_command_job(person)))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is a head of staff. With no warrant you do not lay a hand on them.", list("handle" = handle, "reason" = "command"))
 		return
 	arrest_target = WEAKREF(person)
