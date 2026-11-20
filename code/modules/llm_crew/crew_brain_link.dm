@@ -280,6 +280,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"pda_janitors" = snapshot["pda_janitors"],
 			// Someone else at its post has lately sent for a janitor.
 			"workmate_called" = npc.workmate_called_janitor(),
+			// The rooms they sent for one to ("" for a call that named none), for holding back only a call to the same room (MULTI-06). The window does not read it yet.
+			"workmate_called_rooms" = npc.rooms_workmate_called_for(),
 			// Someone has it by the arm and is walking it out of a room.
 			"in_hand" = world.time < npc.in_hand_until,
 			// With the gravity off and nothing within a tile to push off from, it floats and cannot walk (MAP-07).

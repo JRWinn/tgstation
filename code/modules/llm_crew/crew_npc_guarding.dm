@@ -376,20 +376,41 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
  * call is enough: the rest leave it a while before they think of sending for one themselves.
  */
 /datum/ai_controller/crew_npc/proc/workmate_called_janitor()
-	var/list/last_call = post_place ? GLOB.crew_npc_janitor_calls[post_place] : null
-	if(isnull(last_call))
-		return FALSE
-	var/mob/living/carbon/human/body = pawn
-	return last_call[1] != body.real_name && world.time - last_call[2] < CREW_NPC_CALL_STANDS
+	return length(rooms_workmate_called_for()) > 0
 
-/// Notes that the body has sent a janitor a PDA message, for the others at its post.
-/datum/ai_controller/crew_npc/proc/note_janitor_called()
+/**
+ * The rooms someone else at the body's post has lately sent a janitor to, by name. A call that named
+ * no room is listed as "" (MULTI-06): until every caller says the room, the window can tell only
+ * that one was made.
+ */
+/datum/ai_controller/crew_npc/proc/rooms_workmate_called_for()
+	var/list/rooms = list()
+	var/list/calls = post_place ? GLOB.crew_npc_janitor_calls[post_place] : null
+	if(!length(calls))
+		return rooms
+	var/mob/living/carbon/human/body = pawn
+	for(var/room in calls)
+		var/list/last_call = calls[room]
+		if(last_call[1] != body.real_name && world.time - last_call[2] < CREW_NPC_CALL_STANDS)
+			rooms += room
+	return rooms
+
+/**
+ * Notes that the body has sent a janitor to a mess, for the others at its post: to the room of this
+ * name, or to no room in particular if none is given. Only a call to a mess should be noted, not
+ * any message that happens to go to a janitor (a mail notice is no call).
+ */
+/datum/ai_controller/crew_npc/proc/note_janitor_called(room)
 	if(isnull(post_place))
 		return
 	var/mob/living/carbon/human/body = pawn
-	GLOB.crew_npc_janitor_calls[post_place] = list(body.real_name, world.time)
+	var/list/calls = GLOB.crew_npc_janitor_calls[post_place]
+	if(isnull(calls))
+		calls = list()
+		GLOB.crew_npc_janitor_calls[post_place] = calls
+	calls[istext(room) ? room : ""] = list(body.real_name, world.time)
 
-/// The last PDA message sent to a janitor from each post, by the post's name: list(who sent it, world.time).
+/// The last janitor call from each post, by the post's name, then by the room it was for ("" for none named): list(who sent it, world.time).
 GLOBAL_LIST_EMPTY(crew_npc_janitor_calls)
 
 /// TRUE if this door stands on the edge of this room, so that going through it leaves the room.
