@@ -10,10 +10,23 @@ const josh = { handle: 'p2', name: 'Josh Reed', job: 'Assistant' };
 const billy = { handle: 'p3', name: 'Billy Marsh', job: 'Janitor' };
 const al = { handle: 'p6', name: 'Al Haines', job: 'Cargo Technician' };
 const mo = { handle: 'p7', name: 'Mo Tran', job: 'Cargo Technician' };
+const ann = { handle: 'p9', name: 'Ann Moss', job: 'Quartermaster' };
+const gus = { handle: 'p10', name: 'Gus Lane', job: 'Assistant' };
+const chief = { handle: 'p11', name: 'Kay Dorn', job: 'Chief Engineer' };
+/** A room with others in it, the speaker four tiles off and turned away. */
+const room = { with: [ann, gus], tiles: 4, facing: false, others: [] as string[] };
+const ben = { name: 'Ben Fire', job: 'Janitor' };
+const cook = { name: 'Tom Cook', job: 'Cargo Technician' };
+const reed = { name: 'Tom Reed', job: 'Cargo Technician', post: 'Cargo Bay' };
+const eli = { name: 'Eli Moor', job: 'Station Engineer', post: 'Engineering' };
+const ivy = { name: 'Ivy Hart', job: 'Security Officer', post: 'Security Office' };
+const may = { name: 'May Rees', job: 'Janitor' };
 /** Amber, a janitor, in a room with these people, hearing this from that speaker. */
-function hears(text: string, opts: { from?: any; with?: any[]; tiles?: number; facing?: boolean; nearest?: boolean; post?: boolean; talking?: boolean; others?: string[] } = {}) {
-  const b = makeBrain('Amber Holt', opts.post ? 'Cargo Technician' : 'Janitor');
+/** `as` hears it in Amber's place: someone else, with that job and post. */
+function hears(text: string, opts: { from?: any; with?: any[]; tiles?: number; facing?: boolean; nearest?: boolean; post?: boolean; talking?: boolean; others?: string[]; as?: { name: string; job: string; post?: string } } = {}) {
+  const b = makeBrain(opts.as?.name ?? 'Amber Holt', opts.as?.job ?? (opts.post ? 'Cargo Technician' : 'Janitor'));
   if (opts.post) b.post = 'Cargo Bay';
+  if (opts.as?.post) b.post = opts.as.post;
   const from = opts.from ?? zim;
   b.peopleInView = [from, ...(opts.with ?? [])];
   b.inTalkWith = opts.talking ? { name: from.name, at: Date.now() } : null;
@@ -80,6 +93,24 @@ const cases: [string, string, string][] = [
     const event = { seq: 1, time: '', at: 100, kind: 'speech_heard', text: '', details: { speaker: zim.name, handle: zim.handle, source: 'person', message: 'Al, take this', distance: 5, facing: false } };
     return saidTo(b, event as any, [], true).to;
   })(), 'me'],
+  // MEM-01: its own name or job merely in the line is not calling on it. The Captain four tiles
+  // off and turned away, Ann Moss and Gus Lane in the room as well.
+  ['MEM-01: Ben Fire hears "There is a fire in the bar"', hears('There is a fire in the bar', { ...room, as: ben }), 'nobody'],
+  ['MEM-01: Tom Cook hears "Ann, have the cook make lunch"', hears('Ann, have the cook make lunch', { ...room, as: cook }), 'other:Ann Moss'],
+  ['MEM-01: a technician at its post hears "Ann, order a mop through cargo"', hears('Ann, order a mop through cargo', { ...room, as: reed }), 'other:Ann Moss'],
+  ['MEM-01: a station engineer hears "Chief Engineer, come here"', hears('Chief Engineer, come here', { ...room, with: [chief, gus], as: eli }), 'nobody'],
+  ['MEM-01: a station engineer hears "Gus, the station is losing power"', hears('Gus, the station is losing power', { ...room, as: eli }), 'other:Gus Lane'],
+  ['MEM-01: an officer at its post hears "Ann, tell security nothing"', hears('Ann, tell security nothing', { ...room, as: ivy }), 'other:Ann Moss'],
+  ['MEM-01: May Rees hears "Ann, may I ask you something"', hears('Ann, may I ask you something', { ...room, as: may }), 'other:Ann Moss'],
+  ['MEM-01: Tom Cook hears "Cook, come here": the surname calls', hears('Cook, come here', { ...room, as: cook }), 'me'],
+  ['MEM-01: Tom Cook hears "come here tom": a name at the end calls', hears('come here tom', { ...room, as: cook }), 'me'],
+  ['MEM-01: Tom Cook hears "Over here Tom!"', hears('Over here Tom!', { ...room, as: cook }), 'me'],
+  ['MEM-01: Gus, beside the speaker, hears "Have you seen Tom?": not to Tom', hears('Have you seen Tom?', { as: { name: 'Gus Lane', job: 'Assistant' }, with: [ann], others: ['Tom Cook'], tiles: 1, facing: true }), 'me'],
+  ['MEM-01: an officer alone with the speaker hears "arrest tom": spoken of', hears('arrest tom', { as: ivy, others: ['Tom Cook'] }), 'me'],
+  ['MEM-01: an officer at its post hears "Officer, over here"', hears('Officer, over here', { ...room, as: ivy }), 'me'],
+  ['MEM-01: a technician at its post hears "is the cargo bay open"', hears('is the cargo bay open', { ...room, as: reed }), 'nobody'],
+  ['MEM-01: a technician at its post hears "Cargo, open the door"', hears('Cargo, open the door', { ...room, as: reed }), 'me'],
+  ['MEM-01: a technician at its post hears "the door please, technician"', hears('the door please, technician', { ...room, as: reed }), 'me'],
 ];
 let failed = 0;
 for (const [label, got, want] of cases) {
