@@ -338,6 +338,11 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		record["error"] = log_field(params["error"], CREW_NPC_LOG_FIELD_LENGTH)
 		record["ms"] = isnum(params["ms"]) ? round(params["ms"]) : null
 		record["tokens"] = isnum(params["tokens"]) ? round(params["tokens"]) : null
+		// What the window's code did with the reply: a line held back as sounding like an order, an
+		// order made out from what was heard, a step nothing called for. Only a record that carries it
+		// has it, so the older records are written as they were.
+		if(istext(params["calls"]))
+			record["calls"] = log_field(params["calls"], CREW_NPC_LOG_FIELD_LENGTH)
 	rustg_log_write("[GLOB.log_directory]/crew_brain.log", json_encode(record), "true")
 
 /// Returns a text field from the client cut down to a safe length, or null if it was not text.
