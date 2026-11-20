@@ -508,7 +508,7 @@
 /datum/ai_controller/crew_npc/proc/look_at_mess_spot(key)
 	var/mob/living/carbon/human/body = pawn
 	looked_for_messes -= key
-	remember_messes(view(CREW_NPC_VISION_RANGE, body))
+	remember_messes(crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 	var/list/memory = remembered_messes[key]
 	if(memory)
 		var/datum/weakref/mess_ref = memory[1]
@@ -590,7 +590,7 @@
 	if(errand_tool == CREW_TOOL_CLEAN && blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	var/obj/item/tool = cleaning_tool()
-	var/list/around = view(CREW_NPC_VISION_RANGE, body)
+	var/list/around = crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body)
 	// Water first. A bucket that is running low is filled while there is a tank or a sink in sight:
 	// that is the water it carries to where there is none.
 	if(bucket_wants_filling())
@@ -678,7 +678,7 @@
 /datum/ai_controller/crew_npc/proc/more_to_clean()
 	if(cleaned_count >= CREW_NPC_MESSES_PER_CLEAN || clean_failed_count >= CREW_NPC_MESSES_FAILED_PER_CLEAN)
 		return FALSE
-	var/list/messes = messes_to_clean(view(CREW_NPC_VISION_RANGE, pawn))
+	var/list/messes = messes_to_clean(crew_npc_visible(view(CREW_NPC_VISION_RANGE, pawn), pawn))
 	if(!length(messes))
 		var/obj/effect/decal/cleanable/remembered = remembered_mess_in(get_area_name(pawn, TRUE))
 		if(remembered)
@@ -989,7 +989,7 @@
 	if(isnull(held_grenade()))
 		action_result(CREW_TOOL_GRENADE, FALSE, "You are not holding a cleaner grenade.")
 		return
-	var/list/spot = best_grenade_spot(view(CREW_NPC_VISION_RANGE, body))
+	var/list/spot = best_grenade_spot(crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 	if(isnull(spot))
 		action_result(CREW_TOOL_GRENADE, FALSE, "There is not enough mess close together here to be worth a grenade, or someone is standing in it. Keep it for a worse mess.")
 		return

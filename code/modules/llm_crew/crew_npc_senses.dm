@@ -56,6 +56,15 @@
 			seen += thing
 	return seen
 
+/// TRUE if the viewer can make this one thing out, by the same rule as crew_npc_visible(): in line of sight within `range`, and lit or right beside it.
+/proc/crew_npc_sees(atom/thing, mob/living/viewer, range = CREW_NPC_VISION_RANGE)
+	if(QDELETED(thing) || QDELETED(viewer) || !(thing in view(range, viewer)))
+		return FALSE
+	if(viewer.has_nightvision())
+		return TRUE
+	var/turf/spot = get_turf(thing)
+	return isnull(spot) || get_dist(spot, get_turf(viewer)) <= 1 || spot.check_lumcount_above(LIGHTING_TILE_IS_DARK)
+
 /// TRUE if this thing lying on the floor would slip a runner, and can be seen for what it is: oil, a peel, soap, foam.
 /proc/crew_npc_slippery_thing(atom/movable/thing)
 	return isturf(thing.loc) && !thing.invisibility && thing.alpha > 0 && !isnull(thing.GetComponent(/datum/component/slippery))

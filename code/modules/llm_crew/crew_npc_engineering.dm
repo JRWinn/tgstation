@@ -81,7 +81,7 @@
 			continue
 		var/list/seen
 		if(can_look && machine.z == body.z && get_dist(body, machine) <= CREW_NPC_VISION_RANGE)
-			in_sight ||= view(CREW_NPC_VISION_RANGE, body)
+			in_sight ||= crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body)
 			if(machine in in_sight)
 				seen = crew_npc_machine_state(machine, entry["kind"])
 		machines += list(list(

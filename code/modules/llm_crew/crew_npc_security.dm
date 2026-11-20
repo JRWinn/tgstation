@@ -438,7 +438,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(can_reach_target_now(person))
 			body.face_atom(person)
 			return TRUE
-		if(taken == most || get_dist(body, person) > most || !(person in view(CREW_NPC_VISION_RANGE, body)))
+		if(taken == most || get_dist(body, person) > most || !crew_npc_sees(person, body))
 			return FALSE
 		// Stunned, out cold or dead, it lies where it fell. Moved with no player behind it, it slid along the floor after them.
 		if(!can_step())
@@ -580,7 +580,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return
 	var/obj/item/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/item/thing in oview(CREW_NPC_VISION_RANGE, body))
+	for(var/obj/item/thing in crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body))
 		if(!isturf(thing.loc) || thing.anchored || kit_skips(thing))
 			continue
 		if(!(need_baton && is_live_baton(thing)) && !(need_cuffs && is_spare_cuffs(thing)))
@@ -830,7 +830,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/list/details = list("reason" = (tool == CREW_TOOL_ARREST ? "lost" : "no_way"))
 	// Someone it can still see is not lost: there is a door or a counter between them. The brain is told which room they are in.
 	var/mob/living/carbon/human/wanted = arrest_target?.resolve()
-	if(tool == CREW_TOOL_ARREST && !QDELETED(wanted) && !QDELETED(pawn) && (wanted in view(CREW_NPC_VISION_RANGE, pawn)))
+	if(tool == CREW_TOOL_ARREST && !QDELETED(wanted) && !QDELETED(pawn) && crew_npc_sees(wanted, pawn))
 		details["reason"] = "no_way"
 		details["handle"] = handle_for(wanted)
 		details["place"] = get_area_name(wanted, TRUE)
@@ -893,7 +893,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return crew_npc_contacts_who_open(doors, own_messenger)
 	var/list/titles = list()
 	if(can_sense() && isturf(body.loc) && !body.is_blind())
-		for(var/mob/living/carbon/human/person in view(CREW_NPC_VISION_RANGE, body))
+		for(var/mob/living/carbon/human/person in crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 			if(person == body || person.stat > SOFT_CRIT)
 				continue
 			var/datum/job/their_job = crew_npc_job_of(person)
@@ -1057,14 +1057,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			if(!hits)
 				if(knocked_down_itself())
 					return knocked_down_outcome(person_name, handle, 0)
-				return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+				return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 			return list(TRUE, "You stop [person_name] with your baton.", list("handle" = handle, "cuffed" = FALSE, "hits" = hits))
 		if(!hits)
 			put_baton_away(baton)
 			stow_in_bag(cuffs)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, 0)
-			return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+			return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 		var/cuffed = put_cuffs_on(person, cuffs, serial)
 		if(errand_over(serial))
 			return broke_off(person_name, handle, hits)
@@ -1075,7 +1075,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				return other_cuffs_outcome(person, handle, hits)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, hits)
-			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (!QDELETED(person) && (person in view(CREW_NPC_VISION_RANGE, body))) ? "moved" : "lost", "hits" = hits))
+			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = hits))
 		return hold_arrested(person, hits, TRUE)
 	// The cuffs alone.
 	var/cuffed_alone = put_cuffs_on(person, cuffs, serial)
@@ -1089,7 +1089,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return other_cuffs_outcome(person, handle, 0)
 		if(knocked_down_itself())
 			return knocked_down_outcome(person_name, handle, 0)
-		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 	return hold_arrested(person, hits, TRUE)
 
 /**
@@ -1470,7 +1470,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 /datum/ai_controller/crew_npc/proc/got_away_details(mob/living/carbon/human/prisoner, prisoner_name)
 	var/mob/living/carbon/human/body = pawn
 	var/list/details = list("reason" = "got_away", "prisoner" = prisoner_name, "cell" = jail_cell?.name)
-	if(!QDELETED(prisoner) && !QDELETED(body) && (prisoner in view(CREW_NPC_VISION_RANGE, body)))
+	if(!QDELETED(prisoner) && !QDELETED(body) && crew_npc_sees(prisoner, body))
 		details["place"] = get_area_name(prisoner, TRUE)
 		details["handle"] = handle_for(prisoner)
 	else if(!QDELETED(body))
@@ -1771,7 +1771,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	// part of: told to let "Pun Pun" go, it does not open the cell on Pun Pun II with Pun Pun in
 	// the next one.
 	var/mob/living/carbon/human/held = arrested?.resolve()
-	var/list/in_sight = view(CREW_NPC_VISION_RANGE, body)
+	var/list/in_sight = crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body)
 	for(var/whole in list(TRUE, FALSE))
 		// By the arm, or arrested and still about.
 		if(!QDELETED(held) && is_named(held, wanted, whole) && (body.pulling == held || recently_saw(held)))
@@ -2155,14 +2155,17 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		own_baton = WEAKREF(baton)
 	var/can_look = can_sense() && isturf(body.loc) && !body.is_blind()
 	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
+	// Of that, what it can make out: lit, or right beside it (CHEAT-15). A cell's timer shows by its
+	// own display, so a cell is seen by in_sight; who is inside it, and its baton, only by this.
+	var/list/made_out = crew_npc_visible(in_sight, body)
 	// Its own baton, off its body and in sight: on the floor, or in someone's hand.
 	var/list/baton_seen
 	var/obj/item/melee/baton/security/lost = baton ? null : own_baton?.resolve()
 	if(!QDELETED(lost))
 		var/mob/living/holder = lost.loc
-		if(isturf(lost.loc) && (lost in in_sight))
+		if(isturf(lost.loc) && (lost in made_out))
 			baton_seen = list("where" = "floor", "by" = null)
-		else if(istype(holder) && holder != body && holder.is_holding(lost) && (holder in in_sight))
+		else if(istype(holder) && holder != body && holder.is_holding(lost) && (holder in made_out))
 			baton_seen = list("where" = "held", "by" = holder.name)
 	var/list/cells = list()
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
@@ -2174,7 +2177,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(seen)
 			names = list()
 			for(var/mob/living/carbon/human/person as anything in cell.occupants())
-				names += person.name
+				if(person in made_out)
+					names += person.name
 		// The room the cell is in, and how far off it is on this level (null on another): where to
 		// wait with a prisoner when no cell is in the Brig, as on Tramstation (MAP-04).
 		cells += list(list(
@@ -2206,7 +2210,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			through = reached_through[through]
 	if(can_look)
 		var/area/own_room = get_area(body)
-		for(var/mob/living/carbon/human/person in in_sight)
+		for(var/mob/living/carbon/human/person in made_out)
 			var/area/their_room = get_area(person)
 			var/their_place = get_area_name(person, TRUE)
 			if(their_room == own_room || keepers[their_place])
