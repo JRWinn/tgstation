@@ -427,7 +427,18 @@ type WarrantMore = {
   noCellWhy?: string;
   /** Walks through the door it asked at, found standing open, that came to nothing (ARR-06). */
   openWalks?: number;
+  /**
+   * Its look round the room of a sighting (KNA-23): the sighting it is for (its time), which leg
+   * it is on (0 by the door it came in by, 1 walking to the middle, 2 looking from the middle),
+   * when the last leg began, and how many walks to the middle it has sent.
+   */
+  lookFor?: number;
+  lookLeg?: number;
+  lookLegAt?: number;
+  lookWalks?: number;
 };
+/** How long (deciseconds) it looks from the middle of the room of a sighting (KNA-23). */
+const LOOK_MIDDLE_DS = 100;
 /** How many walks through a door found open may come to nothing before it waits as before (ARR-06). */
 const OPEN_WALKS = 3;
 
@@ -1203,11 +1214,41 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
             step: `${name} was last seen in the ${sighting.place}, and you do not know the way there.`,
           };
     }
-    if (brain.now - brain.inPlaceSince < LOOK_DS) {
+    // It looks in two legs (KNA-23): from where it came in, then from the middle of the room, each
+    // timed from its own arrival. Stood by the door, it saw seven tiles of a room twice as long.
+    const look = more(warrant);
+    if (look.lookFor !== sighting.at) {
+      look.lookFor = sighting.at;
+      look.lookLeg = 0;
+      look.lookWalks = 0;
+    }
+    if ((look.lookLeg ?? 0) === 0) {
+      if (brain.now - brain.inPlaceSince < LOOK_DS) {
+        return {
+          ready: false,
+          wait: true,
+          step: `You are in the ${sighting.place}, where ${name} was last seen, and are looking for them.`,
+        };
+      }
+      look.lookLeg = 1;
+    }
+    if (look.lookLeg === 1) {
+      return {
+        ready: true,
+        step: `You are in the ${sighting.place}, where ${name} was last seen, and cannot see them from here. You are walking to the middle of the room to look.`,
+        act: {
+          tool: 'go_to',
+          place: sighting.place,
+          middle: true,
+          attempt: (look.lookWalks ?? 0) + 1,
+        },
+      };
+    }
+    if (brain.now - (look.lookLegAt ?? 0) < LOOK_MIDDLE_DS) {
       return {
         ready: false,
         wait: true,
-        step: `You are in the ${sighting.place}, where ${name} was last seen, and are looking for them.`,
+        step: `You are in the middle of the ${sighting.place}, where ${name} was last seen, and are looking for them.`,
       };
     }
     warrant.lookedAt = brain.now;
@@ -1494,6 +1535,19 @@ export function beatAfterActing(
       }
       return;
     }
+  }
+  // The walk to the middle of the room of a sighting (KNA-23): the look from there starts now. One
+  // that came to nothing is tried once more, then it looks from where it stands.
+  if (warrant && act.tool === 'go_to' && act.middle && act.attempt !== undefined) {
+    const look = more(warrant);
+    if (look.lookLeg === 1) {
+      look.lookWalks = (look.lookWalks ?? 0) + 1;
+      if (ok || look.lookWalks >= 2) {
+        look.lookLeg = 2;
+        look.lookLegAt = brain.now;
+      }
+    }
+    return;
   }
   // A walk through the door it asked at, found open, is counted when it comes to nothing (ARR-06).
   if (
