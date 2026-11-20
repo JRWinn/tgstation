@@ -1147,6 +1147,8 @@ export type NpcBrain = {
    * which is locked to it as well. It asks to be let into that one first.
    */
   reachedThrough: Record<string, string>;
+  /** When each of those was learnt (this window's clock, milliseconds). Each lapses after a while (LOGB-05). */
+  reachedThroughAt?: Record<string, number>;
   /** Those of its rooms that are behind doors the crew at large cannot open. */
   closedRooms: string[];
   /** When someone last came into its view, in this window's clock (milliseconds). */

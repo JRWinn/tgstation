@@ -159,6 +159,12 @@ const DOOR_REACHED_MS = 30000;
 const LET_IN_FIRST_TRY_MS = 120000;
 /** How long (milliseconds) an NPC keeps out of a room it was walked out of by the arm. */
 const PUT_OUT_KEEPS_MS = 600000;
+/**
+ * How long (milliseconds) it goes on taking a room to be got to only through another. Learnt by a
+ * body that could reach no door at all, the note can be wrong; and doors are opened, rooms
+ * re-keyed. Kept for good, a wrong one had a janitor asking at the public Cargo Lobby (LOGB-05).
+ */
+const REACHED_THROUGH_MS = 600000;
 /** How many lines of talk, heard and said, an NPC keeps. */
 const TALK_LOG_KEPT = 16;
 /** How many remarks an NPC passes of its own accord before it waits for someone to say something back. */
@@ -562,6 +568,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.wantsOut = !!npc.wants_out;
     brain.wayOutTo = npc.way_out_to ?? null;
     brain.doorKeepers = npc.door_keepers ?? [];
+    lapseReachedThrough(brain);
     // The server says which door it is standing at. If it has just reported reaching one and the
     // server does not yet say so, the report is taken at its word for a little while: sent back to
     // the same door, it would be told it had arrived, over and over, and never get round to asking.
@@ -798,7 +805,11 @@ export function ingest(npcs: Npc[], now: number): void {
         typeof event.details.door_of === 'string' &&
         typeof event.details.door_through === 'string'
       ) {
-        brain.reachedThrough[event.details.door_of] = event.details.door_through;
+        noteReachedThrough(
+          brain,
+          event.details.door_of,
+          event.details.door_through,
+        );
       }
       // Walked out of a room by the arm: it was not wanted in there, and keeps out of it a while
       // whatever work it still has there.
@@ -940,6 +951,45 @@ export function ingest(npcs: Npc[], now: number): void {
     notify();
     pump();
   }
+}
+
+/**
+ * Notes that the door of one room opens from another that is locked to it too: a locked room
+ * inside a locked room (LOGB-05). Not a note that makes a loop: followed outwards from the outer
+ * room, the notes must not come back to the inner one. Rooms that each open only from the other
+ * are what a body shut in elsewhere, reaching no door at all, is told, and are wrong.
+ */
+function noteReachedThrough(
+  brain: NpcBrain,
+  room: string,
+  through: string,
+): void {
+  let outer: string | undefined = through;
+  for (let depth = 0; outer !== undefined && depth < 8; depth++) {
+    if (outer === room) {
+      return;
+    }
+    outer = brain.reachedThrough[outer];
+  }
+  brain.reachedThrough[room] = through;
+  brain.reachedThroughAt = {
+    ...brain.reachedThroughAt,
+    [room]: Date.now(),
+  };
+}
+
+/** Forgets the notes of a room got to only through another once they are REACHED_THROUGH_MS old (LOGB-05). */
+function lapseReachedThrough(brain: NpcBrain): void {
+  const at = brain.reachedThroughAt ?? {};
+  for (const room of Object.keys(brain.reachedThrough)) {
+    // A note with no time (from before the times were kept) is given one now, and lapses in turn.
+    at[room] ??= Date.now();
+    if (Date.now() - at[room] >= REACHED_THROUGH_MS) {
+      delete brain.reachedThrough[room];
+      delete at[room];
+    }
+  }
+  brain.reachedThroughAt = at;
 }
 
 /**

@@ -1,6 +1,7 @@
 // What the window makes of fields the server sends, through ingest itself (CrewBrain/brain.ts),
 // round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06),
-// work of its own job said to nobody in particular (PARSE-17). No model is called; the brain is
+// work of its own job said to nobody in particular (PARSE-17), rooms got to only through another
+// (LOGB-05). No model is called; the brain is
 // made by ingest from a body with nothing about it.
 //
 //   bun run brain4-ingest.ts
@@ -54,6 +55,27 @@ add('ARR-06: not sent: false', ingested('Central Primary Hallway', { at_door_of:
   B.ingest([body(id, 'Cargo Lobby', janitor({ events: [heard] })) as any], 110);
   const task = brain.tasks.find((one: any) => one.place === 'Bar' && one.state !== 'done');
   add('PARSE-17: heard through ingest, said to nobody: the janitor takes the Bar on', [task?.kind, task?.place], ['clean', 'Bar']);
+}
+
+// ---- LOGB-05: a room got to only through another: no loops, and the note lapses
+{
+  const id = `ingest4-${++ids}`;
+  B.ingest([body(id, 'Central Primary Hallway') as any], 100);
+  const brain: any = B.getBrain(id);
+  let seq = 1;
+  const through = (room: string, outer: string) => ({ seq: seq++, time: '', at: 110, kind: 'action_result', text: `You cannot get to the door of ${room}.`, details: { tool: 'go_to_door', ok: 0, door_of: room, door_through: outer } });
+  B.ingest([body(id, 'Central Primary Hallway', { events: [through('Delivery Office', 'Cargo Bay')] }) as any], 110);
+  add('LOGB-05: the Delivery Office is got to through the Cargo Bay: noted', brain.reachedThrough['Delivery Office'], 'Cargo Bay');
+  B.ingest([body(id, 'Central Primary Hallway', { events: [through('Cargo Bay', 'Cargo Lobby')] }) as any], 120);
+  B.ingest([body(id, 'Central Primary Hallway', { events: [through('Cargo Lobby', 'Delivery Office')] }) as any], 130);
+  add('LOGB-05: a note that would make a loop (Cargo Lobby through the Delivery Office) is not kept', brain.reachedThrough['Cargo Lobby'], undefined);
+  B.ingest([body(id, 'Central Primary Hallway', { events: [through('Bar', 'Bar')] }) as any], 140);
+  add('LOGB-05: a room through itself is not kept', brain.reachedThrough['Bar'], undefined);
+  add('LOGB-05: the notes that make no loop stand', [brain.reachedThrough['Delivery Office'], brain.reachedThrough['Cargo Bay']], ['Cargo Bay', 'Cargo Lobby']);
+  brain.reachedThroughAt['Delivery Office'] = Date.now() - 601000;
+  B.ingest([body(id, 'Central Primary Hallway') as any], 150);
+  add('LOGB-05: ten minutes on, the note lapses', brain.reachedThrough['Delivery Office'], undefined);
+  add('LOGB-05: a newer one stands', brain.reachedThrough['Cargo Bay'], 'Cargo Lobby');
 }
 
 let failed = 0;
