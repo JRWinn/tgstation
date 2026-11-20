@@ -188,13 +188,77 @@
 	var/turf/here = get_turf(body)
 	if(isnull(here) || !isturf(body.loc))
 		return FALSE
-	var/list/doors = crew_npc_doors_of(room, here.z)
+	if(!crew_npc_doors_bar(room, here.z, body))
+		return FALSE
+	// A way in with no door on it (shutters up, a gap in the wall) is open to anyone, if it is from
+	// somewhere the body may be: a hallway, a tunnel, or a room one of whose doors opens to it. Two
+	// rooms open only to each other (Cytology and Xenobiology) do not let each other in (DOOR-02).
+	for(var/area/beyond as anything in crew_npc_open_ways_into(room, here.z))
+		if(istype(beyond, /area/station/hallway) || istype(beyond, /area/station/maintenance))
+			return FALSE
+		if(length(crew_npc_doors_of(beyond, here.z)) && !crew_npc_doors_bar(beyond, here.z, body))
+			return FALSE
+	return TRUE
+
+/// TRUE if this room has airlocks and none of them opens for this body.
+/proc/crew_npc_doors_bar(area/room, z_level, mob/living/body)
+	var/list/doors = crew_npc_doors_of(room, z_level)
 	if(!length(doors))
 		return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		if(door.allowed(body))
 			return FALSE
 	return TRUE
+
+/// How long the open ways into a room are kept before they are looked for again: shutters go up and down.
+#define CREW_NPC_OPEN_WAYS_KEPT (1 MINUTES)
+
+/// For each room and level, the station areas open onto it with no door between, and when that was found: "[REF(room)]-[z]" = list(list of areas, world.time).
+GLOBAL_LIST_EMPTY(crew_npc_open_ways)
+
+/**
+ * Returns the station areas that lie open onto this room by a way with no door on it: an open floor
+ * tile of the room beside an open floor tile of the other area, with nothing solid on either. A tile
+ * with an airlock or a windoor on it is a doorway, open or shut, and plastic flaps let nobody walk
+ * through standing up (DOOR-09). Kept a minute, since it walks every tile of the room.
+ */
+/proc/crew_npc_open_ways_into(area/room, z_level)
+	if(!isnum(z_level) || z_level < 1)
+		return list()
+	var/key = "[REF(room)]-[z_level]"
+	var/list/kept = GLOB.crew_npc_open_ways[key]
+	if(kept && world.time - kept[2] < CREW_NPC_OPEN_WAYS_KEPT)
+		return kept[1]
+	var/list/beyond = list()
+	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
+		if(!crew_npc_open_gap(room_turf))
+			continue
+		for(var/direction in GLOB.cardinals)
+			var/turf/next = get_step(room_turf, direction)
+			if(isnull(next))
+				continue
+			var/area/next_area = get_area(next)
+			if(next_area == room || beyond[next_area] || !istype(next_area, /area/station))
+				continue
+			if(crew_npc_open_gap(next))
+				beyond[next_area] = TRUE
+	GLOB.crew_npc_open_ways[key] = list(beyond, world.time)
+	return beyond
+
+/// TRUE if a person could walk across this tile with no door to open: open floor, nothing solid, no doorway, no flaps.
+/proc/crew_npc_open_gap(turf/spot)
+	if(!isopenturf(spot) || spot.is_blocked_turf(exclude_mobs = TRUE))
+		return FALSE
+	if(locate(/obj/machinery/door/airlock) in spot)
+		return FALSE
+	if(locate(/obj/machinery/door/window) in spot)
+		return FALSE
+	for(var/obj/structure/plasticflaps/flaps in spot)
+		if(flaps.require_resting)
+			return FALSE
+	return TRUE
+
+#undef CREW_NPC_OPEN_WAYS_KEPT
 
 /// Says why the body may not put this person out of its post, or null if it may.
 /datum/ai_controller/crew_npc/proc/why_not_put_out(mob/living/carbon/human/person)
