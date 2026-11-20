@@ -319,7 +319,7 @@
 	// The next square of the way has bad air (CHEAT-11). A body feels the cold and sees its HUD's
 	// warning on the square in front of it, and goes no further. Out of good air already, it walks
 	// on: that is the way out of it. Its room is kept clear of for a while.
-	var/datum/move_loop/has_target/navmap_astar/loop = controller.ai_movement ? controller.ai_movement.moving_controllers[controller] : null
+	var/datum/move_loop/has_target/navmap_astar/loop = GLOB.move_manager.processing_on(controller.pawn, SSai_movement)
 	if(istype(loop) && length(loop.movement_path))
 		var/turf/standing = get_turf(puller)
 		var/turf/next_square = loop.movement_path[1]
