@@ -62,6 +62,7 @@
 //   bun run sim.ts quiet spokensight  as the plain arrest, but the Captain walks up to the officer and tells it to its face where the monkey is: it reads it back in fixed words and goes to the Bar (PLAY-03)
 //   bun run sim.ts quiet askedtwice  a janitor the technician sent for PDAs that it is at the delivery office door, then, while the technician walks there, says "open that door": the door is opened and held, and the voice is never told to refuse (PLAY-05)
 //   bun run sim.ts quiet outfail  a janitor let into the bay to clean it asks to be let out, and the technician cannot get to the door: it tries again about ten seconds on, then tells the janitor why to its face, and only then walks it out (PLAY-06)
+//   bun run sim.ts quiet pardoncell  the monkey is jailed, and from then on the officer reads no PDA message; the Captain pardons it: the Head of Security, having heard nothing from its officer, walks to the Brig and lets it out itself (TRB-11)
 //   bun run sim.ts quiet nocell   as the plain arrest, but every cell is in use: the officer takes the monkey to the Brig and waits there, and the Head of Security is told once that every cell is in use (ARR-04)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
@@ -329,7 +330,7 @@ const steppedAside: { who: string; at: number }[] = [];
 let asideFailedAt = 0;
 const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell', 'nocell', 'spokensight'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell', 'nocell', 'spokensight', 'pardoncell'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
@@ -788,7 +789,10 @@ function toolCall(body: Body, tool: string, args: any) {
       if (/^Staff meeting in the .* now, please/.test(String(args.text)) && clock - (meetingCalls.at(-1) ?? -Infinity) > 60_000) meetingCalls.push(clock);
       // The game cuts a PDA message off at two hundred characters.
       const text = String(args.text).slice(0, 200);
-      if (target) emit(target, 'pda_message', `Your PDA buzzes with a message from ${body.name}: "${text}"`, { speaker: body.name, job: body.job, message: text });
+      // TRB-11: once the monkey is in a cell, the officer pays its PDA no heed. The message goes; it is never read.
+      const unread = VARIANT === 'pardoncell' && target?.job === 'Security Officer' && secWork.some((work) => work.tool === 'jail' && work.ok);
+      if (unread) unreadByOfficer.push(text);
+      if (target && !unread) emit(target, 'pda_message', `Your PDA buzzes with a message from ${body.name}: "${text}"`, { speaker: body.name, job: body.job, message: text });
       // A report sent by PDA, by someone who could not be at the meeting.
       if (/^(I could not get into|Sorry I missed the meeting)/.test(text)) noteReport(body, text, 'pda');
       // Having tried is enough: whoever it owed word about their crates is not owed it twice.
@@ -1425,7 +1429,7 @@ function spawnSecurity() {
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'pdadown' || VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' || VARIANT === 'tryagain' ? 480 : VARIANT === 'hurtagain' ? 600 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'pardoncell' ? 420 : VARIANT === 'pdadown' || VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' || VARIANT === 'tryagain' ? 480 : VARIANT === 'hurtagain' ? 600 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
@@ -1448,6 +1452,9 @@ function securityTick(second: number) {
   if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
   // Told it was not followed, the Captain says it again in the words it was given.
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
+  // TRB-11: twenty seconds after the monkey is in its cell, the Captain pardons it.
+  const jailedNow = secWork.find((work) => work.tool === 'jail' && work.ok);
+  if (VARIANT === 'pardoncell' && jailedNow && !cellPardonAt && clock - jailedNow.at >= 20_000) { cellPardonAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pardon Pun Pun.'); }
   // PLAY-03: the Captain comes to wherever the officer is, and says it to its face.
   const officerNow = bodies.find((other) => other.job === 'Security Officer');
   if (VARIANT === 'spokensight' && officerNow && !spokenSightAt && second >= SIGHTING_AT && !officerNow.busyText) { spokenSightAt = clock; const captain = players.find((other) => other.name === SEC_CAPTAIN)!; captain.room = officerNow.room; playerSays(SEC_CAPTAIN, 'Pun Pun is in the bar'); }
@@ -1477,6 +1484,9 @@ function securityTick(second: number) {
   }
 }
 const recell = { warrantAt: 0, seenAt: 0, inAt: 0, pardonAt: 0 };
+// TRB-11: the PDA messages the officer never read, and when the Captain pardoned the monkey in its cell.
+const unreadByOfficer: string[] = [];
+let cellPardonAt = 0;
 // PLAY-03: when the Captain told the officer to its face where the monkey is.
 let spokenSightAt = 0;
 // TRB-03: how many seconds the hurt officer has had the monkey in sight since it was let out.
@@ -2203,8 +2213,9 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
   if (joan) {
     check('the Head of Security gives its officer the warrant, to its face or by PDA', told(joan, hale.name, new RegExp(`Hale, warrant: ${wanted}${forWhat}\\. Bring them in, ${term} minutes\\.`)) >= 1);
     // Told to try again, the Head of Security may have fetched its own baton while its officer was out: it still lays a hand on nobody.
+    // Letting out a prisoner its officer would not is no hand laid on anyone (TRB-11).
     const tryingAgain = VARIANT === 'tryagain' || VARIANT === 'hurtagain';
-    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name || (tryingAgain && work.tool === 'get_kit')), listed(secWork.filter((work) => work.who === joan.name)));
+    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name || (tryingAgain && work.tool === 'get_kit') || (VARIANT === 'pardoncell' && work.tool === 'free')), listed(secWork.filter((work) => work.who === joan.name)));
   }
   const arrester = VARIANT === 'hurt' ? joan! : hale;
   const toldArrest = saidBy(arrester.name, new RegExp(`^${wanted}, you are under arrest${forWhat}\\. Stand still\\.`))[0];
@@ -2352,6 +2363,17 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
     check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
     check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
     check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
+  }
+  if (VARIANT === 'pardoncell') {
+    check('(the Captain pardoned the monkey once it was in its cell)', !!cellPardonAt && !!jailings[0] && cellPardonAt > jailings[0].at, cellPardonAt ? seconds(cellPardonAt) : 'never');
+    check('(the officer was sent word it never read)', unreadByOfficer.length >= 1, unreadByOfficer.join(' | ') || 'nothing sent to it');
+    check('the Captain is answered that it is pardoned', sentTo(joan, SEC_CAPTAIN, /Captain, Pun Pun is pardoned\./).length === 1, sentTo(joan, SEC_CAPTAIN, /pardon/i).join(' | ') || 'never');
+    const freed = secWork.filter((work) => work.tool === 'free' && work.target === 'Pun Pun');
+    check('the officer lets nobody out', !freed.some((work) => work.who === hale.name), listed(freed));
+    const byHead = freed.find((work) => work.who === joan!.name && work.ok && work.cell === 'Cell 1');
+    const out = walkedFree.find((it) => it.who === 'Pun Pun');
+    check('the Head of Security lets the monkey out of its cell itself, some two minutes after the pardon and before its time is up', !!byHead && out?.why === 'let out' && byHead.at - cellPardonAt >= 100_000 && byHead.at - cellPardonAt <= 200_000, `${listed(freed) || 'nobody freed it'}; ${out ? `${out.why} ${seconds(out.at)}` : 'still in its cell'}`);
+    check('it walked to the Brig to do it', joan!.log.some((line) => / go_to /.test(line) && line.includes(`"place":"${BRIG}"`)) || joan!.room === BRIG, `ends in ${joan!.room}`);
   }
   if (VARIANT === 'spokensight') {
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
