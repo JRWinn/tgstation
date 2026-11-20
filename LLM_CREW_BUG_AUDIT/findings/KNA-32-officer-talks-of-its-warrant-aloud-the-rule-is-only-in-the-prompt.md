@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 81beaacdfb2, 285cda4603a
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
@@ -91,3 +92,5 @@ Checked by Opus 5.5 on 2026-11-19, from the code, while fixing. Confirmed. The o
 Commits: 81beaacdfb2.
 
 - KNA-32 (arrests part): part done. New warrantTalk in jobs/arrests.ts checks a model-written line of a security body. If it names someone it has a warrant on and does not hold (whole name, or a first name of 3+ letters), or a name passed in from the desk, and it is said to anyone but security, the Captain or a head, it returns the plain line to say instead ('I am NAME, security.' for a greeting, else 'I am on security business.'). Nothing calls it yet. Left: jobs/job.ts: add an optional hook vetsSay?: (brain: NpcBrain, text: string, to: string | null) => string | null. brain.ts: right after withoutHandles in the reply filter, for each say action that is not the exact mustSay line, call jobFor(brain.job).vetsSay?.(brain, text, to) and say the returned line in its place when not null (to = saidTo from addressing.ts, else the speaker being answered). jobs/officer.ts (this group's file, next round): vetsSay: (b, t, to) => warrantTalk(b, t, to). jobs/headofsecurity.ts: vetsSay: (b, t, to) => warrantTalk(b, t, to, deskOf(b).warrants.map(w => w.name)).
+
+Round two (branch crew-bug-fixes-medium): 285cda4603a. This finishes the parts left above, apart from any step that waits on the owner.

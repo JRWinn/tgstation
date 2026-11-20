@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 8379468dc7c, 6950c85dbe1
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cleaning
@@ -106,3 +107,5 @@ Read only. Nothing was run.
 Commits: 8379468dc7c.
 
 - JAN-02 (server part): part done. JAN-02: a wet mop now counts as shifting what it scrubs up. can_clean_mess judges a mop by its cleaner component's strength (CLEAN_SCRUB) and is_mopped, not by CLEAN_WASH, so decomposing garbage and a gooey grey mass are cleaned with the mop (crew_npc_cleaning.dm). Left: tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts: take `decomposing garbage` and `gooey grey mass` out of SCRUB_KINDS (line `const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;` becomes `/^(cobweb|rubble)$/i`), or better, use the server's beyondKinds in changeForScrubbing instead of the fixed list. Simulator (sim.ts / fixtures.ts, owned by nobody this round): a scenario where a janitor holding a wet mop is called to a room with a "decomposing garbage" mess; pass if it cleans it and does not go for a rag.
+
+Round two (branch crew-bug-fixes-medium): 6950c85dbe1. This finishes the parts left above, apart from any step that waits on the owner.

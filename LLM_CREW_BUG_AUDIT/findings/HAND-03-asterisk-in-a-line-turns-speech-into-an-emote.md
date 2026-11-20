@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 8f3022ebf05, c5ffc7c7d30
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: tools
@@ -92,3 +93,5 @@ Ran: a throwaway bun script, outside the repo, of the two regexes in fix step 2 
 Commits: 8f3022ebf05.
 
 - HAND-03 (server part): part done. tool_say (crew_npc_tools.dm) drops a *...* action at the start or end of a line, then every other asterisk, before the prefix strip. 'On my way, Captain. *salutes*' is said as 'On my way, Captain.'. 'you call *this* cool?' keeps 'this'. '*nods*' becomes empty and gets 'nothing to say'. Left: tgui/packages/tgui/interfaces/CrewBrain/prompt.ts inOwnVoice (or brain.ts withoutHandles): apply the same two steps, so the brain's record of what it said matches what was said: first the regex /^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$/g replaced with '', then /\*+/g replaced with ''. Add a table (e.g. tools/llm_crew/say-asterisks.ts) with the three lines from the finding, checking no asterisk is left and the emphasised words are kept.
+
+Round two (branch crew-bug-fixes-medium): c5ffc7c7d30. This finishes the parts left above, apart from any step that waits on the owner.

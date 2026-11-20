@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 4cf71442a2a, 606f9ab4765, 8e156ed55d1, 6df534b85fb
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -116,3 +117,5 @@ On the fix: step 1 and 2 work as written, since every new walk or errand moves `
 Commits: 4cf71442a2a.
 
 - LIFE-03: part done. tool_explore (crew_npc_tools.dm) and tool_go_to_door (crew_npc_doors.dm) keep errand_serial and tool_serial from before their route tests. If either has moved on, or the body cannot sense, they start no walk, give no result, and write '... and had been given something else to do meanwhile' to game.log. A second explore or go_to_door while one is still testing is answered 'You are still working out the way.' instead of being dropped. Left: (1) code/modules/llm_crew/crew_npc_forcing.dm, tool_force_door: at the top, before the finding_door_to_force test, keep var/serial = errand_serial and var/calls = tool_serial. After the route loop (after finding_door_to_force = FALSE), and before any start_errand or action_result, add: if(errand_serial != serial || tool_serial != calls || !can_sense()) { log_game("... worked out which door to force, and had been given something else to do meanwhile."); return }. The early return 'if(finding_door_to_force) return' should become action_result(CREW_TOOL_FORCE_DOOR, FALSE, "You are still working out the way.") then return (handle_tool_call already does not count that repeat call in tool_serial). (2) code/modules/llm_crew/crew_npc_hands.dm, describe_doing: return "working out the way" while choosing_where_to_explore, finding_door or finding_door_to_force is TRUE. (3) code/modules/llm_crew/crew_brain_link.dm ui_data 'walking': OR in npc.choosing_where_to_explore || npc.finding_door || npc.finding_door_to_force. (4) A window case: fake state with doing 'working out the way' and walking true, checking that drive returns null and does not count lastAct as lost after LOST_ACT_MS.
+
+Round two (branch crew-bug-fixes-medium): 606f9ab4765, 8e156ed55d1, 6df534b85fb. This finishes the parts left above, apart from any step that waits on the owner.

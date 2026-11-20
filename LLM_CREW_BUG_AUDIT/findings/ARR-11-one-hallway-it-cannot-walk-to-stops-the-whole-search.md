@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: f0e9c39d6e9
+fixed_in: f0e9c39d6e9, d518f388ff8
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 4cf71442a2a, 8e156ed55d1
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -87,3 +88,5 @@ Checked by Opus 5.5. The quotes match the code. `tool_explore` and `tool_force_d
 Commits: 4cf71442a2a.
 
 - CORE-07: part done. New tool_serial (crew_npc_controller.dm) goes up in handle_tool_call for every call carried out except say and hold, and except a repeat call to a tool still testing routes. explore and go_to_door do nothing more if it moved while they tested routes (shared with LIFE-03). Left: crew_npc_forcing.dm tool_force_door: the same guard, as written under LIFE-03 item (1).
+
+Round two (branch crew-bug-fixes-medium): 8e156ed55d1. This finishes the parts left above, apart from any step that waits on the owner.

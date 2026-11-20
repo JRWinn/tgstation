@@ -248,9 +248,19 @@ Built: each reader matches its set words strictly.
 - A. Yes, one general check where the driver takes the model's line, for every job's set words.
 - B. No, the stricter readers are enough.
 
+## SENSE-11: a workmate seen with belongs false: stranger again, or still a workmate?
+
+Step 2a of SENSE-11 (drop a name from the workmates whenever that person is seen in the post with belongs false) would undo MULTI-03, fixed in round one, which keeps a workmate whose card was taken or swapped as a workmate so it is not walked out of its own post. The window cannot tell "card taken" from "a belongs true that was wrong". The server half of SENSE-11 (emergency access no longer makes everyone belong) is in, so a wrong belongs true now needs someone wearing a card not theirs.
+
+- A. Keep MULTI-03, drop step 2a (as built).
+- B. Take step 2a: a crew member who loses its card is a stranger again.
+- C. Drop the name only when the person now shows a card with another job, and keep one with no card. A swapped card is then a stranger.
+
 ## Smaller questions noted by the fixers
 
 - **HAND-07, step 4:** should a crew member who finds someone out cold in a locker raise the alarm?
 - **KNA-05:** should an officer put down what it holds for the cuffs too, or only for the baton (as now)?
 - **CHEAT-10:** a card whose title is no job at all ("Bartender's mate") shows no job. Should such a person count as a stranger to every post (as now), or be asked their business?
 - **MAP-06:** should a cargo post be the room with the counter window to the lobby, whatever console stands there? On MetaStation both answers are the Cargo Bay.
+- **JOBS-02 / CARGO-13 (round two):** open work that runs past its time limit is now given up and shown only in the window. Should whoever asked be sent word, as asked under MEM-11 for blocked work? One answer could serve both.
+- **DESK-10, step 3:** with a mop and soap in hand and a bucket known, should the janitor put the soap in its bag to carry water? As built it goes without the bucket.

@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 62a084b733f
+fixed_in: 62a084b733f, 4db01885586
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor

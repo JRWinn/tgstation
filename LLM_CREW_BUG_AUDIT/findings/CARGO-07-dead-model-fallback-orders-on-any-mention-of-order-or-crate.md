@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a9e3aa3cb29, 59a55541099
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo
@@ -110,3 +111,5 @@ Confirmed, on Opus 5.5.
 Commits: a9e3aa3cb29.
 
 - CARGO-07: part done. With the model down, a technician orders only a kind of crate it was asked for, in words that ask (order, need, could, please...), and never on a line about an order already made or called off (has my order come in, where is, cancel, do not). It never falls back to the first crate on the list, and a line said to someone else is ignored. With the model up, agrees uses the same ask test. Look in jobs/cargo.ts: hears, agrees, asksToOrder, ASK_WORDS, NOT_AN_ASK. Left: brain.ts, in the catch of the talk call (where hears is called): set request.for from the handle in `heard` (heard.match(/\(person (\w+)/)?.[1]), not from the first of `speakers` in view.
+
+Round two (branch crew-bug-fixes-medium): 59a55541099. This finishes the parts left above, apart from any step that waits on the owner.

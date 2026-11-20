@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: edb6d9ee2bd, fd386eec9e7
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
@@ -100,3 +101,5 @@ Opus 5.5, 2026-11-19. Confirmed.
 Commits: edb6d9ee2bd.
 
 - PARSE-06: part done. Every kind of crate cargo can get has words it is asked for by. The Bureaucracy Crate takes paper, stationery, pens, clipboards, office supplies and folders (PAPER_WORDS, exported). Lights take lightbulbs, light tubes and tubes. Janitorial supplies take jani, custodial, buckets, brooms and rags. Look in jobs/cargo.ts: CRATE_ASKED_AS, PAPER_WORDS. Left: quartermaster.ts: replace PAPER_CRATE with `import { PAPER_WORDS } from './cargo'` so the two lists cannot drift. book.ts: a case where the Captain says 'yes, the paper one' to an order waiting on its say, still read as a yes.
+
+Round two (branch crew-bug-fixes-medium): fd386eec9e7. This finishes the parts left above, apart from any step that waits on the owner.

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 336c4b69a56, 6036b4a888c
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply
@@ -89,3 +90,5 @@ The walled-in block on MetaStation is wrong. A throwaway script over the `.dmm` 
 Commits: 336c4b69a56.
 
 - SUP-15: part done. SUP-15: a held crate the body reaches now has its unreachable count set back to 0 (do_errand in crew_npc_hands.dm). So a crate is written off as lost only after two failed tries with no successful reach between, not two in a whole round. Left: code/modules/llm_crew/crew_npc_freight.dm free_square: skip a square if a crate there would leave any crate within one tile (or the new one) with no free open tile among its eight neighbours. Use a new helper, crew_npc_square_shuts_in(turf/square), that counts square as blocked. Return null when every free square would shut a crate in, so storage_spot falls back to open floor. On MetaStation it must leave all 16 squares usable. Optional step 2: on /datum/crew_npc_held_crate (crew_npc_held.dm, which I own but did not change) keep the world.time of the last failure, and in crew_npc_fail_errand (crew_npc_hands.dm) start the count again at 1 when that failure is more than a few minutes old.
+
+Round two (branch crew-bug-fixes-medium): 6036b4a888c. This finishes the parts left above, apart from any step that waits on the owner.

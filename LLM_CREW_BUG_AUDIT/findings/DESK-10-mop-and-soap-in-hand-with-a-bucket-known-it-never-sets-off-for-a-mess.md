@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 44493665320, 2b1a0d353be
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor
@@ -98,3 +99,5 @@ Nothing in the change log fixes it; entry "(7)" built the bucket step and `free_
 Commits: 44493665320.
 
 - DESK-10 (window part): part done. - **DESK-10, window part: a bucket that could not be picked up is not tried again before setting off.** A failed `pick_up` of a bucket for a mess sets `task.noBucket` and `plan` skips the bucket step for that task, so the janitor goes to the mess (`afterActing`, `plan` in `jobs/janitor.ts`; new optional `noBucket` on `Task` in `types.ts`). Cases in `tools/llm_crew/janitor-hands.ts`. Left: code/modules/llm_crew/crew_npc_hands.dm: split the choosing loop of free_a_hand into spare_held_item() (returns what free_a_hand would give up, moving nothing) and have free_a_hand call it. code/modules/llm_crew/crew_brain_link.dm: "wants_bucket" = mop held, no bucket held, and (length(body.get_empty_held_indexes()) || spare_held_item()). sim.ts: scenario as in not_tested.
+
+Round two (branch crew-bug-fixes-medium): 2b1a0d353be. This finishes the parts left above, apart from any step that waits on the owner.

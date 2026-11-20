@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: c9e163d5e77
+fixed_in: c9e163d5e77, a3a554d8f53
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: hands

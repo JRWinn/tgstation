@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: b1b0b6951e2
+fixed_in: b1b0b6951e2, 915bb8610a1
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: head

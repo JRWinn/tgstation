@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 5155b38e027, 09cfd55eff1
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: logs
@@ -106,3 +107,5 @@ Changes: confidence to sure (the refusal is the only answer `free_a_hand` can gi
 Commits: 09cfd55eff1, 5155b38e027.
 
 - LOGA-05 (window part): part done. - **LOGA-05, window part: a janitor with two of a thing in its hands (a damp rag in each) puts one down before picking up the supply it knows of**, so a hand is free for the mop (`supplyStep` in `jobs/janitor.ts`). Cases in `tools/llm_crew/janitor-hands.ts`. Left: code/modules/llm_crew/crew_npc_hands.dm free_a_hand (being done by the other worker this round). sim.ts: scenario starting a janitor with two rags, a mop on the closet floor and word by PDA that supplies came; pass if its pick_up mop succeeds and it never walks back to the closet twice running.
+
+Round two (branch crew-bug-fixes-medium): no more code was needed. Both parts above were in round one, each by a different group, so the finding is now whole, apart from any step that waits on the owner.

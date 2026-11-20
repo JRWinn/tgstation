@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 2894189b08d
+fixed_in: 2894189b08d, 00c1d4e5579
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain

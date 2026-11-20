@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 02de92f8aae
+fixed_in: 02de92f8aae, 92ba4ccc6a3, 3c75fef9673
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo

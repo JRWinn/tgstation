@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 052e671676f, 1b45381ebe7, b1b40153488
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: doors
@@ -86,3 +87,5 @@ Opus 5.5, 2026-11-19. Read `reset_fire_alarm` and `tool_reset_alarm` in `crew_np
 Commits: 052e671676f.
 
 - DOOR-11 (server part): part done. A fire alarm is reset by a right click with an empty hand, as a player does, two tries at most (reset_fire_alarm, crew_npc_doors.dm). If the room's fire doors are still shut after that, it answers FALSE ('has no power. It will not reset.', 'is broken.', 'would not reset.', or 'You cannot reach the fire alarm in X.') and puts the alarm in fire_alarms_failed. Only a real reset is logged, reopens ways and zeroes ways_out_failed. Left: (1) code/modules/llm_crew/crew_npc_hands.dm, finish_errand: for tool == CREW_TOOL_RESET_ALARM pass outcome[3] as action_result's details (reset_fire_alarm now returns a third element list("alarm_dead" = <room name>) on a failed reset). Today only security tools and force_door pass details, so the detail is dropped. (2) tgui/packages/tgui/interfaces/CrewBrain/brain.ts, near where real_alarm and alarm_out_of_reach are read (about line 642): add event.details.alarm_dead to that list, so the room is left alone for FIRE_CLOSED_MS. (3) sim.ts: let reset_alarm answer ok:false with alarm_dead, and check the body does not ask again inside ten minutes.
+
+Round two (branch crew-bug-fixes-medium): 1b45381ebe7, b1b40153488. This finishes the parts left above, apart from any step that waits on the owner.

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: f9ffa7c97dd, 1db0bddd76f
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -89,3 +90,5 @@ Confirmed, with two corrections: Pun Pun, the finder's example, breaks out of cu
 Commits: f9ffa7c97dd.
 
 - TRB-01 (window part): part done. Someone wanted, in cuffs it did not put on, is left only while someone else pulls them (heldByAnother). With pulled_by null it takes them by the arm (arrest, how quiet). Held by someone who is not security, the list hears once 'X has them in cuffs'. Nothing changes until the server sends pulled_by. Left: crew_npc_senses.dm, people_in_view (about line 191): add "pulled_by" = person.pulledby?.name, null when nobody is pulling (it must be sent as null, not left out: the window reads a missing key as 'do not know' and keeps the old guard). sim.ts: a warrant variant with the suspect cuffed: true, pulled_by: null (expect arrest how quiet, then jail), and one with pulled_by set to the Head of Security (expect it to be left).
+
+Round two (branch crew-bug-fixes-medium): 1db0bddd76f. This finishes the parts left above, apart from any step that waits on the owner.

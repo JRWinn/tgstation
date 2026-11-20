@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: d7cbcae93c7, c1ca2d6436e
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
@@ -84,3 +85,5 @@ The changelog entry (M5, line 324) that built the reader says nothing about temp
 Commits: d7cbcae93c7.
 
 - BRAIN-11: part done. - **BRAIN-11 (part): the reader of last resort for orders is asked at temperature 0** (`callOllama` takes a temperature; `readOrder` passes `READING_TEMPERATURE` 0, in `brain.ts`). Talk and the job choice stay at 0.7. Left: jobs/security.ts, readReading: do not take the model's minutes. Read text.match(MINUTES_SAID) as readWarrant does (digits, or NUMBER_WORDS.indexOf(word)+1, capped at MINUTES_MOST), and use 0 when there is no match. Drop minutes from the schema and prompt in buildReading. Add table cases: replies with minutes for messages with and without a time; only those with a time keep it.
+
+Round two (branch crew-bug-fixes-medium): c1ca2d6436e. This finishes the parts left above, apart from any step that waits on the owner.

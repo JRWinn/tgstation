@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: df6573e9963, 1c791a9952a
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: logs
@@ -104,3 +105,5 @@ Checked by Opus 5.5. Confirmed: the fault can happen as the code stands. But the
 Commits: df6573e9963.
 
 - LOGA-04: part done. A knock from inside is taken as from someone on the department's list only if they were let in before the knock. Anyone let in after it, on the list or seen, is not the knocker, and the 'someone inside' fallback is not used for a knock older than a later let-in. Look in jobs/cargo.ts, doorSought, the knock.inside branch. Left: expected.ts: noteLetOut(post, name, room, now) stamps lastLetOut[post + room] = now (a new exported getter, e.g. lastLetOutAt(post, room)); the cargo.ts caller passes brain.now. Then in cargo.ts doorSought, before the knock branch, drop brain.knockAt when lastLetOutAt(post, knock.room) > knock.at. That cargo.ts part is small and can come back to this group.
+
+Round two (branch crew-bug-fixes-medium): 1c791a9952a. This finishes the parts left above, apart from any step that waits on the owner.

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 9c4e1a5fc59, eb7b41dff81
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo
@@ -115,3 +116,5 @@ Confirmed. How long it lasts depends on whether the body lies inside the other t
 Commits: 9c4e1a5fc59.
 
 - CARGO-12: part done. A workmate counts as about only when on its feet and free. ableInView needs the person in view to be neither down nor cuffed, and it is used in leftTo, doorIsMine and the knock rule. 'Seen not long since' now goes by brain.ableAt, which syncTasks writes only for people on their feet, so a body lying in the bay does not keep it fresh. The knock rule and visitorToMind now count technicians only, not the Quartermaster (this is also the MULTI-09 half). Look in jobs/cargo.ts: ableInView, noteAble, leftTo, doorIsMine, doorSought, visitorToMind. Left: jobs/rounds.ts, `workmate` (about line 176): require the workmate in view to be !person.down && !person.cuffed, so a technician does not count the post as kept by a body on the floor. sim.ts: a qm variant that sets down:1 on one technician after the shuttle has docked, and checks the other one unloads.
+
+Round two (branch crew-bug-fixes-medium): eb7b41dff81. This finishes the parts left above, apart from any step that waits on the owner.

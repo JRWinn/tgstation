@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 6138e377a3f, a9599d1647d
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -91,3 +92,5 @@ Checked by Opus 5.5, from the code. Nothing was run.
 Commits: 6138e377a3f.
 
 - ARR-07: part done. A no_way from an arrest that noted no shut-out room (the officer's own room, or nobody to ask) now counts as a try. After three it rests 30 s and tells once 'I cannot bring in X: they are in sight, but there is no way through to them.' The arrest line is not said again before every try. See NO_WAY_TO_THEM and beatAfterActing in jobs/arrests.ts. Left: crew_npc_security.dm, security_details: in the no_way branch for an arrest, call fire_door_report(details) so that the driver's reset_alarm step can open fire doors (step 4 of the finding). sim.ts: a scenario where arrest always answers {ok:false, reason:'no_way', place:<the officer's room>}.
+
+Round two (branch crew-bug-fixes-medium): a9599d1647d. This finishes the parts left above, apart from any step that waits on the owner.

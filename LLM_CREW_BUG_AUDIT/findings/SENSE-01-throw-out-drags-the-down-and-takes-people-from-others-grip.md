@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 60fa8139bcb, 79074198e0e
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: senses
@@ -91,3 +92,5 @@ Checked by Opus 5.5. The quotes are as the code is today. `why_not_put_out` (`cr
 Commits: 60fa8139bcb.
 
 - SENSE-01: part done. A crew body no longer walks out of its post someone who is down, someone another person has hold of, or someone in cuffs: why_not_put_out (crew_npc_guarding.dm) refuses with why ('X is down and cannot walk. Someone should see to them.', 'Y already has hold of X.', 'X is in cuffs. That is security's business.'). take_hold_of checks it again when the body reaches them. Left: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts: in syncGuarding, do not let a stranger whose seen.down is true reach settle(... 'go') through waitedOut (leave the record waiting, or drop it, while down); in planGuarding skip the asking step for a stranger who is down. 'down' and 'cuffed' are already in the person type in types.ts and sent by look_around. A simulator scenario would want a stranger lying down in a post for two ask periods, checking no throw_out is sent.
+
+Round two (branch crew-bug-fixes-medium): 79074198e0e. This finishes the parts left above, apart from any step that waits on the owner.

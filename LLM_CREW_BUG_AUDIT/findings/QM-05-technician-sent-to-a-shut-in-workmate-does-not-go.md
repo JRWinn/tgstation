@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: b3d0e838950, 004e23bcb2b
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: quartermaster
@@ -93,3 +94,5 @@ Checked by Opus 5.5. Every quote is what the code says today. `SHUT_IN_WORDS` (`
 Commits: b3d0e838950.
 
 - QM-05: part done. Only the words are added: letOutLine ("Sam, Cora is shut in the Warehouse. Could you let them out, please?") and SEND_TO_LET_OUT_WORDS in jobs/supply.ts. Nothing says or reads them yet, and the Quartermaster still sends the see-to line. Left: 1) jobs/cargo.ts overhears: test SEND_TO_LET_OUT_WORDS from jobs/supply.ts before the SEE_TO_WORDS test and before the DOOR_WORDS branch. Only from a Quartermaster (isQuartermaster(speakerJob)), and only when match[1] is this technician's first name. Then push a DoorAsk onto brain.doorAsks: { name: <full name of the technician whose first name is match[2], looked up in peopleInView or pdaPeople>, room: match[3], out: true, byPda: true, at: brain.now }, so the existing byPda let-out path walks it to that door. 2) Then, in the same round, jobs/quartermaster.ts readsMessage, in the SHUT_IN_WORDS branch: set sendFor.line to letOutLine(firstName(other), firstName(from), shutIn[1].trim()) in place of seeToLine(...). Keep seeToLine for crateHeldUp. 3) Optional, in quartermaster.ts: pick `other` only from technicians who are not down or cuffed (QM-02). 4) A book.ts case: the Quartermaster gets the shut-in PDA from Cora, and the line Sam hears gives Sam a door ask for the Warehouse.
+
+Round two (branch crew-bug-fixes-medium): 004e23bcb2b. This finishes the parts left above, apart from any step that waits on the owner.

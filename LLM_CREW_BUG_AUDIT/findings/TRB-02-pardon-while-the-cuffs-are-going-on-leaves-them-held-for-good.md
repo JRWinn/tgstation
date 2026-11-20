@@ -5,7 +5,7 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: fixed
+status: confirmed
 fixed_in: 829851c8851
 found_by: Opus 5.5
 checked_by: Opus 5.5
@@ -97,3 +97,7 @@ Read `dropWarrant`, `handBack`, `syncBeat`, `serveStep`, `beatAfterActing` (arre
 Ran a throwaway bun script (outside the repo): an officer with a warrant on Dana Reyes, in sight and not yet cuffed; `dropWarrant(..., true)` leaves `toFree` empty; then `security.holding` set to her, her seen cuffed, `beatAfterActing` with an `arrest` that came back `ok` and `cuffed`, and `syncBeat`: no warrant, nothing on `toFree`, no outcome, no open task. Nothing lets her go.
 
 Confirmed. Severity lowered to medium: the word has to reach the officer in the few seconds an arrest act runs, after passing through the Head of Security, which is a narrow window and will not come up in most rounds; when it does, the harm lasts the round. The fix is mended: the finder's net in `syncBeat` would have fired on any eviction by the arm, because `holding` is whoever the body pulls, and on ARR-13's prisoner, who is still wanted.
+
+## Reopened in round two (branch crew-bug-fixes-medium)
+
+The round-one fix (fixed_in above) does not cover the race this finding is about. The new simulator scenario `pardonmid` shows it: when the pardon reaches the officer while its arrest runs, dropWarrant removes the warrant, syncBeat finishes the serve task and syncTasks prunes it in the same pass, so when the arrest comes back cuffed `beatAfterActing` finds no task and the person is held for good. Being fixed in round three, in jobs/arrests.ts.

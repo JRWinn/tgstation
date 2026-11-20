@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 80666a4be5b, 713f451d113
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
@@ -101,3 +102,5 @@ Checked by Opus 5.5, from the code. Confirmed.
 Commits: 80666a4be5b.
 
 - ASYNC-07: part done. - **ASYNC-07 (window, part): a remark the NPC may or may not make no longer stops its body while the model is asked.** No hold is sent when it is queued or thinking only for a remark. If someone speaks to it or it is given a line while it waits, hold is sent then (`remarkOnly`, `heldToTalk` in `brain.ts`). `brain.remarking` is set while the model is asked for a remark only. Left: driver.ts, drive(): the `talking` test should not count a remark-only queue. Change `brain.wake || brain.status !== 'idle'` to `(brain.wake || brain.status !== 'idle') && !remarkOnly(brain) && !brain.remarking`. remarkOnly is exported from brain.ts; if importing it is circular, inline `brain.remarkDue && brain.pendingSpeakers.size === 0 && brain.mustSay === null`.
+
+Round two (branch crew-bug-fixes-medium): 713f451d113. This finishes the parts left above, apart from any step that waits on the owner.

@@ -116,3 +116,5 @@ Checked by Opus 5.5, from the code. Nothing was run.
 Commits: a5bc3977401.
 
 - ARR-08 (window part): part done. With two warrants, the other person coming into sight no longer breaks off an arrest under way. planBeat's serve branch waits ('You are in the middle of arresting someone else. X waits.') while brain.lastAct is an arrest for another task, so orderToDrop finds nothing to drop it for. Left: driver.ts, orderToDrop: return null when brain.lastAct's task is itself an emergency task, unless the found plan has breaksIn. types.ts Plan: add breaksIn?: boolean. arrests.ts planBeat AWAY branch: set breaksIn: true (this group's file, next round). Step 3 (drive remembering a dropped arrest, so a suspect it cuffed is taken as its own) is not done. sim.ts: two warrants, the first person coming into view while the arrest of the second is held back 5 s.
+
+Round two (branch crew-bug-fixes-medium): fa7a7954086. Still not finished: see the change log entry for what is left.

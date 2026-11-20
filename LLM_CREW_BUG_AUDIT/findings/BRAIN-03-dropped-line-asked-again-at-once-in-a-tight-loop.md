@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 1608bc590d4, 9bacb4260c4
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: brain
@@ -143,3 +144,5 @@ Confirmed, by Opus 5.5, from the code and the round log. Nothing was run.
 Commits: 1608bc590d4.
 
 - BRAIN-03: part done. - **BRAIN-03 (part): a line its work no longer needs is not asked for again at once.** `think` holds the driver off 2.5 s when it drops such a line (`holdDriverAfterDrop`, `DROPPED_LINE_PAUSE_MS` in `brain.ts`), before the call and after it, and clears the line's state. Left: jobs/janitor.ts, letInStep: change `sayIf: () => !brain.doorHeld` to `sayIf: () => !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door)`, the same test as the top of the function (finding step 3). Optional steps 2, 4 and 5 are in driver.ts and on the server.
+
+Round two (branch crew-bug-fixes-medium): 9bacb4260c4. This finishes the parts left above, apart from any step that waits on the owner.

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: c8cab241723, 715e8b22c72, 51460701cb9
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply
@@ -94,3 +95,5 @@ Read `PER_CRATE`, `CRATES_MAX` and `orderFor` in `jobs/head.ts`, `CLEANING_SUPPL
 Commits: c8cab241723.
 
 - TRA-01: part done. The Head of Personnel now counts a Janitorial Supplies Crate as good for two janitors, not three: three janitors short now order two crates. The count now sits with the crate (perCrate in SUPPLIES) and orderFor in jobs/head.ts uses it. Left: tools/llm_crew/sim.ts: the 'Janitorial Supplies Crate' contents should be ['mop', 'space cleaner', 'damp rag'], plus a crew variant where all three janitors start with nothing and the closet is empty (pass: first order is 2 crates, and no "something better than a rag" at the second meeting). jobs/janitor.ts knownSupply: a janitor with nothing should take a PROPER_SUPPLY item (mop or spray) when it knows of one, and the rag only when it knows of nothing better (step 5).
+
+Round two (branch crew-bug-fixes-medium): 715e8b22c72, 51460701cb9. This finishes the parts left above, apart from any step that waits on the owner.

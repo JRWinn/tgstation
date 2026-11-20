@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 05ec985e397
+fixed_in: 05ec985e397, dab666d37af
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo

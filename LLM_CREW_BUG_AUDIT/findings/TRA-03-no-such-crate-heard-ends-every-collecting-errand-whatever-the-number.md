@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 0e4a246e6fe
+fixed_in: 0e4a246e6fe, 92ba4ccc6a3
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply

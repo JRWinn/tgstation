@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 76ab530cfc2, d193d451593
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
@@ -117,3 +118,5 @@ Checked by Opus 5.5 on 2026-11-19. Confirmed.
 Commits: 76ab530cfc2.
 
 - CHK-07: part done. - **CHK-07 (part): a body that walked out of a room no longer counts as in it for ten seconds.** `ingest` in `brain.ts` records `leftPlace` only when the body was not walking at the last update. Left: driver.ts: export STAYS, or a small isWalk(tool). Then brain.ts ingest adds the second sign to the leftPlace test: `&& !(brain.lastAct && isWalk(brain.lastAct.act.tool) && brain.lastAct.act.tool !== 'step_aside')`.
+
+Round two (branch crew-bug-fixes-medium): d193d451593. This finishes the parts left above, apart from any step that waits on the owner.

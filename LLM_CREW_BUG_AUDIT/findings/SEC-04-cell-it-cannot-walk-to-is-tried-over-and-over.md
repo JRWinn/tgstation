@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 56eec7d73fb
+fixed_in: 56eec7d73fb, 22e29935e28
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security

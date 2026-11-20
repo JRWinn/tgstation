@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 945864664d3
+fixed_in: 945864664d3, a85c27fec9c
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: driver
