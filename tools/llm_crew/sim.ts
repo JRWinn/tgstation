@@ -1642,7 +1642,7 @@ if (tech) {
   // A technician the clock stops on in the middle of its routine look in on a room of its department (an open look_in task
   // for the very room it stands in, jobs/rounds.ts) is on its rounds, not lost. Nothing else away from the post passes.
   const onRounds = (body: Body) => body.room !== 'Cargo Bay' && !!brainModule.getBrain(body.id)?.tasks.some((task: any) => task.kind === 'look_in' && task.state !== 'done' && task.place === body.room);
-  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay' || onRounds(body)), techs.map((body) => `${body.name} in ${body.room}${onRounds(body) ? ' (looking round it on its rounds)' : ''}`).join('; '));
+  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay' || onRounds(body)), techs.map((body) => `${body.name} in ${body.room}${onRounds(body) ? ' (looking round it on its rounds)' : body.room !== 'Cargo Bay' ? ` (last: ${body.log.at(-1) ?? 'nothing'}; tasks: ${(brainModule.getBrain(body.id)?.tasks ?? []).map((task: any) => `${task.kind}${task.place ? ' ' + task.place : ''} ${task.state}`).join(', ') || 'none'})` : ''}`).join('; '));
   check('nobody is still owed a PDA message about their crates', techs.every((body) => body.notices.length === 0), techs.map((body) => `${body.name}: ${body.notices.length}`).join('; '));
   check('no technician carries a crate anywhere but out to the lobby', !techLog.some((line) => / collect_crate /.test(line)) && tippedOut.every((_, index) => !techs.some((body) => body.name === unpackedBy[index])));
 }
