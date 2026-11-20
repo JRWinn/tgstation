@@ -320,6 +320,21 @@ function noWaterHere(brain: NpcBrain): Map<string, number> {
   return notes;
 }
 
+/** How many walks through a door found open after asking at it are tried before it waits again. */
+const OPEN_WALKS = 3;
+
+/** An asking at a door, with the count of walks through it found open that came to nothing. */
+type LetInAsk = NpcBrain['letInAsks'][string] & { openWalks?: number };
+
+/**
+ * TRUE if the door the body stands at, and wants through, stands open: what its eyes tell it. The
+ * server sends it as at_door_open, copied to brain.atDoorOpen (ARR-06); read through a cast so
+ * that this file compiles whether or not types.ts has it yet. Until it comes, always FALSE.
+ */
+function atDoorOpen(brain: NpcBrain): boolean {
+  return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
+}
+
 /** How long (deciseconds) a call it turned down for want of soap or a rag stays turned down. */
 const DECLINED_DS = 3000;
 
@@ -951,6 +966,24 @@ function letInStep(
   // knocks, sends word to whoever called it, and says so to anyone it can see who works there:
   // each of those once.
   const asks = brain.letInAsks[door];
+  // The door it asked at stands open now, with no crew member holding it: someone let it in by
+  // hand, as the Captain does with their own ID (ARR-06, as the officer does). Only the door it is
+  // standing at, and only once it has asked (a knock is asking): a locked room's door someone else
+  // happens to open is no invitation. Numbered, so that a walk that just missed it shutting is not
+  // held back; three that came to nothing, and it waits as before.
+  const openWalks = (asks as LetInAsk | undefined)?.openWalks ?? 0;
+  if (
+    asks &&
+    (asks.knocked || asks.messaged || asks.said) &&
+    atDoorOpen(brain) &&
+    openWalks < OPEN_WALKS
+  ) {
+    return {
+      ready: true,
+      step: `The door into the ${door} has been opened for you, and you are going through${within ? ` on your way to the mess in the ${place}` : ' to clean up the mess there'}.`,
+      act: { tool: 'go_to', place: door, attempt: openWalks + 1 },
+    };
+  }
   // Which of the room's doors it is standing at, said in every asking. A room may have three, and
   // "the door of the Cargo Bay" had a technician open the tunnel door for a janitor in the lobby.
   const which = doorCalled(brain, door);
@@ -1335,6 +1368,18 @@ export const JANITOR: Job = {
       act.item
     ) {
       putDown(brain).push({ item: act.item, place: brain.location });
+    }
+    // A walk through the door it asked at, found open, is counted when it comes to nothing (ARR-06).
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'go_to' &&
+      act.attempt !== undefined &&
+      typeof act.place === 'string'
+    ) {
+      const asks = brain.letInAsks[act.place] as LetInAsk | undefined;
+      if (asks) {
+        asks.openWalks = ok ? 0 : (asks.openWalks ?? 0) + 1;
+      }
     }
     // Back from the walk into the middle of a room it was told of a mess in, got there or not.
     if (
