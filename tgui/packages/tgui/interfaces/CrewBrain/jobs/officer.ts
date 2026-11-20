@@ -65,11 +65,13 @@ import {
   AGAIN_WORDS,
   addressOf,
   cancelAsked,
+  closeIn,
   firstName,
   HEARD_WORDS,
   isHeadOfSecurity,
   isOfficer,
   LET_GO_WORDS,
+  nameIn,
   outcomeLine,
   PARDON_WORDS,
   REFUSALS,
@@ -77,8 +79,10 @@ import {
   readWarrant,
   SEEN_WORDS,
   SERVED_WORDS,
+  SIGHTING_WORDS,
   sameName,
   saidTo,
+  sightLine,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
 } from './security';
@@ -447,6 +451,83 @@ function sendOn(
   });
 }
 
+/** How long (milliseconds) before the same sighting, of one person in one room, is read back again. */
+const SIGHTING_AGAIN_MS = 120000;
+/** Who said where, and when it last read that back: so a word said twice is not answered twice. */
+const sightingsReadBack = new WeakMap<NpcBrain, Record<string, number>>();
+/** A word for whoever it is after, said to its face with one warrant in hand. */
+const SOMEONE_WORDS = /\b(?:he|she|they|him|her|them)\b/i;
+/** Words that say where someone is not, or ask where they are. */
+const NOT_A_SIGHTING = /\b(?:not|no longer|isn't|aren't|wasn't|never)\b|\?\s*$/i;
+
+/**
+ * With a Head of Security aboard, takes word of where someone it has a warrant on is, said to
+ * its face or sent it by anyone (PLAY-03). It goes there, says back in fixed words what it took,
+ * and sends the Head of Security the sighting so that its list stays true. With one warrant in
+ * hand, "he", "she" or "they" said to its face means that one. Returns TRUE if it took it.
+ */
+function takeSighting(
+  brain: NpcBrain,
+  from: string,
+  fromJob: string,
+  text: string,
+  aloud: boolean,
+): boolean {
+  const head = headAboard(brain);
+  if (!head || !SIGHTING_WORDS.test(text) || NOT_A_SIGHTING.test(text)) {
+    return false;
+  }
+  const place = placeNamedIn(brain, text.toLowerCase());
+  const warrants = beatOf(brain).warrants;
+  if (!place || warrants.length === 0) {
+    return false;
+  }
+  const names = warrants.map((it) => it.name);
+  const name =
+    nameIn(text, names) ??
+    closeIn(text, names) ??
+    (aloud && warrants.length === 1 && SOMEONE_WORDS.test(text)
+      ? names[0]
+      : undefined);
+  const warrant = warrants.find((it) => it.name === name);
+  if (!warrant || !name) {
+    return false;
+  }
+  const newPlace = warrant.lastSeen?.place !== place;
+  noteSeen(brain, name, place, brain.now);
+  const said = sightingsReadBack.get(brain) ?? {};
+  sightingsReadBack.set(brain, said);
+  const key = `${name}|${place}`;
+  if (said[key] === undefined || Date.now() - said[key] >= SIGHTING_AGAIN_MS) {
+    said[key] = Date.now();
+    const line = `${addressOf(from, fromJob)}, I have that: ${name}, the ${place}.`;
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: from,
+      line,
+      why: `${from} has told you where ${name}, whom you have a warrant on, is. You are saying back what you took, and going there.`,
+      byPda: !aloud,
+      exact: true,
+      whileBusy: aloud,
+      at: Date.now(),
+    });
+  }
+  // The Head of Security keeps the list, and is told of a place new to it.
+  if (newPlace && from !== head.name) {
+    const line = sightLine(name, place);
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: head.name,
+      line,
+      why: `${from} has told you where ${name} is. You are sending it on to ${head.name}, the Head of Security, who keeps the list.`,
+      byPda: true,
+      exact: true,
+      at: Date.now(),
+    });
+  }
+  return true;
+}
+
 export const OFFICER: Job = {
   is: isOfficer,
   // It works from the Security Office. It leaves it on a warrant, not to wander.
@@ -496,7 +577,9 @@ export const OFFICER: Job = {
       }
       return;
     }
-    sendOn(brain, from, job, text, false);
+    if (!takeSighting(brain, from, job, text, false)) {
+      sendOn(brain, from, job, text, false);
+    }
   },
   // With the person it is after in sight, by the arm, or seen in the last two minutes, it does
   // not leave for a staff meeting.
@@ -517,7 +600,10 @@ export const OFFICER: Job = {
       deskHears(brain, event);
       return;
     }
-    if (event.details.said_to === 'me') {
+    if (
+      event.details.said_to === 'me' &&
+      !takeSighting(brain, speaker, job, heard, true)
+    ) {
       sendOn(brain, speaker, job, heard, true);
     }
   },

@@ -353,6 +353,19 @@ export function deskTakes(
       deskOutcome(brain, outcome, from, aloud);
       return true;
     }
+    // Word of where someone wanted is, from its own staff: given to them to their face (PLAY-03).
+    // They are following it already, so it is not passed back to them.
+    const standing = desk.warrants.map((warrant) => warrant.name);
+    const seen = nameIn(text, standing) ?? closeIn(text, standing);
+    const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
+    const warrant = desk.warrants.find((it) => it.name === seen);
+    if (warrant && place && SIGHTING_WORDS.test(text)) {
+      if (!warrant.lastSeen || brain.now >= warrant.lastSeen.at) {
+        warrant.lastSeen = { place, at: brain.now, by: from };
+        warrant.passed = { place, at: brain.now };
+      }
+      return true;
+    }
     return false;
   }
   const declarer = isHead(fromJob);
