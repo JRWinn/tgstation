@@ -892,7 +892,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!isnull(own_messenger))
 		return crew_npc_contacts_who_open(doors, own_messenger)
 	var/list/titles = list()
-	if(can_sense() && isturf(body.loc) && !body.is_blind())
+	if(can_perceive() && isturf(body.loc) && !body.is_blind())
 		for(var/mob/living/carbon/human/person in crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 			if(person == body || person.stat > SOFT_CRIT)
 				continue
@@ -1364,7 +1364,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/free_cell(mob/living/apart_from)
 	var/mob/living/carbon/human/body = pawn
-	var/can_look = can_sense() && isturf(body.loc) && !body.is_blind()
+	var/can_look = can_perceive() && isturf(body.loc) && !body.is_blind()
 	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
 	var/datum/crew_npc_brig_cell/refused
 	var/refused_at = INFINITY
@@ -1957,7 +1957,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	hold_in_custody()
 	// The time is what its timer shows, and so known only if the timer can be seen from inside (CHEAT-04).
 	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
-	var/sees_timer = !QDELETED(timer) && !QDELETED(body) && can_sense() && !body.is_blind() && (timer in view(CREW_NPC_VISION_RANGE, body))
+	var/sees_timer = !QDELETED(timer) && !QDELETED(body) && can_perceive() && !body.is_blind() && (timer in view(CREW_NPC_VISION_RANGE, body))
 	if(sees_timer)
 		emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name]. Its timer shows [minutes] minute\s.", list("in_cell" = cell.name, "minutes" = minutes))
 	else
@@ -2153,7 +2153,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/obj/item/melee/baton/security/baton = baton_carried()
 	if(baton)
 		own_baton = WEAKREF(baton)
-	var/can_look = can_sense() && isturf(body.loc) && !body.is_blind()
+	var/can_look = can_perceive() && isturf(body.loc) && !body.is_blind()
 	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
 	// Of that, what it can make out: lit, or right beside it (CHEAT-15). A cell's timer shows by its
 	// own display, so a cell is seen by in_sight; who is inside it, and its baton, only by this.

@@ -71,7 +71,7 @@
 		return null
 	var/mob/living/carbon/human/body = pawn
 	var/list/machines = list()
-	var/can_look = can_sense() && isturf(body.loc)
+	var/can_look = can_perceive() && isturf(body.loc)
 	// Worked out only if some machine is near enough to be worth looking for.
 	var/list/in_sight
 	for(var/list/entry as anything in crew_npc_engine_machines())
