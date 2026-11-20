@@ -504,6 +504,16 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
       },
     };
   }
+  // A crate let go of halfway is a crate left in a hallway. It is set down where it is going first,
+  // and the word back waits for it too: sent mid-haul, the reply's result hid the haul's (LOGB-02),
+  // and the head allows 90 seconds for word, which a haul fits in.
+  const hauling = !!brain.doing && HAULING.test(brain.doing);
+  if (hauling && (!summons.answered || !atMeeting(brain, summons))) {
+    return {
+      ready: false,
+      step: `${by} has called a staff meeting in the ${room}. You will go the moment you have set down what you are hauling.`,
+    };
+  }
   // First of all it sends word back, so that its head knows who to wait for.
   if (!summons.answered && brain.hasPda) {
     return {
@@ -521,13 +531,6 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
     };
   }
   if (!atMeeting(brain, summons)) {
-    // A crate let go of halfway is a crate left in a hallway. It is set down where it is going first.
-    if (brain.doing && HAULING.test(brain.doing)) {
-      return {
-        ready: false,
-        step: `${by} has called a staff meeting in the ${room}. You will go the moment you have set down what you are hauling.`,
-      };
-    }
     // Shut in with no door standing open, the walk cannot be made: it waits to be let out, and the
     // "missed" path above sends its report if the meeting goes ahead without it (KNA-02). A door
     // standing open is still tried.
