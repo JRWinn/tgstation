@@ -670,10 +670,14 @@ export function nextStep(brain: NpcBrain): Step | null {
     // Nor does it walk back to a room where a step of its work has just failed, for whichever
     // task, until that step is let off: it would only find it still held back there, and walk
     // off again (DRV-12). Not an order from someone it answers to, which it goes on with, nor
-    // through a door standing open or held for it, which will not wait.
+    // through a door standing open or held for it, which will not wait. Nor its own post: that is
+    // where it stands when nothing else calls, so going back there is no wasted walk, and a step
+    // that failed at its counter (a shuttle call refused) would otherwise leave it stranded in
+    // whatever room it had looked in on, its post unkept, until the step was let off.
     if (
       act?.tool === 'go_to' &&
       typeof act.place === 'string' &&
+      act.place !== brain.post &&
       task.urgency !== 'emergency' &&
       !wayOutOpen(brain) &&
       !brain.doorHeld &&
