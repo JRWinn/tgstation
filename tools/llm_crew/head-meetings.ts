@@ -185,7 +185,7 @@ for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', false]]
   qm.meeting = { calledAt: 0, room: 'Cargo Bay', calledIn: true, invited: [], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
   const task = { id: 1, kind: 'hold_meeting', urgency: 'asked', source: 'own', state: 'open' };
   const step = QUARTERMASTER.plan(qm, task as any);
-  add('a technician in sight in the next room is not walked up to: called by PDA', [step?.act?.tool, step?.act?.person], ['message', JADEN.name]);
+  add('a technician in sight in the next room is not walked up to, nor sent a PDA: called aloud from the bay', [step?.act?.tool ?? null, !!step?.say && step.exact], [null, true]);
   // Called on, then out of sight before the line goes out: the turn is still booked.
   qm.meeting.invited = [JADEN.name];
   qm.meeting.startedAt = 10;
