@@ -82,3 +82,10 @@ Steps 1 and 2 alone stop the body acting on what it did not see, and are small. 
 ## Check
 
 Checked by Opus 5.5. Read `held_state` (`crew_npc_held.dm:150-168`): its comment says others are told only of crates "which anyone there can see", but nothing checks where the body is. The list is put into `brain.heldCrates` for every body (`brain.ts:511`). `planPickups` (`pickups.ts:166`) tests `crateOf(...)?.out` before `brain.location`, and `tool_collect` (`crew_npc_held.dm:366-385`) takes a crate number from a body anywhere and walks it to the crate with `start_errand`, so the walk does happen. Ran a throwaway bun script (scratchpad, `jobs05.ts`) calling `planPickups` with the body in the Custodial Closet and crate 12 out in the Cargo Lobby: it returned `{"tool":"collect_crate","number":12,...}`. Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this. Not a duplicate: CHEAT-06 is the cargo-staff half. Confirmed. I raised effort to medium (server and window), added that `pickupsOverhear` does not read cargo's "has taken ... already", which step 2 leans on, and that the hauler must keep seeing its own crate under step 3.
+
+## Fix so far
+
+Window part done on branch `m-cargo` (`jobs/pickups.ts`; cases in `tools/llm_crew/cargo-pickups.ts`, 68; simulator qm and waiting passed; not played). The server part (step 3, `held_state`) is on branch `m-cargosrv`; the window change works with or without it.
+
+- Step 1: `planPickups` takes the crate up (`collect_crate`) only when it is out and `crate.place === brain.location`. From anywhere else the collector goes to the Cargo Lobby counter as before.
+- Step 2: `pickupsOverhear` reads cargo's "X has taken crate N already." (`TAKEN_ALREADY`), ends the errand for that number, and PDAs the head who sent it "Cargo says X has taken crate #N already. I have not got it." The `takenBy` ending in `syncPickups` is left as it is: with the server's step 3 a collector is sent `taken_by` only for a crate it can see.

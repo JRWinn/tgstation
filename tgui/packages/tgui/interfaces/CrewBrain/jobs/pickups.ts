@@ -237,8 +237,10 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
         }
       : { ready: false, step: 'The crate is unpacked and back with cargo.' };
   }
-  // Cargo has put it out in the lobby: it is there for the taking.
-  if (crateOf(brain, task)?.out) {
+  // Cargo has put it out in the lobby: it is there for the taking, once the body is in the room
+  // with it. From anywhere else it has not seen it, and goes to the counter as before (JOBS-05).
+  const crate = crateOf(brain, task);
+  if (crate?.out && crate.place === brain.location) {
     return {
       ready: true,
       step: `Cargo has put crate #${number} out for you. You are hauling it to the ${room}, where ${by} wants it, to unpack it there.`,
@@ -321,6 +323,8 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
 
 /** The words by which cargo says there is no crate to be had by the number it was asked for. */
 const NO_SUCH_CRATE = /not holding a crate|(has|have) been lost|is lost\b/i;
+/** The words by which cargo says someone else has the crate already, with who (JOBS-05). */
+const TAKEN_ALREADY = /^(?:[^,]+, )?(.+?) has taken crate #?\d+ already\b/i;
 
 /**
  * Hears cargo say, at the counter, that there is no crate by the number it asked for: the crate
@@ -346,10 +350,13 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
     }
     return;
   }
+  // "Jan, Mo has taken crate 12 already.": someone else has it, so the errand is over (JOBS-05).
+  const takenBy = heard.match(TAKEN_ALREADY)?.[1];
   if (
     !isCargo(theirJob) ||
     event.details.said_to === 'other' ||
-    !NO_SUCH_CRATE.test(heard)
+    (!NO_SUCH_CRATE.test(heard) && !takenBy) ||
+    takenBy === brain.name
   ) {
     return;
   }
@@ -374,7 +381,15 @@ export function pickupsOverhear(brain: NpcBrain, event: SenseEvent): void {
     }
     task.reported = true;
     finishTask(brain, task);
-    if (task.askedBy && brain.hasPda) {
+    if (task.askedBy && brain.hasPda && takenBy) {
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `Cargo says ${takenBy} has taken crate #${task.item} already. I have not got it.`,
+        why: `${speaker}, at the cargo counter, has told you that ${takenBy} has already taken crate #${task.item}, which ${task.askedBy} sent you for. You are sending ${task.askedBy} a PDA message to say so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    } else if (task.askedBy && brain.hasPda) {
       brain.toTell.push({
         to: task.askedBy,
         line: `Cargo says there is no crate #${task.item} to collect: it has been lost, or the number is wrong. I have not got it.`,

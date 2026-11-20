@@ -215,6 +215,33 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
     hearFrom(b, CORA, 'Sorry, I am not holding a crate by that number.', 'nobody');
     add('a numberless no said to nobody: its errand stands', open(b), ['13']);
   }
+  // JOBS-05: cargo saying someone else has the crate already ends the errand, and its head is told.
+  {
+    const b = collector(['12']);
+    hearFrom(b, CORA, 'Jan, Mo Pper has taken crate 12 already.', 'me');
+    add('JOBS-05: "Mo Pper has taken crate 12 already": the errand ends', open(b), []);
+    add('JOBS-05: and its head is told who has it', b.toTell.map((t: any) => [t.to, t.line, !!t.byPda]), [['Hop Kins', 'Cargo says Mo Pper has taken crate #12 already. I have not got it.', true]]);
+  }
+  {
+    const b = collector(['13']);
+    hearFrom(b, CORA, 'Jan, Mo Pper has taken crate 12 already.', 'me');
+    add('JOBS-05: taken word of another crate: its errand stands', open(b), ['13']);
+  }
+}
+// JOBS-05: a crate out in the lobby is taken up only by a collector in the room with it.
+{
+  const { planPickups } = await import(ROOT + 'jobs/pickups');
+  const b: any = makeBrain('Jan Mopp', 'Janitor');
+  b.location = 'Custodial Closet';
+  b.knownPlaces = new Set(['Cargo Lobby', 'Custodial Closet']);
+  b.now = 5000;
+  b.toTell = [];
+  b.heldCrates = [{ number: 12, for: 'Hop Kins', what: null, place: 'Cargo Lobby', out: true, takenBy: null, waited: 100 }];
+  const task: any = { id: 1, kind: 'collect', item: '12', place: 'Bar', askedBy: 'Hop Kins', state: 'open', urgency: 'asked', source: 'asked', createdAt: 0 };
+  b.tasks = [task];
+  add('JOBS-05: the crate out, the collector elsewhere: it goes to the lobby, not to the crate', planPickups(b, task)?.act?.tool, 'go_to');
+  b.location = 'Cargo Lobby';
+  add('JOBS-05: in the lobby with it: it takes it up', planPickups(b, task)?.act?.tool, 'collect_crate');
 }
 
 let failed = 0;
