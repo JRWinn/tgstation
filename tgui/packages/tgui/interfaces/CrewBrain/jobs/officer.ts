@@ -100,6 +100,18 @@ const TELL_TRIES = 2;
 const TELL_DISTANCE = 2;
 /** How long (deciseconds) it waits at its post for the Head of Security to come into sight before it sends word by PDA. */
 const SOUGHT_DS = 200;
+/**
+ * How long (deciseconds) after a word would not send by PDA before it sends it again itself
+ * (ARR-05). The server keeps the text and sends it again by itself meanwhile, so sooner would
+ * only have the Head of Security told twice.
+ */
+const UNSENT_AGAIN_DS = 1800;
+
+/**
+ * A word for the Head of Security, with when its PDA last would not send it (ARR-05).
+ * `unsent` belongs on BeatWord in types.ts; it is kept here until that file is free to change.
+ */
+type Word = BeatWord & { unsent?: number };
 
 /**
  * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
@@ -227,9 +239,10 @@ function syncTasks(brain: NpcBrain): void {
 /**
  * Telling the Head of Security how a warrant went, face to face. Said is not told: it is passed
  * on only when the Head of Security says it has it. With no word back it walks up and says it
- * again, and after that, or if the Head of Security is not to be found, it goes by PDA.
+ * again, and after that, or if the Head of Security is not to be found, it goes by PDA. Word the
+ * PDA would not send, or with no PDA on it, it takes to its post to say there (ARR-05).
  */
-function tellHead(brain: NpcBrain, word: BeatWord): Plan {
+function tellHead(brain: NpcBrain, word: Word): Plan {
   const head = headAboard(brain);
   if (!head) {
     return {
@@ -237,17 +250,60 @@ function tellHead(brain: NpcBrain, word: BeatWord): Plan {
       step: 'There is no Head of Security aboard to tell.',
     };
   }
+  const seen = brain.peopleInView.find((person) => person.name === head.name);
+  const pdaFails = !brain.hasPda || word.unsent !== undefined;
+  // In sight, word is said to their face, whatever sent it to the PDA before (ARR-05). Only word
+  // said twice and not heard stays on a PDA that works.
+  if (word.byPda && seen && (word.unheard < TELL_TRIES || pdaFails)) {
+    word.byPda = false;
+    if (word.unheard >= TELL_TRIES) {
+      word.unheard = 0;
+    }
+  }
+  // The PDA would not send it, or there is none: it is taken to its post, where the Head of
+  // Security works, unless it is after someone or has them by the arm. Out there it is told when
+  // they are next seen, and tried on the PDA again now and then.
+  const onFoot = (): Plan => {
+    const why = brain.hasPda
+      ? 'your PDA would not send it'
+      : 'you have no PDA on you';
+    if (
+      brain.post &&
+      brain.location !== brain.post &&
+      !brain.security?.holding &&
+      !onLead(brain) &&
+      !brain.shutIn
+    ) {
+      return {
+        ready: true,
+        step: `You have word for ${head.name}, the Head of Security, and ${why}. You are going to your post, the ${brain.post}, to tell them there.`,
+        act: { tool: 'go_to', place: brain.post },
+      };
+    }
+    if (brain.post && brain.location === brain.post) {
+      word.soughtAt ??= brain.now;
+      if (brain.now - word.soughtAt <= SOUGHT_DS) {
+        return {
+          ready: false,
+          wait: true,
+          step: `You have word for ${head.name}, the Head of Security, and ${why}. You are at your post, looking for them.`,
+        };
+      }
+    }
+    return {
+      ready: false,
+      step: `You have word for ${head.name}, the Head of Security, and ${why}. You will tell them when you see them.`,
+    };
+  };
   const byPda = (): Plan =>
-    brain.hasPda
+    brain.hasPda &&
+    (word.unsent === undefined || brain.now - word.unsent >= UNSENT_AGAIN_DS)
       ? {
           ready: true,
           step: `You have word for ${head.name}, the Head of Security, and cannot tell them to their face. You are sending it by PDA: "${word.line}"`,
           act: { tool: 'message', person: head.name, text: word.line },
         }
-      : {
-          ready: false,
-          step: `You have word for ${head.name}, the Head of Security, and no way to get it to them.`,
-        };
+      : onFoot();
   if (word.byPda) {
     return byPda();
   }
@@ -268,7 +324,6 @@ function tellHead(brain: NpcBrain, word: BeatWord): Plan {
     word.byPda = true;
     return byPda();
   }
-  const seen = brain.peopleInView.find((person) => person.name === head.name);
   if (
     seen &&
     word.unheard > 0 &&
@@ -637,9 +692,14 @@ export const OFFICER: Job = {
     if (word && act.tool === 'approach') {
       word.walkedUp = true;
     }
-    // Sent by PDA, it is passed on. One that will not send is kept, and tried again later.
-    if (word && act.tool === 'message' && ok) {
-      beat.words = beat.words.filter((it) => it !== word);
+    // Sent by PDA, it is passed on. One that will not send is kept, taken to its post, and tried
+    // on the PDA again later (ARR-05).
+    if (word && act.tool === 'message') {
+      if (ok) {
+        beat.words = beat.words.filter((it) => it !== word);
+      } else {
+        (word as Word).unsent = brain.now;
+      }
     }
   },
 };

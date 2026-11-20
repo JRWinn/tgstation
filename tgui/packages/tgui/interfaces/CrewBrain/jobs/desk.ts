@@ -120,6 +120,72 @@ const PASS_AGAIN_DS = 1200;
 /** The most characters a body can say at once, or send in one PDA message. */
 const SAID_MAX = 200;
 
+/** How long (deciseconds) the same word from its staff on how a warrant went is taken once only (ARR-05). */
+const SAME_WORD_DS = 6000;
+
+/**
+ * What the desk keeps beyond DeskWork in types.ts. These belong on DeskWork, Warrant and the
+ * held list there, and are kept here until that file is free to change.
+ */
+type DeskMore = DeskWork & {
+  /** Each word from its staff on how a warrant went, by "what|name|from|cell|why", and when it came (ARR-05). */
+  lately?: Record<string, number>;
+};
+
+/** The desk with what it keeps beyond DeskWork. */
+function moreOf(brain: NpcBrain): DeskMore {
+  return deskOf(brain) as DeskMore;
+}
+
+/**
+ * TRUE if this word on how a warrant went has come already, lately: the same word said to its
+ * face and then sent again by the server's own copy of a PDA that would not send at the time
+ * (ARR-05). A new warrant on the person, or their getting away, starts afresh.
+ */
+function heardAlready(
+  brain: NpcBrain,
+  outcome: SecurityOutcome,
+  from: string,
+): boolean {
+  const desk = moreOf(brain);
+  const lately = Object.fromEntries(
+    Object.entries(desk.lately ?? {}).filter(
+      ([, at]) => brain.now - at < SAME_WORD_DS,
+    ),
+  );
+  desk.lately = lately;
+  const key = [
+    outcome.what,
+    outcome.name,
+    from,
+    outcome.cell ?? '',
+    outcome.why ?? '',
+  ].join('|');
+  if (lately[key] !== undefined) {
+    return true;
+  }
+  if (outcome.what === 'lost') {
+    forgetWords(brain, (_what, who) => sameName(outcome.name, who));
+  }
+  desk.lately ??= {};
+  desk.lately[key] = brain.now;
+  return false;
+}
+
+/** Forgets the words lately come that `which` picks: what comes next of them is new (ARR-05). */
+function forgetWords(
+  brain: NpcBrain,
+  which: (what: string, who: string) => boolean,
+): void {
+  const desk = moreOf(brain);
+  desk.lately = Object.fromEntries(
+    Object.entries(desk.lately ?? {}).filter(([key]) => {
+      const [what, who] = key.split('|');
+      return !which(what, who);
+    }),
+  );
+}
+
 /** The list it keeps. Made the first time it is asked for. */
 export function deskOf(brain: NpcBrain): DeskWork {
   brain.desk ??= {
@@ -469,6 +535,8 @@ export function deskTakes(
   // The Captain having arrests made again after security's staff were hurt.
   if (captain && TRY_AGAIN_WORDS.test(text)) {
     desk.officerOut = null;
+    // Its staff hurt again after this is news.
+    forgetWords(brain, (what) => what === 'hurt');
     arrestAgain(brain);
     const officer = officerAboard(brain);
     if (officer) {
@@ -616,6 +684,8 @@ export function deskTakes(
         passed: null,
       });
       desk.serial += 1;
+      // A new warrant: what comes of it is new, whatever came of an old one on them (ARR-05).
+      forgetWords(brain, (_what, who) => sameName(declared.name, who));
       reply(
         brain,
         from,
@@ -808,6 +878,10 @@ export function deskOutcome(
       at: Date.now(),
     });
   }
+  // The same word again, said to its face and come again by PDA: heard, and taken once (ARR-05).
+  if (!own && heardAlready(brain, outcome, from)) {
+    return;
+  }
   const warrant = desk.warrants.find((it) => sameName(it.name, outcome.name));
   const who = own ? 'I' : firstName(from);
   if (outcome.what !== 'cuffed' && outcome.what !== 'cannot' && desk.cuffed) {
@@ -815,6 +889,11 @@ export function deskOutcome(
   }
   switch (outcome.what) {
     case 'cuffed':
+      // Word come late, of someone in a cell already: they were in cuffs, and the Captain has
+      // been told they are in a cell (ARR-05).
+      if (Object.keys(desk.held).some((it) => sameName(outcome.name, it))) {
+        return;
+      }
       desk.cuffed ??= {};
       desk.cuffed[warrant?.name ?? outcome.name] = brain.now;
       tellCaptain(
