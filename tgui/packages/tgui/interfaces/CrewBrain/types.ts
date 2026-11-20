@@ -1619,6 +1619,8 @@ export type NpcBrain = {
   resay?: { text: string; at: number; tries: number; fired: boolean } | null;
   /** Rooms where a step of its work failed lately, and until when that step is left alone (this window's clock): it does not walk back to them before then (DRV-12). */
   heldAt?: { place: string; until: number }[];
+  /** A PDA message (or the like) sent while a longer step was still waited on, kept beside it so that the longer step's result is still heard (LOGB-02). */
+  sideAct?: NpcBrain['lastAct'];
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */

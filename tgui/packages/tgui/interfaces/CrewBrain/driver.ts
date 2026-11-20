@@ -75,6 +75,12 @@ const STAYS = new Set([
   'note',
   'word_passed',
 ]);
+/**
+ * Steps that do not touch what the body is doing: a PDA message, a note. Sent while it waits on a
+ * longer step (a haul, a walk), they are kept beside that step, not in its place, so that its
+ * result is still heard (LOGB-02).
+ */
+const ASIDE_FROM_HANDS = new Set(['message', 'note', 'word_passed']);
 /** TRUE if this tool takes the body off where it stands: anything that is not done on the spot. */
 export function isWalk(tool: string): boolean {
   return !STAYS.has(tool);
@@ -889,6 +895,10 @@ export function drive(
     fail(brain, brain.lastAct.key);
     brain.lastAct = null;
   }
+  if (brain.sideAct && now - brain.sideAct.at > LOST_ACT_MS) {
+    fail(brain, brain.sideAct.key);
+    brain.sideAct = null;
+  }
   // An answer someone is waiting on is given whatever the hands are doing. Talking takes no
   // hands, and "why are you in here?" does not wait until the floor is clean.
   if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
@@ -1053,6 +1063,15 @@ export function drive(
   if (!step.act) {
     return null;
   }
+  // A PDA message sent in the middle of a haul or a walk is sent beside it: the haul's result is
+  // still to come, and is what the job is waiting on (LOGB-02). One such at a time.
+  const beside =
+    !!brain.lastAct &&
+    !ASIDE_FROM_HANDS.has(brain.lastAct.act.tool) &&
+    ASIDE_FROM_HANDS.has(step.act.tool);
+  if (beside && brain.sideAct) {
+    return null;
+  }
   // What it dropped its work to do, having been told to leave, it drops it for once.
   if (dropToLeave && leaving) {
     leaving.dropped = true;
@@ -1065,7 +1084,7 @@ export function drive(
   noteDone(brain, step);
   // An arrest sent over before its answer came will never be answered, though the cuffs may have
   // gone on. Whose job it was is kept a while, so that the job can tell its own prisoner (ARR-08).
-  const over = brain.lastAct;
+  const over = beside ? null : brain.lastAct;
   if (
     over?.act.tool === 'arrest' &&
     over.act.how !== 'stop' &&
@@ -1077,13 +1096,18 @@ export function drive(
       at: brain.now,
     };
   }
-  brain.lastAct = {
+  const sent = {
     key: step.key,
     tool: serverTool,
     at: now,
     act: step.act,
     task: step.task,
   };
+  if (beside) {
+    brain.sideAct = sent;
+  } else {
+    brain.lastAct = sent;
+  }
   brain.driveAfter = now + (step.idle ? IDLE_GAP_MS : SETTLE_MS);
   commitTo(brain, step.task, now);
   return step;
@@ -1281,14 +1305,36 @@ function fail(brain: NpcBrain, key: string): void {
  * asked for, a failure means leaving that step alone for a while and a success clears its record.
  */
 export function noteResult(brain: NpcBrain, event: SenseEvent): void {
-  const last = brain.lastAct;
-  if (
-    !last ||
-    event.kind !== 'action_result' ||
-    event.details.tool !== last.tool
-  ) {
+  if (event.kind !== 'action_result') {
     return;
   }
+  const last = brain.lastAct;
+  if (last && event.details.tool === last.tool) {
+    settleResult(brain, last, event);
+    brain.lastAct = null;
+    // Nobody goes from one job to the next without a breath. It takes a moment, and not the same
+    // moment every time.
+    brain.driveAfter = Math.max(
+      brain.driveAfter,
+      Date.now() + BREATH_MIN_MS + Math.random() * BREATH_SPREAD_MS,
+    );
+    return;
+  }
+  // A message sent beside a longer step: heard through the same hooks, and the longer step is
+  // still waited on (LOGB-02).
+  const side = brain.sideAct;
+  if (side && event.details.tool === side.tool) {
+    brain.sideAct = null;
+    settleResult(brain, side, event);
+  }
+}
+
+/** What the result of one step it sent settles: its job's hooks, and whether it is left alone a while. */
+function settleResult(
+  brain: NpcBrain,
+  last: NonNullable<NpcBrain['lastAct']>,
+  event: SenseEvent,
+): void {
   // A walk to a room that the server says got there, asked for again, and again: the body is
   // told it has arrived and each time is found not to have. Whatever the cause, a fourth walk
   // will not mend it. Whoever asked for the walk is told, and it is left alone a while.
@@ -1385,11 +1431,4 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
       brain.openDoorTries++;
     }
   }
-  brain.lastAct = null;
-  // Nobody goes from one job to the next without a breath. It takes a moment, and not the same
-  // moment every time.
-  brain.driveAfter = Math.max(
-    brain.driveAfter,
-    Date.now() + BREATH_MIN_MS + Math.random() * BREATH_SPREAD_MS,
-  );
 }
