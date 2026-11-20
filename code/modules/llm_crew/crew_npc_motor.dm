@@ -4,6 +4,10 @@
 
 /// How many times running a walking body walks into the same person from the same tile before it takes it that they are in its way.
 #define CREW_NPC_BLOCKED_BUMPS 4
+/// How long a body keeps clear of a room where it found the air bad (CHEAT-11). A vented room is mended in the end.
+#define CREW_NPC_BAD_AIR_KEPT (5 MINUTES)
+/// Why a walk stopped at the edge of bad air. Kept defined: walk_finished() in crew_npc_tools.dm reads it.
+#define CREW_NPC_BAD_AIR "the air in there is bad"
 
 /// Default wandering for crew NPCs. Unlike the generic wander it will not walk the body into places that kill it.
 /datum/bt_node/ai_behavior/idle_random_walk/crew_npc
@@ -51,6 +55,14 @@
  * below, a chasm or lava are no floor: MAP-11); with none to hand, those are looked for by kind.
  */
 /proc/crew_npc_safe_turf(turf/destination, mob/living/walker)
+	return crew_npc_safe_floor(destination, walker) && crew_npc_air_ok(destination)
+
+/**
+ * The part of crew_npc_safe_turf() that is the map, which a body may know of anywhere: solid
+ * floor, and not an airlock to space. The air is left out: that is felt or seen, not known from
+ * across the station (CHEAT-11).
+ */
+/proc/crew_npc_safe_floor(turf/destination, mob/living/walker)
 	if(!isopenturf(destination) || isspaceturf(destination))
 		return FALSE
 	if(walker)
@@ -67,11 +79,46 @@
 	// Stepping into an external airlock opens it and starts it cycling, which ends in vacuum.
 	if(locate(/obj/machinery/door/airlock/external) in destination)
 		return FALSE
-	var/datum/gas_mixture/air = destination.return_air()
+	return TRUE
+
+/// TRUE if the air on this turf is fit to breathe: its pressure between the warning limits a player's HUD shows.
+/proc/crew_npc_air_ok(turf/destination)
+	var/datum/gas_mixture/air = destination?.return_air()
 	if(isnull(air))
 		return FALSE
 	var/pressure = air.return_pressure()
 	return pressure >= WARNING_LOW_PRESSURE && pressure <= WARNING_HIGH_PRESSURE
+
+/// Room name -> world.time the body last found the air bad there, on a square next to it or in sight (CHEAT-11).
+/datum/ai_controller/crew_npc/var/list/bad_air_seen = list()
+
+/// Notes that the body has found the air bad on this square, so that the room is kept clear of for a while.
+/datum/ai_controller/crew_npc/proc/note_bad_air(turf/spot)
+	var/room_name = get_area_name(spot, TRUE)
+	if(!bad_air_seen[room_name])
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found the air bad at [AREACOORD(spot)].")
+	bad_air_seen[room_name] = world.time
+
+/**
+ * TRUE if the body would pick this square, which may be rooms away, to walk to or stand at
+ * (CHEAT-11). The floor is the map, which it knows. The air it knows only as a player would: on a
+ * square it can see now, or in a room where it found the air bad not long ago. A square out of
+ * its sight in a room it has no such memory of is taken to have good air. The walk itself stops
+ * at the edge of bad air (crew_npc_walk/perform), so a body is never walked into it unawares.
+ */
+/datum/ai_controller/crew_npc/proc/far_spot_safe(turf/spot)
+	if(!crew_npc_safe_floor(spot, pawn))
+		return FALSE
+	var/room_name = get_area_name(spot, TRUE)
+	var/seen_at = bad_air_seen[room_name]
+	if(seen_at)
+		if(world.time - seen_at < CREW_NPC_BAD_AIR_KEPT)
+			return FALSE
+		bad_air_seen -= room_name
+	if(can_see(pawn, spot, CREW_NPC_VISION_RANGE) && !crew_npc_air_ok(spot))
+		note_bad_air(spot)
+		return FALSE
+	return TRUE
 
 /**
  * TRUE if the body has no gravity and nothing it could push off from, so that a player in its place
@@ -109,6 +156,13 @@
 	if(isliving(walker) && crew_npc_floating(walker))
 		return FALSE
 
+/// The first airlock on the newest route planned for the body that is shut and will not open for it, if any (KNA-03).
+/datum/ai_controller/crew_npc/var/datum/weakref/route_shut_door
+/// The first few squares of the newest route planned, for the log of a walk that fails (KNA-03).
+/datum/ai_controller/crew_npc/var/route_head
+/// The door a route was last logged as running through, so that each replan does not log it again.
+/datum/ai_controller/crew_npc/var/datum/weakref/route_shut_logged
+
 /// Notes on the body's controller how many steps the route just planned for it runs to. None at all means no way was found.
 /datum/ai_movement/navmap_astar/crew_npc/proc/route_planned(datum/move_loop/has_target/navmap_astar/source, list/path)
 	SIGNAL_HANDLER
@@ -116,6 +170,7 @@
 	if(!istype(crew_controller))
 		return
 	crew_controller.last_route_steps = length(path)
+	crew_controller.note_route_doors(path)
 	if(isnull(source.avoid))
 		return
 	var/mob/living/blocker = crew_controller.avoid_ref?.resolve()
@@ -130,6 +185,44 @@
 	if(!crew_controller.avoid_logged)
 		crew_controller.avoid_logged = TRUE
 		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) went round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move: [length(path)] steps.")
+
+/**
+ * Looks along a route just planned for an airlock that is shut and will not open for the body:
+ * locked to its ID, bolted, welded or without power (KNA-03). The planner has been seen to send a
+ * janitor at the Cargo Bay's lobby door, locked to it, again and again, and the walk then bumped
+ * the door for five seconds or more. The first such door is noted, and the walk ends on it at once
+ * (crew_npc_walk/perform). The first squares of the route are kept for the log. A signal handler:
+ * notes and logs only.
+ */
+/datum/ai_controller/crew_npc/proc/note_route_doors(list/path)
+	route_shut_door = null
+	var/list/head = list()
+	for(var/turf/tile as anything in path)
+		if(length(head) < 3)
+			head += "([tile.x],[tile.y])"
+		if(route_shut_door)
+			if(length(head) >= 3)
+				break
+			continue
+		var/obj/machinery/door/airlock/door = locate() in tile
+		if(isnull(door) || !door.density)
+			continue
+		var/why
+		if(door.welded)
+			why = "welded"
+		else if(door.locked)
+			why = "bolted"
+		else if(!door.hasPower())
+			why = "without power"
+		else if(!door.allowed(pawn))
+			why = "does not open for it"
+		if(isnull(why))
+			continue
+		route_shut_door = WEAKREF(door)
+		if(route_shut_logged?.resolve() != door)
+			route_shut_logged = route_shut_door
+			log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) was routed through [door] at ([door.x],[door.y]), which is shut and [why], from [AREACOORD(pawn)].")
+	route_head = length(head) ? head.Join(", ") : null
 
 /// Each new plan of a walk leaves out the tile of something in the way that will never move (PLAY-04).
 /datum/ai_movement/navmap_astar/crew_npc/repath_incoming(datum/move_loop/has_target/navmap_astar/source)
@@ -164,6 +257,8 @@
 		crew_controller.avoid_turf = null
 		crew_controller.avoid_gave_up = FALSE
 		crew_controller.avoid_logged = FALSE
+		crew_controller.route_shut_door = null
+		crew_controller.route_head = null
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/atom/target = controller.blackboard[target_key]
@@ -212,6 +307,29 @@
 		crew_controller.blocked_by = null
 		crew_controller.blocked_bumps = 0
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// The route runs through a shut door that will not open for the body (KNA-03). It goes no
+	// further: walking into the door only bumps it until the walk gives up. walk_finished() says
+	// which door it was.
+	var/obj/machinery/door/airlock/shut_door = crew_controller.route_shut_door?.resolve()
+	if(!QDELETED(shut_door))
+		if(shut_door.density)
+			fail_reason = CREW_NPC_NO_WAY
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		crew_controller.route_shut_door = null
+	// The next square of the way has bad air (CHEAT-11). A body feels the cold and sees its HUD's
+	// warning on the square in front of it, and goes no further. Out of good air already, it walks
+	// on: that is the way out of it. Its room is kept clear of for a while.
+	var/datum/move_loop/has_target/navmap_astar/loop = GLOB.move_manager.processing_on(controller.pawn, SSai_movement)
+	if(istype(loop) && length(loop.movement_path))
+		var/turf/standing = get_turf(puller)
+		var/turf/next_square = loop.movement_path[1]
+		if(isturf(next_square) && get_dist(standing, next_square) <= 1 && crew_npc_air_ok(standing) && !crew_npc_air_ok(next_square))
+			crew_controller.note_bad_air(next_square)
+			fail_reason = CREW_NPC_BAD_AIR
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		// Standing in good air in a room it once found bad: the room is mended.
+		if(istype(crew_controller) && length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
+			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
 	if(movement_failed)
 		// The move loop gives up on steps the body is not let take, as well as on a way that is shut.
 		// A body held, strapped in or shut in something knows that is what stopped it (CORE-11).
@@ -245,3 +363,4 @@
 		crew_controller.walk_finished(finished_target, succeeded, reason)
 
 #undef CREW_NPC_BLOCKED_BUMPS
+#undef CREW_NPC_BAD_AIR_KEPT

@@ -79,6 +79,42 @@ function chief() {
   add('still one entry, waited on afresh', [b.forcing.sent.length, b.forcing.sent[0].at, b.forcing.sentGivenUp?.Bar], [1, 12100, undefined]);
 }
 
+// ---- the engineer at the door: reasons that are not tried twice (DOOR-12)
+function engineer() {
+  const b: any = makeBrain('Derek Albright', 'Station Engineer');
+  b.pdaPeople = [{ name: 'Ada Voss', job: 'Chief Engineer' }, ...PDA];
+  at(b, 6000, 'Engineering');
+  F.forcingReads(b, 'Ada Voss', 'Chief Engineer', F.forceOrderLine('Derek', 'Cargo Bay'));
+  sentBy(b);
+  return b;
+}
+{
+  const b = engineer();
+  add('the engineer has the job', b.forcing.jobs.map((job: any) => job.room), ['Cargo Bay']);
+  F.forcingAfterActing(b, { tool: 'force_door', place: 'Cargo Bay' }, false, { reason: 'fire_doors', fire_doors: 'Cargo Bay' });
+  add('a shut fire door: told at once, with where the alarm is', sentBy(b), [
+    'PDA to Ada Voss: Ada, I could not open the door of the Cargo Bay: the fire doors are shut in the Cargo Bay.',
+  ]);
+  add('and the job is over', b.forcing.jobs.length, 0);
+}
+{
+  const b = engineer();
+  F.forcingAfterActing(b, { tool: 'force_door', place: 'Cargo Bay' }, false, { reason: 'wire' });
+  add('a wire that would not pulse: tried once more, nothing sent', sentBy(b), []);
+  add('the job is kept for the second go', b.forcing.jobs.length, 1);
+}
+add('the fire-door reason says no "I"', /\bI\b/.test(F.whyNot('fire_doors', undefined, 'Bar')), false);
+// DOOR-15: a door that shocked the body at its wires is not gone at twice.
+{
+  const b = engineer();
+  F.forcingAfterActing(b, { tool: 'force_door', place: 'Cargo Bay' }, false, { reason: 'electrified' });
+  add('an electrified door: told at once that it is electrified', sentBy(b), [
+    'PDA to Ada Voss: Ada, I could not open the door of the Cargo Bay: it is electrified.',
+  ]);
+  add('and no second go', b.forcing.jobs.length, 0);
+}
+add('the electrified reason says no "I"', /\bI\b/.test(F.whyNot('electrified')), false);
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -105,7 +105,11 @@ const OPENED_WORDS = /\bengineering has opened the (.+?)\./i;
  * was sent "engineering could not open the Bar Backroom: I cannot get to it". `through` is the
  * room in between that is locked to the engineer as well, if that is why there was no way.
  */
-export function whyNot(reason: string, through?: string): string {
+export function whyNot(
+  reason: string,
+  through?: string,
+  fireDoors?: string,
+): string {
   switch (reason) {
     case 'bolted':
       return 'it is bolted';
@@ -121,6 +125,14 @@ export function whyNot(reason: string, through?: string): string {
         : 'there is no way to it';
     case 'no_door':
       return 'no door to it can be found';
+    // The door shocked whoever went for its wires (DOOR-15).
+    case 'electrified':
+      return 'it is electrified';
+    // A shut fire door under the airlock (DOOR-12).
+    case 'fire_doors':
+      return fireDoors
+        ? `the fire doors are shut in the ${fireDoors}`
+        : 'the fire doors are shut';
     default:
       return 'it would not open';
   }
@@ -436,8 +448,18 @@ export function forcingAfterActing(
   }
   const reason = String(details.reason ?? '');
   // A door that is bolted or welded, or one it has not the tools or the knowledge for, is not
-  // gone at twice. Anything else is tried once more.
-  const final = ['bolted', 'welded', 'no_tools', 'no_knowledge', 'no_door'];
+  // gone at twice, nor one a shut fire door bars (DOOR-12): a second go finds the same fire door,
+  // nor one that is electrified (DOOR-15): its wires cannot be worked without insulated gloves, and a
+  // second go is a second shock. Anything else is tried once more.
+  const final = [
+    'bolted',
+    'welded',
+    'no_tools',
+    'no_knowledge',
+    'no_door',
+    'fire_doors',
+    'electrified',
+  ];
   if (!ok) {
     job.tries++;
     if (job.tries < FORCE_TRIES && !final.includes(reason)) {
@@ -457,6 +479,9 @@ export function forcingAfterActing(
           whyNot(
             reason,
             typeof details.through === 'string' ? details.through : undefined,
+            typeof details.fire_doors === 'string'
+              ? details.fire_doors
+              : undefined,
           ),
         ),
     ok

@@ -91,3 +91,15 @@ Checked by Opus 5.5, read from the code; not seen in a round.
 - Corrected one statement: the asking is not repeated for the rest of the round. `nextToWrite` in `driver.ts` writes once to whoever let it in, once to one keeper (`KEEPERS_WRITTEN_TO = 1`) and once to the head, `NOBODY_CAME_MS` (a minute) apart; then it stops. The fault is three or four wasted walks and a body left shut in with nobody told why, which is still medium.
 - Not found as known or chosen: `LLM_CREW_PLAN_NO_CHEATS.md:83` lists `hold_door_for` only for opening the door by code; `LLM_CREW_PLAN_ROUND_0912.md:139` saw "The door will not open for you" in a round, for two technicians on one ask, not this.
 - Effort raised to medium: the server part is small, but the reason has to be carried through `finish_errand` and acted on in `cargo.ts`. Added that step and the caution about `room_door_for`'s early returns to the fix.
+
+## Fix so far
+
+Server part built by group m-doors (2026-11-19, night), compile only, not played.
+
+- `hold_door_for` (`crew_npc_doors.dm`) tests a shut door in this order, each with its own words and a third element of details: welded ("The door is welded shut.", `welded`), bolted (`bolted`), no power ("The door has no power: its lights are out.", `no_power`), not its ID (`no_access`); a shut fire door on the square gives `fire_doors` (DOOR-12); a click that does not open it gives `stuck`. A door standing open is not refused for no power or bolts: it is watched as an opened one.
+- `room_door_for` scores a dead door (`crew_npc_door_dead`: shut and bolted, welded or unpowered) 300 worse, so a working door of the room comes first. A named door that is dead is still taken if the person stands at it; otherwise the loop looks further. The door the person is standing at (`wanted_door`) is kept as before.
+
+Left:
+- `crew_npc_hands.dm`, `finish_errand`: pass the details for this tool. Change `else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)` to `else if((tool == CREW_TOOL_RESET_ALARM || tool == CREW_TOOL_DOOR) && length(outcome) >= 3)`. Until then the window gets the new words but no `reason`.
+- `jobs/cargo.ts` (step 3): on `no_power`, `bolted`, `welded` or `fire_doors`, remember the door as dead for a few minutes, tell the person why (aloud in sight, else PDA) and the head. The owner's question in step 3 (crowbar or engineering) is still open.
+- Simulator: the stand-in `open_door` should give these refusals (SIM-04).
