@@ -721,11 +721,33 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
 		their_controller.being_handed_something()
+	var/mob/living/carbon/human/body = pawn
+	var/given = 0
 	for(var/obj/item/mail/letter as anything in theirs)
-		// What their hands cannot take ends up at their feet.
-		if(!person.put_in_hands(letter))
-			letter.forceMove(person.drop_location())
-	freight_changed()
+		// Into a hand of theirs that is empty and works. With none, the body keeps the rest: nobody can
+		// put a letter down at someone's feet from a tile off. It used to be moved there by code.
+		var/their_hand
+		for(var/index in person.get_empty_held_indexes())
+			if(person.can_put_in_hand(letter, index))
+				their_hand = index
+				break
+		if(isnull(their_hand))
+			break
+		var/was_held = body.is_holding(letter)
+		if(was_held && !body.temporarilyRemoveItemFromInventory(letter))
+			continue
+		if(person.put_in_hand(letter, their_hand))
+			given++
+			continue
+		// Not taken after all: back into the hand it came out of, as give_item does.
+		if(was_held && !QDELETED(letter))
+			body.put_in_hands(letter)
+	if(given)
+		freight_changed()
+	if(!given)
+		return list(FALSE, "[person.name] has no free hand to take the mail. You still have it.")
+	if(given < length(theirs))
+		return list(TRUE, "You hand [person.name] some of the mail that came for them. Their hands are full, so you still have the rest.")
 	return list(TRUE, "You hand [person.name] the mail that came for them.")
 
 /// Tool: send the supply shuttle back, with whatever empty crates are aboard. Cargo staff only.
