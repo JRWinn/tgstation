@@ -8,7 +8,7 @@
 
 /// Handles one tool call from the owner's brain window.
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
-	if(!tool_call_allowed())
+	if(!tool_call_allowed(tool))
 		return
 	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK, CREW_TOOL_STOW, CREW_TOOL_STEP_ASIDE, CREW_TOOL_NOTE, CREW_TOOL_PAPER, CREW_TOOL_WORD_PASSED, CREW_TOOL_OPEN_CRATE, CREW_TOOL_MACHINE, CREW_TOOL_FORCE_DOOR, CREW_TOOL_GET_KIT, CREW_TOOL_ARREST, CREW_TOOL_JAIL, CREW_TOOL_FREE)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
@@ -119,13 +119,18 @@
 			tool_message(arguments["person"], arguments["text"])
 
 /// Counts this tool call against the rate limit. Returns FALSE if it should be dropped.
-/datum/ai_controller/crew_npc/proc/tool_call_allowed()
+/datum/ai_controller/crew_npc/proc/tool_call_allowed(tool)
 	if(world.time - tool_window_started > CREW_NPC_TOOL_WINDOW)
 		tool_window_started = world.time
 		tool_calls_in_window = 0
 	tool_calls_in_window++
 	if(tool_calls_in_window <= CREW_NPC_TOOL_CALL_LIMIT)
 		return TRUE
+	// A line dropped is told every time, as a say that was refused: the brain takes it back out of
+	// what it has said and says it again later, rather than counting it said (BRAIN-04).
+	if(tool == CREW_TOOL_SAY)
+		action_result(CREW_TOOL_SAY, FALSE, "You are trying to do too many things at once, and that went unsaid. Slow down.")
+		return FALSE
 	// Say so once per window, then drop the rest quietly so a runaway brain cannot flood its own senses.
 	if(tool_calls_in_window == CREW_NPC_TOOL_CALL_LIMIT + 1)
 		action_result(null, FALSE, "You are trying to do too many things at once. Slow down.")
