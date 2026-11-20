@@ -29,7 +29,8 @@ import type {
 import { doorOpened } from './arrests';
 import {
   chiefAboard,
-  engineersAboard,
+  engineerAnswered,
+  engineerToOrder,
   isChiefEngineer,
   isEngineer,
 } from './engineering';
@@ -183,7 +184,8 @@ export function askEngineering(
     return;
   }
   const chief = chiefAboard(brain)?.name;
-  const whom = chief ?? engineersAboard(brain)[0];
+  // With no Chief Engineer, the engineer that answers, as the Chief Engineer picks one (ENG-03).
+  const whom = chief ?? engineerToOrder(brain);
   if (!whom) {
     return;
   }
@@ -232,8 +234,9 @@ export function forcingReads(
   const ask = text.match(ASK_WORDS);
   if (ask && engineering && isSecurity(fromJob)) {
     const room = ask[1];
+    // The engineer it gives orders to: the one that has the engine, or that answers (ENG-03).
     const engineer = isChiefEngineer(brain.job)
-      ? engineersAboard(brain)[0]
+      ? (engineerToOrder(brain) ?? undefined)
       : undefined;
     // Already with an engineer and not yet given up on: it is not sent again, nor security told twice.
     if (
@@ -288,6 +291,8 @@ export function forcingReads(
   const failed = done ? null : text.match(FAILED_WORDS);
   const room = done ?? failed?.[1];
   if (room && isChiefEngineer(brain.job) && isEngineer(fromJob)) {
+    // An engineer that answers in the set words (ENG-03).
+    engineerAnswered(brain, from);
     // Passed on to whoever asked.
     const sent = forcing.sent.find((it) => it.room === room);
     forcing.sent = forcing.sent.filter((it) => it !== sent);
