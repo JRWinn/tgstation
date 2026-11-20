@@ -135,9 +135,18 @@ function firstWord(name: string): string {
  * found in "Chief Engineer, come here".
  */
 const JOB_CALLS: Record<string, string[]> = {
-  'Security Officer': ['security officer', 'officer'],
-  'Cargo Technician': ['cargo technician', 'technician', 'cargo'],
-  'Station Engineer': ['station engineer', 'engineer'],
+  Captain: ['captain', 'cap'],
+  'Head of Personnel': ['head of personnel', 'hop'],
+  'Head of Security': ['head of security', 'hos'],
+  'Chief Engineer': ['chief engineer', 'ce'],
+  'Chief Medical Officer': ['chief medical officer', 'cmo'],
+  'Research Director': ['research director', 'rd'],
+  Quartermaster: ['quartermaster', 'qm'],
+  Janitor: ['janitor', 'jani', 'janny', 'custodian'],
+  'Security Officer': ['security officer', 'officer', 'secoff', 'sec'],
+  'Cargo Technician': ['cargo technician', 'cargo tech', 'technician', 'cargo'],
+  'Station Engineer': ['station engineer', 'engineer', 'engi'],
+  'Medical Doctor': ['medical doctor', 'doctor', 'doc'],
 };
 
 /** The words a job is called by, in lower case. */
@@ -244,17 +253,21 @@ export function saidTo(
   // (MEM-01). "There is a fire in the bar" is not said to Ben Fire, and "order a mop through
   // cargo" is not said to a cargo technician.
   const byName = calledBy(heard, brain.name, true);
-  if (byName || (!!brain.post && callsOnJob(heard, brain.job))) {
+  // Anyone may be called by their job, not only those at a post: "QM, order some paper",
+  // "Janitor, clean the bar" (PARSE-16).
+  const byJob = !byName && callsOnJob(heard, brain.job);
+  const company = brain.peopleInView.filter(
+    (person) => person.name !== brain.name && person.name !== speaker,
+  );
+  if (byName || byJob) {
     // A first name it shares with someone else there, and no surname, is put to both of them:
-    // the nearest answers (PARSE-14).
-    const shared =
-      byName === 'first' &&
-      brain.peopleInView.some(
-        (person) =>
-          person.name !== brain.name &&
-          person.name !== speaker &&
+    // the nearest answers (PARSE-14). So is a job two there hold (PARSE-16).
+    const shared = company.some((person) =>
+      byJob
+        ? person.job === brain.job
+        : byName === 'first' &&
           firstWord(person.name) === firstWord(brain.name),
-      );
+    );
     return { to: shared ? 'group' : 'me' };
   }
   for (const name of known) {
@@ -266,11 +279,17 @@ export function saidTo(
       return { to: 'other', name };
     }
   }
+  // Someone else there called by their job, as far as their ID shows it.
+  const calledJob = company.find(
+    (person) => !!person.job && callsOnJob(heard, person.job),
+  );
+  if (calledJob) {
+    return { to: 'other', name: calledJob.name };
+  }
   if (GROUP_WORDS.test(heard)) {
     return { to: 'group' };
   }
   // With no name used, who is there decides it.
-  const company = brain.peopleInView.filter((person) => person.name !== speaker);
   if (company.length === 0) {
     return { to: 'me' };
   }
