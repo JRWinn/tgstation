@@ -217,6 +217,36 @@ const collector = (leftIn: string | null) => {
   add('PLAY-12: put clear of the doors, it says so', b.toTell[0]?.line, 'I could not get crate #2 to the Custodial Closet. It is left in the Service Hallway, clear of the doors. Could you send someone else for it, please?');
 }
 {
+  // The server says where the crate lies (lies_in): that is the room told, not where the body is.
+  const b: any = makeBrain('Dortha Matthews', 'Janitor');
+  b.location = 'Service Hallway';
+  b.now = 5000;
+  b.toTell = [];
+  const task = addTask(b, { kind: 'collect', item: '2', place: 'Custodial Closet', urgency: 'asked', source: 'asked', askedBy: SUNSHINE });
+  b.gaveUp = { tool: 'collect_crate', what: 'crate #2', leftIn: null, liesIn: 'Central Primary Hallway', at: 5000 };
+  pickupsAfterActing(b, { tool: 'collect_crate', number: 2, place: 'Custodial Closet' }, task, false);
+  add('PLAY-12: lies_in from the server is the place told, not the body\'s room', b.toTell[0]?.line, 'I could not get crate #2 to the Custodial Closet. It is left in the Central Primary Hallway. Could you send someone else for it, please?');
+}
+{
+  // The empty crate given up on the way back: the head is told once, and the errand stands.
+  const b: any = makeBrain('Dortha Matthews', 'Janitor');
+  b.location = 'Service Hallway';
+  b.now = 5000;
+  b.toTell = [];
+  b.crateToReturn = true;
+  const task = addTask(b, { kind: 'collect', item: '2', place: 'Custodial Closet', urgency: 'asked', source: 'asked', askedBy: SUNSHINE });
+  task.unpacked = true;
+  task.toldUnpacked = true;
+  b.gaveUp = { tool: 'take_back', what: 'the large crate', leftIn: null, liesIn: 'Central Primary Hallway', at: 5000 };
+  pickupsAfterActing(b, { tool: 'take_back' }, task, false);
+  add('PLAY-12: the empty given up on the way back: its head is told where it lies', b.toTell.map((t: any) => [t.to, t.line, t.byPda]), [[SUNSHINE, 'I could not get the empty crate from #2 back to cargo. It is left in the Central Primary Hallway. I will try again.', true]]);
+  add('PLAY-12: the errand stands, to try again, and the give-up is spent', [task.state, b.gaveUp], ['open', null]);
+  add('PLAY-12: the head does not read it as a crate to send for', GAVE_UP_WORDS.test(b.toTell[0].line), false);
+  b.gaveUp = { tool: 'take_back', what: 'the large crate', leftIn: 'Service Hallway', liesIn: null, at: 6000 };
+  pickupsAfterActing(b, { tool: 'take_back' }, task, false);
+  add('PLAY-12: given up again: nothing more is told', b.toTell.length, 1);
+}
+{
   const b: any = makeBrain('Dortha Matthews', 'Janitor');
   b.toTell = [];
   const task = addTask(b, { kind: 'collect', item: '2', place: 'Custodial Closet', urgency: 'asked', source: 'asked', askedBy: SUNSHINE });

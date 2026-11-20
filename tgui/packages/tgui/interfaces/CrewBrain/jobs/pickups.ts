@@ -97,6 +97,8 @@ export const UNPACKED_WORDS = /crate #(\d+) is unpacked in/i;
 const GAVE_UP = 'I could not get crate #';
 /** The words by which a head hears that whoever it sent has given up hauling a crate, with its number (PLAY-12). */
 export const GAVE_UP_WORDS = /\bI could not get crate #(\d+) to the\b/i;
+/** The words by which it tells its head it has given up taking the empty crate back. Not GAVE_UP_WORDS: nobody need be sent. */
+const EMPTY_GAVE_UP = 'I could not get the empty crate from #';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -443,7 +445,8 @@ export function pickupsAfterActing(
     task.askedBy &&
     brain.hasPda
   ) {
-    const lies = gaveUp.leftIn ?? brain.location;
+    // Where the crate lies, not where the body is, when the server says (lies_in).
+    const lies = gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location;
     brain.toTell.push({
       to: task.askedBy,
       line: `${GAVE_UP}${task.item} to the ${task.place}. It is left in the ${lies}${gaveUp.leftIn ? ', clear of the doors' : ''}. Could you send someone else for it, please?`,
@@ -454,6 +457,29 @@ export function pickupsAfterActing(
     brain.gaveUp = null;
     task.reported = true;
     finishTask(brain, task);
+    return;
+  }
+  // The empty crate given up on the way back to cargo. It is still this errand's to bring back,
+  // and it is tried again as before, but whoever sent it is told once where it lies (PLAY-12).
+  if (
+    act.tool === 'take_back' &&
+    !ok &&
+    gaveUp?.tool === 'take_back' &&
+    task.askedBy &&
+    brain.hasPda
+  ) {
+    brain.gaveUp = null;
+    if (task.toldAt === undefined) {
+      task.toldAt = brain.now;
+      const lies = gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location;
+      brain.toTell.push({
+        to: task.askedBy,
+        line: `${EMPTY_GAVE_UP}${task.item} back to cargo. It is left in the ${lies}${gaveUp.leftIn ? ', clear of the doors' : ''}. I will try again.`,
+        why: `You could not get the empty crate from crate #${task.item} back to the Cargo Lobby: it kept getting away from you. You are sending ${task.askedBy}, who sent you for it, a PDA message to say where it is.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
     return;
   }
   if (act.tool === 'collect_crate' && ok) {

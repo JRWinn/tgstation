@@ -161,3 +161,8 @@ Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`
 - Step 4: the head (`jobs/head.ts`, `readsMessage`) reads those words (`GAVE_UP_WORDS`) from the one it sent for that number and calls `sendFor` with the give-up, which skips `SENT_GRACE_DS` and passes over the one who gave up when there is anyone else. The `why` names where it lies. The line sent (step 5) is kept as it is ("is waiting at cargo"), since the collector's `readPickup` knows the message by those words.
 
 Not done: step 1 (`lies_in` from `gave_up_report`, a .dm file) and step 2 (`brain.ts`), neither owned by this group; the body's place stands in for now. Step 6 (`take_back` give-ups) not done.
+
+Done on branch `m-cargo` (window only; table `tools/llm_crew/cargo-play.ts`, 47 cases; not played):
+
+- Step 2 use: `pickupsAfterActing` now tells the head `brain.gaveUp.liesIn` (the server's `lies_in`, read by `ingest`) when the crate was not put clear, and the body's room only when the server sends neither `left_in` nor `lies_in`.
+- Step 6: a failed `take_back` with a `take_back` give-up sends the head who sent it one PDA, "I could not get the empty crate from #N back to cargo. It is left in the PLACE[, clear of the doors]. I will try again." It is told once per errand (`task.toldAt`), `brain.gaveUp` is cleared, and the errand stands so the empty is tried again as before. The words do not match `GAVE_UP_WORDS`, so the head sends nobody. Cargo and the Quartermaster are still not told of a lost empty: that would want the Quartermaster to read the line, which is left.
