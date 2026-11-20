@@ -446,7 +446,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			body.Move(next, get_dir(body, next))
 		// It did not move: something stands in the way. The first step of the way round it.
 		if(get_turf(body) == from)
-			var/list/path = get_path_to(body, person, max_distance = CREW_NPC_CELL_PATH, mintargetdist = 1, access = get_access())
+			// Straight steps only, as every crew walk: a diagonal step into someone just stops, while a
+			// head-on one swaps places with them.
+			var/list/path = get_path_to(body, person, max_distance = CREW_NPC_CELL_PATH, mintargetdist = 1, access = get_access(), diagonal_handling = DIAGONAL_REMOVE_ALL)
 			if(QDELETED(person) || QDELETED(body) || QDELETED(src) || !length(path))
 				return FALSE
 			next = path[1]
@@ -473,7 +475,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return FALSE
 	if(get_turf(body) == destination || (near && get_dist(body, destination) <= near && body.z == destination.z))
 		return TRUE
-	var/list/path = get_path_to(body, destination, max_distance = CREW_NPC_CELL_PATH, mintargetdist = near, access = get_access())
+	// Straight steps only, as every crew walk. The game swaps places only head-on: a diagonal step
+	// past someone, such as out of a cell past the prisoner just let go, stops against them.
+	var/list/path = get_path_to(body, destination, max_distance = CREW_NPC_CELL_PATH, mintargetdist = near, access = get_access(), diagonal_handling = DIAGONAL_REMOVE_ALL)
 	if(QDELETED(src) || QDELETED(body) || !length(path) || errand_over(serial))
 		return FALSE
 	for(var/turf/next as anything in path)
@@ -1414,8 +1418,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		take_cuffs_off(prisoner, serial)
 	if(errand_over(serial))
 		return jail_broken_off(prisoner_name, cell)
-	// Out, and the timer started at once.
-	if(!walk_steps(outside, 0, serial))
+	// Out, and the timer started at once. Stopped on the way, most likely by the prisoner it has just
+	// let go standing where it would step, it waits a moment for them to shift and tries once more.
+	var/got_out = walk_steps(outside, 0, serial)
+	if(!got_out && !QDELETED(src) && !QDELETED(body) && !errand_over(serial) && !knocked_down_itself())
+		sleep(1.5 SECONDS)
+		if(!QDELETED(src) && !QDELETED(body))
+			got_out = walk_steps(outside, 0, serial)
+	if(!got_out)
 		if(QDELETED(src) || QDELETED(body))
 			return list(FALSE, "You could not get to it.")
 		if(errand_over(serial))
