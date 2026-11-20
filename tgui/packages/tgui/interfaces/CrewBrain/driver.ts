@@ -351,7 +351,11 @@ function inBackoff(brain: NpcBrain, key: string, act?: Action | null): boolean {
   // Likewise while someone is holding a door for it: that will not last, and a walk that failed
   // a moment before the door opened says nothing about one made now. A clean that came to nothing
   // in the room it stands in is no more worth trying for a door being opened across the room.
-  if (brain.doorHeld && (act === undefined || (!!act && WALKS.has(act.tool)))) {
+  // The same for the door it stands at, opened by hand by someone holding none for it (ARR-06).
+  if (
+    (brain.doorHeld || brain.atDoorOpen) &&
+    (act === undefined || (!!act && WALKS.has(act.tool)))
+  ) {
     return false;
   }
   const failure = brain.failures.get(key);
@@ -705,6 +709,7 @@ export function nextStep(brain: NpcBrain): Step | null {
       task.urgency !== 'emergency' &&
       !wayOutOpen(brain) &&
       !brain.doorHeld &&
+      !(brain.atDoorOpen && act.place === brain.atDoorOf) &&
       heldAt(brain, act.place)
     ) {
       heldBack = true;

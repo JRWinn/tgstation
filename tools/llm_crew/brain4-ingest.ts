@@ -1,5 +1,5 @@
 // What the window makes of fields the server sends, through ingest itself (CrewBrain/brain.ts),
-// round M2: full crates aboard the shuttle (SUP-05). No model is called; the brain is made by
+// round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06). No model is called; the brain is made by
 // ingest from a body with nothing about it.
 //
 //   bun run brain4-ingest.ts
@@ -33,6 +33,11 @@ const freight = (more: any = {}) => ({
 add('SUP-05: full_aboard sent: read as fullAboard', ingested('Cargo Bay', freight({ full_aboard: 2 })).freight?.fullAboard, 2);
 add('SUP-05: full_aboard 0 is kept as 0, not dropped', ingested('Cargo Bay', freight({ full_aboard: 0 })).freight?.fullAboard, 0);
 add('SUP-05: not sent: unset, so toUnload is read in its place', ingested('Cargo Bay', freight()).freight?.fullAboard === undefined, true);
+
+// ---- ARR-06: the door it stands at, opened by hand
+add('ARR-06: a fresh brain: atDoorOpen false', ingested('Central Primary Hallway', {}).atDoorOpen, false);
+add('ARR-06: at_door_open sent: read as atDoorOpen', ingested('Central Primary Hallway', { at_door_of: 'Bar', at_door_open: 1 }).atDoorOpen, true);
+add('ARR-06: not sent: false', ingested('Central Primary Hallway', { at_door_of: 'Bar' }).atDoorOpen, false);
 
 let failed = 0;
 for (const [label, got, want] of cases) {

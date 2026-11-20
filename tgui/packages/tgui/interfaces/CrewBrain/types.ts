@@ -222,6 +222,8 @@ export type Npc = {
   at_door_of: string | null;
   /** What that door is called, to tell it from the room's other doors: the name on it, or where it opens from. */
   at_door_label?: string | null;
+  /** TRUE if the door it stands at, wanting through, is standing open: opened by hand, say (ARR-06). */
+  at_door_open?: BooleanLike;
   /** TRUE if it is standing in a doorway or right beside a door, where it is in the way of anyone coming through. */
   in_doorway?: BooleanLike;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
@@ -1124,6 +1126,12 @@ export type NpcBrain = {
   atDoorOf: string | null;
   /** What that door is called, to tell it from the room's other doors, or null. Said when it asks for the door. */
   atDoorLabel: string | null;
+  /**
+   * TRUE while the door it stands at, wanting through, stands open: opened by hand by someone who
+   * holds no door for it, the Captain swiping their own ID, say (ARR-06). Its walk through is not
+   * held back by an earlier failure: the door will not stay open.
+   */
+  atDoorOpen: boolean;
   /**
    * The door the body last reported reaching: the room it is the door of, the room the body was
    * in, and when (this window's clock). Kept so that a body told it has arrived is not sent to the

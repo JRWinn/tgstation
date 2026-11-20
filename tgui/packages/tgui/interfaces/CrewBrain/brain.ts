@@ -355,6 +355,7 @@ export function ingest(npcs: Npc[], now: number): void {
         doorKeepers: [],
         atDoorOf: null,
         atDoorLabel: null,
+        atDoorOpen: false,
         doorReached: null,
         lookInRooms: [],
         roomsThrough: {},
@@ -572,6 +573,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.atDoorOf =
       npc.at_door_of ?? (stillThere && reached ? reached.place : null);
     brain.atDoorLabel = npc.at_door_of ? (npc.at_door_label ?? null) : null;
+    brain.atDoorOpen = !!npc.at_door_open;
     brain.lookInRooms = npc.look_in_rooms ?? [];
     brain.closedRooms = npc.closed_rooms ?? [];
     brain.roomsThrough = npc.rooms_through ?? {};
