@@ -156,6 +156,13 @@
 	if(isliving(walker) && crew_npc_floating(walker))
 		return FALSE
 
+/// The first airlock on the newest route planned for the body that is shut and will not open for it, if any (KNA-03).
+/datum/ai_controller/crew_npc/var/datum/weakref/route_shut_door
+/// The first few squares of the newest route planned, for the log of a walk that fails (KNA-03).
+/datum/ai_controller/crew_npc/var/route_head
+/// The door a route was last logged as running through, so that each replan does not log it again.
+/datum/ai_controller/crew_npc/var/datum/weakref/route_shut_logged
+
 /// Notes on the body's controller how many steps the route just planned for it runs to. None at all means no way was found.
 /datum/ai_movement/navmap_astar/crew_npc/proc/route_planned(datum/move_loop/has_target/navmap_astar/source, list/path)
 	SIGNAL_HANDLER
@@ -163,6 +170,7 @@
 	if(!istype(crew_controller))
 		return
 	crew_controller.last_route_steps = length(path)
+	crew_controller.note_route_doors(path)
 	if(isnull(source.avoid))
 		return
 	var/mob/living/blocker = crew_controller.avoid_ref?.resolve()
@@ -177,6 +185,44 @@
 	if(!crew_controller.avoid_logged)
 		crew_controller.avoid_logged = TRUE
 		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) went round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move: [length(path)] steps.")
+
+/**
+ * Looks along a route just planned for an airlock that is shut and will not open for the body:
+ * locked to its ID, bolted, welded or without power (KNA-03). The planner has been seen to send a
+ * janitor at the Cargo Bay's lobby door, locked to it, again and again, and the walk then bumped
+ * the door for five seconds or more. The first such door is noted, and the walk ends on it at once
+ * (crew_npc_walk/perform). The first squares of the route are kept for the log. A signal handler:
+ * notes and logs only.
+ */
+/datum/ai_controller/crew_npc/proc/note_route_doors(list/path)
+	route_shut_door = null
+	var/list/head = list()
+	for(var/turf/tile as anything in path)
+		if(length(head) < 3)
+			head += "([tile.x],[tile.y])"
+		if(route_shut_door)
+			if(length(head) >= 3)
+				break
+			continue
+		var/obj/machinery/door/airlock/door = locate() in tile
+		if(isnull(door) || !door.density)
+			continue
+		var/why
+		if(door.welded)
+			why = "welded"
+		else if(door.locked)
+			why = "bolted"
+		else if(!door.hasPower())
+			why = "without power"
+		else if(!door.allowed(pawn))
+			why = "does not open for it"
+		if(isnull(why))
+			continue
+		route_shut_door = WEAKREF(door)
+		if(route_shut_logged?.resolve() != door)
+			route_shut_logged = route_shut_door
+			log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) was routed through [door] at ([door.x],[door.y]), which is shut and [why], from [AREACOORD(pawn)].")
+	route_head = length(head) ? head.Join(", ") : null
 
 /// Each new plan of a walk leaves out the tile of something in the way that will never move (PLAY-04).
 /datum/ai_movement/navmap_astar/crew_npc/repath_incoming(datum/move_loop/has_target/navmap_astar/source)
@@ -211,6 +257,8 @@
 		crew_controller.avoid_turf = null
 		crew_controller.avoid_gave_up = FALSE
 		crew_controller.avoid_logged = FALSE
+		crew_controller.route_shut_door = null
+		crew_controller.route_head = null
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/atom/target = controller.blackboard[target_key]
@@ -259,6 +307,15 @@
 		crew_controller.blocked_by = null
 		crew_controller.blocked_bumps = 0
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// The route runs through a shut door that will not open for the body (KNA-03). It goes no
+	// further: walking into the door only bumps it until the walk gives up. walk_finished() says
+	// which door it was.
+	var/obj/machinery/door/airlock/shut_door = crew_controller.route_shut_door?.resolve()
+	if(!QDELETED(shut_door))
+		if(shut_door.density)
+			fail_reason = CREW_NPC_NO_WAY
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		crew_controller.route_shut_door = null
 	// The next square of the way has bad air (CHEAT-11). A body feels the cold and sees its HUD's
 	// warning on the square in front of it, and goes no further. Out of good air already, it walks
 	// on: that is the way out of it. Its room is kept clear of for a while.

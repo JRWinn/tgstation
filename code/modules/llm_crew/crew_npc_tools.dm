@@ -466,8 +466,17 @@
 	var/tool = walk_tool
 	var/goal = walk_goal
 	var/why = reason || "you were interrupted"
+	// Stopped by a shut door the route ran through that will not open for it: it says which, and if
+	// that is a door of the room it stands in, it is the door it wants out by (KNA-03).
+	var/obj/machinery/door/airlock/shut_door = route_shut_door?.resolve()
+	route_shut_door = null
+	if(!succeeded && reason == CREW_NPC_NO_WAY && !QDELETED(shut_door) && shut_door.density)
+		var/cause = shut_door.welded ? "is welded shut" : (shut_door.locked ? "is bolted" : (!shut_door.hasPower() ? "has no power" : "is locked to you"))
+		why = "the [stopped_by_door(shut_door)] door [cause]"
+	else
+		shut_door = null
 	if(!succeeded)
-		log_walk_failed(target, tool, goal, why)
+		log_walk_failed(target, tool, goal, why, shut_door)
 		// A loose crate jammed in a doorway may be all that shuts the way. Anyone would move it and go on.
 		if(reason == CREW_NPC_NO_WAY && clear_the_way(target, tool, goal))
 			return
@@ -574,11 +583,17 @@
  * was heading, and whether a route was ever planned. "No way through" with a route planned means
  * the planner took something for open that the body could not walk through.
  */
-/datum/ai_controller/crew_npc/proc/log_walk_failed(atom/target, tool, goal, why)
+/datum/ai_controller/crew_npc/proc/log_walk_failed(atom/target, tool, goal, why, obj/machinery/door/airlock/shut_door)
 	var/mob/living/carbon/human/body = pawn
 	if(QDELETED(body))
 		return
 	var/route = isnull(last_route_steps) ? "no route had been planned yet" : (last_route_steps ? "the last route planned was [last_route_steps] steps" : "no route could be found")
+	// Where the newest plan sent it first, and the shut door it ran through (KNA-03): the evidence of
+	// what the planner took for open.
+	if(last_route_steps && route_head)
+		route += ", first through [route_head]"
+	if(!QDELETED(shut_door))
+		route += "; the route planned ran through [shut_door] at ([shut_door.x],[shut_door.y]), which is shut and does not open for it"
 	var/heading = QDELETED(target) ? "something that is gone" : "[target] at [AREACOORD(target)]"
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) walk failed ([tool], to [goal]): [why]. Stopped at [AREACOORD(body)], heading for [heading]; [route].")
 	// The planner found no route at all. Nothing above says what was shut, so more is looked into.

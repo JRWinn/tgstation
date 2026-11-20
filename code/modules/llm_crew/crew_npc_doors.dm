@@ -86,6 +86,29 @@
 /datum/ai_controller/crew_npc/proc/forget_trail()
 	trail = list()
 	wants_out = FALSE
+	stopped_by = null
+
+/// The door of the room it stands in that a walk out was last stopped by, locked to it (KNA-03). It is the door it wants out by.
+/datum/ai_controller/crew_npc/var/datum/weakref/stopped_by
+
+/**
+ * Returns what a shut door that stopped a walk is called (KNA-03). If it is a door of the room the
+ * body stands in, the body now wants out by it: it is the door the knock and the word by PDA name,
+ * and trail_door() gives it ahead of the door it came in by.
+ */
+/datum/ai_controller/crew_npc/proc/stopped_by_door(obj/machinery/door/airlock/door)
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	var/list/sides = here ? crew_npc_doors_of(here, body.z)[door] : null
+	if(isnull(sides))
+		return format_text(door.name)
+	var/label = crew_npc_door_label(door, here, sides[2])
+	stopped_by = WEAKREF(door)
+	wanted_door = WEAKREF(door)
+	wanted_door_place = current_place
+	wanted_door_leaving = TRUE
+	wanted_door_label = label
+	return label
 
 /// Returns what the trail says of the room the body is in, or null if it did not come into it by a way it remembers.
 /datum/ai_controller/crew_npc/proc/trail_entry()
@@ -109,6 +132,11 @@
 	var/list/entry = trail_entry()
 	if(isnull(entry))
 		return null
+	// A door of this room that a walk out was stopped by is the one it wants out by: where it wanted
+	// to go was through there, not back the way it came (KNA-03).
+	var/obj/machinery/door/airlock/stopped = stopped_by?.resolve()
+	if(!QDELETED(stopped) && crew_npc_doors_of(get_area(pawn), pawn.z)[stopped])
+		return stopped
 	var/datum/weakref/door_ref = entry["door"]
 	var/obj/machinery/door/airlock/held = door_ref?.resolve()
 	if(!QDELETED(held))
