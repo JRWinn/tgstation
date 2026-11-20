@@ -148,8 +148,8 @@ for (const [line, want] of [
 }
 
 // KNB-10: at the counter, a technician telling its workmate something by name is no answer to the
-// head's order; said to the head, or to nobody, it is.
-for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', true]] as [string, boolean][]) {
+// head's order; said to the head, it is. Said to nobody in particular, it is not (TRA-04).
+for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', false]] as [string, boolean][]) {
   const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
   hop.peopleInView = [{ handle: 't1', name: 'Sam Tech', job: 'Cargo Technician', distance: 2 }];
   hop.requisition = { lines: [], askedAt: 100, heardBack: false, startedAt: 100 };

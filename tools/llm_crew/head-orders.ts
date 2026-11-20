@@ -200,6 +200,29 @@ for (const [saidTo, want] of [['me', true], ['other', false]] as [string, boolea
   add(`"your order has come in" said ${saidTo === 'me' ? 'to it' : 'to someone else'}: ${want ? '' : 'not '}sent for`, [b.pickups.map((p: any) => p.number), b.requisition === null], want ? [[12], true] : [[], false]);
 }
 
+// TRA-04: at the counter, only an answer to the head counts as its order taken.
+for (const [line, saidTo, want] of [
+  ['I am going to check to see what crates are still here.', 'nobody', false],
+  ['Hop, I am coming to the door of the Cargo Bay to let you in.', 'me', false],
+  ['Jan, crate 12 is out in the lobby for you.', 'other', false],
+  ['Of course, Hop, I will put that in now.', 'me', true],
+  ['Hop, I have put your order in: a crate of janitorial supplies.', 'me', true],
+] as [string, string, boolean][]) {
+  const b = hop();
+  counter(b, 4000, [TECH], true);
+  HEAD_OF_PERSONNEL.afterSaying(b, step(b).say);
+  heard(b, TECH, line, saidTo);
+  add(`at the counter, "${line.slice(0, 50)}" (${saidTo}): ${want ? '' : 'not '}the answer`, b.requisition.heardBack, want);
+}
+{
+  // On the way by PDA, a technician heard in passing is not the Quartermaster's Noted.
+  const b = hop([CAPTAIN, JAN, QM]);
+  HEAD_OF_PERSONNEL.afterActing(b, step(b).act, undefined, true);
+  b.peopleInView = [TECH];
+  heard(b, TECH, 'Hop, good morning.');
+  add('order sent by PDA: a technician\'s word is not its Noted', b.requisition.heardBack, false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

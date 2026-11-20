@@ -167,6 +167,16 @@ const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
  * sooner, the kept copy reaches the Quartermaster later and the crate is bought twice (HEAD-05).
  */
 const UNSENT_GIVEN_UP_DS = 5400;
+/**
+ * The technician's set line that it has put a head's order in. Nothing says it yet: cargo.ts is to
+ * (held: TRA-04), and it is better shared from supply.ts. Until then, any line a cargo worker says
+ * to the head that is not one of these, about its other work, is taken for the answer.
+ */
+const PLACED_WORDS = /\bI have put your order in\b/i;
+const OTHER_CARGO_WORK =
+  /out in the lobby|not holding a crate|coming to the door|check to see what crates|let you in|crate #?\d+/i;
+/** A technician telling a head that its orders go to the Quartermaster: THROUGH_QM in supply.ts. */
+const THROUGH_QM_WORDS = /orders go through the Quartermaster/i;
 /** How long (deciseconds) an ask that was ordered for, and a crate sent for, stand with no word that it was unpacked. */
 const ASK_STANDS_DS = 12000;
 /** How many times it goes to the counter and finds nobody from cargo to take an order, before it puts the order by until after the next meeting. */
@@ -1493,17 +1503,32 @@ export const HEAD_OF_PERSONNEL: Job = {
   overhears: (brain, event) => {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
-    // Anything said by someone from cargo once the order is put to them is its answer, unless it
-    // was said to someone else by name: a technician telling its workmate something is no
-    // answer, and the head would never ask again (KNB-10).
+    // At the counter, what a cargo worker says to it once the order is put to them is its answer:
+    // the technician's set line that the order is in, or failing that any line said to it that is
+    // not about other cargo work. Not a line to someone else, or to nobody in particular: a
+    // technician telling its workmate something, or calling out that it is checking the crates,
+    // was taken for the order and the head never asked again (KNB-10, TRA-04). On the way by PDA
+    // to the Quartermaster only its Noted is an answer: see readsMessage.
     const order = brain.requisition;
     if (
       order &&
       order.askedAt !== null &&
-      isCargo(jobOf(brain, speaker)) &&
-      event.details.said_to !== 'other'
+      !order.heardBack &&
+      !byQuartermaster(brain, order) &&
+      isCargo(jobOf(brain, speaker))
     ) {
-      order.heardBack = true;
+      if (
+        PLACED_WORDS.test(heard) ||
+        (event.details.said_to === 'me' && !OTHER_CARGO_WORK.test(heard))
+      ) {
+        order.heardBack = true;
+      }
+      // Told that orders go through the Quartermaster: it sends it there by PDA after all.
+      if (THROUGH_QM_WORDS.test(heard) && brain.hasPda) {
+        order.viaCounter = false;
+        order.askedAt = null;
+        order.heardBack = false;
+      }
     }
     // Cargo telling it to its face that its order has come in, or that a crate is waiting: the
     // same words as the PDA message, read the same way (TRA-02).
