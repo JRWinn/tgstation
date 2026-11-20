@@ -80,3 +80,7 @@ Checked by Opus 5.5, read from the code.
 - The change log's 20:19 entry lists the Captain-in-the-Bar-Lounge case as known and not fixed; no later entry changes `letInStep`.
 - Point 1 stands. Point 2 is worse than written: with no PDA the server gives no keepers at all, so the officer usually never reaches the door (added to the body). Point 3 is a chosen behaviour, but a fair complaint; noted as such.
 - The fix: steps 1, 2 and 4 are window only and can copy the janitor's `letInStep`; step 3 needs `room_keepers` changed on the server, so effort is medium rather than small. A `say` keeps the rules: speech only, nobody touched.
+
+## Fix so far
+
+Group m-secsrv, commit c44c26a37d4 (compile, tables and simulator; not played). Steps 1 to 3: one knock at the door, keepers in sight first, a keeper in sight asked aloud in the fixed words and counted as asked (`beatAfterSaying`), and with no PDA a wait at the door for up to three asks' time. Server: with no PDA, `room_keepers` lists those in sight whose ID's job opens the door, uncached. Table: `tools/llm_crew/arrests3-askaloud.ts`. Left: step 4 (a message kept unsent not counted as asked). With no PDA and no keeper in sight at the moment it is shut out, `noteShutOut` still finds nobody and the shut-out path is not entered.

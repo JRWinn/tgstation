@@ -122,3 +122,7 @@ Checked by Opus 5.5. Confirmed.
 - Nothing in the change log or plans names this. Server side: `handle_tool_call` passes only `person` and `how` to `tool_arrest` (`crew_npc_tools.dm:68`), so an extra `attempt` is harmless.
 - Severity lowered to medium: the arrest is slowed, not stopped, and is made in the end (five minutes in that round). Effort raised to medium: the fix touches `types.ts`, `jobs/arrests.ts` and `brain.ts` or `driver.ts`, though it stays well under 50 lines.
 - The fix is sound. On step 5's second part: wipe the say key only after `afterSaying` has set `warrant.toldAt`, so that the line cannot be due again the same pass; with `toldAt === null` as the only test that already holds.
+
+## Fix so far
+
+Group m-secsrv, commit 035cbbeb0a2 (tables and simulator; not played). Steps 2, 3 and the first half of 5 are built in `jobs/arrests.ts`: both warrant `arrest` acts carry `attempt`, each failed try adds to `arrestAttempts` (kept on the warrant through a local type in arrests.ts, since `types.ts` is not that group's file; move it into `BeatWarrant` when convenient), and the line is said only when `toldAt` is null (`TOLD_STANDS_DS` removed). Table: `tools/llm_crew/arrests3-paced.ts`. Left: the second half of step 5, wiping the driver's failure record of a line said word for word (`driver.ts` or `brain.ts`), so that after three or more rests the line is not held back longer each time.
