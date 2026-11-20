@@ -28,7 +28,16 @@ import { deskRead } from './jobs/desk';
 import { buildReading, type Reading, readReading } from './jobs/security';
 import { newWanted, readWanted, wantedOverhears } from './jobs/wanted';
 import { withRemark } from './jobs/reports';
-import { drive, isWalk, LEAD_PAUSE_MS, noteResult, type Step } from './driver';
+import {
+  drive,
+  isWalk,
+  LEAD_PAUSE_MS,
+  lineNotSaid,
+  lineSaid,
+  noteResult,
+  type Step,
+  sayForGone,
+} from './driver';
 import { jobFor } from './jobs';
 import {
   addNote,
@@ -1608,6 +1617,8 @@ async function think(brain: NpcBrain): Promise<void> {
     brain.mustSayNeeds = null;
     brain.mustSayIf = null;
     brain.mustSayExact = false;
+    lineNotSaid(brain, brain.mustSayFor ?? null, false);
+    brain.mustSayFor = null;
     // Its work would ask for the same line again on the next update, and the server sends one
     // after every tool call: without a pause the two go round as fast as they can talk.
     holdDriverAfterDrop(brain);
@@ -1639,6 +1650,8 @@ async function think(brain: NpcBrain): Promise<void> {
   let mustSay = brain.mustSay;
   const mustSayNeeds = brain.mustSayNeeds;
   const mustSayIf = brain.mustSayIf;
+  // Whom the line is for, if it is word for someone or an ask for the door (ASYNC-05, DRV-07).
+  const sayFor = brain.mustSayFor ?? null;
   // A line that carries numbers is said word for word. The LLM is asked only for a remark to follow it.
   const exact = brain.mustSayExact && mustSay !== null;
   // A remark of its own is only for when nobody is waiting on an answer and no line is called for.
@@ -1679,6 +1692,7 @@ async function think(brain: NpcBrain): Promise<void> {
   brain.mustSayNeeds = null;
   brain.mustSayIf = null;
   brain.mustSayExact = false;
+  brain.mustSayFor = null;
   brain.sayingNow = mustSay !== null;
   brain.status = 'thinking';
   brain.remarking = remark;
@@ -1699,6 +1713,8 @@ async function think(brain: NpcBrain): Promise<void> {
   };
 
   let rawReply = '';
+  // Set once the line its work called for has gone out, with whatever it was for settled.
+  let lineSettled = false;
   try {
     let answer = await callOllama(messages, call.schema);
     let reply = answer.text;
@@ -1722,6 +1738,17 @@ async function think(brain: NpcBrain): Promise<void> {
     rawReply = reply;
     // With nobody in view and nobody just heard, speech would be talking to an empty room.
     const alone = brain.peopleInView.length === 0 && speakers.length === 0;
+    // Word for someone who has walked out of sight while it waited its turn is not said: not to
+    // an empty room, and not to whoever else is about with the absent person's name on it. It stays
+    // to be told when they are next in view (ASYNC-05, DRV-07). Nor is the LLM's own line said
+    // then, unless someone who spoke to it is still there to hear it.
+    const forGone = mustSay !== null && sayForGone(brain, sayFor);
+    const speakerHere = brain.peopleInView.some((person) =>
+      speakers.includes(person.handle),
+    );
+    if (forGone) {
+      mustSay = null;
+    }
     // Nor is anything said of its own accord that it has said before: a remark made twice is a
     // broken record. An answer to someone, or a line its work calls for, is said regardless.
     // The same goes for the seconds the LLM took: if the line no longer needs saying, it is not
@@ -1790,6 +1817,7 @@ async function think(brain: NpcBrain): Promise<void> {
       }
       return !(
         alone ||
+        (forGone && !speakerHere) ||
         (dropped && speakers.length === 0) ||
         (unprompted && (isFiller(text) || saidBefore(brain, text)))
       );
@@ -1993,6 +2021,11 @@ async function think(brain: NpcBrain): Promise<void> {
       ordersAfterSaying(brain, mustSay);
       roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
+      // The word it was for is told, the ask for the door made.
+      if (mustSay) {
+        lineSaid(brain, sayFor);
+        lineSettled = true;
+      }
       // Anyone in view who was waiting to hear that a task was done, and was told so, now knows.
       afterSaying(
         brain,
@@ -2012,6 +2045,14 @@ async function think(brain: NpcBrain): Promise<void> {
     if (unanswered) {
       answerAgain(brain, asked);
       decision.calls.push('[whoever spoke is still to be answered]');
+    }
+    if (sayFor && !lineSettled) {
+      lineNotSaid(brain, sayFor, forGone);
+      decision.calls.push(
+        forGone
+          ? `[${sayFor.to} is out of sight: the line waits until they are back]`
+          : '[the line was not said: it waits]',
+      );
     }
   } catch (error) {
     if (mySession !== session) {
@@ -2059,9 +2100,11 @@ async function think(brain: NpcBrain): Promise<void> {
     }
     // The LLM being down must not leave the body dumb: what had to be said is said plainly. Unless
     // it has stopped needing saying in the time the call took.
+    const gone = sayForGone(brain, sayFor);
     if (
       mustSay &&
       brain.peopleInView.length > 0 &&
+      !gone &&
       !(mustSayIf && !mustSayIf())
     ) {
       runTool(brain, { tool: 'say', text: mustSay });
@@ -2074,6 +2117,9 @@ async function think(brain: NpcBrain): Promise<void> {
       roundsAfterSaying(brain, mustSay);
       pickupsAfterSaying(brain, mustSay);
       afterSaying(brain, [mustSay]);
+      lineSaid(brain, sayFor);
+    } else {
+      lineNotSaid(brain, sayFor, gone);
     }
     // Keep what happened, so the LLM still learns of it next time, but not what was said: the moment
     // to answer that has gone, and left in, it would be heard as said again every time after.

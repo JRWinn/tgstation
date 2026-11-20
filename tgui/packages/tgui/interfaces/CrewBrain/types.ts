@@ -1597,6 +1597,24 @@ export type NpcBrain = {
   droppedArrest?: { task?: number; person: string; at: number } | null;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
   floating?: boolean;
+  /**
+   * What the line now waiting to be said is for, when it is word for someone face to face or an
+   * ask for the door (ASYNC-05, DRV-07): the step's key, the person, and the tell or the ask. The
+   * tell is struck off, and the person marked asked, only once the line has gone out with them in view.
+   */
+  mustSayFor?: SayFor | null;
+};
+
+/** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
+export type SayFor = {
+  /** The driver step's key, so that its hold can be let off if the line was not said. */
+  key: string;
+  /** Whom it is for, by name. */
+  to: string;
+  /** The line from toTell it is, if it is one. */
+  tells?: string;
+  /** Who is being asked to let it out, if it is that. */
+  asks?: string;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */

@@ -32,7 +32,7 @@ import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
 import { describeShutIn, SHUT_IN_KEY, whoToAskForTheDoor } from './situation';
 import { wordOwed, workInOrder } from './tasks';
-import type { Action, NpcBrain, SenseEvent, Task } from './types';
+import type { Action, NpcBrain, SayFor, SenseEvent, Task } from './types';
 
 /** How long after telling the body to do something before the driver looks again, in milliseconds. */
 const SETTLE_MS = 2500;
@@ -797,6 +797,7 @@ export function drive(
     const key = owed ? keyOf(owed.task, undefined, owed.plan.say) : '';
     if (owed?.plan.say && !inBackoff(brain, key)) {
       fail(brain, key);
+      brain.mustSayFor = null;
       speak(owed.plan.say, owed.plan.needs, owed.plan.sayIf, owed.plan.exact);
       return {
         key,
@@ -828,7 +829,7 @@ export function drive(
       };
       saidLine(brain, key);
       speak(quick.line, quick.needs, undefined, quick.exact);
-      noteDone(brain, step);
+      noteDone(brain, step, true);
       return step;
     }
   }
@@ -838,6 +839,7 @@ export function drive(
     const aside = askAside(brain);
     if (aside?.say) {
       fail(brain, aside.key);
+      brain.mustSayFor = null;
       speak(aside.say, undefined, undefined, true);
       noteDone(brain, aside);
       return aside;
@@ -943,7 +945,7 @@ export function drive(
       fail(brain, step.key);
     }
     speak(step.say, step.needs, step.sayIf, step.exact);
-    noteDone(brain, step);
+    noteDone(brain, step, true);
     return step;
   }
   if (!step.act) {
@@ -985,43 +987,108 @@ export function drive(
   return step;
 }
 
+/** The record of what it has done about being shut in, made if it has none yet. */
+function outAsksOf(brain: NpcBrain): NonNullable<NpcBrain['outAsks']> {
+  brain.outAsks ??= {
+    room: brain.location,
+    asked: [],
+    knocked: false,
+    messaged: false,
+    wrote: [],
+    wroteAt: 0,
+  };
+  return brain.outAsks;
+}
+
+/**
+ * What a spoken step is for, if it is word for someone or an ask for the door. The line is said
+ * only when the NPC's turn with the LLM comes, seconds or a minute later, and by then whoever it
+ * was for may have gone (ASYNC-05, DRV-07). So it is kept beside the line, and settled by
+ * lineSaid or lineNotSaid once it is known whether the line went out.
+ */
+function sayForOf(brain: NpcBrain, step: Step): SayFor | null {
+  if (step.asks) {
+    return { key: step.key, to: step.asks, asks: step.asks };
+  }
+  const tell = step.tells
+    ? brain.toTell.find((it) => !it.byPda && it.line === step.tells)
+    : undefined;
+  return tell ? { key: step.key, to: tell.to, tells: tell.line } : null;
+}
+
+/** TRUE if whoever a waiting line is for is no longer in view, so that saying it would reach nobody. */
+export function sayForGone(brain: NpcBrain, sayFor: SayFor | null): boolean {
+  return (
+    !!sayFor && !brain.peopleInView.some((person) => person.name === sayFor.to)
+  );
+}
+
+/** The line was said with its person in view: the word is told, the person asked for the door. */
+export function lineSaid(brain: NpcBrain, sayFor: SayFor | null): void {
+  if (!sayFor) {
+    return;
+  }
+  if (sayFor.tells) {
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== sayFor.tells);
+  }
+  if (sayFor.asks && brain.shutIn) {
+    const asks = outAsksOf(brain);
+    if (!asks.asked.includes(sayFor.asks)) {
+      asks.asked.push(sayFor.asks);
+    }
+  }
+}
+
+/**
+ * The line was not said. The word stays on toTell and the person stays unasked, so the step comes
+ * up again. If they had gone out of view, its hold is let off as well, so that it is said as soon
+ * as they are back; otherwise the hold stands, and it is not asked again on every update.
+ */
+export function lineNotSaid(
+  brain: NpcBrain,
+  sayFor: SayFor | null,
+  gone: boolean,
+): void {
+  if (sayFor && gone) {
+    brain.failures.delete(sayFor.key);
+  }
+}
+
 /**
  * Notes what a step that has just been taken settles: who has now been asked for the door, that
  * it has knocked or sent word, and what it has now told someone. Each of these is done once.
+ * For a spoken step (`spoken`), the ask and the tell are settled only once the line is said: they
+ * are kept in brain.mustSayFor until then (ASYNC-05, DRV-07).
  */
-function noteDone(brain: NpcBrain, step: Step): void {
+function noteDone(brain: NpcBrain, step: Step, spoken = false): void {
+  if (spoken) {
+    brain.mustSayFor = sayForOf(brain, step);
+  }
   if (
-    step.asks ||
+    (step.asks && !spoken) ||
     step.writes ||
     step.key === KNOCK_OUT_KEY ||
     step.key === WORD_OUT_KEY
   ) {
-    brain.outAsks ??= {
-      room: brain.location,
-      asked: [],
-      knocked: false,
-      messaged: false,
-      wrote: [],
-      wroteAt: 0,
-    };
-    if (step.asks) {
-      brain.outAsks.asked.push(step.asks);
+    const asks = outAsksOf(brain);
+    if (step.asks && !spoken) {
+      asks.asked.push(step.asks);
     }
     if (step.key === KNOCK_OUT_KEY) {
-      brain.outAsks.knocked = true;
+      asks.knocked = true;
       // The wait for someone to come runs from the knock, and again from each word sent after it.
-      brain.outAsks.wroteAt = Date.now();
+      asks.wroteAt = Date.now();
     }
     if (step.key === WORD_OUT_KEY) {
-      brain.outAsks.messaged = true;
-      brain.outAsks.wroteAt = Date.now();
+      asks.messaged = true;
+      asks.wroteAt = Date.now();
     }
     if (step.writes) {
-      brain.outAsks.wrote.push(step.writes);
-      brain.outAsks.wroteAt = Date.now();
+      asks.wrote.push(step.writes);
+      asks.wroteAt = Date.now();
     }
   }
-  if (step.tells) {
+  if (step.tells && !(spoken && brain.mustSayFor)) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
   }
   // Once asked to step aside, they have been asked. A new lost grip on them notes them again;
