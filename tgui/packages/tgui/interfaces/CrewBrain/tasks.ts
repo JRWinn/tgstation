@@ -30,7 +30,7 @@ import {
 } from './jobs/orders';
 import {
   describeMeetings,
-  isMeetingOrder,
+  withoutMeetingOrder,
   planMeetings,
   syncMeetings,
 } from './jobs/meetings';
@@ -311,20 +311,21 @@ export function workInWords(
     ...Object.values(job.soundsLike ?? {}),
     ...(fromSuperior ? Object.values(ORDER_SOUNDS) : []),
   ];
-  const heard =
+  // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
+  // That is not an order to go and look at a room, even if one is named, so the clauses that
+  // call the meeting are left out. An order in another clause still stands (PARSE-15).
+  const read = (line: string) =>
+    fromSuperior ? withoutMeetingOrder(brain, line) : line;
+  const heard = read(
     lines
       .filter(
         (line) =>
-          !!placeNamedIn(brain, line) &&
-          sounds.some((words) => words.test(line)),
+          !!placeNamedIn(brain, read(line)) &&
+          sounds.some((words) => words.test(read(line))),
       )
-      .pop() ?? lines.join(' ');
+      .pop() ?? lines.join(' '),
+  );
   const place = placeNamedIn(brain, heard);
-  // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
-  // That is not an order to go and look at a room, even if one is named.
-  if (fromSuperior && isMeetingOrder(brain, heard)) {
-    return null;
-  }
   // An order that needs no room named, given with none, is for the room it stands in (PLAY-10).
   if (!place) {
     if (!fromSuperior || !brain.location) {
