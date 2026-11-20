@@ -414,11 +414,11 @@
 	var/nearest_distance = INFINITY
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		if(memory[2] != place || stubborn_messes[key])
+		if(memory[2] != place)
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
-		if(QDELETED(mess) || (tool && !could_shift(mess)))
+		if(QDELETED(mess) || mess_given_up(mess, key) || (tool && !could_shift(mess)))
 			continue
 		var/distance = get_dist(pawn, mess)
 		if(distance < nearest_distance)
@@ -444,6 +444,8 @@
 	for(var/place in blocked_places.Copy())
 		if(blocked_tries[place] < 2)
 			blocked_places -= place
+	// So may messes it could not get to once (HAND-02).
+	forget_unreached()
 
 /// Returns the names of the rooms the body lately failed to find a way into.
 /datum/ai_controller/crew_npc/proc/blocked_place_names()
@@ -460,14 +462,14 @@
 	var/list/places = list()
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		if((memory[2] in places) || stubborn_messes[key] || is_blocked_place(memory[2]))
+		if((memory[2] in places) || is_blocked_place(memory[2]))
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
 		// A mess it has not seen go is still a mess to it, wherever it went: someone else cleaning it
 		// out of the body's sight made the room look beyond its mop, and the room was never gone back
 		// to. It goes and looks (gone_mess_in()), as a player would.
-		if(!QDELETED(mess) && tool && !could_shift(mess))
+		if(!QDELETED(mess) && (mess_given_up(mess, key) || (tool && !could_shift(mess))))
 			continue
 		places += memory[2]
 	return places
@@ -484,7 +486,7 @@
 	var/nearest_distance = INFINITY
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		if(memory[2] != place || stubborn_messes[key])
+		if(memory[2] != place)
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
@@ -565,7 +567,7 @@
 		// Whatever it holds that will shift this one: the spray for what washes off, the rag for
 		// what wants scrubbing. A mop that is dry counts while there is water to hand to wet it.
 		var/obj/item/mop/dry = sink_in_view ? dry_mop() : null
-		if(get_area(mess) == here && (tool_for_mess(mess) || (dry && can_clean_mess(dry, mess))) && !stubborn_messes[REF(mess)])
+		if(get_area(mess) == here && (tool_for_mess(mess) || (dry && can_clean_mess(dry, mess))) && !mess_given_up(mess))
 			found += mess
 
 	var/list/nearest_first = list()
@@ -772,7 +774,7 @@
 	// Twice clicked and nothing came of it: left as a mess it could not get to is, this one alone and
 	// not tried again, but not counted against its kind in this room as one that would not come off.
 	if(!landed)
-		stubborn_messes[REF(mess)] = TRUE
+		note_unreached_mess(mess)
 		return list(FALSE, "You could not get to it.")
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
@@ -795,7 +797,8 @@
 	if(cut_short || INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS|INCAPABLE_GRAB))
 		return list(FALSE, "You could not finish cleaning the [mess_name].")
 	// Some messes do not yield to scrubbing at all. Remember this one so the body stops trying it.
-	stubborn_messes[REF(mess)] = TRUE
+	// Kept as a weak reference: a ref number is given out again once the thing it was is deleted (HAND-04).
+	stubborn_messes[REF(mess)] = WEAKREF(mess)
 	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
 	// does not scrub at every other one in the room to find out. Once could be a slip of the hand.
 	// Counted for the room it is in, not for the whole station. Counted once for everywhere, two
@@ -812,7 +815,7 @@
 			var/datum/weakref/other_ref = memory[1]
 			var/obj/effect/decal/cleanable/other = other_ref.resolve()
 			if(!QDELETED(other) && memory[2] == place && other.type == mess.type)
-				stubborn_messes[key] = TRUE
+				stubborn_messes[key] = WEAKREF(other)
 	return list(FALSE, "You scrub at the [mess_name] but it will not come off.")
 
 /**
