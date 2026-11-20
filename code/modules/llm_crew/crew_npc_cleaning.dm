@@ -123,6 +123,9 @@
  */
 /datum/ai_controller/crew_npc/proc/wet_mop(atom/source)
 	var/mob/living/carbon/human/body = pawn
+	// The errand to a spot on the floor that was a walk to look where a mess was (tool_clean()).
+	if(findtext(errand_item, CREW_NPC_LOOK_FOR_MESS) == 1)
+		return look_at_mess_spot(copytext(errand_item, length(CREW_NPC_LOOK_FOR_MESS) + 1))
 	// A filthy rag is seen to first: rinsed at the sink gone to, or wrung out anywhere else (the
 	// errand to where it stands comes here with the bucket in its other hand, or with nothing).
 	var/obj/item/rag/filthy = filthy_rag()
@@ -461,10 +464,56 @@
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
-		if(QDELETED(mess) || (tool && !could_shift(mess)))
+		// A mess it has not seen go is still a mess to it, wherever it went: someone else cleaning it
+		// out of the body's sight made the room look beyond its mop, and the room was never gone back
+		// to. It goes and looks (gone_mess_in()), as a player would.
+		if(!QDELETED(mess) && tool && !could_shift(mess))
 			continue
 		places += memory[2]
 	return places
+
+/// Remembered messes the body went to the spot of to look and could not get there, keyed as remembered_messes, with the world.time it set off.
+/datum/ai_controller/crew_npc/var/list/looked_for_messes = list()
+
+/**
+ * Returns the key of the nearest mess the body remembers in the room of this name that is no longer
+ * where it saw it, or null. The body has not seen it go: it is a spot to walk to and look at.
+ */
+/datum/ai_controller/crew_npc/proc/gone_mess_in(place)
+	var/nearest_key
+	var/nearest_distance = INFINITY
+	for(var/key in remembered_messes)
+		var/list/memory = remembered_messes[key]
+		if(memory[2] != place || stubborn_messes[key])
+			continue
+		var/datum/weakref/mess_ref = memory[1]
+		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
+		var/turf/spot = memory[3]
+		if(!QDELETED(mess) && get_turf(mess) == spot)
+			continue
+		var/distance = isnull(spot) ? 1000 : get_dist(pawn, spot)
+		if(distance < nearest_distance)
+			nearest_distance = distance
+			nearest_key = key
+	return nearest_key
+
+/**
+ * Back at the spot of a mess it remembered and had not seen go: it looks. What it sees is
+ * remembered or forgotten as ever, and the mess it came for, still not there, is forgotten.
+ *
+ * Returns a list, as wet_mop does: whether there is something to clean with, the words for the brain, and the marker.
+ */
+/datum/ai_controller/crew_npc/proc/look_at_mess_spot(key)
+	var/mob/living/carbon/human/body = pawn
+	looked_for_messes -= key
+	remember_messes(view(CREW_NPC_VISION_RANGE, body))
+	var/list/memory = remembered_messes[key]
+	if(memory)
+		var/datum/weakref/mess_ref = memory[1]
+		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
+		if(QDELETED(mess) || get_turf(mess) != memory[3])
+			remembered_messes -= key
+	return list(!isnull(tool_in_hand()), "The mess you remembered here is gone. You see no other mess here that you can clean.", TRUE)
 
 /**
  * TRUE if the room of this name is locked to the body: none of its doors open for it. Kept for a
@@ -589,6 +638,24 @@
 		var/obj/effect/decal/cleanable/remembered = remembered_mess_in(get_area_name(body, TRUE))
 		if(remembered)
 			messes = list(remembered)
+	// None it can see or remembers still there, but one it saw here and has not seen go: it walks to
+	// that spot and looks. Gone once to look and not got there, it gives that one up as gone.
+	while(!length(messes))
+		var/look_key = gone_mess_in(get_area_name(body, TRUE))
+		if(isnull(look_key))
+			break
+		var/list/memory = remembered_messes[look_key]
+		var/turf/spot = memory[3]
+		if(isnull(spot) || looked_for_messes[look_key])
+			remembered_messes -= look_key
+			looked_for_messes -= look_key
+			continue
+		looked_for_messes[look_key] = world.time
+		clean_queue = list()
+		cleaned_count = 0
+		clean_failed_count = 0
+		start_errand(spot, CREW_TOOL_CLEAN, "[CREW_NPC_LOOK_FOR_MESS][look_key]")
+		return
 	if(!length(messes))
 		action_result(CREW_TOOL_CLEAN, FALSE, "There is no mess here that your [format_text(tool.name)] will shift. Some messes need scrubbing with soap or a wet mop.")
 		return

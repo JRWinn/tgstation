@@ -90,6 +90,8 @@
 #define CREW_NPC_RAG_WRINGS 3
 /// How long a crew NPC waits on a sink washing its rag: the sink's own wash takes 4 seconds.
 #define CREW_NPC_RINSE_TIME (6 SECONDS)
+/// What a cleaning errand to a spot on the floor carries as its errand item when it is a walk to look where a remembered mess was, followed by that mess's key.
+#define CREW_NPC_LOOK_FOR_MESS "look for mess:"
 /// The most containers a crew NPC looks inside in one search of a room.
 #define CREW_NPC_STORAGE_PER_SEARCH 6
 /// How long before a container, or a room's storage, is worth a second look.
