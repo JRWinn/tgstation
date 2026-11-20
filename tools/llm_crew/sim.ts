@@ -302,8 +302,12 @@ function playerSays(name: string, text: string) {
   const player = players.find((other) => other.name === name)!;
   for (const other of bodies) if (inSight(other, player.room)) emit(other, 'speech_heard', `${name} says: "${text}"`, { handle: handleFor(other, name), speaker: name, source: 'person', distance: 2, message: text });
 }
-// The last PDA message a technician sent a janitor: one call from the post is enough.
-let janitorCall: { by: string; at: number } | null = null;
+// The last call for a janitor from the post, room by room: who sent it and when. Only a message that says which of the
+// department's rooms it calls the janitor to is a call (call_for); a mail notice to a janitor is none (MULTI-06).
+const janitorCalls = new Map<string, { by: string; at: number }>();
+const DEPARTMENT_ROOMS = ['Cargo Bay', 'Cargo Lobby', 'Delivery Office'];
+// The rooms a workmate at the post has lately sent a janitor to, as the server lists them (rooms_workmate_called_for).
+const roomsWorkmateCalledFor = (body: Body) => (body.post ? [...janitorCalls].filter(([, call]) => call.by !== body.name && clock - call.at < 600_000).map(([room]) => room) : []);
 const putOut: string[] = [];
 const tooSoonSteps: string[] = [];
 const handed: string[] = [];
@@ -762,7 +766,7 @@ function toolCall(body: Body, tool: string, args: any) {
     }
     case 'message': {
       const target = bodies.find((other) => other.name === args.person);
-      if (target?.job === 'Janitor' && body.post) janitorCall = { by: body.name, at: clock };
+      if (target?.job === 'Janitor' && body.post && typeof args.call_for === 'string' && DEPARTMENT_ROOMS.includes(args.call_for)) janitorCalls.set(args.call_for, { by: body.name, at: clock });
       if (VARIANT === 'hurtagain' && !hurtToldAt && args.person === SEC_CAPTAIN && /could not take .* and is hurt/.test(String(args.text))) hurtToldAt = clock;
       // The Quartermaster asking the Captain whether a purchase may be made.
       if (players.some((player) => player.name === args.person && player.job === 'Captain') && String(args.text).includes('Yes or no?')) captainAsked.push({ at: clock, text: String(args.text) });
@@ -1200,7 +1204,7 @@ function uiData(body: Body) {
     // Which of those lie inside another of them.
     rooms_through: body.post && NESTED ? { 'Delivery Office': 'Cargo Bay' } : {},
     work_area_messes: body.post ? Object.fromEntries(['Cargo Lobby', body.post, 'Delivery Office'].filter((place) => remembered.some((x) => x.place === place)).map((place) => [place, [...new Set(remembered.filter((x) => x.place === place).map((x) => x.m!.name))].slice(0, 3)])) : {},
-    workmate_called: body.post && janitorCall && janitorCall.by !== body.name && clock - janitorCall.at < 600_000 ? 1 : 0,
+    workmate_called: roomsWorkmateCalledFor(body).length ? 1 : 0, workmate_called_rooms: roomsWorkmateCalledFor(body),
     in_hand: clock < body.inHandUntil ? 1 : 0,
     // The cell it is held in. And for security staff: their kit, who they have by the arm, how well they are, and the cells, which are only seen from the brig.
     custody: custody.get(body.name) ?? null,
