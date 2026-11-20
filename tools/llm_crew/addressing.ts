@@ -129,6 +129,8 @@ const cases: [string, string, string][] = [
       ['PARSE-14: Josh Reed, across the room, hears "Have you seen Josh Reed?"', hears('Have you seen Josh Reed?', { ...two, with: [kimP], as: reedJ }), 'nobody'],
       ['PARSE-14: Al Stone hears "Al, open the door"', hears('Al, open the door', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'me'],
       ['PARSE-14: Al Stone hears "Hey Al, come here"', hears('Hey Al, come here', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'me'],
+      ['PARSE-14: Cora hears "Cora, I am here to collect crate 4521 for Hop Kins, please."', hears('Cora, I am here to collect crate 4521 for Hop Kins, please.', { ...two, with: [josh], others: ['Hop Kins'], as: { name: 'Cora Tech', job: 'Cargo Technician', post: 'Cargo Bay' } }), 'me'],
+      ['PARSE-14: "Hop Kins, where are you?", Hop Kins aboard but not in view', hears('Hop Kins, where are you?', { ...two, with: [josh], others: ['Hop Kins'] }), 'other:Hop Kins'],
       ['PARSE-14: Al Stone hears "I also want it"', hears('I also want it', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'nobody'],
     ];
   })(),

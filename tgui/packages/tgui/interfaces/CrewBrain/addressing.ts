@@ -52,7 +52,8 @@ const BEFORE_A_LAST_NAME =
  * TRUE if this word (a part of a name, in lower case) is used the way a name is when calling on
  * someone: at the start of what was said, at its end after a word such as "here" or "thanks", or
  * set off from the rest by a comma. `loose` lets a comma after the word anywhere in the line do
- * ("Anyway Josh, ..."), as it does for a first name; a surname must be set off on both sides.
+ * ("Anyway Josh, ..."), as it does for a first name; a surname or a whole name must open the
+ * line or be set off on both sides.
  */
 function callsOnWord(
   lower: string,
@@ -71,7 +72,9 @@ function callsOnWord(
   const atEnd = new RegExp(`\\b${BEFORE_A_LAST_NAME}\\W+${word}\\W*$`);
   const byComma = loose
     ? new RegExp(`(,\\s*${word}\\b${asWord})|(\\b${word}\\s*[,:])`)
-    : new RegExp(`,\\s*${word}\\s*(?:[,:!?.]|$)`);
+    : new RegExp(
+        `(,\\s*${word}\\s*(?:[,:!?.]|$))|(^\\W*(?:oh\\W+)?(?:${OPENERS}\\W+)?${word}\\s*[,:])`,
+      );
   return (
     (inView && (atStart.test(lower) || atEnd.test(lower))) ||
     byComma.test(lower)
@@ -227,7 +230,9 @@ export function saidTo(
     .sort((a, b) => b.whole.length - a.whole.length);
   for (const { name, whole } of wholeNames) {
     const own = name === brain.name;
-    if (callsOnWord(heard, whole, own || inView.has(name), true)) {
+    // Set off on both sides, not merely followed by a comma: "I am here for Hop Kins, please"
+    // speaks of Hop Kins.
+    if (callsOnWord(heard, whole, own || inView.has(name), false)) {
       return own ? { to: 'me' } : { to: 'other', name };
     }
   }
