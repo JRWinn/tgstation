@@ -51,7 +51,8 @@ export const DEPARTMENTS: Department[] = [
       'Lawyer',
       'Psychologist',
     ],
-    meetsIn: 'Bar',
+    // No meetsIn: the room called the Bar is, on most stations, the bartender's side of the
+    // counter, which the staff cannot get into. The server names the room (HEAD-10).
   },
   {
     name: 'Security',

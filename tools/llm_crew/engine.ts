@@ -156,6 +156,27 @@ said(sam, 'Ada Volt', lightLine('Sam Rees'));
 ENGINEER.syncTasks(sam);
 add('given the engine again, it tries again', [sam.engine.stuck, !!open(sam, 'light_engine')], [null, true]);
 
+// TRC-04: a step that fails for want of getting there, or of a free hand, is not the machine's fault.
+for (const [told, tries, stuck] of [
+  ['You could not get to it.', 5, 'I cannot get to the nitrogen canister'],
+  ['You have no free hand to take your wrench out with.', 5, 'my hands are full and I cannot work the nitrogen canister'],
+  ['The nitrogen canister will not connect.', 2, 'the nitrogen canister will not connect'],
+  ['You know of no such machine.', 1, 'I do not know this engine'],
+] as [string, number, string][]) {
+  const it = engineer();
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  let failed = 0;
+  for (let turn = 0; turn < 10; turn++) {
+    ENGINEER.syncTasks(it);
+    const task = open(it, 'light_engine');
+    const plan = task ? ENGINEER.plan(it, task) : null;
+    if (!task || !plan?.act) break;
+    failed++;
+    ENGINEER.afterActing(it, plan.act, task, false, false, {}, told);
+  }
+  add(`"${told}": tried ${tries} time(s), then stops with the true reason`, [failed, it.engine.stuck], [tries, stuck]);
+}
+
 // Nobody gives it the engine.
 sam = engineer(false);
 sam.now = 1300;
@@ -480,6 +501,37 @@ for (const [line, want] of [
   ['Can engineering light the engine safely now?', false],
 ] as [string, boolean][]) {
   add(`"${line}" is ${want ? '' : 'not '}an order to light the engine again`, isLightAgainOrder(line, 'Ada Volt'), want);
+}
+
+// ENG-03: the orders go to the engineer that has the engine, not to the first one on the PDA.
+{
+  const ada = chief(false);
+  ada.pdaPeople = [{ name: 'Jo Player', job: 'Station Engineer' }, { name: 'Sam Rees', job: 'Station Engineer' }, { name: 'Cap Tain', job: 'Captain' }];
+  CHIEF_ENGINEER.readsMessage(ada, 'Sam Rees', litLine('Ada Volt'), 100, 'Station Engineer');
+  ada.now = 200;
+  ada.engineReading = { integrity: 90, energy: 900 };
+  CHIEF_ENGINEER.syncTasks(ada);
+  const give = openOf(ada, 'engine_order', 'shut');
+  const step = give && CHIEF_ENGINEER.plan(ada, give);
+  add('two engineers on the PDA: emitters off goes to the one that lit it', step?.act?.person, 'Sam Rees');
+}
+{
+  // The first on the PDA never answers: after two orders unanswered, the next engineer is given them.
+  const ada = chief(false);
+  ada.pdaPeople = [{ name: 'Jo Player', job: 'Station Engineer' }, { name: 'Sam Rees', job: 'Station Engineer' }, { name: 'Cap Tain', job: 'Captain' }];
+  ada.engineReading = { integrity: 90, energy: 900 };
+  const sentTo: string[] = [];
+  for (let n = 0; n < 3; n++) {
+    ada.now = 100 + n * 2000;
+    CHIEF_ENGINEER.syncTasks(ada);
+    const give = openOf(ada, 'engine_order', 'shut');
+    const step = give && CHIEF_ENGINEER.plan(ada, give);
+    if (!step?.act) break;
+    sentTo.push(step.act.person);
+    CHIEF_ENGINEER.afterActing(ada, step.act, give, true);
+  }
+  add('an engineer that leaves two orders unanswered is passed over', sentTo, ['Jo Player', 'Jo Player', 'Sam Rees']);
+  add('and the Captain is told', ada.toTell.some((tell: any) => tell.line === 'I cannot reach Jo: I am giving the engine to Sam instead.'), true);
 }
 
 let failed = 0;
