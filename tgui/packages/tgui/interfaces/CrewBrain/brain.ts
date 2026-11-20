@@ -365,6 +365,7 @@ export function ingest(npcs: Npc[], now: number): void {
         atDoorOf: null,
         atDoorLabel: null,
         atDoorOpen: false,
+        workingHands: 2,
         doorReached: null,
         lookInRooms: [],
         roomsThrough: {},
@@ -631,6 +632,8 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.inHand = !!npc.in_hand;
     brain.floating = !!npc.floating;
     brain.dark = !!npc.dark;
+    brain.workingHands =
+      typeof npc.working_hands === 'number' ? npc.working_hands : 2;
     brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
     // What a Quartermaster has written in its order book, and the money every order is paid from.

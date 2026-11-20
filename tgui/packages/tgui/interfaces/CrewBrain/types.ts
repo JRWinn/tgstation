@@ -300,6 +300,8 @@ export type Npc = {
   floating?: BooleanLike;
   /** TRUE when there is no light where it stands and it has no night vision: it sees only what is right beside it (CHEAT-15). */
   dark?: BooleanLike;
+  /** How many of its hands work: 2 unless one is hurt or gone (HOLE-18). */
+  working_hands?: number;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
@@ -1662,6 +1664,8 @@ export type NpcBrain = {
   floating?: boolean;
   /** TRUE while it stands in the dark, seeing only what is right beside it (CHEAT-15). */
   dark?: boolean;
+  /** How many of its hands work: 2 unless one is hurt or gone, and 2 when the server does not say (HOLE-18). */
+  workingHands: number;
   /**
    * What the line now waiting to be said is for, when it is word for someone face to face or an
    * ask for the door (ASYNC-05, DRV-07): the step's key, the person, and the tell or the ask. The

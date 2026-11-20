@@ -1,7 +1,7 @@
 // What the window makes of fields the server sends, through ingest itself (CrewBrain/brain.ts),
 // round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06),
 // work of its own job said to nobody in particular (PARSE-17), rooms got to only through another
-// (LOGB-05), standing in the dark (CHEAT-15). No model is called; the brain is
+// (LOGB-05), standing in the dark (CHEAT-15), working hands (HOLE-18). No model is called; the brain is
 // made by ingest from a body with nothing about it.
 //
 //   bun run brain4-ingest.ts
@@ -88,6 +88,11 @@ add('ARR-06: not sent: false', ingested('Central Primary Hallway', { at_door_of:
   const lit = ingested('Central Primary Hallway', {});
   add('CHEAT-15: not sent: not dark, and no line', [lit.dark, describeSituation(lit).includes(DARK)], [false, false]);
 }
+
+// ---- HOLE-18: how many hands work
+add('HOLE-18: a fresh brain: two working hands', ingested('Central Primary Hallway', {}).workingHands, 2);
+add('HOLE-18: working_hands sent: read as workingHands', ingested('Central Primary Hallway', { working_hands: 1 }).workingHands, 1);
+add('HOLE-18: 0 is kept as 0', ingested('Central Primary Hallway', { working_hands: 0 }).workingHands, 0);
 
 let failed = 0;
 for (const [label, got, want] of cases) {
