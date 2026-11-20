@@ -82,3 +82,12 @@ Checked by Opus 5.5. Read both sides and the base game:
 - Window: the `superior` tests at `head.ts:1196`, `guarding.ts:684`, `chiefengineer.ts:687`, `quartermaster.ts:1610` and `headofsecurity.ts:262` all look the voice name up in `peopleInView` by name; nothing before them maps a voice to a handle. `driver.ts:445-447` holds a spoken `toTell` until someone of that exact name is in view, and drops it after `TELL_KEPT_MS` (two minutes, `driver.ts:97`).
 
 Not a duplicate of TRUST-03: that one is a forged voice obeyed, this one an honest Captain ignored; the fixes share a helper and are cross-referenced both ways. Nothing in the change log or plans covers it. Severity medium (needs the honorific on; then a whole run of orders to heads in person is ignored) and effort medium stand. The window helper and its callers alone mend the main case; step 3 is a one-line server change, so this stays short of "large".
+
+## Fix so far
+
+Group m-senses, 2026-11-19, server half in `crew_npc_senses.dm` (`on_pre_hear`). `details.handle` was already sent with every line from a human the body had seen in the last few seconds; the gap was a speaker in plain sight whom the last look had not yet taken in (just come into view, or seen anew under another name after a mask or a card change, since a person is remembered by body and name). Now, for a human speaker not recently seen, not blind, and `can_see(body, speaker, CREW_NPC_VISION_RANGE)`, the body looks round first (`look_around`, which sends their "comes into view" and puts them in `people_in_view` under the handle), and the line then carries the handle. A voice the body cannot see (behind a wall, in the dark past arm's length since CHEAT-15) still gets none, as the senses rule wants. Step 4 is done too: with a handle, `details.seen_as` is the speaker's seen name (`speaker.name`, "Captain John").
+
+Held:
+- Window (steps 1 and 2): `speakerInView(brain, event)` that finds by `details.handle` first, then by name, in place of the 19 `peopleInView.find((person) => person.name === speaker)` lines (`head.ts`, `guarding.ts`, `chiefengineer.ts`, `quartermaster.ts`, `headofsecurity.ts` and others), and `seen_as` for `toTell`/`jobOf` if wanted. Build with TRUST-03.
+- `crew_npc_doors.dm` (step 3): in `door_opened_for`, keep `let_in_by` as the opener's PDA name (the `saved_identification` of a PDA they carry, else `real_name`), not `opener.name`; and `person_at_room` could compare `real_name` as well as `name`.
+Compile only; not played.

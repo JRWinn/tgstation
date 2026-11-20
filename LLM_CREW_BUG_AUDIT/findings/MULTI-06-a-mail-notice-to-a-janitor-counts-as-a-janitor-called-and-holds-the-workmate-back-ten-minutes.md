@@ -84,3 +84,13 @@ Read from the code, not seen in a round. GAP-09 is about the window being told o
 ## Check
 
 Checked by Opus 5.5. Read `tool_message` and `resend_unsent` (`crew_npc_cargo.dm`, about lines 735 and 779): both note a call for any message whose PDA's `saved_job` says janitor, with no look at the words. Read `workmate_called_janitor` and `note_janitor_called` (`crew_npc_guarding.dm`, about line 235): one entry per post, no room, ten minutes (`CREW_NPC_CALL_STANDS`, `_defines.dm:207`), and the caller's own calls do not count against it. Read `tidyStep` (`jobs/cargo.ts`, about line 1509): the rooms keeper is not exempt from the `workmateCalled` hold, and nothing else lifts it. The mail notice in `jobs/freight.ts` (DELIVER) and the lost-crate and still-waiting notices in `jobs/cargo.ts` (about lines 591 and 622) all go out with the same `message` tool. Nothing in the change log or plans covers it. Confirmed. Effort raised to medium: the full fix touches the server (`tool_message`, `resend_unsent`, the dispatch, the call list), the window (`tidyStep`) and the simulator.
+
+## Fix so far
+
+Group m-senses, 2026-11-19, server step 2 in `crew_npc_guarding.dm` and `crew_brain_link.dm`. `GLOB.crew_npc_janitor_calls` is now kept per post and room: `[post][room] = list(caller, time)`, with `""` for a call that names no room. `note_janitor_called(room)` takes the room (optional, so the two existing calls with none still work as before). `rooms_workmate_called_for()` lists the rooms a workmate called for in the last `CREW_NPC_CALL_STANDS`; `workmate_called_janitor()` is TRUE if there is any, so `workmate_called` means what it did. `ui_data` also sends `workmate_called_rooms`. With nothing else changed, nothing the crew does changes yet.
+
+Held:
+- `crew_npc_cargo.dm` (step 1): in `tool_message` and `resend_unsent`, call `note_janitor_called(call_for)` only when the message carries a `call_for` room that is one of the post's department rooms (`post_place` or in `look_in_rooms`), not for every message to a janitor's PDA; keep `call_for` in the `unsent_messages` entry so `resend_unsent` can tell a call from a notice. Dispatch in `crew_npc_tools.dm`: pass `arguments["call_for"]` as a third argument to `tool_message` (check it is text).
+- Window (steps 0, 1, 3): `tidyStep` (`jobs/cargo.ts`) adds `call_for: task.place` to its message act, and holds back only when `task.place` is in `workmate_called_rooms` (or `""` is, for a call from an old server path); step 0's stopgap if wanted. `types.ts`: `workmate_called_rooms?: string[]`.
+- Simulator (`sim.ts:725` and `:1196`): note a call only for a message with `call_for`, per room, and send `workmate_called_rooms`.
+Compile only; not played.

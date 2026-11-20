@@ -57,6 +57,46 @@
 	return !isnull(job) && (istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF))
 
 /**
+ * The names the body's own PDA lists as the Captain or a head of staff, each with that job's title:
+ * what its messenger shows anyone who looks. Empty with no PDA on it. The job must be a head's title
+ * exactly, not merely contain one (HOLE-01).
+ */
+/datum/ai_controller/crew_npc/proc/command_on_pda()
+	var/list/heads = list()
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(isnull(own_messenger))
+		return heads
+	for(var/messenger_ref in GLOB.pda_messengers)
+		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
+		var/obj/item/modular_computer/computer = candidate?.computer
+		if(isnull(computer) || !computer.saved_identification || !computer.saved_job)
+			continue
+		var/turf/where = get_turf(computer)
+		if(isnull(where) || !is_station_level(where.z))
+			continue
+		var/datum/job/job = SSjob.get_job(computer.saved_job)
+		if(isnull(job) || !(istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF)))
+			continue
+		heads[computer.saved_identification] = computer.saved_job
+	return heads
+
+/**
+ * The job the body knows this person by as the Captain or a head of staff, or null: by the ID they
+ * wear, or, with no such ID on them, by their face, which shows their own name, being a name its
+ * PDA lists as the Captain or a head (SENSE-08). A head who has left their card in a console is
+ * still known. A hidden face is nobody's. Pass command_on_pda() when asking of many at once.
+ */
+/datum/ai_controller/crew_npc/proc/known_command_job(mob/living/carbon/human/person, list/heads)
+	var/datum/job/worn = crew_npc_job_of(person)
+	if(!isnull(worn) && (istype(worn, /datum/job/captain) || (worn.job_flags & JOB_HEAD_OF_STAFF)))
+		return worn.title
+	if(person.get_face_name() != person.real_name)
+		return null
+	if(isnull(heads))
+		heads = command_on_pda()
+	return heads[person.real_name]
+
+/**
  * Returns the job that goes with the ID this person wears, or null if it shows none. It goes by the
  * title on the card, which is what examining them shows, not by the trim it was printed with. Only
  * a title that is no job at all falls back to the trim, as before, until the owner says what such a
@@ -148,7 +188,21 @@
 	var/turf/here = get_turf(body)
 	if(isnull(here) || !isturf(body.loc))
 		return FALSE
-	var/list/doors = crew_npc_doors_of(room, here.z)
+	if(!crew_npc_doors_bar(room, here.z, body))
+		return FALSE
+	// A way in with no door on it (shutters up, a gap in the wall) is open to anyone, if it is from
+	// somewhere the body may be: a hallway, a tunnel, or a room one of whose doors opens to it. Two
+	// rooms open only to each other (Cytology and Xenobiology) do not let each other in (DOOR-02).
+	for(var/area/beyond as anything in crew_npc_open_ways_into(room, here.z))
+		if(istype(beyond, /area/station/hallway) || istype(beyond, /area/station/maintenance))
+			return FALSE
+		if(length(crew_npc_doors_of(beyond, here.z)) && !crew_npc_doors_bar(beyond, here.z, body))
+			return FALSE
+	return TRUE
+
+/// TRUE if this room has airlocks and none of them opens for this body.
+/proc/crew_npc_doors_bar(area/room, z_level, mob/living/body)
+	var/list/doors = crew_npc_doors_of(room, z_level)
 	if(!length(doors))
 		return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)
@@ -156,12 +210,66 @@
 			return FALSE
 	return TRUE
 
+/// How long the open ways into a room are kept before they are looked for again: shutters go up and down.
+#define CREW_NPC_OPEN_WAYS_KEPT (1 MINUTES)
+
+/// For each room and level, the station areas open onto it with no door between, and when that was found: "[REF(room)]-[z]" = list(list of areas, world.time).
+GLOBAL_LIST_EMPTY(crew_npc_open_ways)
+
+/**
+ * Returns the station areas that lie open onto this room by a way with no door on it: an open floor
+ * tile of the room beside an open floor tile of the other area, with nothing solid on either. A tile
+ * with an airlock or a windoor on it is a doorway, open or shut, and plastic flaps let nobody walk
+ * through standing up (DOOR-09). Kept a minute, since it walks every tile of the room.
+ */
+/proc/crew_npc_open_ways_into(area/room, z_level)
+	if(!isnum(z_level) || z_level < 1)
+		return list()
+	var/key = "[REF(room)]-[z_level]"
+	var/list/kept = GLOB.crew_npc_open_ways[key]
+	if(kept && world.time - kept[2] < CREW_NPC_OPEN_WAYS_KEPT)
+		return kept[1]
+	var/list/beyond = list()
+	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
+		if(!crew_npc_open_gap(room_turf))
+			continue
+		for(var/direction in GLOB.cardinals)
+			var/turf/next = get_step(room_turf, direction)
+			if(isnull(next))
+				continue
+			var/area/next_area = get_area(next)
+			if(next_area == room || beyond[next_area] || !istype(next_area, /area/station))
+				continue
+			if(crew_npc_open_gap(next))
+				beyond[next_area] = TRUE
+	GLOB.crew_npc_open_ways[key] = list(beyond, world.time)
+	return beyond
+
+/// TRUE if a person could walk across this tile with no door to open: open floor, nothing solid, no doorway, no flaps.
+/proc/crew_npc_open_gap(turf/spot)
+	if(!isopenturf(spot) || spot.is_blocked_turf(exclude_mobs = TRUE))
+		return FALSE
+	if(locate(/obj/machinery/door/airlock) in spot)
+		return FALSE
+	if(locate(/obj/machinery/door/window) in spot)
+		return FALSE
+	for(var/obj/structure/plasticflaps/flaps in spot)
+		if(flaps.require_resting)
+			return FALSE
+	return TRUE
+
+#undef CREW_NPC_OPEN_WAYS_KEPT
+
 /// Says why the body may not put this person out of its post, or null if it may.
 /datum/ai_controller/crew_npc/proc/why_not_put_out(mob/living/carbon/human/person)
 	if(belongs_in_post(person))
 		return "[person.name] has every right to be in [post_place]."
 	if(crew_npc_is_command(person))
 		return "[person.name] outranks you. You do not lay a hand on them."
+	// No head's card on them, but the face and the PDA list say who it is.
+	var/known_as = known_command_job(person)
+	if(known_as)
+		return "[person.name] is the [known_as]. You do not lay a hand on them."
 	// Someone who cannot answer has not refused to go, and someone in another's hands is not the body's to take.
 	if(crew_npc_person_down(person))
 		return "[person.name] is down and cannot walk. Someone should see to them."
@@ -268,20 +376,41 @@
  * call is enough: the rest leave it a while before they think of sending for one themselves.
  */
 /datum/ai_controller/crew_npc/proc/workmate_called_janitor()
-	var/list/last_call = post_place ? GLOB.crew_npc_janitor_calls[post_place] : null
-	if(isnull(last_call))
-		return FALSE
-	var/mob/living/carbon/human/body = pawn
-	return last_call[1] != body.real_name && world.time - last_call[2] < CREW_NPC_CALL_STANDS
+	return length(rooms_workmate_called_for()) > 0
 
-/// Notes that the body has sent a janitor a PDA message, for the others at its post.
-/datum/ai_controller/crew_npc/proc/note_janitor_called()
+/**
+ * The rooms someone else at the body's post has lately sent a janitor to, by name. A call that named
+ * no room is listed as "" (MULTI-06): until every caller says the room, the window can tell only
+ * that one was made.
+ */
+/datum/ai_controller/crew_npc/proc/rooms_workmate_called_for()
+	var/list/rooms = list()
+	var/list/calls = post_place ? GLOB.crew_npc_janitor_calls[post_place] : null
+	if(!length(calls))
+		return rooms
+	var/mob/living/carbon/human/body = pawn
+	for(var/room in calls)
+		var/list/last_call = calls[room]
+		if(last_call[1] != body.real_name && world.time - last_call[2] < CREW_NPC_CALL_STANDS)
+			rooms += room
+	return rooms
+
+/**
+ * Notes that the body has sent a janitor to a mess, for the others at its post: to the room of this
+ * name, or to no room in particular if none is given. Only a call to a mess should be noted, not
+ * any message that happens to go to a janitor (a mail notice is no call).
+ */
+/datum/ai_controller/crew_npc/proc/note_janitor_called(room)
 	if(isnull(post_place))
 		return
 	var/mob/living/carbon/human/body = pawn
-	GLOB.crew_npc_janitor_calls[post_place] = list(body.real_name, world.time)
+	var/list/calls = GLOB.crew_npc_janitor_calls[post_place]
+	if(isnull(calls))
+		calls = list()
+		GLOB.crew_npc_janitor_calls[post_place] = calls
+	calls[istext(room) ? room : ""] = list(body.real_name, world.time)
 
-/// The last PDA message sent to a janitor from each post, by the post's name: list(who sent it, world.time).
+/// The last janitor call from each post, by the post's name, then by the room it was for ("" for none named): list(who sent it, world.time).
 GLOBAL_LIST_EMPTY(crew_npc_janitor_calls)
 
 /// TRUE if this door stands on the edge of this room, so that going through it leaves the room.
