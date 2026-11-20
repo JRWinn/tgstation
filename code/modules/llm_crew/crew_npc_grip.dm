@@ -342,6 +342,12 @@
 	if(entry)
 		details["number"] = entry.number
 	if(isnull(left_clear_in))
+		// Where the crate lies, not where the body is, so the brain can tell whoever sent it (PLAY-12).
+		// It was in hand a moment ago: its room is one the body has just seen it in.
+		if(!QDELETED(crate) && isturf(crate.loc))
+			var/lies_in = get_area_name(crate, TRUE)
+			details["lies_in"] = lies_in
+			return " You could not get it clear of the doors either. It lies in [lies_in]."
 		return " You could not get it clear of the doors either."
 	details["left_in"] = left_clear_in
 	return " You have left it in [left_clear_in], clear of the doors."
