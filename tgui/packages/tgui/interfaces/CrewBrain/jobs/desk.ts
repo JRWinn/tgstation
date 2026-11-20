@@ -922,9 +922,11 @@ export function deskOutcome(
 
 /**
  * The heads of department it sends the notice to: every one aboard but the Captain and
- * security's own. A head there is a warrant on is sent nothing while it stands.
+ * security's own. A head there is a warrant on is sent nothing while it stands, and a head in
+ * a cell nothing while its time runs: it cannot answer from there (PLAY-08). It is owed the list
+ * once syncDesk takes it off the held list.
  */
-function headsToTell(brain: NpcBrain): string[] {
+export function headsToTell(brain: NpcBrain): string[] {
   const desk = deskOf(brain);
   return brain.pdaPeople
     .filter(
@@ -933,7 +935,8 @@ function headsToTell(brain: NpcBrain): string[] {
         !/captain/i.test(person.job) &&
         !isSecurity(person.job) &&
         person.name !== brain.name &&
-        !desk.warrants.some((warrant) => sameName(warrant.name, person.name)),
+        !desk.warrants.some((warrant) => sameName(warrant.name, person.name)) &&
+        !Object.keys(desk.held).some((name) => sameName(name, person.name)),
     )
     .map((person) => person.name);
 }
