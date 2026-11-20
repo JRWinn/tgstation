@@ -166,7 +166,7 @@
 		var/turf/spot
 		var/spot_off = INFINITY
 		for(var/turf/candidate as anything in RANGE_TURFS(CREW_NPC_EVICT_REACH, outside))
-			if(get_area(candidate) != beyond || !crew_npc_safe_turf(candidate) || candidate.is_blocked_turf(exclude_mobs = TRUE))
+			if(get_area(candidate) != beyond || !far_spot_safe(candidate) || candidate.is_blocked_turf(exclude_mobs = TRUE))
 				continue
 			if(!crew_npc_clear_of_doors(candidate))
 				continue

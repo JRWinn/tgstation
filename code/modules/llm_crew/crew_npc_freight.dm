@@ -142,7 +142,7 @@ GLOBAL_VAR_INIT(crew_npc_shuttle_arrivals_noted, FALSE)
 	var/nearest_distance = INFINITY
 	for(var/turf/square as anything in crew_npc_marked_squares(get_area(post_turf), post_turf.z))
 		// Not the body's own spot at the counter, nor beside it.
-		if(!crew_npc_safe_turf(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
+		if(!far_spot_safe(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
 			continue
 		// Nor one where a crate would wall another in, so nobody could stand beside it (SUP-15).
 		if(crew_npc_square_shuts_in(square))
@@ -419,7 +419,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/best_distance = INFINITY
 	var/fallback_distance = INFINITY
 	for(var/turf/candidate as anything in bay.get_turfs_by_zlevel(here.z))
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || get_dist(candidate, post_turf) <= 1)
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || get_dist(candidate, post_turf) <= 1)
 			continue
 		if((locate(/obj/machinery/conveyor) in candidate) || !crew_npc_clear_of_doors(candidate, 2))
 			continue
@@ -460,7 +460,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/turf/best
 	var/best_distance = INFINITY
 	for(var/turf/candidate as anything in deck)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
 			continue
 		var/distance = get_dist(candidate, middle)
 		if(distance < best_distance)

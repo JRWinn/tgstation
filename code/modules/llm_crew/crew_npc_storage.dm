@@ -281,6 +281,19 @@
 		return AI_BEHAVIOR_DELAY
 	if(world.time - started_at > time_limit)
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// The next square of the way has bad air: the same test as the walk leaf's (CHEAT-11). Spots far
+	// off are picked as if their air were fine, so this is what keeps an errand out of a vented room.
+	// Out of good air already, it walks on: that is the way out. The room is kept clear of for a while.
+	var/datum/move_loop/has_target/navmap_astar/loop = GLOB.move_manager.processing_on(controller.pawn, SSai_movement)
+	if(istype(loop) && length(loop.movement_path))
+		var/turf/standing = get_turf(controller.pawn)
+		var/turf/next_square = loop.movement_path[1]
+		if(isturf(next_square) && get_dist(standing, next_square) <= 1 && crew_npc_air_ok(standing) && !crew_npc_air_ok(next_square))
+			crew_controller.note_bad_air(next_square)
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) stopped its [crew_controller.errand_tool || "errand"] walk at [AREACOORD(standing)]: the air at [AREACOORD(next_square)] is bad.")
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		if(length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
+			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
 	var/atom/target = controller.blackboard[target_key]
 	// Walking round to a square the target can be touched from: done when it can be (HAND-08).
 	if(stand_at)

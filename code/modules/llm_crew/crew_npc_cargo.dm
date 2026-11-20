@@ -256,7 +256,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/turf/best_turf
 	var/best_score = INFINITY
 	for(var/turf/candidate as anything in post_area.get_turfs_by_zlevel(here.z))
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf())
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf())
 			continue
 		var/nearest = INFINITY
 		var/total = 0
@@ -312,7 +312,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/turf/best_turf
 	var/best_distance = INFINITY
 	for(var/turf/candidate as anything in room_turfs)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate, 2))
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate, 2))
 			continue
 		var/distance = get_dist(candidate, middle)
 		if(distance < best_distance)
@@ -705,7 +705,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// A small room may have nowhere two tiles from a door. One tile will do, and failing that anywhere to stand.
 	for(var/clearance in list(2, 1, 0))
 		for(var/turf/candidate as anything in room_turfs)
-			if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (clearance && !crew_npc_clear_of_doors(candidate, clearance)))
+			if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || (clearance && !crew_npc_clear_of_doors(candidate, clearance)))
 				continue
 			var/distance = get_dist(candidate, middle)
 			if(distance < best_distance)
