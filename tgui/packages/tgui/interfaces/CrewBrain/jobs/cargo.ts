@@ -987,11 +987,15 @@ function syncTasks(brain: NpcBrain): void {
       });
     }
   }
+  // Not one whose door the body is on its way to open now: the server opens it whatever is said
+  // meanwhile, and only the result, finding the task, books the let-in, drops the ask and keeps
+  // it by the door (PLAY-05). The driver forgets a step that never comes back, so this ends.
   for (const task of brain.tasks) {
     if (
       task.kind === DOOR &&
       task.state !== 'done' &&
-      (task.item !== wants?.name || task.place !== wants?.room)
+      (task.item !== wants?.name || task.place !== wants?.room) &&
+      !(brain.lastAct?.task === task.id && brain.lastAct.tool === 'open_door')
     ) {
       finishTask(brain, task);
     }
@@ -1625,9 +1629,25 @@ function askFrom(brain: NpcBrain, name?: string): DoorAsk | undefined {
  * done in two rooms a few seconds apart are both let out. A second ask from the same person is
  * their newer word and takes the place of their first, keeping its turn; if it is for the same
  * door the same way, what they have been told already stands. Asks that have run out are dropped.
+ * A newer ask that names no room, the same way, while their first still stands, is the first said
+ * again ("open that door", from a janitor who had sent word of which room): it keeps the room,
+ * the door and how they asked, unless it names another door (PLAY-05).
  */
 function putAsk(brain: NpcBrain, ask: DoorAsk): void {
   const before = askFrom(brain, ask.name);
+  if (
+    before &&
+    ask.room === undefined &&
+    before.room !== undefined &&
+    !!before.out === !!ask.out &&
+    askLive(brain, before) &&
+    !(ask.door && before.door && ask.door !== before.door)
+  ) {
+    ask.room = before.room;
+    ask.door ??= before.door;
+    ask.byPda ||= before.byPda;
+    ask.after ??= before.after;
+  }
   if (before && before.room === ask.room && !!before.out === !!ask.out) {
     ask.answered ||= before.answered;
     ask.refused ||= before.refused;
