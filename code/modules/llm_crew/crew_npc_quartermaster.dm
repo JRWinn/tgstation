@@ -91,7 +91,8 @@
 	var/mob/living/carbon/human/body = pawn
 	if(body.is_holding(thing))
 		return TRUE
-	for(var/index in body.get_empty_held_indexes())
+	// Only a hand that works: one lost or disabled is no use for it (HOLE-18).
+	for(var/index in free_hands())
 		if(body.can_put_in_hand(thing, index) && body.put_in_hand(thing, index))
 			return TRUE
 	return FALSE
