@@ -77,6 +77,29 @@ function toldOfBay() {
   add('sees the mess from the middle: cleans it', [task.state, next?.act?.tool], ['open', 'clean']);
 }
 
+{
+  // MEM-07: told by its head, face to face, of a mess in the long hallway it stands in, with none
+  // in sight. The told work is taken on (it was dropped before), stays open, and is looked for.
+  const { takeToldWork } = await import(ROOT + 'tasks');
+  const zim = { handle: 'p1', name: 'Zim Fire', job: 'Head of Personnel', superior: true };
+  const b: any = janitor('mop');
+  b.stowed = [];
+  b.messPlaces = [];
+  b.workablePlaces = [];
+  b.cleanableMesses = [];
+  b.beyondKinds = [];
+  know(b, ['Central Primary Hallway']);
+  at(b, 3000, 'Central Primary Hallway', [zim]);
+  const task: any = takeToldWork(b, 'a mess that needs cleaning', 'Central Primary Hallway', zim.name, true);
+  add('MEM-07: told of a mess in its own room: taken on', [task?.place, task?.askedBy, task?.urgency], ['Central Primary Hallway', 'Zim Fire', 'emergency']);
+  at(b, 3500, 'Central Primary Hallway', [zim]);
+  b.messPlaces = [];
+  syncTasks(b);
+  add('MEM-07: fifty seconds on, not looked round: still open, nobody owed word', [task?.state, wordOwed(b).length], ['open', 0]);
+  const plan: any = task ? JANITOR.plan(b, task) : null;
+  add('MEM-07: it walks to the middle to look', plan?.act, { tool: 'go_to', place: 'Central Primary Hallway', middle: true });
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

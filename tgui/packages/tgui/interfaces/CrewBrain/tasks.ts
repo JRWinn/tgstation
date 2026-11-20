@@ -262,7 +262,10 @@ export function takeToldWork(
   }
   // Work in the room it is standing in is work it can see for itself. If it sees none, there is
   // none to take on; if it does, it has the task already, and this only says who is waiting on it.
+  // Not for a job that cleans: a mess told of in a long hallway may be out of its sight, and the
+  // janitor walks the room to look before it closes the task (MEM-07, DESK-08).
   if (
+    !jobFor(brain.job).cleans &&
     own &&
     room === brain.location &&
     !findTask(brain, kind, { place: room })
