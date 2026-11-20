@@ -99,12 +99,40 @@ export function asideStep(
   };
 }
 
-/** What the LLM should know about having been asked to move, so that what it says matches what the body does. */
-export function asideCues(brain: NpcBrain): string[] {
+/** Who asked it to step aside, while that asking still stands (the step and the hold after it), or null. */
+export function asideStands(brain: NpcBrain): string | null {
   const asked = brain.asideAsked;
   return asked && Date.now() - asked.at < ASIDE_STANDS_MS + ASIDE_HOLD_MS
-    ? [
-        `${asked.by} asked you to step aside, and your body ${asked.done ? 'has stepped' : 'is stepping'} out of their way. You do not argue it or explain what you were doing: at most you say sorry.`,
-      ]
-    : [];
+    ? asked.by
+    : null;
+}
+
+/** What the server calls a step aside while it is being made (describe_doing in crew_npc_hands.dm). */
+const STEPPING_ASIDE = /out of someone's way/;
+
+/**
+ * What it was doing, put for the LLM while an asking to step aside stands. The body has set that
+ * down and is moving out of the way (PLAY-11), so "You are in the middle of cleaning" would pull
+ * the voice the other way. Null when what it is doing is the step aside itself, which the aside
+ * line already says.
+ */
+export function asideDoing(by: string, doing: string): string | null {
+  return STEPPING_ASIDE.test(doing)
+    ? null
+    : `You have broken off ${doing} for now to let ${by} past. You go back to it once they are past.`;
+}
+
+/**
+ * What the LLM should know about having been asked to move, so that what it says matches what the
+ * body does. The code moves the body the moment the asking is heard, often before the LLM's answer
+ * is back, so the line puts it as settled, not as something to be argued (PLAY-11).
+ */
+export function asideCues(brain: NpcBrain): string[] {
+  const by = asideStands(brain);
+  if (!by) {
+    return [];
+  }
+  return [
+    `${by} asked you to step aside, and you ${brain.asideAsked?.done ? 'have stepped' : 'are moving'} out of their way now. That is already done: you do not say you will wait, finish first or cannot. You do not argue it or explain what you were doing: at most you say sorry.`,
+  ];
 }

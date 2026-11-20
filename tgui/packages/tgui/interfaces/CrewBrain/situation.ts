@@ -4,7 +4,7 @@
  * The person layer says what is true for anyone. The NPC's job adds what matters about its work.
  */
 import { describeChoice } from './choice';
-import { asideCues } from './jobs/aside';
+import { asideCues, asideDoing, asideStands } from './jobs/aside';
 import { guardCues } from './jobs/guarding';
 import { meetingCues } from './jobs/meetings';
 import { wantedCues } from './jobs/wanted';
@@ -114,12 +114,20 @@ export function describeShutIn(brain: NpcBrain): string {
 export function describeSituation(brain: NpcBrain): string[] {
   const job = jobFor(brain.job);
   const lines: string[] = [];
-  if (brain.doing) {
+  // PLAY-11: asked to step aside, the body is already moving, so what it was doing is set down
+  // for now and the aside line comes first, before the job's lines about its work pull the other way.
+  const asideBy = asideStands(brain);
+  if (asideBy) {
+    const broken = brain.doing ? asideDoing(asideBy, brain.doing) : null;
+    if (broken) {
+      lines.push(broken);
+    }
+    lines.push(...asideCues(brain));
+  } else if (brain.doing) {
     lines.push(`You are in the middle of ${brain.doing}.`);
   }
   lines.push(...job.cues(brain));
   lines.push(...guardCues(brain));
-  lines.push(...asideCues(brain));
   lines.push(...meetingCues(brain));
   lines.push(...wantedCues(brain));
   // MAP-07: with the gravity off it cannot walk, so that it can say why it is not going anywhere.
