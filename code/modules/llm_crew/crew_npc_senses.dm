@@ -73,26 +73,52 @@
 		if(QDELETED(thing_ref.resolve()))
 			slippery_seen -= key
 
-/// TRUE if the body knows of something slippery lying on this tile: it has seen it there before, or can see it now.
-/datum/ai_controller/crew_npc/proc/knows_slippery(turf/spot)
-	var/list/in_reach
-	for(var/atom/movable/thing as anything in spot)
-		var/datum/weakref/seen_ref = slippery_seen[REF(thing)]
-		if(seen_ref?.resolve() == thing)
-			return TRUE
-		if(!crew_npc_slippery_thing(thing))
-			continue
-		// Not seen before. The tile in front of it is in plain sight: a tile right beside the body is
-		// made out even in the dark (crew_npc_visible), so this needs no test of the light.
-		in_reach ||= oview(1, pawn)
-		if(thing in in_reach)
-			slippery_seen[REF(thing)] = WEAKREF(thing)
-			return TRUE
-	return FALSE
+/**
+ * TRUE if walking, not running, keeps a body on its feet on this slippery thing. In this game that
+ * is so only for a thing whose slipperiness says so (NO_SLIP_WHEN_WALKING): oil, fresh blood. A
+ * banana peel, soap or slippery foam slips a walker just the same (SENSE-06).
+ */
+/proc/crew_npc_walking_helps(atom/movable/thing)
+	var/datum/component/slippery/slip = thing.GetComponent(/datum/component/slippery)
+	return !isnull(slip) && (slip.lube_flags & NO_SLIP_WHEN_WALKING)
 
 /**
- * Walks, not runs, for a step onto a tile where it knows something slippery lies, and runs again
- * once it is off. This is a player holding the walk key past a pool of oil, and nothing more.
+ * Returns the slippery thing the body knows of lying on this tile, having seen it there before or
+ * seeing it now, or null. One that walking will not help with is returned before one it will.
+ */
+/datum/ai_controller/crew_npc/proc/known_slippery_on(turf/spot)
+	var/list/in_reach
+	var/atom/movable/found
+	for(var/atom/movable/thing as anything in spot)
+		var/datum/weakref/seen_ref = slippery_seen[REF(thing)]
+		if(seen_ref?.resolve() != thing)
+			if(!crew_npc_slippery_thing(thing))
+				continue
+			// Not seen before. The tile in front of it is in plain sight: a tile right beside the body is
+			// made out even in the dark (crew_npc_visible), so this needs no test of the light.
+			in_reach ||= oview(1, pawn)
+			if(!(thing in in_reach))
+				continue
+			slippery_seen[REF(thing)] = WEAKREF(thing)
+		if(!crew_npc_walking_helps(thing))
+			return thing
+		found ||= thing
+	return found
+
+/// TRUE if the body knows of something slippery lying on this tile: it has seen it there before, or can see it now.
+/datum/ai_controller/crew_npc/proc/knows_slippery(turf/spot)
+	return !isnull(known_slippery_on(spot))
+
+/**
+ * Minds a step onto a tile where it knows something slippery lies. This is a player who sees a
+ * pool of oil or a banana peel ahead, and nothing more.
+ *
+ * Where walking keeps it on its feet (oil, blood), it walks, not runs, for that step and runs again
+ * once it is off. Where walking does not help (a peel, soap, foam), it goes round the tile: the step
+ * is not taken, and the walk's next plan leaves that tile out (the same way round as for something
+ * in the way that will not move, tile_to_go_round). Only where the plan finds no way round, or the
+ * tile is the one it is walking to, or the move is not one a plan is made for, does it step on with
+ * care and may slip, as a player in a one-tile corridor would.
  *
  * It goes by sight alone. A thing it has seen, or can see on the tile in front of it, it knows of.
  * A floor that is only wet from a mop it does not: there is nothing lying there to see, and it
@@ -108,10 +134,17 @@
 	if(body.moving_from_pull || body.throwing || body.pulledby || body.buckled)
 		return
 	// Shoes that grip need no care taken.
-	var/careful = !HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL) && knows_slippery(new_loc)
-	if(!careful)
+	var/atom/movable/slippery = (HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) || HAS_TRAIT(body, TRAIT_NO_SLIP_ALL)) ? null : known_slippery_on(new_loc)
+	if(isnull(slippery))
 		body.set_move_intent(MOVE_INTENT_RUN)
 		return
+	// Walking will not save it: it keeps off the tile. Asked once a walk for each tile: a second step
+	// onto the same one means the plan could not leave it out, and it goes on with care instead.
+	if(!crew_npc_walking_helps(slippery) && !avoid_gave_up && avoid_turf != new_loc)
+		avoid_ref = WEAKREF(slippery)
+		avoid_turf = new_loc
+		avoid_logged = FALSE
+		return COMPONENT_MOVABLE_BLOCK_PRE_MOVE
 	if(body.move_intent == MOVE_INTENT_WALK)
 		return
 	// It slows to a walk first, and takes the step at that pace: this one, begun at a run, is not taken.
