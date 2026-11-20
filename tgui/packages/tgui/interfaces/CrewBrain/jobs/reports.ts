@@ -110,6 +110,14 @@ export function totalWords(counts: Record<string, number>): string {
   );
 }
 
+/** What an NPC says of its work when it has none to count: one of these, by the wording. */
+const NO_WORK = [
+  'I have nothing to show yet',
+  'nothing done yet to speak of',
+  'I have no work to speak of yet',
+];
+const NO_WORK_WORDS = new RegExp(NO_WORK.join('|'), 'i');
+
 /**
  * The work one NPC has done, as it says it, without a capital or a full stop: "I have cleaned up
  * 14 items and scrubbed 9 spots". The wording is one of a few, so that three janitors in a row do
@@ -121,11 +129,7 @@ export function workWords(
 ): string {
   const done = counted(counts);
   if (done.length === 0) {
-    return [
-      'I have nothing to show yet',
-      'nothing done yet to speak of',
-      'I have no work to speak of yet',
-    ][wording % WORDINGS];
+    return NO_WORK[wording % WORDINGS];
   }
   const total = totalWords(counts);
   switch (wording % WORDINGS) {
@@ -174,7 +178,14 @@ export function readReport(
       counts[tally.key] = Number(found[1] ?? found[2]);
     }
   }
-  if (!told && Object.keys(counts).length === 0) {
+  // With no work counted, a line is a report only if it says so in a report's words, or says it
+  // needs nothing. Any line with "I need" in it was taken for one: "Hop, I need a minute to put
+  // my mop away" had a crate ordered (HEAD-04).
+  if (
+    Object.keys(counts).length === 0 &&
+    !NO_WORK_WORDS.test(text) &&
+    !/\bI need nothing\b/i.test(text)
+  ) {
     return null;
   }
   return { counts, need: told && !/\bI need nothing\b/i.test(text) };

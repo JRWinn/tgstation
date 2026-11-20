@@ -223,6 +223,28 @@ for (const [line, saidTo, want] of [
   add('order sent by PDA: a technician\'s word is not its Noted', b.requisition.heardBack, false);
 }
 
+// HEAD-04: only the set asking line, outside a meeting, is an ask; at a meeting, only a report.
+for (const [line, want] of [
+  ['Excuse me, Hop, could you step aside, please? I need to get this past you.', false],
+  ['Just on my way out of the closet.', false],
+  ['The supply closet is a mess.', false],
+  ['Hop, I need something to clean with for my work. Could you get it ordered, please?', true],
+] as [string, boolean][]) {
+  const b = hop();
+  b.asks = [];
+  b.peopleInView = [{ handle: 'j1', name: JAN.name, job: 'Janitor', distance: 1 }];
+  heard(b, { name: JAN.name }, line);
+  add(`"${line.slice(0, 60)}": ${want ? '' : 'not '}an ask`, b.asks.length, want ? 1 : 0);
+}
+{
+  const { hearReport } = await import(ROOT + 'jobs/head');
+  const b = hop();
+  b.asks = [];
+  b.meeting = { calledAt: 0, room: 'Bar', calledIn: true, invited: [JAN.name], copied: true, answers: { [JAN.name]: 'coming' }, startedAt: 10, turns: [], reports: {}, closedAt: null, orderedBy: null };
+  add('at a meeting, a stray "I need" from someone not called on is no report', hearReport(b, JAN.name, 'I have nothing to show yet, I need a moment.'), null);
+  add('a report put to it by name is', !!hearReport(b, JAN.name, 'Hop, I have nothing to show yet. I need something to clean with.'), true);
+}
+
 // TRA-08: someone who asks while a crate with room for them is coming is put on it.
 const MO = { name: 'Mo Mopp', job: 'Janitor' };
 const CAL = { name: 'Cal Clean', job: 'Janitor' };

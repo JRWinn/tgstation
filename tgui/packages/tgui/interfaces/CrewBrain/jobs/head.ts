@@ -132,9 +132,14 @@ const SAID_MAX = 200;
 /** The plain words it calls on someone in, orders in, and tells the Captain of a meeting in, by which those lines are known afterwards. */
 const CALLING_ON = 'your report, please';
 const HOLDING = 'holding a staff meeting';
-/** The words that mark what one of its staff says or writes as asking for something for their work. */
-const NEED_WORDS =
-  /\bi need\b|\bwe need\b|nothing to clean with|could you get|get it ordered|\bsuppl(y|ies)\b|\bout of\b/i;
+/**
+ * The words that mark what one of its staff says or writes as asking for something for their
+ * work: the set asking line ("I need X for my work. Could you get it ordered, please?", see
+ * needStep in meetings.ts). Not the bare "I need", "out of" or "supplies": "could you step aside?
+ * I need to get this past you" had a crate ordered (HEAD-04). Looser wording from a player is for
+ * the last-resort reader the owner has approved, which is not built.
+ */
+const NEED_WORDS = /could you get it ordered|\bI need .+? for my work\b/i;
 /** The words of someone saying they need nothing. */
 const NO_NEED_WORDS =
   /nothing from me|need nothing|don'?t need|do not need|no,? thank/i;
@@ -1409,6 +1414,18 @@ export function hearReport(
     !report ||
     !staff(brain).some((person) => person.name === speaker)
   ) {
+    return null;
+  }
+  // Only from whoever it has called on and is listening to, or a line put to it by its first
+  // name, which is how a report begins. A greeting on the way in with "I need" in it was taken
+  // for a report, and a crate ordered on it (HEAD-04).
+  const last = meeting.turns.at(-1);
+  const theirTurn = !!last && !last.heard && last.who === speaker;
+  const toIt = new RegExp(
+    `^\\W*${firstName(brain.name).replace(/[^A-Za-z'-]/g, '')}\\s*,`,
+    'i',
+  ).test(heard);
+  if (!theirTurn && !toIt) {
     return null;
   }
   meeting.reports[speaker] = report;
