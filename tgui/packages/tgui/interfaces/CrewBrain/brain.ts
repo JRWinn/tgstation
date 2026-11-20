@@ -963,8 +963,25 @@ function sayPlainly(
   roundsAfterSaying(brain, line);
   pickupsAfterSaying(brain, line);
   afterSaying(brain, [line]);
+  sayingCounted(brain, line);
   lineSaid(brain, sayFor);
   return true;
+}
+
+/**
+ * A line its work called for has been said word for word: that is no step that failed. The
+ * driver holds a line back a while once it is sent, longer each time it is sent again; said, the
+ * count starts afresh, so a line said again after each rest (an arrest's, say) is held back no
+ * longer the fifth time than the first (ARR-01). The hold already set stands, so the same line is
+ * not said twice in a breath.
+ */
+export function sayingCounted(brain: NpcBrain, line: string): void {
+  const end = `:say:${line}`;
+  for (const [key, failure] of brain.failures) {
+    if (key.endsWith(end) && failure.count > 0) {
+      brain.failures.set(key, { count: 0, until: failure.until });
+    }
+  }
 }
 
 /**
@@ -2295,6 +2312,16 @@ async function think(brain: NpcBrain): Promise<void> {
       pickupsAfterSaying(brain, mustSay);
       // The word it was for is told, the ask for the door made.
       if (mustSay) {
+        const line = mustSay;
+        if (
+          exact ||
+          actions.some(
+            (action) =>
+              action.tool === 'say' && String(action.text ?? '').includes(line),
+          )
+        ) {
+          sayingCounted(brain, line);
+        }
         lineSaid(brain, sayFor);
         lineSettled = true;
       }
