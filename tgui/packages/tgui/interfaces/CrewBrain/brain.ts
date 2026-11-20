@@ -89,6 +89,11 @@ const SAID_LATELY_KEPT = 8;
 const SAID_LATELY_MS = 600000;
 /** How much of a line's wording has to match an earlier one for it to be the same line over again. */
 const SAME_LINE_SHARE = 0.6;
+/** An answer the same as one said this recently (milliseconds), by this much of its wording, is not said again (PLAY-10). */
+const REPEAT_MS = 60000;
+const REPEAT_SHARE = 0.9;
+/** Words (of more than three letters) a line needs before it can count as said again: short answers are said as often as asked. */
+const REPEAT_MIN_WORDS = 4;
 /** The most lines of events kept waiting for the next time the LLM is asked. */
 const PENDING_MAX_LINES = 30;
 /**
@@ -926,6 +931,27 @@ function saidBefore(brain: NpcBrain, text: string): boolean {
   });
 }
 
+/**
+ * TRUE if an answer is, all but word for word, a line the NPC said within the last minute (PLAY-10).
+ * An answer is let through what a remark is not, but the same refusal given twice to the same ask
+ * is a broken record. The test is tighter than saidBefore's: nearly every word, both ways, and a
+ * line long enough to be more than "Yes, sir".
+ */
+function saidJustNow(brain: NpcBrain, text: string): boolean {
+  const words = gist(text);
+  if (words.size < REPEAT_MIN_WORDS) {
+    return false;
+  }
+  return brain.saidLately.some((said) => {
+    if (Date.now() - said.at > REPEAT_MS) {
+      return false;
+    }
+    const before = gist(said.text);
+    const shared = [...words].filter((word) => before.has(word)).length;
+    return shared / Math.max(words.size, before.size) >= REPEAT_SHARE;
+  });
+}
+
 /** Remembers something the NPC has just said. */
 function noteSaid(brain: NpcBrain, text: string): void {
   brain.saidLately.push({ text, at: Date.now() });
@@ -1746,6 +1772,15 @@ async function think(brain: NpcBrain): Promise<void> {
           `say(${JSON.stringify(text)}) [the line in it is no longer needed: not said]`,
         );
         unanswered = true;
+        return false;
+      }
+      // Nor is an answer said that it gave word for word a moment ago (PLAY-10). It is not asked
+      // again: a model that gives the same line twice would give it a third time. The plain line
+      // its work calls for, if any, is said in its place below.
+      if (speakers.length > 0 && saidJustNow(brain, text)) {
+        decision.calls.push(
+          `say(${JSON.stringify(text)}) [said word for word just now: not said]`,
+        );
         return false;
       }
       return !(
