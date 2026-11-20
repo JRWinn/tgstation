@@ -13,7 +13,7 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - KNA-29: with a pulled alarm in the next room, the body resets the alarm in its own room ("reset a fire alarm.") and walks on through the shared door, with no run of "Stopped at" lines on one square.
 - LOGA-01: a janitor sent to the Delivery Office alone and asking at the Cargo Bay door is answered "coming to ... let you in", never "nobody here sent for you" (`pda.log`).
 - PARSE-01: grep `crew_brain.log` for "your PDA says what you asked for has come" and check each follows only the head's fixed message in `pda.log`; a typed "clean the X" now makes a mess task.
-- PARSE-09: grep `crew_brain.log` for "[an order, made out from what was said]" and read the line before each: none should be a question, a "no need", or word that the mess is gone.
+- PARSE-09: grep `crew_brain.log` for "[an order, made out from what was said]" and read the line before each: none should be a question, a "no need", or word that the mess is gone. (Until PLAY-07 is fixed this marker is never written to `crew_brain.log`: judge by `game.log` and `pda.log` only.)
 - QM-08: with two orders waiting on the Captain, a bare "yes" in `pda.log` is followed by "The Captain said yes" for the order asked about last, in the Quartermaster's book lines in `game.log`.
 - QM-14: in `game.log`, "I have that" from the Quartermaster follows each technician's word within a few seconds all round; no "Your order has come in" PDA from a technician to a head while the Quartermaster is aboard.
 - SECT-01: Captain sends "Joan, do not arrest <name>": `pda.log` must have no "I have that: a warrant for <name>" after it.
@@ -38,11 +38,11 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - KNB-06: after a collection, the crate's things lie on one tile, and the crate is back in the lobby or bay, shut and empty; grep `game.log` for "unpack it there".
 - SUP-01 (check this first): with power on, orders are still placed ("You order ... at the supply console" and the crates arrive); with the bay APC off, the order result reads "The supply console is dead".
 - TRC-01: grep `game.log` for "open: someone is on it"; lie on an open crate in the Cargo Bay with an item on its tile: the technician leaves it open.
-- ASYNC-08: give an order in passing and walk on at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk to that room.
+- ASYNC-08: give an order in passing and walk on at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk to that room. (Until PLAY-07 is fixed the marker is not in `crew_brain.log`: look for the walk in `game.log`.)
 - MEM-05: with two crew in view, give one an order by name, then speak to the other: no work(...) [an order...] entry for the other in `crew_brain.log`.
 - KNB-13: "Excuse me" lines in `game.log`, each within a few seconds of a "lost its grip ... Next to the crate: <person>" line; "has given up hauling" with a person beside the crate is rare.
 - KNB-08: no more than one "opened X to let <janitor> into Cargo Bay" per janitor message in `game.log`; the janitor is in the outer room within seconds of the door opening.
-- TRUST-11: ask a head NPC by the Head of Security to have someone arrested: `crew_brain.log` shows "[sounded like an order: not said]", and `game.log` no warrant or arrest.
+- TRUST-11: ask a head NPC by the Head of Security to have someone arrested: `crew_brain.log` shows "[sounded like an order: not said]", and `game.log` no warrant or arrest. (Until PLAY-07 is fixed the marker is not in `crew_brain.log`: judge by `game.log` and `pda.log` only.)
 - CHEAT-01: grep `game.log` for "standing in your way": present but not many; watch a meeting of four or more in a small office for anyone stuck; stand in a doorway in combat mode: a technician stops, not passes.
 - KNB-04: in `game.log`, "opened X to let Y" once per asking; the door opens, shuts by itself, and opens again if the visitor was slow, while the technician stands beside it.
 - ARR-02: in `game.log`, after "took hold of ... to walk them out" on an officer, no "was laid hands on by <keeper> ...: grab" and no "hit <keeper> with its baton"; an officer let in by a technician is not walked out within 5 minutes while the one the warrant is on is still uncuffed in the bay. A pull by your own body must still give "was laid hands on by ...: grab".
@@ -51,11 +51,11 @@ One line for each fix on the branch `crew-bug-fixes`: the finding, and what to g
 - SEC-05: after a pardon of someone whose time already ran out, `game.log` has "came to let X out of Cell N and found X not in it", and no "stopped the timer of" for that cell.
 - KNA-01 (guarding): a janitor who sent "let me out" shows no "took hold of <janitor> ... to walk them out" before "opened ... to let <janitor> out of".
 - KNB-04 (step 7): after "opened X to let Y", the same technician starts no walk until Y is through or about 35 s pass; `crew_brain.log` shows "You are done holding the door of X for Y.", and the technician moves on within a second or two of it.
-- CARGO-06: a non-head asking a technician for supplies near a head gets nothing ordered (`crew_brain.log` "[nothing said called for it: not done]"); no order with order_for a janitor's name when there is no Quartermaster.
+- CARGO-06: a non-head asking a technician for supplies near a head gets nothing ordered (`crew_brain.log` "[nothing said called for it: not done]"); no order with order_for a janitor's name when there is no Quartermaster. (Until PLAY-07 is fixed the marker is not in `crew_brain.log`: judge by `game.log` and `pda.log` only.)
 - CHEAT-14 (steps 6 and 7): in the Crew Brain window, has_pda and has_locator are false for a body whose PDA an admin broke; in View Variables an engineer's PDA shows enabled early in the round.
 - KNB-06 (crate_collected): collecting a locked, welded or large wooden crate gives "you cannot unpack it" in the brain window, no "is unpacked in" in `pda.log`, and no take back of that crate.
 - TRC-01 (take_from_container): `game.log` "left the X open in Y: someone is on it." when something is taken from a locker or crate with someone on its tile.
-- ASYNC-08 (both halves): the Captain gives an order in passing and walks out of view at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk.
+- ASYNC-08 (both halves): the Captain gives an order in passing and walks out of view at once: `crew_brain.log` shows work(...) [an order, made out from what was said], and `game.log` a walk. (Until PLAY-07 is fixed the marker is not in `crew_brain.log`: look for the walk in `game.log`.)
 - DRV-03: the step-aside line in `crew_brain.log` ("has asked you to step aside") comes within a second or two of the ask in `game.log`, and the body is out of the way at once.
 
 ## From the medium small-fix bugs, round one (branch `crew-bug-fixes-medium`)
@@ -231,3 +231,9 @@ Written by the fixers. Where a check greps crew_brain.log for a marker, nobody h
 - ARR-08 (step 3): crew_brain.log: an officer that broke off an arrest to get away, then a 'cuffed' report on that person.
 - MAP-04 (step 3): game.log on Tramstation: where an officer whose cells all refused waits; it should be a checkpoint room, not the Brig.
 - MAP-07 (step 4): crew_brain.log: a body in a room with the gravity off should be told "There is no gravity here"; game.log: how often walks are refused with the floating reason.
+
+## Found in play, round-15.44.36 (2026-11-19)
+
+New faults are PLAY-01 to PLAY-13. Known faults seen in play for the first time: TRB-07 (prisoner let go when the cuffs come off in the cell), SENSE-03 (Pun Pun as a gorilla is never seen, so his warrant cannot be served), GAP-24 (the Captain's PDA to the Quartermaster gets no answer), ENG-02 (the emitters lost power and the engine was reported lit), HEAD-08 (a crate credited to the wrong janitor), MULTI-07 and JOBS-05 (a late "still waiting" sends a second janitor), DRV-08 (no step for 15 s after stepping aside), PARSE-04 (a refusal with "step aside" in it read as an ask).
+
+Fixes seen working: DRV-03, TRUST-06 (the Captain's half), KNB-04 step 7 (failed once, see PLAY-05), SUP-01, KNB-08, CHEAT-01 (bodies stop at people). Not set up in that round: ASYNC-08, MEM-05, ARR-02, SEC-05, SEC-01, CARGO-06, KNB-06, TRC-01, TRUST-11, a head's warrant on a head.
