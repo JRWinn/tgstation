@@ -53,6 +53,45 @@
 			crates += crate
 	return crates
 
+/// The crates that were aboard the supply shuttle when it last docked at the station, as weak references. Only these came in on it (SUP-12).
+GLOBAL_LIST_EMPTY(crew_npc_shuttle_arrivals)
+/// TRUE while the supply shuttle is docked at the station and its arrivals have been noted.
+GLOBAL_VAR_INIT(crew_npc_shuttle_arrivals_noted, FALSE)
+
+/**
+ * Returns the crates aboard the docked supply shuttle that came in on it. Whoever is in the bay sees
+ * the shuttle dock with them, and sees anything put aboard after that being put aboard: a crate a
+ * player hauls on to be sold is going out, and was hauled straight back off (SUP-12).
+ *
+ * What is aboard is noted at the first look by anyone after it docks, and forgotten when it leaves.
+ * A crate that has come off is struck off, so one put back aboard in the same stay goes out with it.
+ * One shared list, so every look and every tool sees the same.
+ */
+/datum/ai_controller/crew_npc/proc/shuttle_arrivals()
+	var/list/arrived = list()
+	var/obj/docking_port/mobile/supply/shuttle = docked_supply_shuttle()
+	if(isnull(shuttle))
+		GLOB.crew_npc_shuttle_arrivals.Cut()
+		GLOB.crew_npc_shuttle_arrivals_noted = FALSE
+		return arrived
+	var/list/aboard = crates_aboard()
+	if(!GLOB.crew_npc_shuttle_arrivals_noted)
+		GLOB.crew_npc_shuttle_arrivals_noted = TRUE
+		GLOB.crew_npc_shuttle_arrivals.Cut()
+		for(var/obj/structure/closet/crate/crate as anything in aboard)
+			GLOB.crew_npc_shuttle_arrivals += WEAKREF(crate)
+	for(var/datum/weakref/crate_ref as anything in GLOB.crew_npc_shuttle_arrivals.Copy())
+		var/obj/structure/closet/crate/crate = crate_ref.resolve()
+		if(QDELETED(crate) || !(crate in aboard))
+			GLOB.crew_npc_shuttle_arrivals -= crate_ref
+			continue
+		arrived += crate
+	// The mail crate is made at the far dock with the orders: it always came in on it.
+	for(var/obj/structure/closet/crate/crate as anything in aboard)
+		if(!(crate in arrived) && crew_npc_crate_has_mail(crate))
+			arrived += crate
+	return arrived
+
 /// Returns the rooms that are cargo's to keep in order: the post, and the lobby where it serves the crew.
 /datum/ai_controller/crew_npc/proc/freight_rooms()
 	var/list/rooms = list()
@@ -208,7 +247,8 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 /datum/ai_controller/crew_npc/proc/crate_to_unload()
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
+	// Only what came in on it: a crate put aboard since is going out (SUP-12).
+	for(var/obj/structure/closet/crate/crate as anything in shuttle_arrivals())
 		if(crate.anchored || crew_npc_crate_spent(crate) || crate_taken(crate))
 			continue
 		var/distance = get_dist(pawn, crate)
@@ -307,11 +347,15 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		return freight_cache
 	var/to_unload = 0
 	var/empties_aboard = 0
+	var/list/arrived = shuttle_arrivals()
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
 		if(crate.anchored)
 			continue
 		if(crew_npc_crate_spent(crate))
 			empties_aboard++
+			continue
+		// Put aboard since it docked, with something in it: someone is sending it out to be sold (SUP-12).
+		if(!(crate in arrived))
 			continue
 		// It came in with something in it: when it is empty, it is one that goes back.
 		crate.crew_npc_came_by_shuttle = TRUE
