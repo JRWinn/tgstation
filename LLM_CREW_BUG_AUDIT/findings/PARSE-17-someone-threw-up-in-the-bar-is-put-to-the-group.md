@@ -80,3 +80,5 @@ Checked by Opus 5.5. The quotes at `addressing.ts:30-31`, `111-113` and `brain.t
 ## Fix so far
 
 Group m-words, b0e127fd006: steps 1 to 3 are built in `addressing.ts` (`GROUP_WORDS` keeps only "you two", "either of you" and the like; `ANYONE_ASKED` takes someone/anyone/everyone only as the one asked, and after the beside rule). For step 4, `workOverheard(brain, event)` is in `tasks.ts` and tested (`tools/llm_crew/words-overheard.ts`). **Left (brain.ts, not this group's file):** call it, one line in the `speech_heard` block of `ingest`, after `event.details.said_to` is set and beside `jobFor(brain.job).overhears?.(brain, event)`: `workOverheard(brain, event);` (import it from `./tasks`).
+
+Round M2 (g-brain): step 4's call is built. `ingest` (`brain.ts`, the `speech_heard` block) calls `workOverheard(brain, event)` beside the job's `overhears`, after `said_to` is set. Case added to `tools/llm_crew/brain4-ingest.ts` (a janitor hears the Captain say "someone threw up in the bar" across the room to nobody, and takes the Bar on).

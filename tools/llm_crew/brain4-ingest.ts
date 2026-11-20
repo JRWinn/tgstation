@@ -1,9 +1,10 @@
 // What the window makes of fields the server sends, through ingest itself (CrewBrain/brain.ts),
-// round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06). No model is called; the brain is made by
-// ingest from a body with nothing about it.
+// round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06),
+// work of its own job said to nobody in particular (PARSE-17). No model is called; the brain is
+// made by ingest from a body with nothing about it.
 //
 //   bun run brain4-ingest.ts
-const { ROOT } = await import('./fixtures');
+const { ROOT, know } = await import('./fixtures');
 const B = await import(ROOT + 'brain');
 
 const cases: [string, string, string][] = [];
@@ -38,6 +39,22 @@ add('SUP-05: not sent: unset, so toUnload is read in its place', ingested('Cargo
 add('ARR-06: a fresh brain: atDoorOpen false', ingested('Central Primary Hallway', {}).atDoorOpen, false);
 add('ARR-06: at_door_open sent: read as atDoorOpen', ingested('Central Primary Hallway', { at_door_of: 'Bar', at_door_open: 1 }).atDoorOpen, true);
 add('ARR-06: not sent: false', ingested('Central Primary Hallway', { at_door_of: 'Bar' }).atDoorOpen, false);
+
+// ---- PARSE-17: "someone threw up in the bar", said across the room to nobody in particular
+{
+  const captain = { handle: 'p9', name: 'Ada Crane', job: 'Captain', superior: 1, place: 'Cargo Lobby', distance: 5 };
+  const tech = { handle: 'p8', name: 'Donna Sholl', job: 'Cargo Technician', place: 'Cargo Lobby', distance: 2 };
+  const janitor = (more: any = {}) => ({ name: 'Tolly Field', job: 'Janitor', cleaning_tool: 'soap', holding: ['soap'], people_in_view: [captain, tech], ...more });
+  const id = `ingest4-${++ids}`;
+  B.ingest([body(id, 'Cargo Lobby', janitor()) as any], 100);
+  const brain: any = B.getBrain(id);
+  know(brain, ['Bar', 'Cargo Lobby', 'Custodial Closet']);
+  const message = 'someone threw up in the bar';
+  const heard = { seq: 1, time: '', at: 110, kind: 'speech_heard', text: `[22:40:32] Ada Crane says: "${message}" (person p9, 5 tiles away)`, details: { source: 'person', handle: 'p9', speaker: 'Ada Crane', message, distance: 5, facing: 0 } };
+  B.ingest([body(id, 'Cargo Lobby', janitor({ events: [heard] })) as any], 110);
+  const task = brain.tasks.find((one: any) => one.place === 'Bar' && one.state !== 'done');
+  add('PARSE-17: heard through ingest, said to nobody: the janitor takes the Bar on', [task?.kind, task?.place], ['clean', 'Bar']);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

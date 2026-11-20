@@ -68,6 +68,7 @@ import {
   takeToldWork,
   workInOrder,
   workInWords,
+  workOverheard,
 } from './tasks';
 import type {
   Action,
@@ -754,6 +755,9 @@ export function ingest(npcs: Npc[], now: number): void {
       }
       if (event.kind === 'speech_heard' && event.details.source === 'person') {
         jobFor(brain.job).overhears?.(brain, event);
+        // Work of its own job said to nobody in particular, or to everyone there: "someone threw
+        // up in the bar" is the janitor's, whoever answers it (PARSE-17).
+        workOverheard(brain, event);
         guardOverhears(brain, event);
         asideOverhears(brain, event);
         pickupsOverhear(brain, event);
