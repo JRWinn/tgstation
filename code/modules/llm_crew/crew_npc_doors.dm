@@ -1149,7 +1149,9 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	else
 		// Once in, it is whoever let it in that it asks to be let out again.
 		let_into_place = place
-		let_in_by = opener.name
+		// Kept by the name they go by on the PDA list, which is who it writes to when it wants out
+		// again: the name they are seen by changes with a mask or a borrowed card (API-02).
+		let_in_by = crew_npc_pda_name_of(opener)
 		let_in_door = WEAKREF(door)
 		if(isnull(visited_places[place]))
 			visited_places[place] = list(spot.x, spot.y, spot.z)
@@ -1158,6 +1160,13 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		"door_held" = TRUE,
 		"out_to" = out_to,
 	))
+
+/// Returns the name someone goes by on the PDA list: that of a PDA they carry, else their own name.
+/proc/crew_npc_pda_name_of(mob/living/carbon/human/person)
+	for(var/obj/item/modular_computer/computer in person.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
+		if(computer.saved_identification)
+			return computer.saved_identification
+	return person.real_name
 
 /**
  * Returns someone standing where they block the way, or null: in a doorway close by, right beside
