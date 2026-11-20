@@ -475,6 +475,7 @@
 
 	var/list/counts = list()
 	var/list/kinds = list()
+	var/here = get_area_name(pawn, TRUE)
 	for(var/obj/thing in in_sight)
 		var/kind
 		if(iseffect(thing))
@@ -484,6 +485,13 @@
 		else if(ignored_types[thing.type])
 			continue
 		else if(isitem(thing))
+			// A thing it could not get to lately, or one behind the glass of a room locked to it, is
+			// not one it could go and pick up, so it is not listed as one to hand (HAND-04).
+			if(pickup_given_up(thing))
+				continue
+			var/thing_place = get_area_name(thing, TRUE)
+			if(thing_place != here && place_locked_to_body(thing_place))
+				continue
 			kind = "item"
 		else if(isvehicle(thing))
 			kind = "vehicle"
