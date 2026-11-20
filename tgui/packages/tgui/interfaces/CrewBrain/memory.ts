@@ -311,6 +311,12 @@ export function allKnownItems(brain: NpcBrain): string[] {
   }
   for (const place of brain.places.values()) {
     for (const memory of place.storage.values()) {
+      // What it last saw in a locker it has since found locked or welded is not to be had: a
+      // janitor whose only known mop was in one went for it again and again, and never told its
+      // head it had nothing to clean with (HAND-05). It is still remembered, for when it opens.
+      if (memory.locked) {
+        continue;
+      }
       for (const [item, present] of memory.items) {
         if (present) {
           names.add(item);

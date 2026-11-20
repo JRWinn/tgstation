@@ -6,6 +6,7 @@
  * of, and to ask cargo for supplies when the code says it is time to. And with several messes it
  * could go to, it is asked which comes first (see choice.ts).
  */
+import { headOf } from '../hierarchy';
 import { allKnownItems, CARGO_LOBBY, knowsPlace } from '../memory';
 import {
   addTask,
@@ -52,6 +53,15 @@ const SUPPLIES_WAIT_DS = 6000;
 export const HAS_COME = 'what you asked for has come';
 /** How long (deciseconds) a janitor must be in a room it was told is messy before it can say it saw no mess. */
 const LOOK_ABOUT_DS = 50;
+/**
+ * The mess jobs it was told of for which it has walked into the middle of the room to look, or
+ * tried to, with the time it got there. Kept by the task itself, since ids are counted per brain.
+ * Standing five seconds inside the door of a room bigger than it can see is not looking about: it
+ * told the caller the mess was cleaned up, and the mess was on the far side of the Cargo Bay (DESK-08).
+ */
+const lookedRound = new WeakMap<Task, number>();
+/** The mess jobs it was told of that it finished having looked round and found no mess. */
+const foundNone = new WeakSet<Task>();
 
 /**
  * Why a mess task cannot go on: what is left there is beyond what the janitor holds, would not
@@ -78,12 +88,21 @@ const NOT_LET_IN =
  */
 export function doorFor(brain: NpcBrain, place: string): string {
   let door = place;
+  const passed = [place];
   // Followed outwards, room by room. No station nests them more than a few deep.
   for (let depth = 0; depth < 4; depth++) {
     const outer = brain.reachedThrough[door];
     if (!outer || outer === brain.location) {
       break;
     }
+    // Rooms that each open only from the other: the notes are wrong past here, learnt by a body
+    // shut in elsewhere that could reach no door at all. Followed round, it stood at the door of
+    // the public Cargo Lobby for a mess in the Delivery Office (LOGB-05). It goes no further out
+    // than the first room the notes come back to.
+    if (passed.includes(outer)) {
+      return outer;
+    }
+    passed.push(outer);
     door = outer;
   }
   return door;
@@ -125,6 +144,12 @@ function listed(names: string[]): string {
 function canScrub(brain: NpcBrain): boolean {
   return brain.holding.some((item) => /soap|\brag$/i.test(item));
 }
+
+/** What a mess task is waiting on when what is left there is what the body could not get to. */
+const UNREACHED_LEFT =
+  'what is left there you could not get to, and you will try again later';
+/** The mess jobs whose last clean left only what the body could not get to (the server's `unreached`). */
+const unreachedLeft = new WeakSet<Task>();
 
 /** The mess jobs for which a janitor has begun putting its mop and bucket back, by the task's id: see changeForScrubbing. */
 const puttingBack = new Set<number>();
@@ -295,12 +320,113 @@ function noWaterHere(brain: NpcBrain): Map<string, number> {
   return notes;
 }
 
+/** How long (deciseconds) a call it turned down for want of soap or a rag stays turned down. */
+const DECLINED_DS = 3000;
+
+/**
+ * The rooms of the calls each janitor turned down for want of soap or a rag, with who called and
+ * when. Kept beside the brain, as the notes on water are. The code turns such a call down; the
+ * model, offered "work" for the same message, took it on all the same, and the janitor set off
+ * for a room it could not get into, to a mess it could not shift (LOGA-07).
+ */
+const declinedNotes = new WeakMap<
+  NpcBrain,
+  Map<string, { by: string; at: number }>
+>();
+
+/** The calls this janitor has turned down, by room. */
+function declinedCalls(brain: NpcBrain): Map<string, { by: string; at: number }> {
+  let notes = declinedNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    declinedNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/**
+ * TRUE if this is a mess task for a call the code has just turned down, taken on from the same
+ * caller some other way (the model's "work", or work read from the words of the line): the code's
+ * no stands while it still has nothing to scrub with. A task the message itself made sets
+ * wantsScrub, and one the body noticed for itself is not told.
+ */
+function declinedCall(brain: NpcBrain, task: Task): boolean {
+  if (
+    task.kind !== CLEAN ||
+    task.source !== 'told' ||
+    !task.place ||
+    task.wantsScrub !== undefined
+  ) {
+    return false;
+  }
+  const note = declinedCalls(brain).get(task.place.toLowerCase());
+  return (
+    !!note &&
+    note.by === task.askedBy &&
+    brain.now - note.at < DECLINED_DS &&
+    !canScrub(brain) &&
+    !scrubberToHand(brain)
+  );
+}
+
 /** TRUE if the body remembers a sink among the things of this room. */
 function remembersSinkIn(brain: NpcBrain, name: string): boolean {
   const place = brain.places.get(name);
   return (
     !!place && [...place.things.keys()].some((thing) => /sink/i.test(thing))
   );
+}
+
+/**
+ * What each janitor put down to have a hand for soap or a rag, and in which room: its mop and its
+ * bucket, put down where the gear is kept. Kept beside the brain, as the water notes are. A mop on
+ * the floor of a room it is not in is neither in view nor in storage it has looked in, so once the
+ * scrubbing was done it asked its head for something better than a rag, with its own mop lying in
+ * the closet (DESK-09).
+ */
+const putDownNotes = new WeakMap<NpcBrain, { item: string; place: string }[]>();
+
+/** What this janitor put down to scrub, and where. */
+function putDown(brain: NpcBrain): { item: string; place: string }[] {
+  let notes = putDownNotes.get(brain);
+  if (!notes) {
+    notes = [];
+    putDownNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/** The proper tool it put down to scrub and has not yet gone back for, with where, or undefined. */
+function putDownTool(brain: NpcBrain): { item: string; place: string } | undefined {
+  return putDownNotes
+    .get(brain)
+    ?.find((note) => PROPER_SUPPLY.test(note.item));
+}
+
+/**
+ * Forgets what it put down once it holds it again, or has stood a few seconds in that room
+ * without seeing it: someone has taken it.
+ */
+function mindPutDown(brain: NpcBrain): void {
+  const notes = putDownNotes.get(brain);
+  if (!notes?.length) {
+    return;
+  }
+  const kept = notes.filter((note) => {
+    if (brain.holding.includes(note.item)) {
+      return false;
+    }
+    if (
+      brain.location === note.place &&
+      brain.now - brain.inPlaceSince >= LOOK_ABOUT_DS
+    ) {
+      return brain.thingsInView.some(
+        (thing) => thing.kind === 'item' && thing.name === note.item,
+      );
+    }
+    return true;
+  });
+  putDownNotes.set(brain, kept);
 }
 
 /**
@@ -355,6 +481,15 @@ function supplyStep(brain: NpcBrain): Plan {
       ready: true,
       step: `${lack(brain)}, but you know where there is ${supply}, and you are going to get it.`,
       act: { tool: 'pick_up', item: supply },
+    };
+  }
+  // Its own mop, put down where the gear is kept to scrub with a rag: it goes back for it.
+  const left = putDownTool(brain);
+  if (left && brain.location !== left.place && knowsPlace(brain, left.place)) {
+    return {
+      ready: true,
+      step: `${lack(brain)}. You put your ${left.item} down in the ${left.place} to scrub with soap or a rag. You are going back for it.`,
+      act: { tool: 'go_to', place: left.place },
     };
   }
   // Told by PDA that supplies are waiting, that is where to go, and the crate is what to look in.
@@ -461,6 +596,17 @@ function syncTasks(brain: NpcBrain): void {
       task.askedBy = undefined;
     }
   }
+  // A call it turned down stays turned down, however else it came back onto the list. Once it has
+  // soap or a rag to hand, the notes go: the next call is taken.
+  const declined = declinedCalls(brain);
+  if (declined.size > 0 && (canScrub(brain) || scrubberToHand(brain))) {
+    declined.clear();
+  }
+  for (const task of declined.size > 0 ? [...brain.tasks] : []) {
+    if (declinedCall(brain, task)) {
+      dropTask(brain, task);
+    }
+  }
   // The body keeps track of the messes it has seen and not yet seen gone. A room wants cleaning
   // for as long as it remembers one there: not seeing a mess from where it stands proves nothing.
   const messy = new Set(brain.messPlaces);
@@ -485,10 +631,21 @@ function syncTasks(brain: NpcBrain): void {
     }
     // A mess it saw for itself is done with once the body has seen every spot of it clean. One it
     // was only told of is done with once it has gone there, looked about, and seen none.
-    const lookedAbout =
+    // Having cleaned there, what it saw is gone, and a few seconds' look will do. Having cleaned
+    // nothing, it has walked into the middle of the room to look first (see plan).
+    const inRoom =
       brain.location === task.place &&
       brain.now - brain.inPlaceSince >= LOOK_ABOUT_DS;
-    if (task.source !== 'told' || lookedAbout) {
+    const lookedAt = lookedRound.get(task);
+    const lookedRoundIt =
+      brain.location === task.place &&
+      lookedAt !== undefined &&
+      brain.now - lookedAt >= LOOK_ABOUT_DS;
+    if (task.source !== 'told' || (inRoom && task.cleanedSome) || lookedRoundIt) {
+      if (task.source === 'told' && !task.cleanedSome) {
+        foundNone.add(task);
+      }
+      lookedRound.delete(task);
       finishTask(brain, task);
     }
   }
@@ -499,6 +656,7 @@ function syncTasks(brain: NpcBrain): void {
   // been let through that door; a call done with leaves nothing behind, so the next starts with a
   // knock.
   delete brain.letInAsks[brain.location];
+  forgetWrote(brain, brain.location);
   const askingAt = new Set(
     brain.tasks
       .filter(
@@ -515,20 +673,35 @@ function syncTasks(brain: NpcBrain): void {
       delete brain.letInAsks[door];
     }
   }
+  for (const door of wroteNotes.get(brain)?.keys() ?? []) {
+    if (!askingAt.has(door)) {
+      forgetWrote(brain, door);
+    }
+  }
   for (const task of brain.tasks) {
     if (task.kind !== CLEAN || task.state === 'done' || !task.place) {
       continue;
     }
+    // What is left there is what it could not get to, not what its tool will not shift (HAND-02):
+    // tried again later, and not put down to the tool.
+    const leftUnreached =
+      unreachedLeft.has(task) &&
+      messy.has(task.place) &&
+      !workable.has(task.place);
+    if (!leftUnreached) {
+      unreachedLeft.delete(task);
+    }
     const beyondIt =
       !!brain.cleaningTool &&
       messy.has(task.place) &&
-      !workable.has(task.place);
+      !workable.has(task.place) &&
+      !leftUnreached;
     // Called to a mess that what it holds will not shift, it sends word to whoever called it,
     // once. They are waiting on it, and someone with soap or a mop can be sent for instead.
     // Only from in the room, where it has tried: a room it cannot get into is another matter.
     // And not in the middle of scrubbing: what is left is only known once it has stopped.
     if (
-      beyondIt &&
+      (beyondIt || leftUnreached) &&
       task.place === brain.location &&
       task.askedBy &&
       task.source === 'told' &&
@@ -539,10 +712,14 @@ function syncTasks(brain: NpcBrain): void {
       // or that some is done and the rest would not.
       brain.toTell.push({
         to: task.askedBy,
-        line: task.cleanedSome
+        line: leftUnreached
+          ? `I have done what I can in the ${task.place}. I could not get to the rest.`
+          : task.cleanedSome
           ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
           : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`,
-        why: task.cleanedSome
+        why: leftUnreached
+          ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what you could get to, and could not get to the rest. You are sending ${task.askedBy} a PDA message to say so.`
+          : task.cleanedSome
           ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what your ${brain.cleaningTool} would shift, and the rest will not come off. You are sending ${task.askedBy} a PDA message to say so.`
           : `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
         byPda: true,
@@ -575,10 +752,20 @@ function syncTasks(brain: NpcBrain): void {
       blockTask(task, givenUp ? NOT_LET_IN : null);
       continue;
     }
-    blockTask(task, noWayIn ? NO_WAY_IN : beyondIt ? BEYOND : null);
+    blockTask(
+      task,
+      noWayIn
+        ? NO_WAY_IN
+        : beyondIt
+          ? BEYOND
+          : leftUnreached
+            ? UNREACHED_LEFT
+            : null,
+    );
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
   }
 
+  mindPutDown(brain);
   // Getting something to clean with is on its list for as long as it is short of it. With only a
   // rag it still cleans what a rag will shift, and gets something better when it can.
   const supplies = findTask(brain, SUPPLIES);
@@ -602,7 +789,7 @@ function syncTasks(brain: NpcBrain): void {
   task.urgency =
     brain.poorTool &&
     !scrubbing &&
-    (!!knownSupply(brain) || suppliesWaiting(brain))
+    (!!knownSupply(brain) || !!putDownTool(brain) || suppliesWaiting(brain))
       ? 'asked'
       : 'routine';
   blockTask(
@@ -621,6 +808,13 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind !== CLEAN) {
     return null;
+  }
+  // Taken on again since the last look at the list, from a call it has turned down: not gone to.
+  if (declinedCall(brain, task)) {
+    return {
+      ready: false,
+      step: `You have told ${task.askedBy} you cannot shift the mess in the ${task.place}: you have no soap or rag.`,
+    };
   }
   const toldBy = task.askedBy ? ` (${task.askedBy} told you of it)` : '';
   // Called to a mess that wants scrubbing, a cobweb say, with a mop and a bucket in its hands:
@@ -675,6 +869,24 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     }
   }
   if (task.place === brain.location) {
+    const seesWork =
+      brain.cleanableMesses.length > 0 ||
+      brain.workablePlaces.includes(brain.location) ||
+      !!brain.doing?.startsWith('cleaning');
+    // Told of a mess here, and none in sight or remembered: the room may be bigger than it can see
+    // from where it stands. It walks into the middle of the room to look, once (DESK-08).
+    if (
+      !seesWork &&
+      task.source === 'told' &&
+      !brain.messPlaces.includes(brain.location) &&
+      !lookedRound.has(task)
+    ) {
+      return {
+        ready: true,
+        step: `You were told of a mess here in ${task.place}${toldBy} and see none from where you stand. You are walking into the middle of the room to look.`,
+        act: { tool: 'go_to', place: task.place, middle: true },
+      };
+    }
     // A mess it remembers further off in the room counts: the body walks over to it.
     return brain.cleanableMesses.length > 0 ||
       brain.workablePlaces.includes(brain.location) ||
@@ -684,7 +896,12 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
           step: `You are cleaning up the mess here in ${task.place}${toldBy} with your ${brain.cleaningTool}.`,
           act: { tool: 'clean' },
         }
-      : { ready: false, step: `Your ${brain.cleaningTool} will not shift it.` };
+      : {
+          ready: false,
+          step: brain.messPlaces.includes(brain.location)
+            ? `Your ${brain.cleaningTool} will not shift it.`
+            : 'There is no mess in sight here.',
+        };
   }
   if (task.via && task.place && task.place !== task.via) {
     return letInStep(brain, task, task.place, task.via);
@@ -744,7 +961,15 @@ function letInStep(
       act: { tool: 'knock' },
     };
   }
-  if (!asks.messaged && task.askedBy && brain.hasPda) {
+  // Written to already about this door, the caller is not written to again when the asking starts
+  // over: a knock, and a word to whoever has turned up.
+  const wrote = wroteAbout(brain, door);
+  if (
+    !asks.messaged &&
+    task.askedBy &&
+    brain.hasPda &&
+    !wrote.includes(task.askedBy)
+  ) {
     return {
       ready: true,
       step: `You have knocked at the door of the ${door}. You are sending ${task.askedBy}, who called you, a PDA message to say you are there.`,
@@ -771,6 +996,19 @@ function letInStep(
       // out of the room behind it, or the door of some other room, is no way in (BRAIN-03).
       sayIf: () =>
         !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door),
+    };
+  }
+  // Nobody came for the caller's word. Someone else who could open it is written to.
+  const next = nextToAsk(brain, task, door);
+  if (next) {
+    return {
+      ready: true,
+      step: `Nobody has let you into the ${door}. You are sending ${next.name} (${next.job}) a PDA message to ask to be let in.`,
+      act: {
+        tool: 'message',
+        person: next.name,
+        text: `I am at the ${which}door of the ${door} about the mess${within ? ` in the ${place}` : ''}. C${ASKING_IN.slice(1)}, please?`,
+      },
     };
   }
   if (brain.now - asks.at < LET_IN_WAIT_DS) {
@@ -810,7 +1048,95 @@ function hasAsked(
   task: Task,
   asks: NpcBrain['letInAsks'][string],
 ): boolean {
-  return !!asks.knocked && (!!asks.messaged || !task.askedBy || !brain.hasPda);
+  const door = task.place ? doorFor(brain, task.place) : '';
+  return (
+    !!asks.knocked &&
+    (!!asks.messaged ||
+      !task.askedBy ||
+      !brain.hasPda ||
+      wroteAbout(brain, door).includes(task.askedBy)) &&
+    !nextToAsk(brain, task, door)
+  );
+}
+
+/** The most of the caller's workmates a janitor writes to about one door, after the caller. */
+const WORKMATES_WRITTEN_TO = 2;
+
+/**
+ * Whom each janitor has written to about each door it waits at, by the room the door is of. Kept
+ * beside the brain, as the notes on water are. It wrote only to whoever called it, eight times in
+ * thirteen minutes while that technician was in cuffs, and never to the other one (LOGB-06).
+ */
+const wroteNotes = new WeakMap<NpcBrain, Map<string, string[]>>();
+
+/** Whom this janitor has written to about the door of this room. */
+function wroteAbout(brain: NpcBrain, door: string): string[] {
+  let notes = wroteNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    wroteNotes.set(brain, notes);
+  }
+  let wrote = notes.get(door);
+  if (!wrote) {
+    wrote = [];
+    notes.set(door, wrote);
+  }
+  return wrote;
+}
+
+/** Forgets whom it wrote to about the door of this room: the call it wrote for is over. */
+function forgetWrote(brain: NpcBrain, door: string): void {
+  wroteNotes.get(brain)?.delete(door);
+}
+
+/**
+ * Who to write to next about the door it waits at, once word to whoever called it has brought
+ * nobody: one of the caller's workmates it has a PDA contact for (their doors are theirs to open),
+ * then the head of the caller's department. Each once. Null while the last word is still being
+ * waited on, or with nobody left.
+ */
+function nextToAsk(
+  brain: NpcBrain,
+  task: Task,
+  door: string,
+): { name: string; job: string } | null {
+  const asks = brain.letInAsks[door];
+  const wrote = wroteAbout(brain, door);
+  if (
+    !brain.hasPda ||
+    !task.askedBy ||
+    !asks?.knocked ||
+    !wrote.includes(task.askedBy) ||
+    brain.now - asks.at < LET_IN_WAIT_DS ||
+    brain.doorHeld
+  ) {
+    return null;
+  }
+  const callerJob = jobOf(brain, task.askedBy);
+  if (!callerJob) {
+    return null;
+  }
+  const others = brain.pdaPeople.filter(
+    (person) => person.name !== brain.name && person.name !== task.askedBy,
+  );
+  const workmates = others.filter(
+    (person) => person.job.toLowerCase() === callerJob.toLowerCase(),
+  );
+  const workmate = workmates.find((person) => !wrote.includes(person.name));
+  if (
+    workmate &&
+    workmates.filter((person) => wrote.includes(person.name)).length <
+      WORKMATES_WRITTEN_TO
+  ) {
+    return workmate;
+  }
+  const headJob = headOf(callerJob);
+  const head = headJob
+    ? others.find((person) =>
+        person.job.toLowerCase().includes(headJob.toLowerCase()),
+      )
+    : undefined;
+  return head && !wrote.includes(head.name) ? head : null;
 }
 
 /** Notes one of the things the body has done to be let into a room, and when. */
@@ -841,7 +1167,10 @@ export const JANITOR: Job = {
   // With nothing to clean with, or nothing but a rag, and nowhere it knows of to get better,
   // that is what it is short of. Not once what it asked for has come and is only waiting for it.
   needs: (brain) =>
-    lacksTool(brain) && !knownSupply(brain) && !suppliesWaiting(brain)
+    lacksTool(brain) &&
+    !knownSupply(brain) &&
+    !putDownTool(brain) &&
+    !suppliesWaiting(brain)
       ? brain.poorTool
         ? NEED_BETTER
         : NEED
@@ -915,6 +1244,7 @@ export const JANITOR: Job = {
           byPda: true,
           at: Date.now(),
         });
+        declinedCalls(brain).set(named.toLowerCase(), { by: from, at: brain.now });
         return;
       }
       if (named) {
@@ -992,7 +1322,27 @@ export const JANITOR: Job = {
     }
   },
   // What it has done to be let into a locked room, each thing once.
-  afterActing: (brain, act, task, ok) => {
+  afterActing: (brain, act, task, ok, _looped, details) => {
+    // Its mop or bucket put down to have a hand for soap or a rag: where, so as to go back for it.
+    if (
+      task?.kind === CLEAN &&
+      task.wantsScrub &&
+      act.tool === 'put_down' &&
+      ok &&
+      typeof act.item === 'string' &&
+      act.item
+    ) {
+      putDown(brain).push({ item: act.item, place: brain.location });
+    }
+    // Back from the walk into the middle of a room it was told of a mess in, got there or not.
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'go_to' &&
+      act.middle &&
+      act.place === task.place
+    ) {
+      lookedRound.set(task, brain.now);
+    }
     // The soap or rag it meant to scrub with was not to be had after all: someone has taken it.
     // The mess is then one to go to with what it has, like any other, and it says what is left.
     if (
@@ -1022,6 +1372,15 @@ export const JANITOR: Job = {
         here.cleanedSome = true;
       }
     }
+    // What was left was what it could not get to (HAND-02), or it was not.
+    if (act.tool === 'clean') {
+      const here = findTask(brain, CLEAN, { place: brain.location });
+      if (here && details?.unreached) {
+        unreachedLeft.add(here);
+      } else if (here) {
+        unreachedLeft.delete(here);
+      }
+    }
     if (task?.kind !== CLEAN || !task.place || !task.via) {
       return;
     }
@@ -1034,11 +1393,21 @@ export const JANITOR: Job = {
     }
     if (act.tool === 'message') {
       noteAsked(brain, door, 'messaged');
+      const to = String(act.person ?? '');
+      const wrote = wroteAbout(brain, door);
+      if (to && !wrote.includes(to)) {
+        wrote.push(to);
+      }
     }
   },
   // Whoever told it of a mess hears that the mess is gone, which is true whoever cleaned it.
+  // Told of one and having looked round and found none, it says that: the caller knows to say where.
   sayDone: (task) =>
-    task.kind === CLEAN ? `the mess in the ${task.place} is cleaned up` : null,
+    task.kind !== CLEAN
+      ? null
+      : foundNone.has(task)
+        ? `I found no mess in the ${task.place}`
+        : `the mess in the ${task.place} is cleaned up`,
   // Having asked cargo for supplies, it waits to hear. Only that line counts: anything else said
   // at the counter, a greeting or an answer, is not asking.
   afterSaying: (brain, called) => {

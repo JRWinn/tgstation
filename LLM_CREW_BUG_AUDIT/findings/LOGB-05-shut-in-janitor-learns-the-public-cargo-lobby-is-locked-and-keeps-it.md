@@ -108,3 +108,12 @@ Checked by Opus 5.5. Confirmed.
 - Round log `data/logs/2026/11/18/round-17.48.05`: all the "door into Cargo Lobby: it opens from Cargo Bay" lines in `crew_brain.log` are Arleen Fleming's, from inside the HoP's Office; "reached through the Cargo Lobby" appears 29 times in that log; `pda.log` has her "there is no way in for me" at 00:16:27. `game.log` line 964 has "Doors of Cargo Lobby: Cargo Bay at (78,146): locked to it."
 - Not in the change log or plans as known. KNB-14 is a sibling (walks failed while shut in written off against the destination) but a different path: not a duplicate.
 - Severity medium stands: it needs a shut-in janitor first, but then it lasts the round. Effort raised to medium: the smallest whole fix is a few lines in `tool_go_to_door` and a few in `brain.ts`, both sides of the line, plus a table of cases. Of the fix steps, 3 (refuse a looping entry) alone stops the far-end lobby, 1 or 2 stops the false first entry, and DOOR-02 stops the false second one; all three are wanted.
+
+## Fix so far
+
+Built on branch `m-janitor`, the window half of step 3 only (type check, table `tools/llm_crew/janitor-doorfor.ts`, simulator `nested` once; not played). `doorFor` in `jobs/janitor.ts` no longer follows a loop in `reachedThrough` to its depth limit: when the next outer room is one already passed, it stops at that room. With the round's notes, a mess in the Delivery Office now sends it to the door of the Cargo Bay, not the Cargo Lobby; the Cargo Bay and the Cargo Lobby each give their own door.
+
+Held, not owned here:
+- `crew_npc_doors.dm`, `tool_go_to_door` (steps 1 and 2): do not send `door_of`/`door_through` when no route to any door was found and the body is still in the room it started in (or `is_shut_in()`); say "You cannot get out of here to get to X." Send `door_through` only when a route to the outer room itself also fails.
+- `brain.ts`, where `event.details.door_of`/`door_through` is stored in `brain.reachedThrough` (step 3): do not store an entry that makes a loop (follow `door_through` outwards; if it reaches `door_of`, drop it), and give entries a time and forget them after some minutes, or when the body is next seen in the outer room.
+- DOOR-02 (step 4) for the doorless Cargo Lobby.
