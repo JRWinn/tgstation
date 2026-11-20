@@ -419,7 +419,15 @@ type StuckInside = { cell: string; at: number; tries: number };
  * is stuck in (PLAY-01), and how many tries at arresting them it has made in all, which numbers
  * each try so that the driver does not hold the next one back (ARR-01).
  */
-type WarrantMore = { stuckInside?: StuckInside; arrestAttempts?: number };
+type WarrantMore = {
+  stuckInside?: StuckInside;
+  arrestAttempts?: number;
+  /** How many times in a row no cell would do, and why the last time: no_cell or no_power (ARR-04). */
+  noCellTries?: number;
+  noCellWhy?: string;
+};
+/** How many times no cell will do before whoever keeps the list is told (ARR-04). */
+const NO_CELL_TELL = 2;
 
 function more(warrant: BeatWarrant): WarrantMore {
   return warrant as BeatWarrant & WarrantMore;
@@ -602,6 +610,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     if (holds(brain, warrant) && (warrant.cellTries ?? 0) >= cells) {
       // In words the Head of Security can pass on as they are (PLAY-02).
       cannot(warrant.name, 'no cell would take them');
+    }
+    // In cuffs and by the arm, and no cell will do: all in use, or dark (ARR-04).
+    if (
+      holds(brain, warrant) &&
+      (more(warrant).noCellTries ?? 0) >= NO_CELL_TELL
+    ) {
+      cannot(
+        warrant.name,
+        more(warrant).noCellWhy === 'no_power'
+          ? 'the cells have no power'
+          : 'every cell is in use',
+      );
     }
     // The one it has found is a head of staff, going by their ID, and the Captain did not declare
     // the warrant. Only the Captain may have a head arrested, whatever went wrong with the name.
@@ -890,14 +910,27 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   const why = warrant.reason ? `, for ${warrant.reason}` : '';
   // By the arm and in cuffs: to the brig.
   if (holds(brain, warrant)) {
+    // No cell will do: every one is in use, or dark (ARR-04). It waits with them in the brig, as
+    // the plan says, not where it made the arrest, and tries again every 30 seconds.
     if (
       warrant.noCellAt !== undefined &&
       brain.now - warrant.noCellAt < NO_CELL_WAIT_DS
     ) {
+      const dark = more(warrant).noCellWhy === 'no_power';
+      const brig = brigPlace(brain);
+      if (brig && brain.location !== brig) {
+        return {
+          ready: true,
+          step: `You have ${name} by the arm, and ${dark ? "no cell's timer has power" : 'every cell is in use'}. You are taking them to the brig to wait there.`,
+          act: { tool: 'go_to', place: brig },
+        };
+      }
       return {
         ready: false,
         wait: true,
-        step: `You have ${name} by the arm, and every cell in the brig is in use. You are waiting for one to come empty.`,
+        step: dark
+          ? `You have ${name} by the arm, and no cell's timer in the brig has power: their displays are blank. You are waiting with them in the brig, and will try the cells again shortly.`
+          : `You have ${name} by the arm, and every cell in the brig is in use. You are waiting for one to come empty.`,
       };
     }
     // Every cell has refused them. It does not walk off with them: it stands in the brig, where
@@ -1648,10 +1681,15 @@ export function beatAfterActing(
       return;
     }
     setStuck(warrant, undefined);
-    if (reason === 'no_cell') {
+    // No cell will do, in use or dark (ARR-04). Counted: after the second, whoever keeps the list
+    // is told why there is no cell for them (syncBeat).
+    if (reason === 'no_cell' || reason === 'no_power') {
       warrant.noCellAt = brain.now;
+      more(warrant).noCellTries = (more(warrant).noCellTries ?? 0) + 1;
+      more(warrant).noCellWhy = reason;
       return;
     }
+    more(warrant).noCellTries = 0;
     // The cell would not take them, and it still has them by the arm: the next cell, at once. (Only
     // on the walk in does it still hold them; the walk out after letting go is stuck_inside.)
     if (reason === 'no_way' || reason === 'timer') {

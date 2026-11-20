@@ -1261,15 +1261,57 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	qdel(window)
 	return TRUE
 
+/// TRUE if the body, seeing what is in in_sight, can see this cell's timer or into the cell: what a player looking would know of it.
+/datum/ai_controller/crew_npc/proc/sees_cell(datum/crew_npc_brig_cell/cell, list/in_sight)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	if(isnull(timer) || QDELETED(body))
+		return FALSE
+	if(timer in in_sight)
+		return TRUE
+	if(timer.z != body.z || get_dist(body, timer) > CREW_NPC_VISION_RANGE + 3)
+		return FALSE
+	for(var/turf/spot as anything in cell.turfs)
+		if(spot in in_sight)
+			return TRUE
+	return FALSE
+
 /**
- * Returns the best brig cell with its timer stopped and nobody in it, other than this person: one
- * in the Brig before a checkpoint's, and one in a prison or isolation room last, then the nearest.
- * Not by name: on Tramstation "Cargo Cell", across the station, came before every other.
+ * Why a cell cannot take a prisoner, as seen by someone looking at it: "dark" (its timer has no
+ * power or is broken: a blank display), "in use" (its timer running, or someone in it other than
+ * this person and the body), "smashed" (its door is gone), or null if it can.
+ */
+/datum/ai_controller/crew_npc/proc/cell_unusable(datum/crew_npc_brig_cell/cell, mob/living/apart_from)
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	if(isnull(timer))
+		return "smashed"
+	if(timer.machine_stat & (NOPOWER|BROKEN))
+		return "dark"
+	if(timer.timing || length(cell.occupants() - apart_from - pawn))
+		return "in use"
+	// Its glass door smashed: a windoor at no integrity is deleted, not left broken. It shuts nobody in.
+	if(isnull(cell.door()))
+		return "smashed"
+	return null
+
+/**
+ * Returns the best brig cell to take a prisoner to: one in the Brig before a checkpoint's, and one
+ * in a prison or isolation room last, then one the body can see is free before one it cannot see
+ * from here, then the nearest. Not by name: on Tramstation "Cargo Cell", across the station, came
+ * before every other.
+ *
+ * Senses only (CHEAT-03): a cell the body can see is passed over if it is in use, dark or smashed.
+ * One it cannot see may be any of those: it is walked to and looked at, and put_in_cell() picks
+ * again from there. So "every cell is in use" is only ever found out by looking.
+ *
  * One the body lately could not get a prisoner into is passed over while there is another, and
- * is the one tried again, the longest left first, when there is not. Null if every cell is in use.
+ * is the one tried again, the longest left first, when there is not. Null if every cell it can
+ * see is no use and there is none it cannot see.
  */
 /datum/ai_controller/crew_npc/proc/free_cell(mob/living/apart_from)
 	var/mob/living/carbon/human/body = pawn
+	var/can_look = can_sense() && isturf(body.loc) && !body.is_blind()
+	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
 	var/datum/crew_npc_brig_cell/refused
 	var/refused_at = INFINITY
 	var/datum/crew_npc_brig_cell/best
@@ -1277,21 +1319,21 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/best_dist = INFINITY
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
-		if(isnull(timer) || timer.timing || timer.z != body.z || (timer.machine_stat & (NOPOWER|BROKEN)))
+		if(isnull(timer) || timer.z != body.z)
 			continue
-		if(length(cell.occupants() - apart_from - body))
-			continue
-		// Its glass door smashed: a windoor at no integrity is deleted, not left broken. It shuts nobody in.
-		if(isnull(cell.door()))
+		var/seen = can_look && sees_cell(cell, in_sight)
+		if(seen && !isnull(cell_unusable(cell, apart_from)))
 			continue
 		var/last_refused = cell_refused[cell.name]
 		if(isnull(last_refused) || world.time - last_refused >= CREW_NPC_CELL_SKIP)
 			var/area/room = get_area(timer)
-			var/rank = 1
+			var/rank = 2
 			if(istype(room, /area/station/security/brig))
 				rank = 0
 			else if(istype(room, /area/station/security/execution) || istype(room, /area/station/security/prison))
-				rank = 2
+				rank = 4
+			if(!seen)
+				rank++
 			var/dist = get_dist(body, timer)
 			if(rank < best_rank || (rank == best_rank && dist < best_dist))
 				best = cell
@@ -1343,9 +1385,32 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	jail_cell = free_cell(prisoner)
 	var/obj/machinery/status_display/door_timer/timer = jail_cell?.timer_ref?.resolve()
 	if(isnull(timer))
-		action_result(CREW_TOOL_JAIL, FALSE, "Every cell is in use.", list("reason" = "no_cell", "prisoner" = prisoner.name))
+		var/list/answer = no_cell_answer(prisoner.name)
+		action_result(CREW_TOOL_JAIL, FALSE, answer[2], answer[3])
 		return
 	start_errand(timer, CREW_TOOL_JAIL, jail_cell.name)
+
+/**
+ * The answer when no cell will do, every one of them seen (free_cell() leaves none unseen): "no_power" if
+ * every cell on this level is dark (ARR-04), and "no_cell" if they are in use, or some of each.
+ * A list as put_in_cell() returns.
+ */
+/datum/ai_controller/crew_npc/proc/no_cell_answer(prisoner_name)
+	var/mob/living/carbon/human/body = pawn
+	var/dark = 0
+	var/other = 0
+	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
+		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+		if(isnull(timer) || QDELETED(body) || timer.z != body.z)
+			continue
+		if(cell_unusable(cell, null) == "dark")
+			dark++
+		else
+			other++
+	if(dark && !other)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no cell's timer with power, at [AREACOORD(body)].")
+		return list(FALSE, "No cell's timer has power: their displays are blank.", list("reason" = "no_power", "prisoner" = prisoner_name))
+	return list(FALSE, "Every cell is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
 
 /// Says where someone who got away was last seen, for the brain: the room they are in if they are in sight.
 /datum/ai_controller/crew_npc/proc/got_away_details(mob/living/carbon/human/prisoner, prisoner_name)
@@ -1438,8 +1503,19 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(QDELETED(prisoner) || (!finishing && body.pulling != prisoner))
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reached [cell?.name] without its prisoner.")
 		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
-	if(isnull(cell) || cell.timer_ref?.resolve() != timer || timer.timing || length(cell.occupants() - prisoner - body))
+	if(isnull(cell) || cell.timer_ref?.resolve() != timer)
 		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
+	// Chosen from afar, and looked at now it is here (CHEAT-03): in use, dark or smashed. Passed over
+	// for a while, and the next one it can see that will do is gone to at once. None: it says so
+	// from here, where it can see that, still holding them.
+	var/why_not = cell_unusable(cell, prisoner)
+	if(!isnull(why_not))
+		if(why_not != "smashed")
+			cell_refuses(cell, prisoner_name, "it came to its timer and found it [why_not]")
+			var/datum/crew_npc_brig_cell/other = free_cell(prisoner)
+			if(isnull(other))
+				return no_cell_answer(prisoner_name)
+			return list(FALSE, "[cell.name] is [why_not]. You will try [other.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
 	// cell is tried with them still by the arm.
 	var/atom/door = cell.door()
@@ -2008,12 +2084,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
 		if(isnull(timer))
 			continue
-		var/seen = can_look && (timer in in_sight)
-		if(can_look && !seen && timer.z == body.z && get_dist(body, timer) <= CREW_NPC_VISION_RANGE + 3)
-			for(var/turf/spot as anything in cell.turfs)
-				if(spot in in_sight)
-					seen = TRUE
-					break
+		var/seen = can_look && sees_cell(cell, in_sight)
 		var/list/names
 		if(seen)
 			names = list()
