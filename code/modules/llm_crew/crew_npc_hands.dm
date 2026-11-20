@@ -430,7 +430,13 @@
 		cleaned_count++
 		work_cleaned++
 	else
+		// The first failure of a job: any count left from a job broken off before it is not this one's.
+		if(!clean_failed_count)
+			clean_unreached_count = 0
 		clean_failed_count++
+		// A mess it never got to was not tried with what it holds, and is not said to be beyond it (HAND-02).
+		if(outcome[2] == "You could not get to it.")
+			clean_unreached_count++
 	clean_queue = messes_left
 	// Stop if the tool has given out; otherwise carry on to the next mess, and then to any other in the room.
 	if(cleaning_tool() && (next_mess() || more_to_clean()))
@@ -441,10 +447,20 @@
 	// what it says of the room is one thing and true: all clean, or done what it can.
 	var/more_here = !isnull(remembered_mess_in(place))
 	var/beyond_it = clean_failed_count > 0 && !more_here
+	// What is left only because it could not be got to: nothing it holds was tried on it (HAND-02).
+	var/unreached = beyond_it && clean_unreached_count >= clean_failed_count
+	var/left_words = ""
+	if(beyond_it)
+		if(unreached)
+			left_words = " What is left there you could not get to."
+		else if(clean_unreached_count)
+			left_words = " Some of what is left there will not come off with what you have, and some you could not get to."
+		else
+			left_words = " What is left there will not come off with what you have."
 	if(cleaned_count)
-		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].[beyond_it ? " What is left there will not come off with what you have." : ""]", list("place" = place, "beyond" = beyond_it))
+		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].[left_words]", list("place" = place, "beyond" = beyond_it, "unreached" = unreached))
 	else
-		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it))
+		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it, "unreached" = unreached))
 
 /**
  * TRUE while a run of errand work is out. A stun resets the tree and the leaf forgets its run, but
@@ -498,10 +514,11 @@
 
 /datum/bt_node/ai_behavior/crew_npc_fail_errand/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
-	// A mess it could not get to goes with the ones that would not come off: not tried again.
+	// A mess it could not get to is passed over for a while, not for good: a fire door that was down,
+	// someone in a one-tile gap or a crate in a doorway is gone again a few minutes on (HAND-02).
 	var/atom/target = controller.blackboard[BB_CREW_NPC_ERRAND_TARGET]
 	if(istype(target, /obj/effect/decal/cleanable))
-		crew_controller.stubborn_messes[REF(target)] = TRUE
+		crew_controller.note_unreached_mess(target)
 	// Likewise something it could not get to in order to put it away.
 	// A fire alarm it could not get to is on the far side of the fire doors. The next nearest is tried instead.
 	if(crew_controller.errand_tool == CREW_TOOL_RESET_ALARM && !QDELETED(target))
@@ -522,6 +539,82 @@
 			entry.unreachable++
 	crew_controller.finish_errand(list(FALSE, "You could not get to it."))
 	return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
+
+/// What stubborn_messes holds for a mess that is there only because the body could not get to it. See note_unreached_mess().
+#define CREW_NPC_MESS_UNREACHED "unreached"
+
+/**
+ * Messes the body set off for and could not get to, keyed by REF: a weak reference to the mess, the
+ * world.time of the last try, and how many tries in a row have come to nothing. Passed over for a
+ * while, then tried again (HAND-02). See mess_given_up().
+ */
+/datum/ai_controller/crew_npc/var/list/unreached_messes = list()
+/// How many of the messes counted in clean_failed_count it could not get to, in the cleaning job in hand.
+/datum/ai_controller/crew_npc/var/clean_unreached_count = 0
+
+/**
+ * Notes a mess the body could not get to. It is also marked in stubborn_messes, as CREW_NPC_MESS_UNREACHED,
+ * so that code reading that list straight passes it over for this visit as before. mess_given_up()
+ * goes by the time noted here for it instead, and lets it be tried again.
+ */
+/datum/ai_controller/crew_npc/proc/note_unreached_mess(obj/effect/decal/cleanable/mess)
+	var/key = REF(mess)
+	var/tries = 1
+	var/list/entry = unreached_messes[key]
+	if(entry)
+		var/datum/weakref/old_ref = entry[1]
+		if(old_ref?.resolve() == mess)
+			tries = entry[3] + 1
+	unreached_messes[key] = list(WEAKREF(mess), world.time, tries)
+	if(!stubborn_messes[key])
+		stubborn_messes[key] = CREW_NPC_MESS_UNREACHED
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not get to the [format_text(mess.name)] at [AREACOORD(mess)] ([tries] time[tries == 1 ? "" : "s"] running): passed over for a while.")
+
+/**
+ * TRUE if the body has given up on this mess for now: it scrubbed at it and it would not come off,
+ * or it lately could not get to it. One it could not get to is passed over for five minutes, and
+ * after two tries in a row for a good while, as a room with no way in is. `key` is the mess's REF,
+ * if the caller has it. An entry whose ref number now belongs to something else is dropped: ref
+ * numbers are given out again once a thing is deleted, and blood and footprints come and go all round.
+ */
+/datum/ai_controller/crew_npc/proc/mess_given_up(obj/effect/decal/cleanable/mess, key)
+	if(QDELETED(mess))
+		return FALSE
+	key ||= REF(mess)
+	var/stubborn = stubborn_messes[key]
+	if(stubborn && stubborn != CREW_NPC_MESS_UNREACHED)
+		if(!istype(stubborn, /datum/weakref))
+			return TRUE
+		var/datum/weakref/stubborn_ref = stubborn
+		if(stubborn_ref.resolve() == mess)
+			return TRUE
+		stubborn_messes -= key
+	var/list/entry = unreached_messes[key]
+	if(!entry)
+		return FALSE
+	var/datum/weakref/mess_ref = entry[1]
+	if(mess_ref.resolve() != mess)
+		unreached_messes -= key
+		if(stubborn == CREW_NPC_MESS_UNREACHED)
+			stubborn_messes -= key
+		return FALSE
+	// Kept once the wait is over, so that the tries are still counted if it fails again.
+	return world.time - entry[2] < (entry[3] >= 2 ? CREW_NPC_BLOCKED_PLACE_LONG : CREW_NPC_TIDY_GIVE_UP)
+
+/**
+ * A door has been opened for the body, or fire doors have lifted: messes and things it could not
+ * get to once are worth another try. Those it has failed twice running are not. Meant to be called
+ * from ways_reopened().
+ */
+/datum/ai_controller/crew_npc/proc/forget_unreached()
+	for(var/key in unreached_messes.Copy())
+		var/list/entry = unreached_messes[key]
+		if(entry[3] < 2)
+			unreached_messes -= key
+			if(stubborn_messes[key] == CREW_NPC_MESS_UNREACHED)
+				stubborn_messes -= key
+
+#undef CREW_NPC_MESS_UNREACHED
 
 /// TRUE if the body is close enough to touch this, with nothing solid in between. Standing beside it through a wall does not count.
 /datum/ai_controller/crew_npc/proc/can_reach_target_now(atom/target)

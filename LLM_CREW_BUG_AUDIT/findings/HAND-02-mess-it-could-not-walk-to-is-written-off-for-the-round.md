@@ -103,3 +103,17 @@ Nothing in the change log or plans chooses a write-off for the round. The commen
 I set effort to medium. The fix touches a new list, a helper used at three places, `finish_errand`'s counting and a detail sent to the window, plus one line in `janitor.ts`. That is more than about 20 lines in one file. I added a count of tries to step 3. The rest of the fix is sound and keeps the rules: only memory and words change.
 
 Read only. Nothing was run.
+
+## Fix so far
+
+Server, `crew_npc_hands.dm` only (group m-hands). Done:
+
+- `crew_npc_fail_errand` no longer writes a mess it could not walk to into `stubborn_messes` for good. `note_unreached_mess` keeps it in a new list, `unreached_messes` (REF to weak reference, time, tries in a row), logs "could not get to the X ... passed over for a while", and marks it in `stubborn_messes` as `"unreached"` so the readers in `crew_npc_cleaning.dm` still pass it over for this visit as before.
+- `mess_given_up(mess, key)`: TRUE for a mess that would not come off (a `TRUE` or a weak reference to the same mess in `stubborn_messes`), or one not got to less than 5 minutes ago (`CREW_NPC_TIDY_GIVE_UP`), or less than 15 minutes ago after two tries running (`CREW_NPC_BLOCKED_PLACE_LONG`). An entry whose ref now names another object is dropped.
+- `forget_unreached()`: empties the not-got-to entries with fewer than two tries.
+- `finish_errand` counts "You could not get to it." apart (`clean_unreached_count`, reset at a job's first failure). The report says "What is left there you could not get to." when that is all that is left (or "Some ... will not come off ..., and some you could not get to."), and sends `"unreached" = TRUE` in the clean result's details.
+
+Left (held, needs files m-hands does not own):
+
+- `crew_npc_cleaning.dm`: in `remembered_mess_in`, `workable_mess_places` and `messes_to_clean`, replace the `stubborn_messes[key]` / `stubborn_messes[REF(mess)]` tests with `mess_given_up(mess, key)` (after the mess is resolved). Until then a mess not got to is still passed over for the round, as before. In `ways_reopened()`, call `forget_unreached()`. Where `clean_mess` writes `stubborn_messes[REF(mess)] = TRUE`, write `WEAKREF(mess)` instead (step 4; `mess_given_up` reads both). The PLAY-13 "not landed" case in `clean_mess` could call `note_unreached_mess(mess)` in place of its stubborn write.
+- `jobs/janitor.ts`: read `details.unreached` on a clean result; when it is true say "I have done what I can in the X. I could not get to the rest." in place of the beyond-the-tool words, and do not take the room as beyond the tool.
