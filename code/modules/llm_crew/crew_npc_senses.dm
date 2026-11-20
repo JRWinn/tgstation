@@ -541,13 +541,17 @@
 			message = stars(message)
 	message = html_decode(message)
 
+	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
+	// Told it is under arrest by someone from security: it goes along, on what it heard (CHEAT-04).
+	if(ishuman(living_speaker))
+		heard_arrest_line(living_speaker, message)
+
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
 	var/whispered = !!message_mods[WHISPER_MODE]
 	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
 	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
 	// the parrot's "CRYSTAL DELAMINATION IMMINENT" twenty-nine times in half an hour.
-	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
-	var/someone = living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
+	var/someone =living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
 	if(someone)
 		last_heard_speaker = speaker_name
 	var/list/details = list(

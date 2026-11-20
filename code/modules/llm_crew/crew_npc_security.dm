@@ -1003,13 +1003,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/handle = handle_for(person)
 	var/person_name = person.name
 	var/hits = 0
-	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	// One of the crew stands for it, and goes along: it has just been told so out loud (the brain
-	// says the arrest line before it sends the arrest). Only if it could hear that (CHEAT-04): one
-	// that is deaf or out of earshot goes along once it feels the cuffs and the hand on its arm
-	// (hold_arrested()). Once its own hearing goes by the line (heard_arrest_line()), this can go.
-	if(how != CREW_ARREST_STOP && istype(their_controller) && their_controller.could_hear(body))
-		their_controller.being_arrested(body)
+	// One of the crew who heard the arrest line said (the brain says it before it sends the arrest)
+	// has gone along already, by its own hearing: heard_arrest_line(), from on_pre_hear() (CHEAT-04).
+	// One that is deaf or out of earshot goes along once it feels the cuffs and the hand on its arm
+	// (hold_arrested()).
 	// In cuffs already: someone has done that part. It only has to be taken by the arm.
 	if(person.handcuffed && how != CREW_ARREST_STOP)
 		var/closed = close_with(person, CREW_NPC_CLOSE_STEPS, serial)
@@ -1930,15 +1927,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!was_held)
 		addtimer(CALLBACK(src, PROC_REF(custody_tick)), 1 SECONDS)
 
-/// TRUE if this body could hear someone speaking in a normal voice where they stand: it can sense, is not deaf, and is within earshot of them.
-/datum/ai_controller/crew_npc/proc/could_hear(mob/living/speaker)
-	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(body) || QDELETED(speaker) || !can_sense() || HAS_TRAIT(body, TRAIT_DEAF))
-		return FALSE
-	return body in hearers(CREW_NPC_EARSHOT, speaker)
-
 /**
- * The body has heard a line said (on_pre_hear() is to call this with what it heard). Someone who
+ * The body has heard a line said (on_pre_hear() calls this with what it heard). Someone who
  * works in security, by the ID they wear, telling it by name that it is under arrest: it goes
  * along quietly, on what it heard (CHEAT-04), whether the one arresting it is crew or a player.
  * Returns TRUE if it took the line for its own arrest.
