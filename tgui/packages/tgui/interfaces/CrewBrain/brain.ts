@@ -2093,6 +2093,9 @@ function logDecision(
     error: decision.error ?? '',
     ms: decision.ms,
     tokens: decision.promptTokens ?? 0,
+    // PLAY-07: what the code did with the reply (a line held back, an order made out from talk,
+    // a call dropped), so the log says what was done and not only what the model wrote.
+    calls: decision.calls.join(NEWLINE),
   };
   setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
 }
