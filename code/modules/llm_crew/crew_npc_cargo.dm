@@ -642,7 +642,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/mob/living/carbon/human/body = pawn
 	// What was in it, read before it is opened: once open, the tile is read, with whatever was lying there already.
 	var/list/names = list()
-	for(var/obj/item/thing as anything in crew_npc_crate_holds(crate))
+	for(var/atom/movable/thing as anything in crew_npc_crate_holds(crate))
 		names |= format_text(thing.name)
 	if(crate.opened)
 		return names

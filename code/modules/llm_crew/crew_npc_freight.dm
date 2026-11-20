@@ -142,12 +142,25 @@
 		return null
 	return recipient.current?.real_name || recipient.name
 
-/// Returns the things a crate holds: what is inside it if it is shut, what lies spilled around it if it is open.
+/**
+ * Returns the things a crate holds: what is inside it if it is shut, what lies spilled around it if
+ * it is open. Everything, not only what can be picked up: a crate with a wheeled filing cabinet or a
+ * janitorial cart in it was called empty, and sent back to be sold with the thing still inside (SUP-09).
+ */
 /proc/crew_npc_crate_holds(obj/structure/closet/crate/crate)
 	var/list/held = list()
-	for(var/obj/item/thing in (crate.opened ? crate.drop_location() : crate))
-		// The manifest is paperwork about the crate, not something that came in it.
-		if(!istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest))
+	if(!crate.opened)
+		for(var/atom/movable/thing as anything in crate)
+			// The manifest is paperwork about the crate, not something that came in it.
+			if(!istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest) && !iseffect(thing))
+				held += thing
+		return held
+	// Open: what lies on its square that shutting it would take back in. Not the crate itself, nor
+	// whoever is standing there, nor what is fixed to the floor.
+	for(var/obj/thing in crate.drop_location())
+		if(thing == crate || iseffect(thing) || istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest))
+			continue
+		if(isitem(thing) || crate.insertion_allowed(thing))
 			held += thing
 	return held
 
