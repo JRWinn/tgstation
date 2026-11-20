@@ -78,12 +78,21 @@ const NOT_LET_IN =
  */
 export function doorFor(brain: NpcBrain, place: string): string {
   let door = place;
+  const passed = [place];
   // Followed outwards, room by room. No station nests them more than a few deep.
   for (let depth = 0; depth < 4; depth++) {
     const outer = brain.reachedThrough[door];
     if (!outer || outer === brain.location) {
       break;
     }
+    // Rooms that each open only from the other: the notes are wrong past here, learnt by a body
+    // shut in elsewhere that could reach no door at all. Followed round, it stood at the door of
+    // the public Cargo Lobby for a mess in the Delivery Office (LOGB-05). It goes no further out
+    // than the first room the notes come back to.
+    if (passed.includes(outer)) {
+      return outer;
+    }
+    passed.push(outer);
     door = outer;
   }
   return door;
