@@ -23,6 +23,14 @@ const denTasks = (b: any) =>
       task.state !== 'done',
   );
 
+function janitorKnowing() {
+  const b: any = janitor('space cleaner');
+  b.stowed = [];
+  know(b, ['Bitrunning Den']);
+  at(b, 3000, 'Central Primary Hallway', [zim]);
+  return b;
+}
+
 function declined() {
   const b: any = janitor('space cleaner');
   b.stowed = [];
@@ -51,8 +59,7 @@ function declined() {
     'Bitrunning Den',
     tamika.name,
   );
-  const plan: any = task ? JANITOR.plan(b, task) : null;
-  add('the model takes it on: not gone to', plan?.ready ?? null, false);
+  add('the model takes it on: not taken (refusesWork)', task, null);
   syncTasks(b);
   add('and dropped at the next look at the list', denTasks(b).length, 0);
 }
@@ -76,6 +83,22 @@ function declined() {
   takeToldWork(b, 'a mess that needs cleaning', 'Bitrunning Den', tamika.name);
   syncTasks(b);
   add('five minutes on: a call to the room is taken again', denTasks(b).length, 1);
+}
+
+{
+  const b = declined();
+  // The words of the line, read again with no model: not taken either.
+  const { workInWords } = await import(ROOT + 'tasks');
+  const line = `[18:01:00] Tamika Barrett says: "${CALL}" (person p9, Cargo Technician)`;
+  add('the words of the call: not taken', workInWords(b, [line], tamika.name), null);
+  add('(a fresh janitor would take them)', workInWords(janitorKnowing(), [line], tamika.name)?.place ?? null, 'Bitrunning Den');
+}
+{
+  const b = declined();
+  // The same caller then calls it to the same room for something it can shift: that is taken.
+  JANITOR.readsMessage(b, tamika.name, 'There is a mess in the Bitrunning Den: pool of oil. Could you come and clean it up, please?', 3100, tamika.job);
+  syncTasks(b);
+  add('a later call it can see to, from the same caller: taken', denTasks(b).length, 1);
 }
 
 let failed = 0;

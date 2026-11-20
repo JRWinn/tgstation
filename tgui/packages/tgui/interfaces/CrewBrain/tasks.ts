@@ -245,13 +245,19 @@ export function takeToldWork(
   }
   // Work its job's code has just turned down is not taken on by the model's say-so, nor from the
   // words of the line: a call to a mess it said it cannot shift (LOGA-07). The job says so
-  // through refusesWork, if it has one.
+  // through refusesWork, if it has one; who told it is passed too, since a call turned down is
+  // turned down for whoever made it.
   const refuses = (
     jobFor(brain.job) as {
-      refusesWork?: (brain: NpcBrain, kind: string, place: string) => boolean;
+      refusesWork?: (
+        brain: NpcBrain,
+        kind: string,
+        place: string,
+        toldBy?: string,
+      ) => boolean;
     }
   ).refusesWork;
-  if (own && refuses?.(brain, kind, room)) {
+  if (own && refuses?.(brain, kind, room, toldBy)) {
     return null;
   }
   // Work in the room it is standing in is work it can see for itself. If it sees none, there is

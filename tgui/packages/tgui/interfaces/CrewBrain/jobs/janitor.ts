@@ -1248,6 +1248,8 @@ export const JANITOR: Job = {
         return;
       }
       if (named) {
+        // A later call to the room that it can see to stands over one it turned down there.
+        declinedCalls(brain).delete(named.toLowerCase());
         const task =
           known === named && !fromCargo
             ? takeToldWork(brain, A_MESS, named, from || undefined)
@@ -1426,3 +1428,32 @@ export const JANITOR: Job = {
     }
   },
 };
+
+/**
+ * TRUE if a mess in this room, told of by this caller, is one the janitor's code has just turned
+ * down for want of soap or a rag, and it still has neither to hand nor knows where to get one. The
+ * model's "work" and the words of the line are then not taken on at all (LOGA-07), rather than put
+ * on the list and dropped at the next look at it. A call to the same room from anyone else is taken.
+ */
+function refusesWork(
+  brain: NpcBrain,
+  kind: string,
+  place: string,
+  toldBy?: string,
+): boolean {
+  if (kind !== CLEAN) {
+    return false;
+  }
+  const note = declinedCalls(brain).get(place.toLowerCase());
+  return (
+    !!note &&
+    note.by === toldBy &&
+    brain.now - note.at < DECLINED_DS &&
+    !canScrub(brain) &&
+    !scrubberToHand(brain)
+  );
+}
+
+// Set here rather than in the literal above, so this file compiles whether or not Job in
+// jobs/job.ts has the hook typed yet (tasks.ts calls it through a cast).
+Object.assign(JANITOR, { refusesWork });
