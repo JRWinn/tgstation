@@ -1196,11 +1196,12 @@ function syncTasks(brain: NpcBrain): void {
       !visitorToMind(brain),
   );
 
-  // Away from its post with nothing to see through, it goes back.
+  // Away from its post with nothing to see through, it goes back. An order placed and waiting on
+  // the shuttle is nothing to stand about for: it goes back to its post meanwhile (MULTI-02).
   const away =
     !!brain.post &&
     brain.location !== brain.post &&
-    !orderInHand(brain) &&
+    !(orderInHand(brain) && !brain.orderPending) &&
     !freightInHand(brain) &&
     !heldInHand(brain) &&
     !tidyingInHand(brain) &&

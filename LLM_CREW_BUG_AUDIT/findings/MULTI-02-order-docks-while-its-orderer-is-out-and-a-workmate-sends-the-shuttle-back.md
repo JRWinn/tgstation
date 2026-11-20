@@ -103,3 +103,7 @@ Checked by Opus 5.5. Confirmed, with step 2 of the case corrected and two steps 
 - Wrong in the test: the shuttle moves made by `supply_run_step` write nothing to `game.log`. Mended.
 - Overlap: CARGO-01 (confirmed, and SUP-02 is its duplicate) names the timeout with the body out of the bay and proposes "do not time out while aboard and docked". That does not stop the recall once a workmate has sent the shuttle away, which is this finding's own part. Both stand; built as one.
 - Change log and plans: no entry for this. Nothing run; not seen in a round. Effort raised to medium for the window line in step 4.
+
+## Fix so far
+
+Window part on branch `m-cargo` (`jobs/cargo.ts` `syncTasks`; cases in `tools/llm_crew/cargo-rooms.ts`; not played): a technician away from its post with only a placed order waiting on the shuttle (`orderPending`) now gets its POST task and goes back to the bay, where the server can find the order come in. An order given to it and not yet placed, or an arrived notice owed, still keeps it where it is. The server part is on branch `m-cargosrv`.
