@@ -85,3 +85,17 @@ Read from the code, both sides. Not seen in a round: in `data/logs/2026/11/19/ro
 Opus 5.5, 2026-11-19. Read today: `afterActing`, `syncTasks`, `stick`, `startLighting` and `STEP_TRIES = 2` in `jobs/engineer.ts`; the `pump` step words in `jobs/engine.ts`; `noteResult` and `fail` (`RETRY_MS` 20 s) in `driver.ts`; the `afterActing` type in `jobs/job.ts`; `crew_npc_fail_errand` and `finish_errand` in `crew_npc_hands.dm`; `tool_work_machine`, `work_machine`, `turn_machine`, `switch_emitter`, `connect_canister` in `crew_npc_machines.dm`; the Chief Engineer's stuck reader and `lightAgain` in `jobs/chiefengineer.ts`. The quotes are as the code is. Traced: a walk that comes to nothing ends in `finish_errand(list(FALSE, "You could not get to it."))`, which sends `action_result` with no details for `work_machine`; `afterActing` counts it under the step's key exactly as a machine that would not take; at two it calls `stick` with the step's fixed `fails` words; `lighting(engine)` is then false and the two-minute start needs `!engine.told`, so nothing starts again until `lightAgain` or the engineer's own "light the engine" order. The Chief Engineer passes the words to the Captain as "The engine is not lit: ...". Nothing in the change log chose this. `round-20.43.32/game.log` has 24 "worked the" lines and no "could not work the" line, as the finding says.
 
 Not checked: that a player standing in the one-tile gap does make the walk fail rather than wait (the reach and step-aside code was not traced), and that both hands can hold trade tools so `empty_clicking_hand` fails. The walk case alone is enough. Severity medium kept: rare, and the Captain can restart it with one order, but the engine is left dark with a false reason. Effort medium kept: step 0 is window-only and under 100 lines. Added step 0. Nothing run.
+
+## Fix so far
+
+Server part, step 1 (group m-hands; `crew_npc_machines.dm`, `crew_npc_hands.dm`). Every failed `work_machine` result now carries `details.reason`:
+
+- `"unreached"`: "You could not get to it." (the walk came to nothing, `crew_npc_fail_errand` / `do_errand`) and every "You cannot reach the X ..." (the click was refused).
+- `"hands"`: "You have no free hand to ...", "You have no wrench to connect ...", "You cannot get your wrench out."
+- `"machine"`: "will not turn on/off", "will not go to full", "will not switch ...", "will not connect", "will not take the settings", "You cannot get at the ... controls. It may have no power." (no power is not told apart: ENG-02).
+- `"locked"`: the engine air alarm will not unlock for the body.
+- `"unknown"`: "You know of no such machine.", "That is not something you can do with ...", "Working the engine's machines is engineering's job.", "That is not a machine you know how to work.", "You forget what you came to do.", and anything else (an errand whose machine was deleted, RT-02's "It is gone.").
+
+The reason is also at the end of the `could not work the X` line in `game.log`, in brackets. The sub-procs return it as a fourth list item; `work_machine` returns it third; `finish_errand` puts it in the details for `work_machine` only.
+
+Left (another group's, the window): steps 2 and 3 in `jobs/engineer.ts` `afterActing` (count towards `STEP_TRIES` only `machine` and `locked`; `unreached` and `hands` to the back-off with a cap of their own; `unknown` stops at once with `UNKNOWN_ENGINE`; a stuck line per reason) and the `afterActing` signature in `jobs/job.ts` if the details are not already passed (they are: `event.details`). Step 4 is the owner's question.

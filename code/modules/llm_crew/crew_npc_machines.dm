@@ -197,16 +197,16 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 /// Tool: go to one of the machines engineering staff work, and work it one way. Engineering staff only.
 /datum/ai_controller/crew_npc/proc/tool_work_machine(machine_id, how)
 	if(!works_in_engineering())
-		action_result(CREW_TOOL_MACHINE, FALSE, "Working the engine's machines is engineering's job.")
+		action_result(CREW_TOOL_MACHINE, FALSE, "Working the engine's machines is engineering's job.", list("reason" = "unknown"))
 		return
 	var/list/entry = istext(machine_id) ? crew_npc_engine_machine_entry(machine_id) : null
 	var/datum/weakref/machine_ref = entry?["ref"]
 	var/obj/machinery/machine = machine_ref?.resolve()
 	if(isnull(machine))
-		action_result(CREW_TOOL_MACHINE, FALSE, "You know of no such machine.")
+		action_result(CREW_TOOL_MACHINE, FALSE, "You know of no such machine.", list("reason" = "unknown"))
 		return
 	if(!istext(how) || !(how in crew_npc_machine_ways(entry["kind"])))
-		action_result(CREW_TOOL_MACHINE, FALSE, "That is not something you can do with the [entry["name"]].")
+		action_result(CREW_TOOL_MACHINE, FALSE, "That is not something you can do with the [entry["name"]].", list("reason" = "unknown"))
 		return
 	start_errand(machine, CREW_TOOL_MACHINE, how)
 
@@ -214,7 +214,7 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
  * Works the machine the body is standing by, the way it came to: errand_item says how. Sleeps
  * while the body does it.
  *
- * Returns a list: whether the machine is now as it was asked to be, then the words the brain is told.
+ * Returns a list: whether the machine is now as it was asked to be, then the words the brain is told, then on failure why (TRC-04): "unreached", "hands", "machine", "locked" or "unknown".
  */
 /datum/ai_controller/crew_npc/proc/work_machine(obj/machinery/machine)
 	var/how = errand_item
@@ -222,7 +222,7 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(istype(machine, /obj/machinery/power/smes))
 		what = list("battery", CREW_MACHINE_BATTERY)
 	if(isnull(what))
-		return list(FALSE, "That is not a machine you know how to work.")
+		return list(FALSE, "That is not a machine you know how to work.", "unknown")
 	var/machine_name = what[1]
 	var/kind = what[2]
 	var/list/outcome
@@ -240,14 +240,14 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		if(CREW_WORK_DRAW_ALL)
 			outcome = set_alarm_drawing(machine)
 		else
-			return list(FALSE, "You forget what you came to do.")
+			return list(FALSE, "You forget what you came to do.", "unknown")
 	// outcome: whether it is as asked, the words, and whether the body had to do anything to make it so.
 	if(outcome[1] && outcome[3] && !QDELETED(machine))
 		work_machines_set++
 		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) worked the [machine_name] ([kind]) at [AREACOORD(machine)]: [how].")
 	else if(!outcome[1])
-		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not work the [machine_name] ([kind]) at [AREACOORD(machine)]: [how]. [outcome[2]]")
-	return list(outcome[1], outcome[2])
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not work the [machine_name] ([kind]) at [AREACOORD(machine)]: [how]. [outcome[2]] ([outcome[4]])")
+	return list(outcome[1], outcome[2], outcome[1] ? null : outcome[4])
 
 /**
  * Clicks something as the body, the way its player would: plainly, or with a key held ("ctrl=1",
@@ -373,9 +373,9 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(clicked == CREW_NPC_CLICK_NOT_NEEDED)
 		return list(TRUE, "The [machine_name] is [wanted] already.", FALSE)
 	if(!clicked || QDELETED(machine))
-		return list(FALSE, "You cannot reach the [machine_name] to turn it [wanted].", FALSE)
+		return list(FALSE, "You cannot reach the [machine_name] to turn it [wanted].", FALSE, "unreached")
 	if(!!machine.on != on)
-		return list(FALSE, "The [machine_name] will not turn [wanted]. It may have no power.", FALSE)
+		return list(FALSE, "The [machine_name] will not turn [wanted]. It may have no power.", FALSE, "machine")
 	return list(TRUE, "You turn the [machine_name] [wanted].", TRUE)
 
 /// Sets a pump to its full pressure, by the click that does that.
@@ -383,9 +383,9 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(pump.target_pressure >= MAX_OUTPUT_PRESSURE)
 		return list(TRUE, "The [machine_name] is set to full already.", FALSE)
 	if(!click_as_body(pump, "alt=1") || QDELETED(pump))
-		return list(FALSE, "You cannot reach the [machine_name] to set it to full.", FALSE)
+		return list(FALSE, "You cannot reach the [machine_name] to set it to full.", FALSE, "unreached")
 	if(pump.target_pressure < MAX_OUTPUT_PRESSURE)
-		return list(FALSE, "The [machine_name] will not go to full.", FALSE)
+		return list(FALSE, "The [machine_name] will not go to full.", FALSE, "machine")
 	return list(TRUE, "You set the [machine_name] to full.", TRUE)
 
 /// Switches an emitter on or off, by a click with an empty hand.
@@ -394,15 +394,15 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(!!emitter.active == on)
 		return list(TRUE, "The emitter is [wanted] already.", FALSE)
 	if(!empty_clicking_hand())
-		return list(FALSE, "You have no free hand to switch the emitter [wanted] with.", FALSE)
+		return list(FALSE, "You have no free hand to switch the emitter [wanted] with.", FALSE, "hands")
 	// A click flips it whatever it was: looked at again just before the click.
 	var/clicked = click_as_body(emitter, still_wanted = CALLBACK(src, PROC_REF(emitter_not_yet), emitter, on))
 	if(clicked == CREW_NPC_CLICK_NOT_NEEDED)
 		return list(TRUE, "The emitter is [wanted] already.", FALSE)
 	if(!clicked || QDELETED(emitter))
-		return list(FALSE, "You cannot reach the emitter to switch it [wanted].", FALSE)
+		return list(FALSE, "You cannot reach the emitter to switch it [wanted].", FALSE, "unreached")
 	if(!!emitter.active != on)
-		return list(FALSE, "The emitter will not switch [wanted]: [emitter.locked ? "its controls are locked" : (emitter.powernet ? "it does not answer" : "it is not on a wire")].", FALSE)
+		return list(FALSE, "The emitter will not switch [wanted]: [emitter.locked ? "its controls are locked" : (emitter.powernet ? "it does not answer" : "it is not on a wire")].", FALSE, "machine")
 	return list(TRUE, "You switch the emitter [wanted].", TRUE)
 
 /// Returns a wrench the body has on it: in a hand, on its belt, or in its bag. Null if it has none.
@@ -426,14 +426,14 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		return list(TRUE, "The [machine_name] is connected already.", FALSE)
 	var/obj/item/wrench = wrench_carried()
 	if(isnull(wrench))
-		return list(FALSE, "You have no wrench to connect the [machine_name] with.", FALSE)
+		return list(FALSE, "You have no wrench to connect the [machine_name] with.", FALSE, "hands")
 	// Where it is kept: its belt, or its bag. Null if it was in a hand to begin with.
 	var/atom/kept_in = body.is_holding(wrench) ? null : wrench.loc
 	if(kept_in)
 		if(!empty_clicking_hand())
-			return list(FALSE, "You have no free hand to take your wrench out with.", FALSE)
+			return list(FALSE, "You have no free hand to take your wrench out with.", FALSE, "hands")
 		if(!click_as_body(wrench) || QDELETED(wrench) || !body.is_holding(wrench))
-			return list(FALSE, "You cannot get your wrench out.", FALSE)
+			return list(FALSE, "You cannot get your wrench out.", FALSE, "hands")
 	// It is the hand that holds the wrench that clicks.
 	if(body.get_active_held_item() != wrench)
 		body.swap_hand(body.get_inactive_hand_index())
@@ -444,9 +444,9 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(kept_in && !QDELETED(kept_in) && !QDELETED(wrench) && body.get_active_held_item() == wrench)
 		click_as_body(kept_in)
 	if(!reached)
-		return list(FALSE, "You cannot reach the [machine_name] with your wrench.", FALSE)
+		return list(FALSE, "You cannot reach the [machine_name] with your wrench.", FALSE, "unreached")
 	if(!connected)
-		return list(FALSE, "The [machine_name] will not connect.", FALSE)
+		return list(FALSE, "The [machine_name] will not connect.", FALSE, "machine")
 	if(reached == CREW_NPC_CLICK_NOT_NEEDED)
 		return list(TRUE, "The [machine_name] is connected already.", FALSE)
 	return list(TRUE, "You wrench the [machine_name] onto its connector.", TRUE)
@@ -456,14 +456,14 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	if(crew_npc_battery_charging(battery))
 		return list(TRUE, "The battery is set to charge already.", FALSE)
 	if(!work_window(battery, "input", list("target" = "max")))
-		return list(FALSE, "You cannot get at the battery's controls. It may have no power.", FALSE)
+		return list(FALSE, "You cannot get at the battery's controls. It may have no power.", FALSE, "machine")
 	work_window(battery, "output", list("target" = min(CREW_NPC_BATTERY_OUTPUT, battery.output_level_max)))
 	if(!QDELETED(battery) && !battery.input_attempt)
 		work_window(battery, "tryinput")
 	if(!QDELETED(battery) && !battery.output_attempt)
 		work_window(battery, "tryoutput")
 	if(QDELETED(battery) || !crew_npc_battery_charging(battery))
-		return list(FALSE, "The battery will not take the settings.", FALSE)
+		return list(FALSE, "The battery will not take the settings.", FALSE, "machine")
 	return list(TRUE, "You set the battery to charge: input to full, output to [display_power(battery.output_level, convert = FALSE)].", TRUE)
 
 /**
@@ -476,11 +476,11 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	// One that is locked is unlocked the way a player does it: a right click, with an ID that opens it.
 	if(alarm.locked)
 		if(!empty_clicking_hand() || !click_as_body(alarm, "right=1") || QDELETED(alarm) || alarm.locked)
-			return list(FALSE, "The engine air alarm is locked, and will not unlock for you.", FALSE)
+			return list(FALSE, "The engine air alarm is locked, and will not unlock for you.", FALSE, "locked")
 	var/area/room = crew_npc_alarm_area(alarm)
 	for(var/obj/machinery/atmospherics/components/unary/vent_scrubber/scrubber as anything in room.air_scrubbers)
 		if(scrubber.scrubbing != ATMOS_DIRECTION_SIPHONING && !work_window(alarm, "scrubbing", list("ref" = REF(scrubber), "val" = 0)))
-			return list(FALSE, "You cannot get at the engine air alarm's controls. It may have no power.", FALSE)
+			return list(FALSE, "You cannot get at the engine air alarm's controls. It may have no power.", FALSE, "machine")
 		if(QDELETED(alarm) || QDELETED(scrubber))
 			break
 		if(!scrubber.widenet)
@@ -491,7 +491,7 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		if(vent.pressure_checks & ATMOS_EXTERNAL_BOUND)
 			work_window(alarm, "excheck", list("ref" = REF(vent), "val" = vent.pressure_checks))
 	if(QDELETED(alarm) || !crew_npc_alarm_drawing(alarm))
-		return list(FALSE, "The engine air alarm will not take the settings.", FALSE)
+		return list(FALSE, "The engine air alarm will not take the settings.", FALSE, "machine")
 	return list(TRUE, "You set the engine air alarm: the scrubbers draw everything out of the chamber, and the vents have no pressure limit.", TRUE)
 
 #undef CREW_MACHINE_PUMP

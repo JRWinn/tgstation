@@ -492,6 +492,11 @@
 		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
 		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
 			details = outcome[3]
+		// A machine that did not end as asked says why: a walk that came to nothing and a full hand are
+		// not the machine's fault, and the engineer stopped lighting the engine over them (TRC-04).
+		else if(tool == CREW_TOOL_MACHINE && !outcome[1])
+			var/reason = length(outcome) >= 3 ? outcome[3] : null
+			details = list("reason" = reason || (outcome[2] == "You could not get to it." ? "unreached" : "unknown"))
 		action_result(tool, outcome[1], outcome[2], details)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
