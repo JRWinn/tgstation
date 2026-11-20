@@ -1184,7 +1184,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 /datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
 	var/mob/living/carbon/human/body = pawn
 	var/handle = handle_for(person)
-	if(counted)
+	// One arrest for one person brought in, however many times the cuffs had to go on. `arrested` is
+	// whoever it cuffed and has not yet put in a cell or let go: cuffed again after a cell that would
+	// not take them, or after they got away, it is the same arrest.
+	if(counted && arrested?.resolve() != person)
 		work_arrests++
 	arrested = WEAKREF(person)
 	// Sat in a chair or lying in a bed is being strapped to it: walked off by the arm, they stay where
