@@ -128,6 +128,38 @@ const counter = (b: any, now: number, people: any[] = [], arrived = false) => {
   if (roomless) add('no room: it does not say a meeting is being called', lines.some((line: string) => /cannot call a staff meeting/.test(line)), true);
 }
 
+// HEAD-02: a crate lost at cargo, or not to be had, does not leave the asker noted as ordered for good.
+const ordered = (b: any) => { b.asks[0].ordered = true; b.requisition = null; b.pickups = [{ number: 12, to: JAN.name, room: 'Custodial Closet', what: 'janitorial supplies', at: b.now }]; };
+{
+  const b = hop();
+  ordered(b);
+  HEAD_OF_PERSONNEL.readsMessage(b, 'Sam Tech', 'Lost at cargo: crate #12 (Janitorial Supplies Crate) from your order. It cannot be found. It will have to be ordered again, and nobody need come for it.', b.now, 'Cargo Technician');
+  add('lost at cargo: the crate is no longer sent for', b.pickups.length, 0);
+  add('and the asker is to be ordered for again', b.asks[0].ordered, false);
+  b.now += 10;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('a fresh order is made', !!b.requisition, true);
+}
+{
+  const b = hop([CAPTAIN, JAN, QM]);
+  ordered(b);
+  HEAD_OF_PERSONNEL.readsMessage(b, QM.name, 'Lost at cargo: crate #12 from your order. It cannot be found. I am having it ordered again, as order 4, and nobody need come for the lost one.', b.now, 'Quartermaster');
+  add('lost and being ordered again: no fresh order, the crate not sent for', [b.asks[0].ordered, b.pickups.length], [true, 0]);
+}
+{
+  const b = hop();
+  ordered(b);
+  HEAD_OF_PERSONNEL.readsMessage(b, JAN.name, 'Cargo says there is no crate #12 to collect: it has been lost, or the number is wrong. I have not got it.', b.now, 'Janitor');
+  add('no such crate at the counter: not sent for, nothing ordered yet', [b.pickups.length, b.asks[0].ordered], [0, true]);
+}
+{
+  const b = hop();
+  ordered(b);
+  b.now += 12100;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('ordered for and never told for twenty minutes: the ask and the crate are let go', [b.asks.length, b.pickups.length], [0, 0]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

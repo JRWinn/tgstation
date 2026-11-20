@@ -151,6 +151,17 @@ const SHUT_IN_WORDS =
 const SHUT_IN_AGAIN_DS = 3000;
 /** When each head last passed on word of someone shut in (server time), by the head, the person and the room. */
 const shutInPassedOn = new Map<string, number>();
+/**
+ * How a technician or the Quartermaster tells a head that crates of its order are lost, and that
+ * they are being ordered again. The senders are the lost-crate notices in cargo.ts and
+ * quartermaster.ts: keep the words the same. Better shared from supply.ts (held: HEAD-02).
+ */
+const LOST_WORDS = /^lost at cargo: (.+?) from your order\b/i;
+const REORDERED_WORDS = /\bordered again, as order \d+/i;
+/** What one of its staff sends when cargo says there is no such crate to collect: see pickups.ts. */
+const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
+/** How long (deciseconds) an ask that was ordered for, and a crate sent for, stand with no word that it was unpacked. */
+const ASK_STANDS_DS = 12000;
 /** How many times it goes to the counter and finds nobody from cargo to take an order, before it puts the order by until after the next meeting. */
 const COUNTER_VISITS_MAX = 3;
 /** How many times it says the same order at the counter in one visit with no answer, before it puts the order by. */
@@ -840,8 +851,21 @@ function syncTasks(brain: NpcBrain): void {
   } else if (!toSee && task) {
     finishTask(brain, task);
   }
+  // An ask ordered for and never told of, for two meeting gaps, is let go: the crate was lost, or
+  // word of it never came. Whoever is still short says so at the next meeting and is ordered for
+  // afresh. Kept, it stood for good and nobody was ordered for again (HEAD-02). Not while the
+  // order it is on is still in hand. A crate sent for that long ago is let go the same way.
+  const inHand = brain.requisition ? orderedFor(brain.requisition) : [];
   brain.asks = brain.asks.filter(
-    (ask) => !ask.told || brain.now - ask.at < MEETING_EVERY_DS,
+    (ask) =>
+      (!ask.told || brain.now - ask.at < MEETING_EVERY_DS) &&
+      (ask.told ||
+        !ask.ordered ||
+        inHand.includes(ask.who) ||
+        brain.now - ask.at < ASK_STANDS_DS),
+  );
+  brain.pickups = brain.pickups.filter(
+    (pickup) => brain.now - pickup.at < ASK_STANDS_DS,
   );
 
   // Between errands it goes back to its office. That is where people expect to find it.
@@ -1517,6 +1541,53 @@ export const HEAD_OF_PERSONNEL: Job = {
       if (sentOrder && sentOrder.askedAt !== null) {
         brain.requisition = null;
       }
+      return;
+    }
+    // Cargo has lost crates of its order. They are not sent for any more. Unless cargo is having
+    // them ordered again, those who were waiting on them are ordered for afresh: dropped, a lost
+    // crate left them noted as ordered for good, and they were never ordered for again (HEAD-02).
+    const lost = isCargo(job) ? text.match(LOST_WORDS) : null;
+    if (lost) {
+      const numbers = numbersIn(lost[1]);
+      const kind = lost[1].match(/\(([^)]+)\)/)?.[1];
+      const lostWhat = brain.pickups
+        .filter((pickup) => numbers.includes(pickup.number))
+        .map((pickup) => pickup.what);
+      brain.pickups = brain.pickups.filter(
+        (pickup) => !numbers.includes(pickup.number),
+      );
+      if (!REORDERED_WORDS.test(text)) {
+        const supplies = SUPPLIES.filter(
+          (supply) =>
+            (kind ? supply.crate === kind : false) ||
+            lostWhat.includes(supply.ordered),
+        );
+        const which = supplies.length > 0 ? supplies : SUPPLIES;
+        for (const ask of brain.asks) {
+          if (
+            ask.ordered &&
+            !ask.told &&
+            which.some((supply) => supply.for(jobOf(brain, ask.who)))
+          ) {
+            ask.ordered = false;
+          }
+        }
+        // An order still in hand that this was of is done with: what is lost is ordered afresh.
+        if (brain.requisition && brain.requisition.askedAt !== null) {
+          brain.requisition = null;
+        }
+      }
+      return;
+    }
+    // One of its staff sent for a crate has been told at the counter there is no such crate. It is
+    // not sent for any more. If it is lost, cargo's word of that does the rest; if the number was
+    // wrong, cargo's reminder that a crate is still waiting sends someone for it (HEAD-02).
+    const noSuch = from ? text.match(NO_SUCH_CRATE_WORDS) : null;
+    if (noSuch) {
+      const number = Number(noSuch[1]);
+      brain.pickups = brain.pickups.filter(
+        (pickup) => !(pickup.number === number && pickup.to === from),
+      );
       return;
     }
     // Whoever it sent for a crate has given up hauling it, and says where it lies. The next of its
