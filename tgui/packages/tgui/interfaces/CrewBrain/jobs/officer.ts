@@ -53,8 +53,8 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
-  deskUnread,
   deskTakes,
+  deskUnread,
   planDesk,
   syncDesk,
 } from './desk';
@@ -80,8 +80,8 @@ import {
   SEEN_WORDS,
   SERVED_WORDS,
   SIGHTING_WORDS,
-  sameName,
   saidTo,
+  sameName,
   sightLine,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
@@ -459,7 +459,8 @@ const sightingsReadBack = new WeakMap<NpcBrain, Record<string, number>>();
 /** A word for whoever it is after, said to its face with one warrant in hand. */
 const SOMEONE_WORDS = /\b(?:he|she|they|him|her|them)\b/i;
 /** Words that say where someone is not, or ask where they are. */
-const NOT_A_SIGHTING = /\b(?:not|no longer|isn't|aren't|wasn't|never)\b|\?\s*$/i;
+const NOT_A_SIGHTING =
+  /\b(?:not|no longer|isn't|aren't|wasn't|never)\b|\?\s*$/i;
 
 /**
  * With a Head of Security aboard, takes word of where someone it has a warrant on is, said to
