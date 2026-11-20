@@ -5,7 +5,8 @@ kind: gap
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 4d718fbed84, 0f36456260d, 4fbb09364c1, dd840582052
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor

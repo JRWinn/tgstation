@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 37e8f4240e8
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cleaning

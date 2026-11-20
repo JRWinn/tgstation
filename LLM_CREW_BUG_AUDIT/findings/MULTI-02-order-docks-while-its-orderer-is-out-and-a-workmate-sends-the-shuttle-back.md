@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 63de8d924f8, bc5f8767986
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply

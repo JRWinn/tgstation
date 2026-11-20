@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 9d32175335d, 484615cefa6
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering

@@ -46,6 +46,66 @@ That round (`data/logs/2026/11/19/round-15.44.36`) was played on 99f4d33dd0e, be
 
 **Seen and left in round P:** `give_item` (`crew_npc_hands.dm`) still `forceMove`s the item to the floor when the other person's hands are full, which may break the no-cheats rule. PARSE-04's half of the PLAY-11 case: the refusal "before I can step aside" is still read by `asksAside` as an ask. The desk's sighting branch for people other than its own staff still takes questions and "not" lines.
 
+### Round M1: the medium bugs marked "Medium fix" (eleven groups, branches `m-secsrv`, `m-secdesk`, `m-doors`, `m-hands`, `m-janitor`, `m-cargosrv`, `m-senses`, `m-driver`, `m-words`, `m-cargo`, `m-heads`, plus two fixes after the merge)
+
+Each group owned its own files; a part of a finding that needed another group's file was held, and some held parts were passed to the group that owned the file while the round ran. **The machine lost power part way through** (about 10:25 on 2026-11-20): every run was killed, the worktrees and commits survived, the cut-off groups were resumed (the `m-driver` agent could not be, so a fresh one checked its seven commits and re-ran its tests), and `git fsck` afterwards reported only dangling objects.
+
+**Tested after the merge (on the combined code):** type check clean; lint of every changed window file and table no worse than at c2f235e5a19; all 80 tables pass (25 new); server compile to a side copy, 0 errors, 0 warnings; the full simulator suite once. **Two scenarios broke on the merge and were fixed before the checkpoint:**
+- `qmpaper` failed every run (3 of 3): the Quartermaster no longer called its meeting aloud and sent its technician a PDA. LOGA-06 had narrowed who is called aloud to those inside the meeting room, so a technician in sight in the lobby was sent a PDA. Fixed in 6a1d46b85e6: anyone in sight is called aloud from inside the room; only staff out of sight get a PDA.
+- `nested` failed 4 of 5 "the cargo technician ends at the post": DRV-12 held back a walk to a room where a step had just failed, and that included the body's own post, so after a look round Cora stood in the Delivery Office for up to two minutes. Fixed in 88788e3df83: the hold never applies to a walk back to its own post (table `driver3-heldpost.ts`).
+- After both fixes, all 59 scenarios once: 58 passed. `qmwait` failed "the cargo technician ends at the post" once, with Cora's walk back to the bay set off five seconds before the clock stopped (the walk-back case the check leaves failing on purpose); run three times more, it passed 3 of 3. `qmpaper` 2 of 2 and `nested` 5 of 5 on the fixes' own branches.
+
+**Big changes a player will notice:** CHEAT-15, crew see only lit squares or the square beside them, so once the station power fails they find far less; BRAIN-02, with a long queue more lines go out plainly rather than in the model's words; CHEAT-04, a pardoned crew prisoner stands about 20 s before it is told it is free; HAND-05, a locker the body's own card opens is passed over for 5 minutes after it was found locked.
+
+#### Fixed whole (36), most needing no more than the owner's answer to a listed question
+
+- **PLAY-01 (rest):** a walk out of a cell that still fails answers `stuck_inside`, the cell is not refused, and the next jail goes back to the same cell to finish (`put_in_cell`, `walk_in_and_let_go`, `tool_jail` in `crew_npc_security.dm`; `serveStep`, `beatAfterActing` in `jobs/arrests.ts`).
+- **PLAY-12 (rest):** the server sends where a given-up crate lies (`lies_in`, `gave_up_report`, `crew_npc_grip.dm`), the collector's PDA names it, and a give-up while taking an empty crate back is told to the head once.
+- **ARR-04:** with no usable cell the officer is told why (`no_power` or `no_cell`), takes the prisoner to the Brig and waits, and tells the list once.
+- **ARR-05:** the officer says its word to the Head of Security's face whenever it is in sight; a PDA that would not send takes the word to its post; the desk takes the same word once in 10 minutes.
+- **ASYNC-05:** word for someone face to face is struck off only once the line has gone out with them in view.
+- **BRAIN-02:** a line the work calls for is said plainly after 8 s when the model hangs; talk calls carrying one time out after 15 s; the queue starts the first NPC free to speak.
+- **CARGO-05:** counts are read from anywhere in the clause ("x2", "both", "a couple of", "each"), capped at 4 of a kind.
+- **CARGO-18:** a see-to line about a crate that would not go out to the lobby gives that crate to the technician told, who brings it out.
+- **CHEAT-03:** a cell is passed over only if the body can see it is in use, dark or smashed; one found no use on arrival is refused then.
+- **DESK-08:** told of a mess in the room it stands in, with none seen, the janitor walks to the middle to look before closing the call; a call with nothing cleaned says "I found no mess in the X".
+- **DESK-09:** a mop or bucket put down for a scrubbing call is gone back for before searching or asking the head.
+- **DOOR-02:** a room is locked to a body only if no way in comes from a hallway, maintenance or a room with a door that opens to it, so the Cargo Lobby is no longer locked to a janitor.
+- **DOOR-07:** an engineer forces a door that opens to its own ID like any other, waiting up to 10 s for an open one to shut.
+- **DOOR-12, DOOR-15:** a shut fire door or a shock stops a forcing with its own reason, told once and not tried again.
+- **HAND-08:** a target one tile off but cut off is reached by walking round to a square it can be touched from.
+- **HEAD-01:** a head holds a meeting back only while an order's answer is due; an order nobody at the counter will take is put by until after the next meeting, and the Captain is told once.
+- **HEAD-05:** a PDA order to the Quartermaster that will not send is tried once, then taken to the counter after the kept copy lapses.
+- **JAN-13:** a remembered mess that is gone is looked at once and forgotten, so the room is not given up on.
+- **JOBS-05:** a non-cargo body knows a crate is out only from the lobby, by sight, or when it is its own; a collector told someone else has the crate tells its head.
+- **KNA-03:** a route planned through a door that is welded, bolted, unpowered or locked to the body fails at once and says which door.
+- **KNA-28:** spots are picked only from the part of a room the body can get into (`open_part_of`), so the sealed surgery corner of Lesser Starboard Maintenance is never picked.
+- **LOGA-06:** a head walks up only to staff in its meeting room; staff in sight elsewhere are called aloud; a begun meeting closes only when the room has been empty of its staff a while.
+- **LOGB-06:** a janitor nobody lets in asks up to two of the caller's workmates, then the caller's head, each once.
+- **MEM-01, PARSE-14, PARSE-16:** who a line is said to: the NPC's own name by `callsOn`, a whole name set off settles it, a first name two people in view share makes it the group's, and jobs and shorthand (hop, qm, jani, sec, engi...) call on whoever holds them.
+- **MEM-04:** of two rooms named, the one not set aside by "not", "instead of" or "forget" is taken.
+- **MEM-08:** code makes a look order only from "check the Bar" said as an order. With the model down, a look asked as a question is now lost.
+- **MULTI-02:** an order that docks while its orderer is out of the bay is told once it is back, and the shuttle is not sent off meanwhile.
+- **RT-02:** an errand or search whose target is deleted moves on to the next.
+- **SENSE-06:** a body goes round a banana peel, soap or foam it knows of, rather than walking on it.
+- **SUP-09:** a crate with a cabinet or a cart in it is not taken for empty.
+- **SUP-12:** only crates that came on the shuttle are unloaded; one a player put aboard to sell goes out with it.
+- **TRA-08:** a later asker is put on the order in hand if its crates have room.
+- **TRB-11:** a pardoned prisoner the officer does not let out in 2 minutes is let out by the Head of Security.
+- **TRC-04:** a failed machine step says why (`unreached`, `hands`, `machine`, `locked`, `unknown`), and only a machine fault counts towards the engineer stopping.
+
+#### Part fixed, the rest held for round M2 or waiting on a question
+
+ARR-01, ARR-06 (window half only; does nothing until the server sends `at_door_open`), BRAIN-04, CARGO-03, CARGO-04, CHEAT-02, CHEAT-04, CHEAT-11, CHEAT-15, CORE-02 (stunned bodies still see and hear; missed PDA messages are not kept yet), DOOR-14, DRV-07, DRV-12, ENG-03, HAND-02, HAND-04, HAND-05, HEAD-02, HEAD-04, HEAD-10, HOLE-18, JAN-03, KNA-02, KNA-19, KNA-23, KNA-26 (all but step 4), KNB-01, KNB-09, KNB-15, LOGA-07, LOGB-02, LOGB-05, MEM-07, MULTI-01, MULTI-06, MULTI-07, PARSE-15, PARSE-17, PERF-02 (server half: one update a tick; the window half is opt-in and not built), PERF-08, QM-02, SEC-07, SECT-10, SENSE-08, SUP-05, SUP-06, SUP-11, TRA-02, TRA-04, TRB-06, TRUST-04, API-02. Each finding has a "Fix so far" section saying what is built and what is left.
+
+#### Not done in round M1
+
+- **Waiting on the owner, nothing built:** CHEAT-12 (also larger than its label), SUP-17, CORE-03, KNA-09.
+- **Not started (the group ran long):** QM-03, CARGO-09.
+- **Also fixed, no finding:** `give_item` (`crew_npc_hands.dm`) no longer puts a thing on the floor at someone's feet when their hands are full (a cheat); the giver keeps it. PARSE-04's left-over: a refusal to step aside ("I can't step aside", "before I can step aside") is no longer read as an ask (`asksAside`, `jobs/aside.ts`).
+
+**Seen and left in round M1:** `hand_mail_over` (`crew_npc_freight.dm`) still puts mail at a full-handed person's feet, as `give_item` did; both hand-overs put a thing straight into a player's hand with no offer to accept. While a body waits shut in at a door, KNA-02's hold also skips urgent work in the same room, so a shut-in officer could stand at the door rather than arrest someone beside it (for round M2). `puttingBack` in `jobs/janitor.ts` is keyed by task id across all brains, so two janitors' tasks can collide. Many new notes live in WeakMaps beside the brain, not in `types.ts`, so a window reload loses them, as it already loses the water notes. `qmwait` fails "goes back to its office" about one run in three on the code before M1 as well.
+
 ---
 
 ## 2026-11-19, from about 13:30: the medium bugs marked "Small fix" (branch `crew-bug-fixes-medium`, cut from `crew-bug-fixes` at 99f4d33dd0e, in its own worktree; one commit per finding)
