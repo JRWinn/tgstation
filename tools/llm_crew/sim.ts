@@ -281,6 +281,8 @@ const isCommand = (who: { job: string }) => /Head of|Captain|Quartermaster|Chief
 const answersTo = (body: { job: string }, who: { job: string }) => who.job === 'Captain' || (who.job === 'Head of Security' && body.job === 'Security Officer') || (who.job === 'Head of Personnel' && body.job === 'Janitor') || (who.job === 'Quartermaster' && body.job === 'Cargo Technician') || (who.job === 'Chief Engineer' && body.job === 'Station Engineer');
 // Whose own ID opens cargo's doors: the technicians, whose post it is, and the Quartermaster.
 const hasKeys = (body: { job: string; post?: string | null }) => !!body.post || body.job === 'Quartermaster';
+// Who the server counts as cargo staff, by job title (works_in_cargo).
+const worksInCargo = (body: { job: string }) => /cargo|quartermaster/i.test(body.job);
 // The Quartermaster aboard, NPC or not, by name. With one aboard, cargo's budget is counted.
 const quartermaster = () => bodies.find((other) => other.job === 'Quartermaster')?.name ?? players.find((other) => other.job === 'Quartermaster')?.name ?? null;
 // Cargo's one budget, which every order is paid from: what it starts with, and what comes in every five minutes.
@@ -1170,8 +1172,9 @@ function uiData(body: Body) {
     book: body.job === 'Quartermaster' ? body.book : null, budget: body.job === 'Quartermaster' ? budget : null, crate_costs: body.job === 'Quartermaster' ? COSTS : null,
     staff_post: body.job === 'Quartermaster' ? 'Cargo Bay' : body.job === 'Chief Engineer' ? 'Engineering' : body.job === 'Head of Security' ? SEC_OFFICE : null, head_office: body.post && quartermaster() ? QM_OFFICE : null,
     order_pending: body.orderPending ? 1 : 0, has_pda: 1, notices: body.notices,
-    // Cargo staff know of every crate being held. Everyone else knows only of those put out in the lobby.
-    held_crates: heldCrates().filter((entry) => body.post || entry.out).map((entry) => ({ number: entry.number, for: entry.for, what: entry.what, place: entry.out ? 'Cargo Lobby' : 'Cargo Bay', out: entry.out ? 1 : 0, taken_by: entry.takenBy, waited: entry.heldSince ? (clock - entry.heldSince) / 100 : 0 })),
+    // Cargo staff (the Quartermaster too) know of every crate being held, and who it is for and what it is. Anyone else knows only
+    // of one put out in the lobby, and only while in its room, in sight of it, or hauling it away; and not whose or what it is (JOBS-05).
+    held_crates: heldCrates().filter((entry) => worksInCargo(body) || (entry.out && (inSight(body, 'Cargo Lobby') || entry.takenBy === body.name))).map((entry) => ({ number: entry.number, for: worksInCargo(body) ? entry.for : null, what: worksInCargo(body) ? entry.what : null, place: entry.out ? 'Cargo Lobby' : 'Cargo Bay', out: entry.out ? 1 : 0, taken_by: entry.takenBy, waited: entry.heldSince ? (clock - entry.heldSince) / 100 : 0 })),
     held_check_due: heldCheckDue(body) ? 1 : 0,
     crate_to_return: body.crateToReturn ? 1 : 0, office: body.office,
     // A head is told which room to call its staff together in.
