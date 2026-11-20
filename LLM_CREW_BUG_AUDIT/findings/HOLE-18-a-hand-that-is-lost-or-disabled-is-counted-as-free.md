@@ -95,3 +95,19 @@ Confirmed. The quotes in `crew_npc_hands.dm` (`tool_pick_up`, `free_a_hand`, `ta
 Found on check and added above: the base `put_in_hands` tries only the left side's first empty slot before giving up on that side, so a dead left hand that is active stops all picking up, even with the right hand free. Step 2a covers it.
 
 Raised confidence to sure: given a dead hand the fault cannot be avoided. Not seen in a round. Severity medium stands: a disabling wound or a lost arm is not in most rounds, but the body then fails its fetches for good. Effort raised to medium: the helper and the swap are small, but steps 3 to 5 reach `ui_data`, the window and a new knowledge event. The fix keeps the rules (a body feeling its own arm is a sense, swapping hands is a player's click).
+
+## Fix so far
+
+Server, group m-hands (`crew_npc_hands.dm`, `crew_npc_tidying.dm`, `crew_npc_machines.dm`). Done, steps 1, 2, 2a, 4 and 5:
+
+- `free_hands()`: the empty hand indexes for which `has_hand_for_held_index` is true. `working_hand_count()`. `ready_free_hand()`: swaps to an empty working hand if the active one is not one (a player's click), TRUE if one is active.
+- Used in `tool_pick_up`, at the end of `free_a_hand`, in `tool_tidy` (`crew_npc_tidying.dm`), and in `empty_clicking_hand` (`crew_npc_machines.dm`), which now swaps to an empty working hand rather than to "the other hand", so an empty dead hand is never the one that clicks (this covers tidying's shut-and-pick-up clicks and the machine clicks).
+- `take_item`, `take_from_container` and the stowed-item loop in `tool_pick_up` make a working empty hand active, then `put_in_active_hand`: a thing that will not go into the hand stays where it was instead of being dropped at the body's feet.
+- `note_working_hands()`: when fewer hands work than when last counted, a knowledge event, "Your right hand will not hold anything: the arm is hurt, or gone.", and a `log_game` line "has N working hands now, M before". Counted on every `pick_up` and every `empty_clicking_hand`, so the first such step after the injury tells it, not the moment of the injury.
+- With no working hand, `pick_up` answers at once "You have no hand you can use."
+
+Left (held):
+
+- `crew_brain_link.dm` `ui_data`: `wants_bucket` uses `length(body.get_empty_held_indexes())`; use `length(npc.free_hands())`. Send `"working_hands" = npc.working_hand_count()` too, and in the window (`jobs/janitor.ts` water plan, `wants_bucket`) ask for a bucket only with two working hands (step 3, the simpler of its two choices).
+- `crew_npc_quartermaster.dm:94` loops over `get_empty_held_indexes()` to see if there is a hand free for the order book: use `free_hands()`.
+- For the event to come at the moment of the injury, `note_working_hands()` could be called from the sense tick (`crew_npc_senses.dm`), not only from hand use.

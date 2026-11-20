@@ -12,7 +12,10 @@
 	if(!length(wanted))
 		action_result(CREW_TOOL_PICK_UP, FALSE, "You did not decide what to pick up.")
 		return
-	if(!length(body.get_empty_held_indexes()) && !free_a_hand())
+	if(!note_working_hands())
+		action_result(CREW_TOOL_PICK_UP, FALSE, "You have no hand you can use.")
+		return
+	if(!length(free_hands()) && !free_a_hand())
 		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full of things you need. Put something down first.")
 		return
 
@@ -30,22 +33,28 @@
 		if(is_spent(stowed))
 			continue
 		var/stowed_name = format_text(stowed.name)
-		if(body.put_in_hands(stowed))
+		if(ready_free_hand() && body.put_in_active_hand(stowed))
 			action_result(CREW_TOOL_PICK_UP, TRUE, "You take the [stowed_name] out from where you had put it away.")
 			return
 
-	// Something lying in plain view comes first.
+	// Something lying in plain view comes first. Not one it lately could not get to, nor one in a room
+	// locked to it, seen through the glass: it would walk at that every time, and never go to the
+	// closet it knows holds one (HAND-04).
 	var/obj/item/nearest_item
 	var/nearest_distance = INFINITY
+	var/area/here = get_area(body)
 	for(var/obj/item/candidate in oview(CREW_NPC_VISION_RANGE, body))
 		if(!isturf(candidate.loc) || candidate.anchored || (candidate.item_flags & ABSTRACT))
 			continue
 		if(!name_matches(candidate.name, wanted) || is_spent(candidate))
 			continue
 		var/distance = get_dist(body, candidate)
-		if(distance < nearest_distance)
-			nearest_distance = distance
-			nearest_item = candidate
+		if(distance >= nearest_distance || pickup_given_up(candidate))
+			continue
+		if(get_area(candidate) != here && place_locked_to_body(get_area_name(candidate, TRUE)))
+			continue
+		nearest_distance = distance
+		nearest_item = candidate
 	if(nearest_item)
 		start_errand(nearest_item, CREW_TOOL_PICK_UP, wanted)
 		return
@@ -59,6 +68,12 @@
 		var/obj/structure/closet/container = container_weakref?.resolve()
 		// A large wooden crate is not opened by hand, whatever is remembered of it.
 		if(QDELETED(container) || container.z != body.z || istype(container, /obj/structure/closet/crate/large))
+			continue
+		// One it lately could not get to is passed over for a while (HAND-04), and so is one it lately
+		// found locked or welded shut (HAND-05). The next nearest that holds one is gone to instead.
+		if(pickup_given_up(container))
+			continue
+		if(memory["shut_at"] && world.time - memory["shut_at"] < CREW_NPC_STORAGE_RECHECK)
 			continue
 		var/holds_one = FALSE
 		for(var/held_name in memory["items"])
@@ -94,7 +109,64 @@
 	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
 		return FALSE
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
-	return !!length(body.get_empty_held_indexes())
+	return !!length(free_hands())
+
+/**
+ * The indexes of the body's hands that are empty and work. A hand whose arm is gone, broken past
+ * use or paralysed keeps its empty slot for good, and the game will put nothing in it: counted as
+ * free, a one-handed body walked to every thing it was sent for and failed to pick it up (HOLE-18).
+ */
+/datum/ai_controller/crew_npc/proc/free_hands()
+	var/mob/living/carbon/human/body = pawn
+	var/list/free = list()
+	for(var/index in body.get_empty_held_indexes())
+		if(body.has_hand_for_held_index(index))
+			free += index
+	return free
+
+/// How many of the body's hands work, held or empty.
+/datum/ai_controller/crew_npc/proc/working_hand_count()
+	var/mob/living/carbon/human/body = pawn
+	var/count = 0
+	for(var/index in 1 to length(body.held_items))
+		if(body.has_hand_for_held_index(index))
+			count++
+	return count
+
+/**
+ * Makes an empty hand that works the active one, as a player swaps hands before picking something
+ * up: the game tries the active hand, then only the first empty slot on the left, so a dead left
+ * hand that was active stopped all picking up with the right one free. TRUE if one is active now.
+ */
+/datum/ai_controller/crew_npc/proc/ready_free_hand()
+	var/mob/living/carbon/human/body = pawn
+	var/list/free = free_hands()
+	if(!length(free))
+		return FALSE
+	if(!(body.active_hand_index in free))
+		body.swap_hand(free[1])
+	return body.active_hand_index in free
+
+/// How many hands worked when they were last counted, or -1 before then.
+/datum/ai_controller/crew_npc/var/working_hands_known = -1
+
+/**
+ * Counts the hands that work, and when there are fewer than last time, the body feels it: the brain
+ * is told which hand will not hold anything. Returns the count.
+ */
+/datum/ai_controller/crew_npc/proc/note_working_hands()
+	var/mob/living/carbon/human/body = pawn
+	var/count = working_hand_count()
+	if(working_hands_known >= 0 && count < working_hands_known)
+		var/list/dead = list()
+		for(var/index in 1 to length(body.held_items))
+			if(!body.has_hand_for_held_index(index))
+				dead += body.get_held_index_name(index)
+		var/words = count ? "Your [english_list(dead)] will not hold anything: the arm is hurt, or gone." : "Neither of your hands will hold anything: your arms are hurt, or gone."
+		emit_sense(CREW_SENSE_KNOWLEDGE, words, list("working_hands" = count))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) has [count] working hand[count == 1 ? "" : "s"] now, [working_hands_known] before.")
+	working_hands_known = count
+	return count
 
 /**
  * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
@@ -232,6 +304,8 @@
 	if(errand_tool == CREW_TOOL_ARREST && !QDELETED(target) && !QDELETED(body))
 		return make_arrest(target)
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
+		if(errand_tool == CREW_TOOL_PICK_UP && !QDELETED(target))
+			note_pickup_unreached(target)
 		return list(FALSE, "You could not get to it.")
 	// A held crate reached is one that can be got to: the times nobody could get to it start again.
 	if(istype(target, /obj/structure/closet/crate))
@@ -304,7 +378,9 @@
 	var/item_name = format_text(item.name)
 	if(!isturf(item.loc))
 		return list(FALSE, "The [item_name] is not where you saw it.")
-	if(!body.put_in_hands(item))
+	// Into a hand that works, made the active one first. If even that will not take it, it stays
+	// where it lay: put_in_hands would have dropped it at the body's feet (HOLE-18).
+	if(!ready_free_hand() || !body.put_in_active_hand(item))
 		return list(FALSE, "You cannot pick up the [item_name].")
 	return list(TRUE, "You pick up the [item_name].")
 
@@ -341,7 +417,7 @@
 	if(QDELETED(body) || QDELETED(container))
 		return list(FALSE, "You could not get to it.")
 
-	var/taken = !QDELETED(found) && body.put_in_hands(found)
+	var/taken = !QDELETED(found) && ready_free_hand() && body.put_in_active_hand(found)
 	if(!taken && found)
 		inside[format_text(found.name)]++
 	// Shut again, unless someone (the body itself included) is on its tile: shutting it would take
@@ -368,17 +444,27 @@
 	if(isnull(held))
 		return list(FALSE, "You are not holding anything to give.")
 	var/held_name = format_text(held.name)
+	// Into a hand of theirs that is empty and works. With none, it stays in the body's hand: a player's
+	// offer cannot be taken with full hands, and nobody can put a thing down on the floor a tile off.
+	// It used to be moved to their feet by code.
+	var/their_hand
+	for(var/index in person.get_empty_held_indexes())
+		if(person.can_put_in_hand(held, index))
+			their_hand = index
+			break
+	if(isnull(their_hand))
+		return list(FALSE, "[person.name] has no free hand to take the [held_name]. You still have it.")
 	if(!body.temporarilyRemoveItemFromInventory(held))
 		return list(FALSE, "You cannot let go of the [held_name].")
 	// One of the crew taking it knows it was handed over, and keeps it.
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
 		their_controller.being_handed_something()
-	if(person.put_in_hands(held))
+	if(person.put_in_hand(held, their_hand))
 		return list(TRUE, "You hand the [held_name] to [person.name].")
-	// Their hands were full, so it ends up at their feet.
-	held.forceMove(person.drop_location())
-	return list(TRUE, "[person.name] has no free hand, so you put the [held_name] down beside them.")
+	// Not taken after all: the body keeps it, or if its own hand will not take it back, it falls at its feet.
+	body.put_in_hands(held)
+	return list(FALSE, "[person.name] could not take the [held_name].")
 
 /// Called by the errand leaves when the errand is over, with the outcome from do_errand().
 /datum/ai_controller/crew_npc/proc/finish_errand(list/outcome)
@@ -416,6 +502,11 @@
 		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
 		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
 			details = outcome[3]
+		// A machine that did not end as asked says why: a walk that came to nothing and a full hand are
+		// not the machine's fault, and the engineer stopped lighting the engine over them (TRC-04).
+		else if(tool == CREW_TOOL_MACHINE && !outcome[1])
+			var/reason = length(outcome) >= 3 ? outcome[3] : null
+			details = list("reason" = reason || (outcome[2] == "You could not get to it." ? "unreached" : "unknown"))
 		action_result(tool, outcome[1], outcome[2], details)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
@@ -429,8 +520,17 @@
 	else if(outcome[1])
 		cleaned_count++
 		work_cleaned++
+	// The mess went before it got there (RT-02): neither cleaned by it nor beyond it.
+	else if(isnull(outcome[1]))
+		pass()
 	else
+		// The first failure of a job: any count left from a job broken off before it is not this one's.
+		if(!clean_failed_count)
+			clean_unreached_count = 0
 		clean_failed_count++
+		// A mess it never got to was not tried with what it holds, and is not said to be beyond it (HAND-02).
+		if(outcome[2] == "You could not get to it.")
+			clean_unreached_count++
 	clean_queue = messes_left
 	// Stop if the tool has given out; otherwise carry on to the next mess, and then to any other in the room.
 	if(cleaning_tool() && (next_mess() || more_to_clean()))
@@ -441,10 +541,20 @@
 	// what it says of the room is one thing and true: all clean, or done what it can.
 	var/more_here = !isnull(remembered_mess_in(place))
 	var/beyond_it = clean_failed_count > 0 && !more_here
+	// What is left only because it could not be got to: nothing it holds was tried on it (HAND-02).
+	var/unreached = beyond_it && clean_unreached_count >= clean_failed_count
+	var/left_words = ""
+	if(beyond_it)
+		if(unreached)
+			left_words = " What is left there you could not get to."
+		else if(clean_unreached_count)
+			left_words = " Some of what is left there will not come off with what you have, and some you could not get to."
+		else
+			left_words = " What is left there will not come off with what you have."
 	if(cleaned_count)
-		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].[beyond_it ? " What is left there will not come off with what you have." : ""]", list("place" = place, "beyond" = beyond_it))
+		action_result(tool, TRUE, "You clean up [cleaned_count] mess[cleaned_count == 1 ? "" : "es"] in [place].[left_words]", list("place" = place, "beyond" = beyond_it, "unreached" = unreached))
 	else
-		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it))
+		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it, "unreached" = unreached))
 
 /**
  * TRUE while a run of errand work is out. A stun resets the tree and the leaf forgets its run, but
@@ -493,19 +603,51 @@
 	if(!QDELETED(crew_controller) && crew_controller.errand_serial == serial)
 		crew_controller.finish_errand(outcome)
 
+/**
+ * Something the blackboard held has been deleted. The errand's or the search's target going while the
+ * body walks to it clears its key, the tree drops the whole branch, and nothing in it runs to close the
+ * errand off: the brain heard nothing, the rest of a cleaning job was dropped, and errand_tool stayed
+ * set (RT-02). So it is noted here, and seen to a moment later, once the tree has reset itself.
+ * A signal handler: it must not sleep.
+ */
+/datum/ai_controller/crew_npc/sig_remove_from_blackboard(datum/source)
+	var/lost_errand = blackboard[BB_CREW_NPC_ERRAND_TARGET] == source
+	var/lost_storage = blackboard[BB_CREW_NPC_STORAGE_TARGET] == source
+	. = ..()
+	// While the errand's work runs, that work closes it off when it ends: a mess it cleans itself is deleted then.
+	if(lost_errand && errand_tool && !errand_in_flight)
+		addtimer(CALLBACK(src, PROC_REF(errand_target_gone), errand_serial), 1)
+	if(lost_storage && search_tool)
+		addtimer(CALLBACK(src, PROC_REF(storage_target_gone), storage_target_at), 1)
+
+/// Closes off an errand whose target was deleted before the body got to it, and tells the brain. See sig_remove_from_blackboard().
+/datum/ai_controller/crew_npc/proc/errand_target_gone(serial)
+	if(QDELETED(src) || errand_serial != serial || isnull(errand_tool) || errand_in_flight || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) lost the target of its [errand_tool] errand: it was gone before it got there.")
+	// A mess someone else cleaned first: on to the next, and the job reported as usual when there are none.
+	if(errand_tool == CREW_TOOL_CLEAN)
+		finish_errand(list(null, "The mess you were making for is gone."))
+		return
+	finish_errand(list(FALSE, "It is gone."))
+
 /// Gives up on an errand whose target the body could not reach.
 /datum/bt_node/ai_behavior/crew_npc_fail_errand
 
 /datum/bt_node/ai_behavior/crew_npc_fail_errand/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
-	// A mess it could not get to goes with the ones that would not come off: not tried again.
+	// A mess it could not get to is passed over for a while, not for good: a fire door that was down,
+	// someone in a one-tile gap or a crate in a doorway is gone again a few minutes on (HAND-02).
 	var/atom/target = controller.blackboard[BB_CREW_NPC_ERRAND_TARGET]
 	if(istype(target, /obj/effect/decal/cleanable))
-		crew_controller.stubborn_messes[REF(target)] = TRUE
+		crew_controller.note_unreached_mess(target)
 	// Likewise something it could not get to in order to put it away.
 	// A fire alarm it could not get to is on the far side of the fire doors. The next nearest is tried instead.
 	if(crew_controller.errand_tool == CREW_TOOL_RESET_ALARM && !QDELETED(target))
 		crew_controller.fire_alarms_failed[REF(target)] = world.time
+	// A thing to pick up, or the locker it is in, that it could not get to: the next nearest is gone to instead for a while (HAND-04).
+	if(crew_controller.errand_tool == CREW_TOOL_PICK_UP && !QDELETED(target))
+		crew_controller.note_pickup_unreached(target)
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
@@ -522,6 +664,106 @@
 			entry.unreachable++
 	crew_controller.finish_errand(list(FALSE, "You could not get to it."))
 	return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
+
+/// What stubborn_messes holds for a mess that is there only because the body could not get to it. See note_unreached_mess().
+#define CREW_NPC_MESS_UNREACHED "unreached"
+
+/**
+ * Messes the body set off for and could not get to, keyed by REF: a weak reference to the mess, the
+ * world.time of the last try, and how many tries in a row have come to nothing. Passed over for a
+ * while, then tried again (HAND-02). See mess_given_up().
+ */
+/datum/ai_controller/crew_npc/var/list/unreached_messes = list()
+/// How many of the messes counted in clean_failed_count it could not get to, in the cleaning job in hand.
+/datum/ai_controller/crew_npc/var/clean_unreached_count = 0
+
+/**
+ * Notes a mess the body could not get to. It is also marked in stubborn_messes, as CREW_NPC_MESS_UNREACHED,
+ * so that code reading that list straight passes it over for this visit as before. mess_given_up()
+ * goes by the time noted here for it instead, and lets it be tried again.
+ */
+/datum/ai_controller/crew_npc/proc/note_unreached_mess(obj/effect/decal/cleanable/mess)
+	var/key = REF(mess)
+	var/tries = 1
+	var/list/entry = unreached_messes[key]
+	if(entry)
+		var/datum/weakref/old_ref = entry[1]
+		if(old_ref?.resolve() == mess)
+			tries = entry[3] + 1
+	unreached_messes[key] = list(WEAKREF(mess), world.time, tries)
+	if(!stubborn_messes[key])
+		stubborn_messes[key] = CREW_NPC_MESS_UNREACHED
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not get to the [format_text(mess.name)] at [AREACOORD(mess)] ([tries] time[tries == 1 ? "" : "s"] running): passed over for a while.")
+
+/**
+ * TRUE if the body has given up on this mess for now: it scrubbed at it and it would not come off,
+ * or it lately could not get to it. One it could not get to is passed over for five minutes, and
+ * after two tries in a row for a good while, as a room with no way in is. `key` is the mess's REF,
+ * if the caller has it. An entry whose ref number now belongs to something else is dropped: ref
+ * numbers are given out again once a thing is deleted, and blood and footprints come and go all round.
+ */
+/datum/ai_controller/crew_npc/proc/mess_given_up(obj/effect/decal/cleanable/mess, key)
+	if(QDELETED(mess))
+		return FALSE
+	key ||= REF(mess)
+	var/stubborn = stubborn_messes[key]
+	if(stubborn && stubborn != CREW_NPC_MESS_UNREACHED)
+		if(!istype(stubborn, /datum/weakref))
+			return TRUE
+		var/datum/weakref/stubborn_ref = stubborn
+		if(stubborn_ref.resolve() == mess)
+			return TRUE
+		stubborn_messes -= key
+	var/list/entry = unreached_messes[key]
+	if(!entry)
+		return FALSE
+	var/datum/weakref/mess_ref = entry[1]
+	if(mess_ref.resolve() != mess)
+		unreached_messes -= key
+		if(stubborn == CREW_NPC_MESS_UNREACHED)
+			stubborn_messes -= key
+		return FALSE
+	// Kept once the wait is over, so that the tries are still counted if it fails again.
+	return world.time - entry[2] < (entry[3] >= 2 ? CREW_NPC_BLOCKED_PLACE_LONG : CREW_NPC_TIDY_GIVE_UP)
+
+/**
+ * A door has been opened for the body, or fire doors have lifted: messes and things it could not
+ * get to once are worth another try. Those it has failed twice running are not. Meant to be called
+ * from ways_reopened().
+ */
+/datum/ai_controller/crew_npc/proc/forget_unreached()
+	pickup_unreached = list()
+	for(var/key in unreached_messes.Copy())
+		var/list/entry = unreached_messes[key]
+		if(entry[3] < 2)
+			unreached_messes -= key
+			if(stubborn_messes[key] == CREW_NPC_MESS_UNREACHED)
+				stubborn_messes -= key
+
+#undef CREW_NPC_MESS_UNREACHED
+
+/**
+ * Things to pick up, and containers gone to for one, that the body lately could not get to, keyed
+ * by REF: a weak reference to the thing and the world.time it failed (HAND-04).
+ */
+/datum/ai_controller/crew_npc/var/list/pickup_unreached = list()
+
+/// Notes a thing to pick up, or the container it was in, that the body could not get to.
+/datum/ai_controller/crew_npc/proc/note_pickup_unreached(atom/thing)
+	pickup_unreached[REF(thing)] = list(WEAKREF(thing), world.time)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not get to the [format_text(thing.name)] at [AREACOORD(thing)] to pick up [errand_item || "something"]: passed over for a while.")
+
+/// TRUE if the body lately could not get to this to pick something up. Five minutes on, it may try again.
+/datum/ai_controller/crew_npc/proc/pickup_given_up(atom/thing)
+	var/key = REF(thing)
+	var/list/entry = pickup_unreached[key]
+	if(!entry)
+		return FALSE
+	var/datum/weakref/thing_ref = entry[1]
+	if(thing_ref.resolve() != thing || world.time - entry[2] >= CREW_NPC_TIDY_GIVE_UP)
+		pickup_unreached -= key
+		return FALSE
+	return TRUE
 
 /// TRUE if the body is close enough to touch this, with nothing solid in between. Standing beside it through a wall does not count.
 /datum/ai_controller/crew_npc/proc/can_reach_target_now(atom/target)
