@@ -74,6 +74,7 @@ import {
   SEND_TO_LET_OUT_WORDS,
   TAKEN,
   THROUGH_QM,
+  TRY_CRATE_AGAIN_WORDS,
   WAITING_TOLD,
   WORD_HEARD_WORDS,
   wontComeHow,
@@ -159,6 +160,10 @@ const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND, LOST]);
 const GIVEN = 'given_order';
 /** Word owed to the Quartermaster that a crate would not go where it was meant to. The task's item is what the crate is called. */
 const WONT_COME = 'wont_come';
+/** A hand-over the Quartermaster sent it to, not one someone asked it for at the counter: the task's `via`. */
+const SEE_TO = 'see_to';
+/** For each NPC, the held crate the Quartermaster has sent it to bring out to the lobby, and when (CARGO-18). */
+const seeToCrates = new Map<string, { number: number; at: number }>();
 /**
  * Word owed to the Quartermaster that an order it gave could not be placed (CARGO-03). The task's
  * item is the order's number, `from` the Quartermaster who gave it, `found` why it could not be.
@@ -588,8 +593,24 @@ function syncHeld(brain: NpcBrain): void {
     asked && asked.number !== null && brain.now - asked.at < PICKUP_ASK_DS
       ? brain.heldCrates.find((held) => held.number === asked.number)
       : undefined;
-  const item =
+  let item =
     crate && !crate.out && !crate.takenBy ? String(crate.number) : null;
+  // Or the Quartermaster has sent it to bring out a crate a workmate could not, or told it to try
+  // its own again (CARGO-18). That lasts until the crate is out or taken, or a while has gone by.
+  const sent = seeToCrates.get(brain.id);
+  const sentCrate =
+    sent && brain.now - sent.at < SEE_TO_DS
+      ? brain.heldCrates.find((held) => held.number === sent.number)
+      : undefined;
+  const sentItem =
+    sentCrate && !sentCrate.out && !sentCrate.takenBy
+      ? String(sentCrate.number)
+      : null;
+  if (sent && !sentItem) {
+    seeToCrates.delete(brain.id);
+  }
+  const bySeeTo = !item && !!sentItem;
+  item ??= sentItem;
   for (const task of brain.tasks) {
     if (task.kind === HANDOVER && task.state !== 'done' && task.item !== item) {
       // They are told when it is out, in so many words. Nobody is owed more word than that.
@@ -597,14 +618,25 @@ function syncHeld(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
-  if (item && asked && !findTask(brain, HANDOVER, { item })) {
-    addTask(brain, {
-      kind: HANDOVER,
-      item,
-      urgency: 'asked',
-      source: 'asked',
-      askedBy: asked.name,
-    });
+  if (item && !findTask(brain, HANDOVER, { item })) {
+    if (bySeeTo) {
+      // Whoever came for it is not in the Quartermaster's words: the lobby line says "Someone".
+      const task = addTask(brain, {
+        kind: HANDOVER,
+        item,
+        urgency: 'asked',
+        source: 'asked',
+      });
+      task.via = SEE_TO;
+    } else if (asked) {
+      addTask(brain, {
+        kind: HANDOVER,
+        item,
+        urgency: 'asked',
+        source: 'asked',
+        askedBy: asked.name,
+      });
+    }
   }
 
   // Its turn to see what is still waiting. The server keeps the count, and says when it is up.
@@ -673,6 +705,13 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
     );
     const who = task.askedBy ?? 'Someone';
     const handle = task.askedBy ? brain.handles[task.askedBy] : undefined;
+    if (crate && task.via === SEE_TO) {
+      return {
+        ready: true,
+        step: `The Quartermaster has sent you to bring crate #${crate.number} out to the Cargo Lobby, as it would not come out before. You are fetching it out.`,
+        act: { tool: 'release', number: crate.number },
+      };
+    }
     return crate
       ? {
           ready: true,
@@ -781,6 +820,17 @@ function syncWontCome(brain: NpcBrain): void {
   if (telling && (telling.passedOn || telling.byPda || !owed)) {
     if (telling.passedOn && telling.item) {
       brain.wontComeTold[telling.item] = brain.now;
+      // A crate it could not bring out to the lobby is the Quartermaster's to see to now: it
+      // stands down from it, and brings it out again only if told to (CARGO-18).
+      const number = Number(telling.item.match(/#(\d+)/)?.[1]);
+      if (gaveUp?.tool === 'release' && brain.pickupAsked?.number === number) {
+        brain.pickupAsked = null;
+        const handover = findTask(brain, HANDOVER, { item: String(number) });
+        if (handover) {
+          handover.reported = true;
+          finishTask(brain, handover);
+        }
+      }
     }
     telling.reported = true;
     finishTask(brain, telling);
@@ -2826,6 +2876,29 @@ export const CARGO: Job = {
     if (seeTo) {
       if (seeTo[1].toLowerCase() === firstName(brain.name).toLowerCase()) {
         brain.seeToUntil = brain.now + SEE_TO_DS;
+        // A held crate that would not come out to the lobby is not shuttle or rooms work: it is a
+        // hand-over, and it is this one's to bring out now (CARGO-18).
+        const number = seeTo[2].match(/\bcrate #(\d+)\b.*\bout to the lobby\b/i)?.[1];
+        if (number) {
+          seeToCrates.set(brain.id, { number: Number(number), at: brain.now });
+        }
+      }
+      return;
+    }
+    // The Quartermaster, with nobody else to send, telling it to try again a crate that would not
+    // come out to the lobby: it brings it out again, whether or not whoever came for it is still
+    // asking (CARGO-18).
+    const tryAgain = isQuartermaster(speakerJob)
+      ? heard.trim().match(TRY_CRATE_AGAIN_WORDS)
+      : null;
+    if (tryAgain) {
+      const number = tryAgain[2].match(/\bcrate #(\d+)\b/i)?.[1];
+      if (
+        number &&
+        tryAgain[1].toLowerCase() === firstName(brain.name).toLowerCase() &&
+        brain.heldCrates.some((held) => held.number === Number(number))
+      ) {
+        seeToCrates.set(brain.id, { number: Number(number), at: brain.now });
       }
       return;
     }

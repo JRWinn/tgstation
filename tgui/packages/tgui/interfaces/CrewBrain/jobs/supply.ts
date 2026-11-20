@@ -252,6 +252,9 @@ export const SEND_TO_LET_OUT_WORDS =
 export function tryAgainLine(first: string, what: string): string {
   return `${first}, try ${what} again in a little while, please.`;
 }
+/** Reads tryAgainLine back: whom it is said to, and what (CARGO-18). */
+export const TRY_CRATE_AGAIN_WORDS =
+  /^(\S+), try (.+?) again in a little while, please\./i;
 
 /** A PDA message from someone who is shut in, to their head: the room they are shut in is read from it. */
 export const SHUT_IN_WORDS = /\bI am shut in the (.+?) and\b/i;
