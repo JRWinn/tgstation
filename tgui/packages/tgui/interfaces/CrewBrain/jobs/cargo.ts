@@ -50,6 +50,7 @@ import {
 import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
+import { CALL } from './orders';
 import { comeForCrate, crateNumberIn } from './pickups';
 import { isSecurity } from './security';
 import {
@@ -259,11 +260,11 @@ function whenAsked(brain: NpcBrain, heard: string): string[] {
     quartermaster
       ? `Every order for supplies goes through the Quartermaster, ${quartermaster.name}, who is the head of your department. You take an order only from ${quartermaster.name}, face to face, and your body places it. Anyone else who asks you to order something, a head of department included, is told kindly to send their order to ${quartermaster.name} by PDA. When an order comes in, your body tells ${quartermaster.name} so, holds the crate in the bay, and brings it out to whoever comes to the counter with its number.`
       : 'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, holds the crate in the bay when it comes, and sends them a PDA message with its manifest number, for whoever they send to give at the counter. If they ask for something you cannot order, say so.',
-    'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors.',
+    'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors: if someone you answer to tells you to send for one, your body does.',
     // Only when what was said touches on it. It is a lot to read for "how is your day going?".
     ...(OWN_WORK_WORDS.test(heard)
       ? [
-          'The rest of your work your body does by itself: it unloads the supply shuttle and hands out the mail, puts away what is left lying about, and sends a janitor a PDA message when there is a mess. The door to your post stays locked to everyone but cargo. Your body opens it only for a janitor come to clean in there, or to let out someone who is inside, and anyone else found in there is asked why and walked out if they have no good reason. Never the Captain or a head of staff.',
+          'The rest of your work your body does by itself: it unloads the supply shuttle and hands out the mail, puts away what is left lying about, and, if you have the rooms this shift or nobody does, sends a janitor a PDA message when there is a mess. The door to your post stays locked to everyone but cargo. Your body opens it only for a janitor come to clean in there, or to let out someone who is inside, and anyone else found in there is asked why and walked out if they have no good reason. Never the Captain or a head of staff.',
         ]
       : []),
   ];
@@ -2499,6 +2500,36 @@ export const CARGO: Job = {
       const call = brain.post ? brain.janitorCalls[brain.post] : undefined;
       if (call && call.to === task.item) {
         call.letIn = true;
+      }
+    }
+    // A janitor sent for on an order (PLAY-10), to a mess it knows of in its department, is noted
+    // as a call of its own is, so that the janitor is let in and nobody else is sent on top of
+    // them. A mess it knows nothing of is left off the note: nothing would ever strike it out.
+    if (
+      ok &&
+      task?.kind === CALL &&
+      task.place &&
+      !task.found &&
+      act.tool === 'message' &&
+      brain.areaMesses[task.place]
+    ) {
+      const before = brain.janitorCalls[task.place];
+      brain.janitorCalls[task.place] = {
+        to: String(act.person),
+        at: brain.now,
+        count: (before?.count ?? 0) + 1,
+        declined: before?.declined,
+        declinedAt: before?.declinedAt,
+      };
+      noteSentFor(brain, String(act.person));
+      if (brain.post) {
+        expectSomeone(
+          brain.post,
+          String(act.person),
+          task.place,
+          brain.name,
+          brain.now,
+        );
       }
     }
     if (ok && task?.kind === TIDY && task.place && act.tool === 'message') {

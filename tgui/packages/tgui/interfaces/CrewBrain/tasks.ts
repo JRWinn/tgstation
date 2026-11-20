@@ -23,6 +23,7 @@ import {
   noteOrdered,
   ORDER_SOUNDS,
   ORDERS,
+  orderTakesHere,
   planOrders,
   syncOrders,
 } from './jobs/orders';
@@ -227,22 +228,33 @@ export function takeToldWork(
     ? Object.keys(ORDERS).find((key) => ORDERS[key] === what)
     : undefined;
   const kind = own ?? order;
-  if (!kind || typeof where !== 'string' || !knowsPlace(brain, where)) {
+  // An order that may be given with no room named is for the room it is standing in, where
+  // whoever gave it was: "Then ask for a janitor" (PLAY-10).
+  const here =
+    !own &&
+    !!order &&
+    orderTakesHere(order) &&
+    !!brain.location &&
+    (typeof where !== 'string' ||
+      where === WORK_NOWHERE ||
+      !knowsPlace(brain, where));
+  const room = here ? brain.location : where;
+  if (!kind || typeof room !== 'string' || !knowsPlace(brain, room)) {
     return null;
   }
   // Work in the room it is standing in is work it can see for itself. If it sees none, there is
   // none to take on; if it does, it has the task already, and this only says who is waiting on it.
   if (
     own &&
-    where === brain.location &&
-    !findTask(brain, kind, { place: where })
+    room === brain.location &&
+    !findTask(brain, kind, { place: room })
   ) {
     return null;
   }
   // What someone over it tells it to do comes before everything else it has to do.
   const task = addTask(brain, {
     kind,
-    place: where,
+    place: room,
     urgency: fromSuperior ? 'emergency' : 'asked',
     source: 'told',
     askedBy: toldBy,
@@ -295,7 +307,20 @@ export function workInWords(
   const place = placeNamedIn(brain, heard);
   // A head told to find out how its staff are doing calls a meeting for it: see jobs/head.ts.
   // That is not an order to go and look at a room, even if one is named.
-  if (!place || (fromSuperior && isMeetingOrder(brain, heard))) {
+  if (fromSuperior && isMeetingOrder(brain, heard)) {
+    return null;
+  }
+  // An order that needs no room named, given with none, is for the room it stands in (PLAY-10).
+  if (!place) {
+    if (!fromSuperior || !brain.location) {
+      return null;
+    }
+    const asOrder = orderClauses(heard);
+    for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
+      if (orderTakesHere(kind) && words.test(asOrder)) {
+        return takeToldWork(brain, ORDERS[kind], brain.location, toldBy, true);
+      }
+    }
     return null;
   }
   // The job's own work first: "check the Bar, there is blood everywhere" is a mess to a janitor.
@@ -310,7 +335,9 @@ export function workInWords(
   }
   if (fromSuperior) {
     for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
-      if (words.test(heard)) {
+      // Sending for a janitor is read, as the job's own work is, from the clauses that are orders:
+      // "don't call a janitor for the bar" sends for nobody.
+      if (words.test(orderTakesHere(kind) ? asWork : heard)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
     }
