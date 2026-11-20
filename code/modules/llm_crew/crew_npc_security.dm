@@ -66,6 +66,9 @@
 	/// The cell the body is taking them to, and for how many minutes.
 	var/datum/crew_npc_brig_cell/jail_cell
 	var/jail_minutes = 0
+	/// The cell its prisoner was walked into and let go in, when the body could not then get back out
+	/// past them to the timer (PLAY-01). The next go at a cell only walks out and starts that timer.
+	var/datum/crew_npc_brig_cell/jail_left_inside
 	/// Whoever the body last set out to arrest, as a weak reference: for saying why it never got to them.
 	var/datum/weakref/arrest_target
 	/// Why its last go with the baton stopped short, in words for the log. Null if it landed what it meant to.
@@ -844,7 +847,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(tool == CREW_TOOL_JAIL && !isnull(jail_cell) && !QDELETED(pawn) && !knocked_down_itself())
 		var/mob/living/carbon/human/prisoner = arrested?.resolve()
 		var/prisoner_name = QDELETED(prisoner) ? null : prisoner.name
-		cell_refuses(jail_cell, prisoner_name || "its prisoner", "it could not get to the cell's timer")
+		// Its prisoner is in this cell already, let go (PLAY-01): still stuck inside with them, and the
+		// cell has not refused them.
+		if(jail_left_inside == jail_cell)
+			details["reason"] = "stuck_inside"
+		else
+			cell_refuses(jail_cell, prisoner_name || "its prisoner", "it could not get to the cell's timer")
 		details["cell"] = jail_cell.name
 		if(prisoner_name)
 			details["prisoner"] = prisoner_name
@@ -1311,6 +1319,17 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return
 	var/mob/living/carbon/human/body = pawn
 	var/mob/living/carbon/human/prisoner = arrested?.resolve()
+	// In the cell already and let go, and it could not get back out past them a moment ago (PLAY-01):
+	// the timer is all that is left. Walked out to and started, as a player would, nobody taken
+	// by the arm again. Not if they have left the cell, or someone else has come into it.
+	var/datum/crew_npc_brig_cell/left_in = jail_left_inside
+	jail_left_inside = null
+	if(!isnull(left_in) && left_in == jail_cell && !QDELETED(prisoner) && body.pulling != prisoner && (get_turf(prisoner) in left_in.turfs))
+		var/obj/machinery/status_display/door_timer/left_timer = left_in.timer_ref?.resolve()
+		if(!QDELETED(left_timer) && !left_timer.timing && !length(left_in.occupants() - prisoner - body))
+			jail_left_inside = left_in
+			start_errand(left_timer, CREW_TOOL_JAIL, left_in.name)
+			return
 	// Let go of for a moment, and still standing there in cuffs: taken by the arm again. Not if they
 	// have sat down or been strapped in: walked off, they would stay put. The arrest again gets them
 	// up first (unbuckle_for_hold()), which takes a click this answer has no time for.
@@ -1340,49 +1359,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return details
 
 /**
- * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
+ * put_in_cell()'s walk in: the prisoner by the arm to the back of the cell, let go, and one of the
+ * crew has the cuffs taken off. Sleeps while it does so.
  *
- * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
- * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
- * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
- * they are in a cell, and the four seconds it takes are four seconds with the door open.
- *
- * Returns a list: whether they are in the cell with the timer running, the words, and the details.
+ * Returns null once they are in and let go, or put_in_cell()'s list for why they are not.
  */
-/datum/ai_controller/crew_npc/proc/put_in_cell(obj/machinery/status_display/door_timer/timer)
+/datum/ai_controller/crew_npc/proc/walk_in_and_let_go(datum/crew_npc_brig_cell/cell, atom/door, mob/living/carbon/human/prisoner, prisoner_name, turf/outside, serial)
 	var/mob/living/carbon/human/body = pawn
-	// Called off part way, it stops where it is. Its prisoner stays its own (`arrested`), so that the
-	// next go at a cell takes hold of them again. Read once: a new go at a cell sets them again.
-	var/serial = errand_serial
-	var/datum/crew_npc_brig_cell/cell = jail_cell
-	var/minutes = jail_minutes
-	var/mob/living/carbon/human/prisoner = arrested?.resolve()
-	var/prisoner_name = prisoner?.name
-	if(QDELETED(prisoner) || body.pulling != prisoner)
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reached [cell?.name] without its prisoner.")
-		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
-	if(isnull(cell) || cell.timer_ref?.resolve() != timer || timer.timing || length(cell.occupants() - prisoner - body))
-		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
-	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
-	// cell is tried with them still by the arm.
-	var/atom/door = cell.door()
-	if(isnull(door))
-		cell_refuses(cell, prisoner_name, "its door is broken")
-		return list(FALSE, "The door of [cell.name] is smashed. It will not hold [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
-	// The time, before anyone goes in: once the prisoner is inside there is no moment to spare for it.
-	var/wanted = minutes MINUTES
-	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
-		if(errand_over(serial))
-			return jail_broken_off(prisoner_name, cell)
-		cell_refuses(cell, prisoner_name, "its timer would not let it set the time")
-		return list(FALSE, "You cannot get at the timer of [cell.name]. It may have no power.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
-	if(errand_over(serial))
-		return jail_broken_off(prisoner_name, cell)
-	if(QDELETED(timer) || timer.timer_duration != wanted)
-		cell_refuses(cell, prisoner_name, "its timer would not take the time")
-		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	// In, to the tile furthest from the door, so that whoever trails a step behind is inside too.
-	var/turf/outside = get_turf(body)
 	var/turf/deep
 	var/deep_distance = -1
 	for(var/turf/spot as anything in cell.turfs)
@@ -1416,9 +1400,70 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		cell_refuses(cell, prisoner_name, "it walked in and [prisoner_name] did not come all the way in behind it")
 		return list(FALSE, "You cannot get [prisoner_name] all the way into [cell.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	body.stop_pulling()
-	var/datum/ai_controller/crew_npc/their_controller = prisoner.ai_controller
-	if(istype(their_controller))
+	if(istype(prisoner.ai_controller, /datum/ai_controller/crew_npc))
 		take_cuffs_off(prisoner, serial)
+	return null
+
+/**
+ * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
+ *
+ * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
+ * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
+ * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
+ * they are in a cell, and the four seconds it takes are four seconds with the door open.
+ * Back at the timer of a cell it left them in and could not get out of (jail_left_inside), only
+ * the timer is left to start.
+ *
+ * Returns a list: whether they are in the cell with the timer running, the words, and the details.
+ */
+/datum/ai_controller/crew_npc/proc/put_in_cell(obj/machinery/status_display/door_timer/timer)
+	var/mob/living/carbon/human/body = pawn
+	// Called off part way, it stops where it is. Its prisoner stays its own (`arrested`), so that the
+	// next go at a cell takes hold of them again. Read once: a new go at a cell sets them again.
+	var/serial = errand_serial
+	var/datum/crew_npc_brig_cell/cell = jail_cell
+	var/minutes = jail_minutes
+	var/mob/living/carbon/human/prisoner = arrested?.resolve()
+	var/prisoner_name = prisoner?.name
+	// Back at the timer of a cell it left them in and could not get out of past them (PLAY-01): they
+	// are in already, and only the timer is left to start.
+	var/finishing = !isnull(cell) && jail_left_inside == cell
+	jail_left_inside = null
+	if(finishing && !QDELETED(prisoner) && body.pulling != prisoner)
+		if(!(get_turf(prisoner) in cell.turfs))
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) had [prisoner_name] walk out of [cell.name] before the timer was started.")
+			return list(FALSE, "[prisoner_name] walked out of [cell.name] before you could shut it.", got_away_details(prisoner, prisoner_name))
+	else
+		finishing = FALSE
+	if(QDELETED(prisoner) || (!finishing && body.pulling != prisoner))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reached [cell?.name] without its prisoner.")
+		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
+	if(isnull(cell) || cell.timer_ref?.resolve() != timer || timer.timing || length(cell.occupants() - prisoner - body))
+		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
+	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
+	// cell is tried with them still by the arm.
+	var/atom/door = cell.door()
+	if(isnull(door))
+		cell_refuses(cell, prisoner_name, "its door is broken")
+		return list(FALSE, "The door of [cell.name] is smashed. It will not hold [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
+	// The time, before anyone goes in: once the prisoner is inside there is no moment to spare for it.
+	var/wanted = minutes MINUTES
+	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
+		if(errand_over(serial))
+			return jail_broken_off(prisoner_name, cell)
+		cell_refuses(cell, prisoner_name, "its timer would not let it set the time")
+		return list(FALSE, "You cannot get at the timer of [cell.name]. It may have no power.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
+	if(errand_over(serial))
+		return jail_broken_off(prisoner_name, cell)
+	if(QDELETED(timer) || timer.timer_duration != wanted)
+		cell_refuses(cell, prisoner_name, "its timer would not take the time")
+		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
+	var/turf/outside = get_turf(body)
+	var/datum/ai_controller/crew_npc/their_controller = prisoner.ai_controller
+	if(!finishing)
+		var/list/walked_in = walk_in_and_let_go(cell, door, prisoner, prisoner_name, outside, serial)
+		if(islist(walked_in))
+			return walked_in
 	if(errand_over(serial))
 		return jail_broken_off(prisoner_name, cell)
 	// Out, and the timer started at once. Stopped on the way, most likely by the prisoner it has just
@@ -1435,8 +1480,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return jail_broken_off(prisoner_name, cell)
 		if(knocked_down_itself())
 			return list(FALSE, "You were knocked down yourself in [cell.name], before you could start its timer.", list("reason" = "down", "prisoner" = prisoner_name, "cell" = cell.name))
-		cell_refuses(cell, prisoner_name, "it could not walk back out to the timer")
-		return list(FALSE, "You cannot get back out of [cell.name] to its timer.", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
+		// They are in and let go: the cell did not refuse them. Most likely they stand where it would
+		// step and will not swap places (in combat mode, as a player can be). The next go at a cell
+		// only walks out and starts this one's timer (tool_jail).
+		jail_left_inside = cell
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) could not get past [prisoner_name] to the door of [cell.name]. It stands at [AREACOORD(body)], they at [AREACOORD(prisoner)].")
+		return list(FALSE, "You cannot get past [prisoner_name] to the door of [cell.name].", list("reason" = "stuck_inside", "prisoner" = prisoner_name, "cell" = cell.name))
 	if(QDELETED(prisoner) || !(get_turf(prisoner) in cell.turfs))
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) had [prisoner_name] walk out of [cell.name] before the timer was started.")
 		return list(FALSE, "[prisoner_name] walked out of [cell.name] before you could shut it.", got_away_details(prisoner, prisoner_name))

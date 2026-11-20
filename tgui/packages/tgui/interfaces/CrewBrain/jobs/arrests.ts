@@ -120,6 +120,13 @@ const FREE_TRIES = 3;
 const BRIG = 'Brig';
 /** How long (deciseconds) it stands in the brig with a prisoner no cell would take before it tries the cells again. */
 const CELL_AGAIN_DS = 900;
+/**
+ * Left its prisoner in a cell and could not get back out past them (PLAY-01): how long
+ * (deciseconds) it goes on trying to walk out and start that cell's timer, and how many times.
+ * A crew prisoner let go is free to go after 20 seconds with no hand on them.
+ */
+const STUCK_FRESH_DS = 200;
+const STUCK_TRIES = 2;
 /** How long (deciseconds) it goes on asking to be let into one room, and how long it waits on each person it asks. */
 const SHUT_OUT_DS = 3000;
 const LET_IN_WAIT_DS = 900;
@@ -404,6 +411,18 @@ function ownArrestOf(
  */
 function headSpared(brain: NpcBrain, warrant: BeatWarrant): boolean {
   return !warrant.byCaptain && !!target(brain, warrant)?.command;
+}
+
+/** The cell it left this warrant's person in, let go, and could not get out of past them (PLAY-01). */
+type StuckInside = { cell: string; at: number; tries: number };
+
+/** The warrant's StuckInside, if any. Kept on the warrant beside its other cell counts. */
+function stuckOf(warrant: BeatWarrant): StuckInside | undefined {
+  return (warrant as BeatWarrant & { stuckInside?: StuckInside }).stuckInside;
+}
+
+function setStuck(warrant: BeatWarrant, stuck: StuckInside | undefined): void {
+  (warrant as BeatWarrant & { stuckInside?: StuckInside }).stuckInside = stuck;
 }
 
 /** TRUE if it has this warrant's person by the arm. */
@@ -901,6 +920,28 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       // keeps failing: the next try is at another cell, and is made at once.
       act: { tool: 'jail', minutes, attempt: (warrant.cellAttempts ?? 0) + 1 },
     };
+  }
+  // In a cell already, let go, and it could not get back out past them a moment ago (PLAY-01). It
+  // is not arrested again and walked to the next cell: it walks out and starts this cell's timer.
+  // The server finds that it is the same cell and only that is left.
+  const stuck = stuckOf(warrant);
+  if (stuck) {
+    if (
+      !security?.holding &&
+      stuck.tries <= STUCK_TRIES &&
+      brain.now - stuck.at < STUCK_FRESH_DS
+    ) {
+      return {
+        ready: true,
+        step: `You have put ${name} in ${stuck.cell} and let go, and could not get past them to its door a moment ago. You are stepping out to its timer to start it.`,
+        act: {
+          tool: 'jail',
+          minutes: minutesFor(warrant),
+          attempt: (warrant.cellAttempts ?? 0) + 1,
+        },
+      };
+    }
+    setStuck(warrant, undefined);
   }
   // With someone else by the arm, nobody else is gone after: they are put in a cell first. Left
   // to its next warrant, it walked every hallway on the station with its prisoner in tow.
@@ -1572,11 +1613,26 @@ export function beatAfterActing(
       return;
     }
     warrant.cellAttempts = (warrant.cellAttempts ?? 0) + 1;
+    // In the cell and let go, and it could not get back out past them (PLAY-01). The cell did not
+    // refuse them: no cell try is counted and no other cell is gone to. It steps out to this
+    // one's timer next (serveStep). Tried again, the time it was first stuck is kept.
+    if (reason === 'stuck_inside') {
+      const before = stuckOf(warrant);
+      const cell = String(details.cell ?? before?.cell ?? 'the cell');
+      setStuck(warrant, {
+        cell,
+        at: before && before.cell === cell ? before.at : brain.now,
+        tries: before && before.cell === cell ? before.tries + 1 : 1,
+      });
+      return;
+    }
+    setStuck(warrant, undefined);
     if (reason === 'no_cell') {
       warrant.noCellAt = brain.now;
       return;
     }
-    // The cell would not take them, and it still has them by the arm: the next cell, at once.
+    // The cell would not take them, and it still has them by the arm: the next cell, at once. (Only
+    // on the walk in does it still hold them; the walk out after letting go is stuck_inside.)
     if (reason === 'no_way' || reason === 'timer') {
       warrant.cellTries = (warrant.cellTries ?? 0) + 1;
       warrant.cellFailedAt = brain.now;
