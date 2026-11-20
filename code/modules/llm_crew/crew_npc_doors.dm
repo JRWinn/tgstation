@@ -627,6 +627,11 @@
 	if(isnull(room))
 		return list(FALSE, "You have lost track of which room the door was for.")
 	var/inside = get_area(person) == room
+	// A shut fire door on the door's square bars the way whatever the airlock does, and the body
+	// standing at it sees it (DOOR-12). The airlock is not opened for nothing.
+	var/obj/machinery/door/firedoor/fire = crew_npc_fire_door_on(door)
+	if(fire)
+		return list(FALSE, "The fire door at the door is shut: the fire alarm is on in [crew_npc_fire_door_room(fire)].")
 	// Opened as a player opens it: a click with an empty hand, from beside it. The door makes its
 	// own checks, and shuts itself after its own few seconds. One standing open already is left
 	// open: a click would shut it.
@@ -783,6 +788,23 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		if(!from_pulled)
 			return FALSE
 	return TRUE
+
+/**
+ * Returns the shut fire door on an airlock's square, or null (DOOR-12). The maps often put a fire
+ * door under an airlock, and while it is shut it bars the way, whatever the airlock does.
+ */
+/proc/crew_npc_fire_door_on(obj/machinery/door/airlock/door)
+	for(var/obj/machinery/door/firedoor/fire in get_turf(door))
+		if(fire.density)
+			return fire
+	return null
+
+/// Returns the name of the room whose alarm holds this fire door shut: the first of its rooms with an alarm on, or the room it stands in.
+/proc/crew_npc_fire_door_room(obj/machinery/door/firedoor/fire)
+	for(var/area/place as anything in fire.affecting_areas)
+		if(place.fire || LAZYLEN(place.active_firelocks))
+			return format_text(place.name)
+	return get_area_name(fire, TRUE)
 
 /**
  * If a shut fire door is what stopped the body, says so: adds the room whose alarm shut it, and

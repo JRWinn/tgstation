@@ -186,8 +186,9 @@
 	// ever forced for someone else (forcing.ts asks for it when nobody whose ID opens it has), so one
 	// that opens to the engineer's own ID is forced like any other, and one open for the moment, that
 	// shuts itself on its timer, will be shut by the time they come to it (DOOR-07).
+	// An airlock open over a shut fire door is no open door either (DOOR-12).
 	for(var/obj/machinery/door/airlock/door as anything in (named ? list(named) : doors))
-		if(!crew_npc_door_stays_open(door))
+		if(!crew_npc_door_stays_open(door) || crew_npc_fire_door_on(door))
 			continue
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told to force [forcing_door_words(door, room_name, labels[door])], and did not: it is standing open, and will stay so.")
 		action_result(CREW_TOOL_FORCE_DOOR, TRUE, "The [labels[door]] door of [room_name] is standing open already.", list("place" = room_name, "door" = labels[door], "already_open" = TRUE))
@@ -286,6 +287,13 @@
 	forcing_label = labels[best]
 	forcing_door = WEAKREF(best)
 	start_errand(best, CREW_TOOL_FORCE_DOOR, labels[best])
+
+/// Returns the words for a shut fire door on this airlock's square, or null if there is none (DOOR-12).
+/datum/ai_controller/crew_npc/proc/forcing_fire_door(obj/machinery/door/airlock/door, door_words)
+	var/obj/machinery/door/firedoor/fire = crew_npc_fire_door_on(door)
+	if(isnull(fire))
+		return null
+	return "the fire door under the [door_words] is shut: the fire alarm is on in [crew_npc_fire_door_room(fire)]. Nobody gets through until it is reset."
 
 /// TRUE if the body is still at the work of forcing this door: neither is gone, and it has not been given something else to do since it began.
 /datum/ai_controller/crew_npc/proc/still_forcing(obj/machinery/door/airlock/door, serial)
@@ -486,6 +494,12 @@
 		return forcing_failure("no_door", "That is not a door you know how to open.", null, room_name, label)
 	var/door_words = "[label] door of [room_name]"
 
+	// A shut fire door on the door's square bars the way whatever is done to the airlock, and is seen
+	// standing at it. Nothing is opened or unpowered for it (DOOR-12).
+	var/fire_words = forcing_fire_door(door, door_words)
+	if(fire_words)
+		return forcing_failure("fire_doors", capitalize(fire_words), door, room_name, label, more_details = list("fire_doors" = crew_npc_fire_door_room(crew_npc_fire_door_on(door))))
+
 	// What it finds at the door, which may not be what it was when the body set out. One open for the
 	// moment, that shuts itself on its timer, is waited on: by the time whoever wants it open comes,
 	// it will be shut. A door that opens to its own ID is forced all the same (DOOR-07).
@@ -568,6 +582,11 @@
 		if(had_power && door.hasPower())
 			return forcing_failure("wire", "The power came back to the [door_words] before you could pry it.", door, room_name, label, panel_note)
 		return forcing_failure("pry", "The [door_words] would not pry open[why_no_pry ? ": [why_no_pry]" : (door.seal ? ": there is a seal across it" : "")].", door, room_name, label, panel_note)
+
+	// Pried open, and a fire door has come down under it meanwhile: the way is still barred (DOOR-12).
+	var/fire_after = forcing_fire_door(door, door_words)
+	if(fire_after)
+		return forcing_failure("fire_doors", "You pry the [door_words] open, but [fire_after]", door, room_name, label, "The airlock is left open", list("fire_doors" = crew_npc_fire_door_room(crew_npc_fire_door_on(door))))
 
 	// A way is open that was not, so a room it gave up on getting into may be worth another try.
 	ways_reopened()
