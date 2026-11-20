@@ -1053,14 +1053,30 @@ function clearOrders(brain: NpcBrain, ledger: Ledger): void {
   }
 }
 
-/** The technicians who have no order of its on the go, by name. */
+/** TRUE if a technician is seen lying down or in cuffs: one who cannot take an order to the console (QM-02). */
+function unfit(brain: NpcBrain, name: string): boolean {
+  const seen = brain.peopleInView.find((person) => person.name === name);
+  return !!seen && (!!seen.down || !!seen.cuffed);
+}
+
+/** How many times running an order given to a technician has gone unanswered, by `brain id:order number` (QM-02). */
+const unanswered = new Map<string, number>();
+/** How many times an order goes unanswered by one technician before it is given to another. */
+const UNANSWERED_MAX = 2;
+/** A short "I have it" in someone's own words, at the start of what they say (QM-02). */
+const SHORT_OK_WORDS =
+  /^(ok(ay)?|on it|got it|will do|right away|sure|yes|yep|aye|roger)\b/i;
+
+/** The technicians who have no order of its on the go, and are not seen down or cuffed, by name. */
 function freeTechnicians(brain: NpcBrain, ledger: Ledger): string[] {
   const busy = new Set(
     ledger.orders
       .filter((order) => order.state === 'given')
       .map((order) => order.givenTo),
   );
-  return technicians(brain).filter((name) => !busy.has(name));
+  return technicians(brain).filter(
+    (name) => !busy.has(name) && !unfit(brain, name),
+  );
 }
 
 /** The words an order is given to a technician in. Said word for word: the technician's body goes by them. */
@@ -1194,6 +1210,9 @@ function syncTasks(brain: NpcBrain): void {
       order.state = 'cleared';
       order.pick = order.givenTo;
       order.walkedUp = false;
+      // Counted: after UNANSWERED_MAX, it goes to someone else (QM-02).
+      const key = `${brain.id}:${order.n}`;
+      unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
     }
   }
   clearOrders(brain, ledger);
@@ -1357,17 +1376,35 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
   // is where what is ordered comes in. Failing that one who is in sight, and failing that they
   // take turns, by the order's number.
   // An order it has given once and not heard back about goes to the same technician again.
+  // Not one seen down or in cuffs, and not one who has twice not answered: that one may be dead,
+  // or a player who answers in words of their own. Another free technician has it then, and the
+  // one who did not answer only if there is nobody else (QM-02).
+  const silent = order.givenTo;
+  const lapses = unanswered.get(`${brain.id}:${order.n}`) ?? 0;
   const again =
-    order.givenTo && technicians(brain).includes(order.givenTo)
-      ? order.givenTo
+    silent &&
+    technicians(brain).includes(silent) &&
+    !unfit(brain, silent) &&
+    lapses < UNANSWERED_MAX
+      ? silent
       : null;
+  if (!again && silent && lapses >= UNANSWERED_MAX) {
+    order.givenTo = null;
+    unanswered.delete(`${brain.id}:${order.n}`);
+    const others = free.filter((name) => name !== silent);
+    if (others.length > 0 && order.pick === silent) {
+      order.pick = null;
+    }
+  }
+  const choices = free.filter((name) => name !== silent);
+  const from = choices.length > 0 ? choices : free;
   if (again) {
     order.pick = again;
   } else if (!order.pick || !free.includes(order.pick)) {
     order.pick =
-      free.find((name) => (ledger.duties[name] ?? []).includes('shuttle')) ??
-      free.find((name) => inView(name)) ??
-      free[order.n % free.length];
+      from.find((name) => (ledger.duties[name] ?? []).includes('shuttle')) ??
+      from.find((name) => inView(name)) ??
+      from[order.n % from.length];
     order.walkedUp = false;
   }
   let seen: PersonInView | undefined = inView(order.pick);
@@ -2020,6 +2057,27 @@ export const QUARTERMASTER: Job = {
         const order = ledger.orders.find((it) => it.n === Number(taken[1]));
         if (order && order.state === 'given' && order.givenTo === speaker) {
           order.taken = true;
+          unanswered.delete(`${brain.id}:${order.n}`);
+        }
+        return;
+      }
+      // A plain "on it" or "got it" from the one it has just given an order to, said in their own
+      // words: a player in the job does not answer in the fixed ones. Only within the minute it
+      // waits, and only for an order that one has not answered yet (QM-02).
+      if (SHORT_OK_WORDS.test(heard.trim())) {
+        const order = ledger.orders
+          .filter(
+            (it) =>
+              it.state === 'given' &&
+              !it.taken &&
+              it.givenTo === speaker &&
+              it.givenAt !== null &&
+              brain.now - it.givenAt <= TAKEN_WAIT_DS,
+          )
+          .sort((a, b) => (b.givenAt ?? 0) - (a.givenAt ?? 0))[0];
+        if (order) {
+          order.taken = true;
+          unanswered.delete(`${brain.id}:${order.n}`);
         }
       }
       return;
