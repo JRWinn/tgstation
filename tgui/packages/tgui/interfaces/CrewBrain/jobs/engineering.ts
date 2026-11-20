@@ -52,6 +52,83 @@ export function engineersAboard(brain: NpcBrain): string[] {
   ];
 }
 
+/**
+ * What a Chief Engineer has heard of its engineers (ENG-03): the one that has the engine (said it
+ * took it, or that it is lit), those that have ever answered in the crew's set words, and how many
+ * orders running each has left unanswered. All of it is from what it has heard: a crew member
+ * cannot tell a player from another NPC, but it can tell one that answers from one that does not.
+ */
+type EngineersHeard = {
+  has: string | null;
+  answered: Set<string>;
+  unanswered: Record<string, number>;
+};
+const engineersHeard = new WeakMap<NpcBrain, EngineersHeard>();
+/** How many orders running an engineer may leave unanswered before another is given them. */
+export const UNANSWERED_MAX = 2;
+
+function heardOf(brain: NpcBrain): EngineersHeard {
+  let heard = engineersHeard.get(brain);
+  if (!heard) {
+    heard = { has: null, answered: new Set(), unanswered: {} };
+    engineersHeard.set(brain, heard);
+  }
+  return heard;
+}
+
+/**
+ * Notes that an engineer has answered in the set words. `has` says whether what it said means it
+ * has the engine: "the engine is lit" names who has it over "the engine, right away", since the
+ * first engineer at a meeting may be given it and another light it.
+ */
+export function engineerAnswered(
+  brain: NpcBrain,
+  name: string,
+  has?: 'taken' | 'lit',
+): void {
+  const heard = heardOf(brain);
+  heard.answered.add(name);
+  heard.unanswered[name] = 0;
+  if (has === 'lit' || (has === 'taken' && !heard.has)) {
+    heard.has = name;
+  }
+}
+
+/** Notes that an order given to this engineer went unanswered. Returns how many have, running. */
+export function engineerUnanswered(brain: NpcBrain, name: string): number {
+  const heard = heardOf(brain);
+  heard.unanswered[name] = (heard.unanswered[name] ?? 0) + 1;
+  return heard.unanswered[name];
+}
+
+/**
+ * The engineer a Chief Engineer gives an order to: the one that has the engine, while it is aboard
+ * and answering; failing that one that has answered before, then one in sight, then the first its
+ * PDA lists. One that has left UNANSWERED_MAX orders unanswered is passed over while there is any
+ * other. Taken as the first in sight or on the PDA, the order to switch the emitters off went to a
+ * player, or a dead engineer's PDA, and not to the engineer that lit the engine (ENG-03).
+ */
+export function engineerToOrder(brain: NpcBrain): string | null {
+  const names = engineersAboard(brain);
+  if (names.length === 0) {
+    return null;
+  }
+  const heard = heardOf(brain);
+  const answering = names.filter(
+    (name) => (heard.unanswered[name] ?? 0) < UNANSWERED_MAX,
+  );
+  const pool = answering.length > 0 ? answering : names;
+  const inView = (name: string) =>
+    brain.peopleInView.some((person) => person.name === name);
+  return (
+    pool.find((name) => name === heard.has) ??
+    pool.find((name) => heard.answered.has(name) && inView(name)) ??
+    pool.find((name) => heard.answered.has(name)) ??
+    pool.find(inView) ??
+    pool[0]
+  );
+}
+
 /** TRUE if a line is said to this NPC by its first name: "Sam, ..." */
 export function saidTo(brain: NpcBrain, line: string): boolean {
   return new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(line.trim());

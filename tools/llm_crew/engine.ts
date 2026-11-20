@@ -482,6 +482,37 @@ for (const [line, want] of [
   add(`"${line}" is ${want ? '' : 'not '}an order to light the engine again`, isLightAgainOrder(line, 'Ada Volt'), want);
 }
 
+// ENG-03: the orders go to the engineer that has the engine, not to the first one on the PDA.
+{
+  const ada = chief(false);
+  ada.pdaPeople = [{ name: 'Jo Player', job: 'Station Engineer' }, { name: 'Sam Rees', job: 'Station Engineer' }, { name: 'Cap Tain', job: 'Captain' }];
+  CHIEF_ENGINEER.readsMessage(ada, 'Sam Rees', litLine('Ada Volt'), 100, 'Station Engineer');
+  ada.now = 200;
+  ada.engineReading = { integrity: 90, energy: 900 };
+  CHIEF_ENGINEER.syncTasks(ada);
+  const give = openOf(ada, 'engine_order', 'shut');
+  const step = give && CHIEF_ENGINEER.plan(ada, give);
+  add('two engineers on the PDA: emitters off goes to the one that lit it', step?.act?.person, 'Sam Rees');
+}
+{
+  // The first on the PDA never answers: after two orders unanswered, the next engineer is given them.
+  const ada = chief(false);
+  ada.pdaPeople = [{ name: 'Jo Player', job: 'Station Engineer' }, { name: 'Sam Rees', job: 'Station Engineer' }, { name: 'Cap Tain', job: 'Captain' }];
+  ada.engineReading = { integrity: 90, energy: 900 };
+  const sentTo: string[] = [];
+  for (let n = 0; n < 3; n++) {
+    ada.now = 100 + n * 2000;
+    CHIEF_ENGINEER.syncTasks(ada);
+    const give = openOf(ada, 'engine_order', 'shut');
+    const step = give && CHIEF_ENGINEER.plan(ada, give);
+    if (!step?.act) break;
+    sentTo.push(step.act.person);
+    CHIEF_ENGINEER.afterActing(ada, step.act, give, true);
+  }
+  add('an engineer that leaves two orders unanswered is passed over', sentTo, ['Jo Player', 'Jo Player', 'Sam Rees']);
+  add('and the Captain is told', ada.toTell.some((tell: any) => tell.line === 'I cannot reach Jo: I am giving the engine to Sam instead.'), true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

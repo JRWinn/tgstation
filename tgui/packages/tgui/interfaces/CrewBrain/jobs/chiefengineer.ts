@@ -31,7 +31,9 @@ import { batterySteps } from './engine';
 import {
   beginsWith,
   ENGINE_TAKEN,
-  engineersAboard,
+  engineerAnswered,
+  engineerToOrder,
+  engineerUnanswered,
   firstName,
   HEARD_WORDS,
   heardLine,
@@ -51,6 +53,7 @@ import {
   SHUT_WORDS,
   STUCK_WORDS,
   shutLine,
+  UNANSWERED_MAX,
 } from './engineering';
 import {
   describeForcing,
@@ -142,16 +145,34 @@ function jobOf(brain: NpcBrain, name: string): string {
   );
 }
 
-/** Its engineer: one in sight if there is one, and failing that the first its PDA lists. Null if it has none. */
+/** Its engineer to give an order to: see engineerToOrder. Null if it has none. */
 function engineer(brain: NpcBrain): string | null {
-  const names = engineersAboard(brain);
-  return (
-    names.find((name) =>
-      brain.peopleInView.some((person) => person.name === name),
-    ) ??
-    names[0] ??
-    null
-  );
+  return engineerToOrder(brain);
+}
+
+/** Whom it last gave an order outside a meeting to, so that an order left unanswered is counted against them (ENG-03). */
+const lastOrderTo = new WeakMap<NpcBrain, string>();
+
+/**
+ * An order it gave has gone unanswered and is to be given again: counted against whoever it went
+ * to. Once they have left UNANSWERED_MAX unanswered and there is another engineer, the order goes
+ * to that one, and the Captain is told, so that a person knows.
+ */
+function orderUnanswered(brain: NpcBrain): void {
+  const to = lastOrderTo.get(brain);
+  if (!to) {
+    return;
+  }
+  lastOrderTo.delete(brain);
+  const count = engineerUnanswered(brain, to);
+  const next = engineerToOrder(brain);
+  if (count === UNANSWERED_MAX && next && next !== to) {
+    tellCaptain(
+      brain,
+      `I cannot reach ${firstName(to)}: I am giving the engine to ${firstName(next)} instead.`,
+      `${to} has not answered your orders about the engine. You are giving them to ${next} instead, and telling the Captain by PDA.`,
+    );
+  }
 }
 
 /** Sends someone a PDA message, once it has a moment. */
@@ -345,6 +366,9 @@ function syncTasks(brain: NpcBrain): void {
         (chief.notOff ? SHUT_STUCK_AGAIN_DS : SHUT_AGAIN_DS)) &&
     engineer(brain)
   ) {
+    if (chief.shutGivenAt !== null) {
+      orderUnanswered(brain);
+    }
     chief.order = { what: 'shut', givenAt: null, sent: false };
   }
   // The crystal is sound and there is nothing in it: the emitters have stopped.
@@ -371,6 +395,7 @@ function syncTasks(brain: NpcBrain): void {
     !chief.lightTaken &&
     brain.now - chief.lightGivenAt > TAKEN_WAIT_DS
   ) {
+    orderUnanswered(brain);
     chief.order = { what: 'light', givenAt: null, sent: false };
   }
   // With no engineer aboard there is nobody to order.
@@ -425,6 +450,7 @@ function giveStep(brain: NpcBrain): Plan {
   if (!order || !name) {
     return { ready: false, step: 'You have no order to give just now.' };
   }
+  lastOrderTo.set(brain, name);
   const line = orderLine(order.what, name);
   const why =
     order.what === 'shut'
@@ -633,10 +659,12 @@ function hearEngineer(
     });
   };
   if (beginsWith(text, ENGINE_TAKEN)) {
+    engineerAnswered(brain, from, 'taken');
     chief.lightTaken = true;
     return;
   }
   if (beginsWith(text, litLine(brain.name))) {
+    engineerAnswered(brain, from, 'lit');
     heardIt();
     chief.litAt = brain.now;
     chief.lightTaken = true;
@@ -651,6 +679,7 @@ function hearEngineer(
   }
   const stuck = matchAfterName(text, brain.name, STUCK_WORDS);
   if (stuck) {
+    engineerAnswered(brain, from);
     heardIt();
     const what = stuck[1].trim();
     if (chief.stuck !== what) {
@@ -664,6 +693,7 @@ function hearEngineer(
     return;
   }
   if (beginsWith(text, offLine(brain.name))) {
+    engineerAnswered(brain, from);
     heardIt();
     // They are off. An order for them to go off that it had yet to give again is not given.
     if (chief.order?.what === 'shut') {
@@ -682,6 +712,7 @@ function hearEngineer(
   }
   const notOff = matchAfterName(text, brain.name, NOT_OFF_WORDS);
   if (notOff) {
+    engineerAnswered(brain, from);
     heardIt();
     if (chief.order?.what === 'shut') {
       chief.order = null;
