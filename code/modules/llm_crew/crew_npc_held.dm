@@ -340,6 +340,10 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	release_for = QDELETED(person) ? last_heard_speaker : person.name
+	// Brought out for someone other than whoever ordered it: written down, so a round shows who
+	// came for whose crate (TRUST-04).
+	if(entry.for_name && release_for != entry.for_name)
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) is bringing out held crate #[entry.number] ordered by [entry.for_name] for [release_for || "someone unknown"][QDELETED(person) ? "" : " ([key_name(person)])"].")
 	begin_haul()
 	start_errand(crate, CREW_TOOL_RELEASE, "crate #[entry.number]")
 
