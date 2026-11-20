@@ -518,11 +518,21 @@
 			outer_name ||= format_text(outer.name)
 			continue
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door [leaving ? "out of" : "into"] [room_name], and looks for another.")
+	// No way to any door, and one of them opens from a room locked to it: that is put down to the
+	// room beyond only if the body could have walked out of the room it is in. A body shut in finds
+	// no way to anywhere, and blaming the room beyond taught a janitor shut in the Head of
+	// Personnel's Office that the Cargo Bay and the Cargo Lobby each open only from the other (LOGB-05).
+	var/cannot_leave = isnull(best) && outer_name && (is_shut_in() || !walks_out_of_room())
+	if(QDELETED(src) || QDELETED(body))
+		return
 	finding_door = FALSE
 	if(errand_serial != serial || tool_serial != calls || !can_sense())
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [goal], and had been given something else to do meanwhile.")
 		return
 	if(isnull(best))
+		if(cannot_leave)
+			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get out of here to get to [goal].", list("place" = current_place))
+			return
 		if(outer_name)
 			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
 			return
@@ -537,6 +547,39 @@
 		action_result(CREW_TOOL_TO_DOOR, TRUE, "You are at [goal].", list("place" = current_place))
 		return
 	start_walk(best_spot, CREW_TOOL_TO_DOOR, goal, CREW_NPC_TRAVEL_TIMEOUT)
+
+/**
+ * TRUE if the body can walk out of the room it stands in: it is in a hallway or a maintenance
+ * tunnel, the room has no airlock, or there is a way to just outside one of its doors. Sleeps
+ * while routes are tested.
+ */
+/datum/ai_controller/crew_npc/proc/walks_out_of_room()
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	if(isnull(here) || place_kind() != "room")
+		return TRUE
+	var/list/doors = crew_npc_doors_of(here, body.z)
+	if(!length(doors))
+		return TRUE
+	// The nearest few doors, nearest first: a way out by any one of them will do.
+	var/list/by_distance = list()
+	for(var/obj/machinery/door/airlock/door as anything in doors)
+		by_distance[door] = get_dist(body, door)
+	var/tries_left = CREW_NPC_DOORS_TRIED
+	while(length(by_distance) && tries_left > 0)
+		tries_left--
+		var/obj/machinery/door/airlock/nearest
+		for(var/obj/machinery/door/airlock/door as anything in by_distance)
+			if(isnull(nearest) || by_distance[door] < by_distance[nearest])
+				nearest = door
+		by_distance -= nearest
+		var/list/sides = doors[nearest]
+		var/list/route = get_path_to(body, sides[2], max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+		if(QDELETED(src) || QDELETED(body))
+			return TRUE
+		if(length(route))
+			return TRUE
+	return FALSE
 
 /**
  * Returns the door of one of the body's rooms that this person wants opened, and that the body can
