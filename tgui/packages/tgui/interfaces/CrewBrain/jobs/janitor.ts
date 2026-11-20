@@ -862,7 +862,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: true,
       step: `Your bucket is low and there is water here to fill it at. You are filling it before you set off for the mess in ${task.place}${toldBy}.`,
-      act: { tool: 'clean' },
+      // A key of its own (the server reads no "wet"): a fill that came to nothing is not a clean
+      // that did, and does not hold back the clean in the mess's room (DRV-12).
+      act: { tool: 'clean', wet: true },
     };
   }
   // A dry mop with water to hand: its own bucket, a mop bucket or cart with water in, or a sink.
@@ -877,7 +879,12 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
         task.place === brain.location
           ? `Your mop is dry and ${from}. You are wetting it, and then cleaning up the mess here in ${task.place}${toldBy}.`
           : `Your mop is dry and ${from}. You are wetting it before you set off for the mess in ${task.place}${toldBy}.`,
-      act: { tool: 'clean' },
+      // Wetting it here for a mess elsewhere has a key of its own, as the fill above. In the mess's
+      // room the same clean wets it and cleans, and is the clean (DRV-12).
+      act:
+        task.place === brain.location
+          ? { tool: 'clean' }
+          : { tool: 'clean', wet: true },
     };
   }
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
