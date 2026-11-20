@@ -136,6 +136,12 @@ function canScrub(brain: NpcBrain): boolean {
   return brain.holding.some((item) => /soap|\brag$/i.test(item));
 }
 
+/** What a mess task is waiting on when what is left there is what the body could not get to. */
+const UNREACHED_LEFT =
+  'what is left there you could not get to, and you will try again later';
+/** The mess jobs, by the task's id, whose last clean left only what the body could not get to (the server's `unreached`). */
+const unreachedLeft = new Set<number>();
+
 /** The mess jobs for which a janitor has begun putting its mop and bucket back, by the task's id: see changeForScrubbing. */
 const puttingBack = new Set<number>();
 
@@ -595,16 +601,26 @@ function syncTasks(brain: NpcBrain): void {
     if (task.kind !== CLEAN || task.state === 'done' || !task.place) {
       continue;
     }
+    // What is left there is what it could not get to, not what its tool will not shift (HAND-02):
+    // tried again later, and not put down to the tool.
+    const leftUnreached =
+      unreachedLeft.has(task.id) &&
+      messy.has(task.place) &&
+      !workable.has(task.place);
+    if (!leftUnreached) {
+      unreachedLeft.delete(task.id);
+    }
     const beyondIt =
       !!brain.cleaningTool &&
       messy.has(task.place) &&
-      !workable.has(task.place);
+      !workable.has(task.place) &&
+      !leftUnreached;
     // Called to a mess that what it holds will not shift, it sends word to whoever called it,
     // once. They are waiting on it, and someone with soap or a mop can be sent for instead.
     // Only from in the room, where it has tried: a room it cannot get into is another matter.
     // And not in the middle of scrubbing: what is left is only known once it has stopped.
     if (
-      beyondIt &&
+      (beyondIt || leftUnreached) &&
       task.place === brain.location &&
       task.askedBy &&
       task.source === 'told' &&
@@ -615,10 +631,14 @@ function syncTasks(brain: NpcBrain): void {
       // or that some is done and the rest would not.
       brain.toTell.push({
         to: task.askedBy,
-        line: task.cleanedSome
+        line: leftUnreached
+          ? `I have done what I can in the ${task.place}. I could not get to the rest.`
+          : task.cleanedSome
           ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
           : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`,
-        why: task.cleanedSome
+        why: leftUnreached
+          ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what you could get to, and could not get to the rest. You are sending ${task.askedBy} a PDA message to say so.`
+          : task.cleanedSome
           ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what your ${brain.cleaningTool} would shift, and the rest will not come off. You are sending ${task.askedBy} a PDA message to say so.`
           : `${task.askedBy} called you to a mess in the ${task.place} that your ${brain.cleaningTool} will not shift. You are sending ${task.askedBy} a PDA message to say so.`,
         byPda: true,
@@ -651,7 +671,16 @@ function syncTasks(brain: NpcBrain): void {
       blockTask(task, givenUp ? NOT_LET_IN : null);
       continue;
     }
-    blockTask(task, noWayIn ? NO_WAY_IN : beyondIt ? BEYOND : null);
+    blockTask(
+      task,
+      noWayIn
+        ? NO_WAY_IN
+        : beyondIt
+          ? BEYOND
+          : leftUnreached
+            ? UNREACHED_LEFT
+            : null,
+    );
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
   }
 
@@ -1185,7 +1214,7 @@ export const JANITOR: Job = {
     }
   },
   // What it has done to be let into a locked room, each thing once.
-  afterActing: (brain, act, task, ok) => {
+  afterActing: (brain, act, task, ok, _looped, details) => {
     // The soap or rag it meant to scrub with was not to be had after all: someone has taken it.
     // The mess is then one to go to with what it has, like any other, and it says what is left.
     if (
@@ -1213,6 +1242,15 @@ export const JANITOR: Job = {
       const here = findTask(brain, CLEAN, { place: brain.location });
       if (here) {
         here.cleanedSome = true;
+      }
+    }
+    // What was left was what it could not get to (HAND-02), or it was not.
+    if (act.tool === 'clean') {
+      const here = findTask(brain, CLEAN, { place: brain.location });
+      if (here && details?.unreached) {
+        unreachedLeft.add(here.id);
+      } else if (here) {
+        unreachedLeft.delete(here.id);
       }
     }
     if (task?.kind !== CLEAN || !task.place || !task.via) {
