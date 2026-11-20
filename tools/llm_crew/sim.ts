@@ -59,6 +59,7 @@
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 //   bun run sim.ts quiet stuckcell  as the plain arrest, but the officer cannot get back out past the monkey it let go in the cell: the next jail only starts the timer, so one jailing and no second arrest (PLAY-01)
 //   bun run sim.ts quiet callme   the Captain, in the bay with no mess in sight, says "its messy in here" and then "Then ask for a janitor": the technician sends a janitor a PDA about the bay and tells the Captain whom (PLAY-10)
+//   bun run sim.ts quiet spokensight  as the plain arrest, but the Captain walks up to the officer and tells it to its face where the monkey is: it reads it back in fixed words and goes to the Bar (PLAY-03)
 //   bun run sim.ts quiet nocell   as the plain arrest, but every cell is in use: the officer takes the monkey to the Brig and waits there, and the Head of Security is told once that every cell is in use (ARR-04)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
@@ -326,7 +327,7 @@ const steppedAside: { who: string; at: number }[] = [];
 let asideFailedAt = 0;
 const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell', 'nocell'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked', 'pdadown', 'stuckcell', 'nocell', 'spokensight'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
@@ -1427,7 +1428,10 @@ function securityTick(second: number) {
   if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
   // Told it was not followed, the Captain says it again in the words it was given.
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
-  if (second === SIGHTING_AT && VARIANT !== 'warrant' && VARIANT !== 'hallfail') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : VARIANT === 'twolocked' ? 'Pun Pun is in the Cargo Bay.' : 'Pun Pun is in the Bar.');
+  // PLAY-03: the Captain comes to wherever the officer is, and says it to its face.
+  const officerNow = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'spokensight' && officerNow && !spokenSightAt && second >= SIGHTING_AT && !officerNow.busyText) { spokenSightAt = clock; const captain = players.find((other) => other.name === SEC_CAPTAIN)!; captain.room = officerNow.room; playerSays(SEC_CAPTAIN, 'Pun Pun is in the bar'); }
+  if (second === SIGHTING_AT && VARIANT !== 'warrant' && VARIANT !== 'hallfail' && VARIANT !== 'spokensight') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : VARIANT === 'twolocked' ? 'Pun Pun is in the Cargo Bay.' : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
   // SECT-11: the warrant was declared while the officer was out hurt, and the Head of Security took it into its own hands. Then the Captain says to try again.
   if (second === TRY_AGAIN_AT && VARIANT === 'tryagain') { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
@@ -1453,6 +1457,8 @@ function securityTick(second: number) {
   }
 }
 const recell = { warrantAt: 0, seenAt: 0, inAt: 0, pardonAt: 0 };
+// PLAY-03: when the Captain told the officer to its face where the monkey is.
+let spokenSightAt = 0;
 // TRB-03: how many seconds the hurt officer has had the monkey in sight since it was let out.
 let freedInSight = 0;
 const FULL = !VARIANT || VARIANT === 'crew' || VARIANT === 'shutout' || VARIANT === 'qm' || VARIANT === 'qmgone';
@@ -2288,6 +2294,17 @@ if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 
     check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
     check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
     check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
+  }
+  if (VARIANT === 'spokensight') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    check('(the Captain told the officer to its face where the monkey is)', !!spokenSightAt, spokenSightAt ? seconds(spokenSightAt) : 'never');
+    const readBack = saidBy(hale.name, /^Captain, I have that: Pun Pun, the Bar\.$/).filter((line) => line.at >= spokenSightAt);
+    check('the officer reads the sighting back in fixed words', readBack.length === 1, saidBy(hale.name, /./).map((line) => line.text).join(' | ') || 'said nothing');
+    const toBar = hale.log.find((line) => line.slice(0, 8) >= clockAt(spokenSightAt) && / go_to /.test(line) && line.includes('"place":"Bar"'));
+    const toBarAt = toBar ? Date.parse(`1970-01-01T${toBar.slice(0, 8)}Z`) : Infinity;
+    const firstWalk = hale.log.find((line) => line.slice(0, 8) >= clockAt(spokenSightAt) && / (go_to|explore) /.test(line));
+    check('and goes to the Bar, not anywhere else first, within half a minute', !!toBar && firstWalk === toBar && toBarAt - spokenSightAt <= 30_000, firstWalk?.trim() ?? 'walked nowhere');
+    check('the sighting is passed to the Head of Security', sentTo(hale, joan!.name, /Pun Pun is in the Bar/).length + saidBy(hale.name, /^Joan, .*Pun Pun is in the Bar/).length >= 1, sentTo(hale, joan!.name, /./).join(' | ') || 'nothing sent');
   }
   if (VARIANT === 'nocell') {
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
