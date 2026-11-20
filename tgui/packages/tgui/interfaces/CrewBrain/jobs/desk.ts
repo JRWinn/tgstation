@@ -353,6 +353,19 @@ export function deskTakes(
       deskOutcome(brain, outcome, from, aloud);
       return true;
     }
+    // Word of where someone wanted is, from its own staff: given to them to their face (PLAY-03).
+    // They are following it already, so it is not passed back to them.
+    const standing = desk.warrants.map((warrant) => warrant.name);
+    const seen = nameIn(text, standing) ?? closeIn(text, standing);
+    const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
+    const warrant = desk.warrants.find((it) => it.name === seen);
+    if (warrant && place && SIGHTING_WORDS.test(text)) {
+      if (!warrant.lastSeen || brain.now >= warrant.lastSeen.at) {
+        warrant.lastSeen = { place, at: brain.now, by: from };
+        warrant.passed = { place, at: brain.now };
+      }
+      return true;
+    }
     return false;
   }
   const declarer = isHead(fromJob);
@@ -903,6 +916,10 @@ export function deskOutcome(
       return;
     }
     default:
+      // Word come late, of someone in a cell already: no longer true, and not passed on (PLAY-02).
+      if (Object.keys(desk.held).some((it) => sameName(outcome.name, it))) {
+        return;
+      }
       tellCaptain(
         brain,
         `Captain, ${own ? 'I' : firstName(from)} cannot bring in ${outcome.name}: ${outcome.why}.`,
@@ -922,9 +939,11 @@ export function deskOutcome(
 
 /**
  * The heads of department it sends the notice to: every one aboard but the Captain and
- * security's own. A head there is a warrant on is sent nothing while it stands.
+ * security's own. A head there is a warrant on is sent nothing while it stands, and a head in
+ * a cell nothing while its time runs: it cannot answer from there (PLAY-08). It is owed the list
+ * once syncDesk takes it off the held list.
  */
-function headsToTell(brain: NpcBrain): string[] {
+export function headsToTell(brain: NpcBrain): string[] {
   const desk = deskOf(brain);
   return brain.pdaPeople
     .filter(
@@ -933,7 +952,8 @@ function headsToTell(brain: NpcBrain): string[] {
         !/captain/i.test(person.job) &&
         !isSecurity(person.job) &&
         person.name !== brain.name &&
-        !desk.warrants.some((warrant) => sameName(warrant.name, person.name)),
+        !desk.warrants.some((warrant) => sameName(warrant.name, person.name)) &&
+        !Object.keys(desk.held).some((name) => sameName(name, person.name)),
     )
     .map((person) => person.name);
 }

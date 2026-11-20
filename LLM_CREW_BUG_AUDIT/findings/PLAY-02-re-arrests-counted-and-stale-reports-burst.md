@@ -191,4 +191,12 @@ Not done: no build, no simulator, no tables. The driver order was read from the 
 
 ## Fix so far
 
-Group p-server, commit 792bff54a84 (compile only, not played): server step 2 is done, `hold_arrested` counts only when `arrested?.resolve() != person`. Left: the window steps 5 to 8 (stale words to the head).
+Both halves are now built, compile, tables and simulator only, not played:
+
+- Server (group p-server, commit 792bff54a84): `hold_arrested` counts only when `arrested?.resolve() != person`, so one person brought in is one arrest however often the cuffs go on.
+- Step 5, changed (group p-secwin, 1d299d8c5fa, 16000d301c9): `syncTasks` in `jobs/officer.ts` drops waiting words on the same name by the table `STALE_AFTER`. "In a cell" and "let go" drop "cannot" and "lost", but not "in cuffs": having had them in cuffs stays true, and the warrant scenario checks that the Captain is told of the cuffs. "Lost" drops "in cuffs" and "cannot"; "in cuffs" drops "cannot" and "lost"; a new "cannot" drops an older one.
+- Step 6: a "cannot" on the person in `security.holding` is an emergency and goes by PDA unless the head is in sight.
+- Step 7: `deskOutcome`'s default case passes no "cannot" on for someone in `desk.held`.
+- Step 8 (d8f4306ca83): the words are now "no cell would take them".
+
+driver.ts was not needed.
