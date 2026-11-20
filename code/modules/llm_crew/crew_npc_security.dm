@@ -47,8 +47,6 @@
 #define CREW_NPC_EARSHOT 7
 /// How long a crew NPC in cuffs waits, with nobody holding it, before it takes it that nobody is coming.
 #define CREW_NPC_CUFFED_ALONE (2 MINUTES)
-/// How many times a crew NPC left in cuffs tries to work them off.
-#define CREW_NPC_CUFF_TRIES 3
 /// How often, at most, security staff are told that the same person has laid a hand on them.
 #define CREW_NPC_STRUCK_GAP (3 SECONDS)
 /// How long something security staff went for and could not get, or found nothing in, is left alone.
@@ -1997,12 +1995,19 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			var/obj/machinery/status_display/door_timer/timer = custody_timer?.resolve()
 			held = !QDELETED(timer) && timer.timing
 		if(CREW_CUSTODY_CUFFS)
-			held = !isnull(body.handcuffed) && cuff_tries <= CREW_NPC_CUFF_TRIES
-			// Not at it just now: it starts, or starts again.
+			// Held for as long as the cuffs are on (SEC-07): told it was free in them, it went back to
+			// its work with its hands bound, and every errand failed for the rest of the round. A
+			// player in cuffs presses Resist again and again until they are off; so does it.
+			held = !isnull(body.handcuffed)
+			// Not at it just now: it starts, or starts again. A try is counted only if the game
+			// really began one: it does not while its resist is cooling down, while it lies down,
+			// is buckled or is inside something. Counted on every press, a try broken in its first
+			// ten seconds used up the rest in two.
 			if(held && !length(body.do_afters))
-				cuff_tries++
-				if(cuff_tries <= CREW_NPC_CUFF_TRIES)
-					INVOKE_ASYNC(body, TYPE_PROC_REF(/mob/living, execute_resist))
+				INVOKE_ASYNC(body, TYPE_PROC_REF(/mob/living, execute_resist))
+				if(length(body.do_afters))
+					cuff_tries++
+					log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) begins try [cuff_tries] at working its cuffs off, at [AREACOORD(body)].")
 	if(!held && custody_phase != CREW_CUSTODY_CUFFS && body.handcuffed)
 		// Let go of, or the cell has opened, and still in cuffs. It sets about getting out of them.
 		custody_phase = CREW_CUSTODY_CUFFS
@@ -2229,7 +2234,6 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_NPC_ARREST_GRACE
 #undef CREW_NPC_EARSHOT
 #undef CREW_NPC_CUFFED_ALONE
-#undef CREW_NPC_CUFF_TRIES
 #undef CREW_NPC_STRUCK_GAP
 #undef CREW_NPC_KIT_SKIP
 #undef CREW_NPC_KNOCKED_DOWN
