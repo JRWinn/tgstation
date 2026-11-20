@@ -171,6 +171,44 @@ for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', false]]
   add('and a report it sends by PDA', [!!ce.meeting.reports['Sam Rees'], ce.meeting.answers['Sam Rees']], [true, 'cannot']);
 }
 
+// LOGA-06: a head that calls its meeting aloud keeps inside its room, books whoever it calls on,
+// and does not close a begun meeting the moment nobody is in view.
+{
+  const { QUARTERMASTER } = await import(ROOT + 'jobs/quartermaster');
+  const JADEN = { handle: 'j1', name: 'Jaden Prechtl', job: 'Cargo Technician', distance: 8, place: 'Cargo Lobby' };
+  const qm: any = makeBrain('Leo Johnson', 'Quartermaster');
+  know(qm, ['Cargo Bay', 'Cargo Lobby']);
+  qm.staffPost = 'Cargo Bay';
+  qm.location = 'Cargo Bay';
+  qm.pdaPeople = [{ name: JADEN.name, job: JADEN.job }];
+  qm.peopleInView = [JADEN];
+  qm.meeting = { calledAt: 0, room: 'Cargo Bay', calledIn: true, invited: [], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  const task = { id: 1, kind: 'hold_meeting', urgency: 'asked', source: 'own', state: 'open' };
+  const step = QUARTERMASTER.plan(qm, task as any);
+  add('a technician in sight in the next room is not walked up to: called by PDA', [step?.act?.tool, step?.act?.person], ['message', JADEN.name]);
+  // Called on, then out of sight before the line goes out: the turn is still booked.
+  qm.meeting.invited = [JADEN.name];
+  qm.meeting.startedAt = 10;
+  qm.peopleInView = [];
+  meetingSaid(qm, 'Thank you for coming, everyone. Jaden, your report, please.');
+  add('called on while out of sight: the turn is booked', qm.meeting.turns.map((turn: any) => turn.who), [JADEN.name]);
+}
+{
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  know(hop, ['Bar Lounge']);
+  hop.meetingRoom = 'Bar Lounge';
+  hop.location = 'Bar Lounge';
+  hop.pdaPeople = [{ name: 'Jan Itor', job: 'Janitor' }];
+  hop.peopleInView = [];
+  hop.now = 2000;
+  hop.meeting = { calledAt: 1000, room: 'Bar Lounge', calledIn: true, invited: ['Jan Itor'], copied: true, answers: {}, startedAt: 1500, turns: [{ who: 'Jan Itor', askedAt: 1500, heard: true }], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('a begun meeting with nobody in view is not closed at once', [!!hop.meeting, hop.meeting?.closedAt], [true, null]);
+  hop.now = 2200;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('but after fifteen seconds empty, it is', hop.meeting, null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -227,6 +227,10 @@ function counterOf(order: Requisition): AtCounter {
   }
   return state;
 }
+/** How long (deciseconds) a begun meeting's room is empty of its staff before it is closed for want of anyone there (LOGA-06). */
+const EMPTY_FOR_DS = 150;
+/** When each meeting's room was last seen empty of its staff, from when it was first empty (server time), or null while someone is there. */
+const emptySince = new WeakMap<Meeting, number | null>();
 /** The heads that have told the Captain they have nowhere to hold a staff meeting: said once a round (HEAD-10). */
 const noRoomTold = new WeakSet<NpcBrain>();
 /** What it has told the Captain about orders it had to put by, so that each is said once a round. */
@@ -811,11 +815,29 @@ export function syncMeeting(
         meeting.closedAt = brain.now;
       }
     }
-    // Everyone has been heard, and there is nobody left in the room to tell that it is over.
+    // Everyone has been heard, and there is nobody left in the room to tell that it is over. Only
+    // once it is in the room itself, the room has been empty of its staff a little while, and
+    // nobody it called is still on the way with no report given: closed the moment nobody was in
+    // view, a meeting was over before the one just called on could answer (LOGA-06).
+    if (here.length > 0) {
+      emptySince.set(meeting, null);
+    } else if ((emptySince.get(meeting) ?? null) === null) {
+      emptySince.set(meeting, brain.now);
+    }
+    const emptyAt = emptySince.get(meeting) ?? null;
+    const stillComing = meeting.invited.some(
+      (name) =>
+        !meeting.turns.some((turn) => turn.who === name) &&
+        awaited(brain, meeting, name),
+    );
     if (
       meeting.startedAt !== null &&
       here.length === 0 &&
-      !listening(brain, meeting)
+      !listening(brain, meeting) &&
+      inPlace(brain, meeting) &&
+      emptyAt !== null &&
+      brain.now - emptyAt >= EMPTY_FOR_DS &&
+      !stillComing
     ) {
       meeting.closedAt ??= brain.now;
     }
@@ -1114,7 +1136,13 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
       .map((person) =>
         brain.peopleInView.find((seen) => seen.name === person.name),
       )
-      .filter((seen): seen is PersonInView => !!seen)
+      // Only those in the meeting room or a doorway of it. Walking up to one in the next room
+      // took the head out of its own meeting, and it held it from the lobby (LOGA-06). Anyone
+      // else is called by PDA, or once they come in.
+      .filter(
+        (seen): seen is PersonInView =>
+          !!seen && (seen.place === undefined || seen.place === room),
+      )
       .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))[0];
     if (
       nearest &&
@@ -1550,10 +1578,19 @@ export function meetingSaid(brain: NpcBrain, called: string): void {
     meeting.calledAt = brain.now;
   }
   // Having called on someone, it listens for their report.
+  // Whoever of its staff is named, in view this moment or not: they were when the step chose them,
+  // and the line goes out seconds later. Booked only if still in view, a call-on to someone who
+  // had just stepped out of sight was no turn, and the meeting closed before they answered
+  // (LOGA-06). Those at the meeting first, for two who share a first name.
   if (called.includes(CALLING_ON)) {
-    const who = present(brain, meeting).find((name) =>
-      called.includes(`${callName(brain, name)}, ${CALLING_ON}`),
-    );
+    const here = present(brain, meeting);
+    const named = (name: string) =>
+      called.includes(`${callName(brain, name)}, ${CALLING_ON}`);
+    const who =
+      here.find(named) ??
+      staff(brain)
+        .map((person) => person.name)
+        .find(named);
     if (who && !meeting.turns.some((turn) => turn.who === who)) {
       meeting.turns.push({ who, askedAt: brain.now, heard: false });
     }
