@@ -61,6 +61,7 @@
 //   bun run sim.ts quiet callme   the Captain, in the bay with no mess in sight, says "its messy in here" and then "Then ask for a janitor": the technician sends a janitor a PDA about the bay and tells the Captain whom (PLAY-10)
 //   bun run sim.ts quiet spokensight  as the plain arrest, but the Captain walks up to the officer and tells it to its face where the monkey is: it reads it back in fixed words and goes to the Bar (PLAY-03)
 //   bun run sim.ts quiet askedtwice  a janitor the technician sent for PDAs that it is at the delivery office door, then, while the technician walks there, says "open that door": the door is opened and held, and the voice is never told to refuse (PLAY-05)
+//   bun run sim.ts quiet outfail  a janitor let into the bay to clean it asks to be let out, and the technician cannot get to the door: it tries again about ten seconds on, then tells the janitor why to its face, and only then walks it out (PLAY-06)
 //   bun run sim.ts quiet nocell   as the plain arrest, but every cell is in use: the officer takes the monkey to the Brig and waits there, and the Head of Security is told once that every cell is in use (ARR-04)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
@@ -826,6 +827,8 @@ function toolCall(body: Body, tool: string, args: any) {
       // Security staff outside are let in on asking, as the server lets them in by the job their ID shows (CARGO-04).
       const security = /Security Officer|Head of Security/.test(them.job);
       if (!inside && !security && !(them.job === 'Janitor' && messBeyond)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
+      // PLAY-06: something stands between the technician and the door out of the bay, whenever it goes to let the janitor out.
+      if (VARIANT === 'outfail' && inside && them.name === 'Jan Itor') return busy(body, 3, 'going to open the door for someone', false, () => { outTries.push(clock); result(body, 'open_door', false, 'You could not get to it.'); });
       return busy(body, 3, 'going to open the door for someone', false, () => {
         doorState[room] = { from: clock, until: clock + 15000, for: them.name }; if (VARIANT === 'askedtwice' && them.name === ASKER && !askedTwice.openAt) askedTwice.openAt = clock; opened.push(`${inside ? 'out' : 'in'}:${them.name}${room === body.post ? '' : '@' + room}`);
         const their = bodies.find((other) => other.name === name);
@@ -1314,6 +1317,8 @@ function spawnAskedTwice() {
 }
 // When the janitor asked by PDA, when it said it aloud, when the door was opened for it, and when it went in.
 const askedTwice = { pdaAt: 0, saidAt: 0, openAt: 0, inAt: 0, watchedAt: 0 };
+// PLAY-06: each try at a door to let someone out that the technician could not get to.
+const outTries: number[] = [];
 const CALL_ME_AT = 30;
 let callMeAt = 0;
 let captainSpokeAt = 0;
@@ -1482,11 +1487,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'callme' ? spawnCallMe() : VARIANT === 'askedtwice' ? spawnAskedTwice() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'callme' ? spawnCallMe() : VARIANT === 'outfail' ? (() => { rooms['Delivery Office'].messes = []; return [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')]; })() : VARIANT === 'askedtwice' ? spawnAskedTwice() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = SECURITY ? SECURITY_SECONDS : VARIANT === 'callme' || VARIANT === 'askedtwice' ? 240 : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = SECURITY ? SECURITY_SECONDS : VARIANT === 'callme' || VARIANT === 'askedtwice' ? 240 : VARIANT === 'outfail' ? 540 : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 // With a Quartermaster who does not answer, the order, and the mail that comes with it, are three minutes later.
@@ -1591,7 +1596,7 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'callme' && VARIANT !== 'askedtwice' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'callme' && VARIANT !== 'askedtwice' && VARIANT !== 'outfail' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
 // With no technician aboard to order for it, the janitor with only a rag stays short.
 if (!HEADSHUT) check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
@@ -1619,6 +1624,19 @@ if (VARIANT === 'orders') {
   check('nobody asks the Captain or a head their business', !crew.some((body) => body.said.some((line) => /Ada|Hal/.test(line) && /why are you in here|out you go/i.test(line))));
 }
 // A crate left by a door is hauled clear of it, once, and the technician goes back to its post.
+if (VARIANT === 'outfail') {
+  const cora = crew[0];
+  const jan = crew[1];
+  const ago = (at: number) => `${Math.round((at - (clock - SECONDS * 1000)) / 1000)} s in`;
+  check('the janitor shut in the bay asks to be let out, and the technician goes to the door and cannot get to it', outTries.length >= 1, `${outTries.length} try(s)`);
+  const gap = outTries.length >= 2 ? outTries[1] - outTries[0] : Infinity;
+  check('it tries again about ten seconds on, and no more than twice in all', outTries.length === 2 && gap >= 8_000 && gap <= 20_000, outTries.map(ago).join(', '));
+  const told = spoken.find((line) => line.who === cora.name && line.text === 'Jan, I could not get to the door to let you out.');
+  check('then it tells the janitor why, to its face', !!told && outTries.length >= 2 && told.at > outTries[1] && told.room === 'Cargo Bay', told ? ago(told.at) : `said: ${cora.said.join(' | ') || 'nothing'}`);
+  const outLine = cora.log.find((line) => / throw_out /.test(line));
+  const outAt = outLine ? Date.parse(`1970-01-01T${outLine.slice(0, 8)}Z`) : Infinity;
+  check('and only then walks it out of the bay', putOut.includes(jan.name) && !!told && outAt >= told.at, `${outLine?.trim() ?? 'never walked out'}; ${jan.name} ends in ${jan.room}`);
+}
 if (VARIANT === 'askedtwice') {
   const cora = crew[0];
   const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
