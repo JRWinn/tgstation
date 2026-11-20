@@ -210,6 +210,8 @@ const OPEN_DOOR_TRIES = 2;
 function nextToWrite(
   brain: NpcBrain,
   cannotReachDoor: boolean,
+  /** TRUE to ask who it would write to next, whether or not it is time yet (KNA-02). */
+  anyTime = false,
 ): { name: string; head: boolean } | null {
   const asks = brain.outAsks;
   if (
@@ -217,7 +219,7 @@ function nextToWrite(
     !brain.hasPda ||
     // Whoever let it in is written to first, where there is such a person.
     (!!brain.letInBy && !asks?.messaged) ||
-    Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS
+    (!anyTime && Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS)
   ) {
     return null;
   }
@@ -239,6 +241,27 @@ function nextToWrite(
       )
     : undefined;
   return head && !written(head.name) ? { name: head.name, head: true } : null;
+}
+
+/** Steps done where it stands that still take it across the room, away from the door it waits at (KNA-02). */
+const LEAVES_THE_DOOR = new Set(['search', 'find_supplies']);
+
+/**
+ * TRUE if a shut-in NPC waiting for the door has something left to do about it: a knock not yet
+ * made, word not yet sent to whoever let it in, or someone it will write to once it has waited for
+ * the last (KNA-02).
+ */
+function moreToTryAtDoor(
+  brain: NpcBrain,
+  atDoor: boolean,
+  cannotReachDoor: boolean,
+): boolean {
+  const asks = brain.outAsks;
+  return (
+    (atDoor && !asks?.knocked) ||
+    (!asks?.messaged && !!brain.letInBy && brain.hasPda) ||
+    nextToWrite(brain, cannotReachDoor, true) !== null
+  );
 }
 
 /**
@@ -577,6 +600,15 @@ export function nextStep(brain: NpcBrain): Step | null {
     }
   }
 
+  // Shut in with no way out in view, it waits for the door: at it, or where it stands if it cannot
+  // get to it. Nothing that walks it off is offered, not its work elsewhere, a meeting it cannot
+  // reach, or a look through the lockers across the room. Whoever comes to the door would find
+  // nobody there (KNA-02). Not yet at the door, with the walk there held back a moment, it waits
+  // for that walk and takes no other.
+  const holdAtDoor = stuck && (atDoor || cannotReachDoor);
+  if (stuck && !holdAtDoor) {
+    return null;
+  }
   const work = workInOrder(brain);
   // Whether a step of its work failed lately and is being left alone a while.
   let heldBack = false;
@@ -613,6 +645,14 @@ export function nextStep(brain: NpcBrain): Step | null {
       break;
     }
     if (!plan.ready || (!plan.act && !plan.say)) {
+      continue;
+    }
+    // Waiting at the door, only what is done where it stands (KNA-02).
+    if (
+      holdAtDoor &&
+      plan.act &&
+      (!STAYS.has(plan.act.tool) || LEAVES_THE_DOOR.has(plan.act.tool))
+    ) {
       continue;
     }
     const key = keyOf(task, plan.act, plan.say);
@@ -699,8 +739,14 @@ export function nextStep(brain: NpcBrain): Step | null {
   if (job.keepsPost || work.some(({ plan }) => plan.wait)) {
     return null;
   }
+  // Waiting at the door, it stays there while it has anyone left to knock for or write to. Only
+  // with nobody left does it try another way out now and then (drive holds that to one try in a
+  // while), and it does not go looking through the lockers (KNA-02).
+  if (holdAtDoor && moreToTryAtDoor(brain, atDoor, cannotReachDoor)) {
+    return null;
+  }
   const idle: Action | null =
-    brain.storageHere > 0
+    brain.storageHere > 0 && !holdAtDoor
       ? { tool: 'search' }
       : brain.resting
         ? null
