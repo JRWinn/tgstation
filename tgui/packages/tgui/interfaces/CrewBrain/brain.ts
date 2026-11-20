@@ -774,6 +774,11 @@ export function ingest(npcs: Npc[], now: number): void {
               ? event.details.left_in
               : null,
           at: event.at,
+          // PLAY-12: where the crate itself lies, so the job can tell its head where to find it.
+          liesIn:
+            typeof event.details.lies_in === 'string'
+              ? event.details.lies_in
+              : null,
         };
       }
       // Someone has hit it, shoved it or taken hold of it. Only security staff are told, for now.

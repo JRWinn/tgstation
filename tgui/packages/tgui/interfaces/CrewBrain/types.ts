@@ -1150,6 +1150,8 @@ export type NpcBrain = {
     what: string;
     leftIn: string | null;
     at: number;
+    /** Where the crate lies, when the server says (lies_in): the room it was let go in, not where the body is (PLAY-12). */
+    liesIn?: string | null;
   } | null;
   /**
    * For a technician: server time until which the shuttle and the rooms are its to see to as
