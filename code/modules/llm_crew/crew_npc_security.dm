@@ -43,6 +43,8 @@
 #define CREW_NPC_CUSTODY_HOLD (3 SECONDS)
 /// How long a crew NPC told it is under arrest stands for it with nobody's hand on it and no cuffs on.
 #define CREW_NPC_ARREST_GRACE (20 SECONDS)
+/// How far (tiles) a line said in a normal voice carries: the game's own say range.
+#define CREW_NPC_EARSHOT 7
 /// How long a crew NPC in cuffs waits, with nobody holding it, before it takes it that nobody is coming.
 #define CREW_NPC_CUFFED_ALONE (2 MINUTES)
 /// How many times a crew NPC left in cuffs tries to work them off.
@@ -978,8 +980,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/person_name = person.name
 	var/hits = 0
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	// One of the crew stands for it, and goes along. It is told before a hand is laid on it.
-	if(how != CREW_ARREST_STOP && istype(their_controller))
+	// One of the crew stands for it, and goes along: it has just been told so out loud (the brain
+	// says the arrest line before it sends the arrest). Only if it could hear that (CHEAT-04): one
+	// that is deaf or out of earshot goes along once it feels the cuffs and the hand on its arm
+	// (hold_arrested()). Once its own hearing goes by the line (heard_arrest_line()), this can go.
+	if(how != CREW_ARREST_STOP && istype(their_controller) && their_controller.could_hear(body))
 		their_controller.being_arrested(body)
 	// In cuffs already: someone has done that part. It only has to be taken by the arm.
 	if(person.handcuffed && how != CREW_ARREST_STOP)
@@ -1832,9 +1837,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return list(FALSE, "You break off.", list("reason" = "called_off", "freed" = freed))
 	if(arrested?.resolve() == person)
 		arrested = null
-	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	if(istype(their_controller) && !cuffs_left)
-		their_controller.let_out_of_custody()
+	// Nothing is told to them by a call (CHEAT-04): one of the crew finds the hand gone and the cuffs
+	// off, and is free once its grace has run (custody_tick()), as anyone let go finds it out.
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) let [key_name(person)] go at [AREACOORD(body)][cuffs_left ? ", but could not get the cuffs off" : ""].")
 	return list(TRUE, cuffs_left ? "You let go of [freed], but could not get the cuffs off [person.p_them()]." : "You take the cuffs off [freed] and let [person.p_them()] go.", list("freed" = freed, "from" = "hold", "cuffs_left" = cuffs_left))
 
@@ -1884,8 +1888,34 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!was_held)
 		addtimer(CALLBACK(src, PROC_REF(custody_tick)), 1 SECONDS)
 
+/// TRUE if this body could hear someone speaking in a normal voice where they stand: it can sense, is not deaf, and is within earshot of them.
+/datum/ai_controller/crew_npc/proc/could_hear(mob/living/speaker)
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || QDELETED(speaker) || !can_sense() || HAS_TRAIT(body, TRAIT_DEAF))
+		return FALSE
+	return body in hearers(CREW_NPC_EARSHOT, speaker)
+
+/**
+ * The body has heard a line said (on_pre_hear() is to call this with what it heard). Someone who
+ * works in security, by the ID they wear, telling it by name that it is under arrest: it goes
+ * along quietly, on what it heard (CHEAT-04), whether the one arresting it is crew or a player.
+ * Returns TRUE if it took the line for its own arrest.
+ */
+/datum/ai_controller/crew_npc/proc/heard_arrest_line(mob/living/carbon/human/speaker, message)
+	var/mob/living/carbon/human/body = pawn
+	if(!istype(speaker) || QDELETED(body) || speaker == body || !istext(message))
+		return FALSE
+	if(!findtext(message, "under arrest") || !findtext(message, body.name))
+		return FALSE
+	var/datum/job/their_job = crew_npc_job_of(speaker)
+	if(isnull(their_job) || !(their_job.departments_bitflags & DEPARTMENT_BITFLAG_SECURITY))
+		return FALSE
+	being_arrested(speaker)
+	return TRUE
+
 /// The cell this body was walked into has been shut on it.
 /datum/ai_controller/crew_npc/proc/put_in_custody(datum/crew_npc_brig_cell/cell, minutes, mob/living/carbon/human/by)
+	var/mob/living/carbon/human/body = pawn
 	var/was_held = in_custody()
 	arrested_by = WEAKREF(by)
 	arrested_by_name = by.name
@@ -1893,7 +1923,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	custody_timer = cell.timer_ref
 	custody_cell = cell.name
 	hold_in_custody()
-	emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name] for [minutes] minute\s.", list("in_cell" = cell.name, "minutes" = minutes))
+	// The time is what its timer shows, and so known only if the timer can be seen from inside (CHEAT-04).
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	var/sees_timer = !QDELETED(timer) && !QDELETED(body) && can_sense() && !body.is_blind() && (timer in view(CREW_NPC_VISION_RANGE, body))
+	if(sees_timer)
+		emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name]. Its timer shows [minutes] minute\s.", list("in_cell" = cell.name, "minutes" = minutes))
+	else
+		emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name].", list("in_cell" = cell.name))
 	if(!was_held)
 		addtimer(CALLBACK(src, PROC_REF(custody_tick)), 1 SECONDS)
 
@@ -2165,6 +2201,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_NPC_CELL_SKIP
 #undef CREW_NPC_CUSTODY_HOLD
 #undef CREW_NPC_ARREST_GRACE
+#undef CREW_NPC_EARSHOT
 #undef CREW_NPC_CUFFED_ALONE
 #undef CREW_NPC_CUFF_TRIES
 #undef CREW_NPC_STRUCK_GAP
