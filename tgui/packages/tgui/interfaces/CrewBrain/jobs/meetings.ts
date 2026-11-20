@@ -528,6 +528,15 @@ export function planMeetings(brain: NpcBrain, task: Task): Plan | null {
         step: `${by} has called a staff meeting in the ${room}. You will go the moment you have set down what you are hauling.`,
       };
     }
+    // Shut in with no door standing open, the walk cannot be made: it waits to be let out, and the
+    // "missed" path above sends its report if the meeting goes ahead without it (KNA-02). A door
+    // standing open is still tried.
+    if (brain.shutIn && !brain.doorOpen) {
+      return {
+        ready: false,
+        step: `You are shut in the ${brain.location} and will go to the meeting when you are let out.`,
+      };
+    }
     return {
       ready: true,
       step: `${by} has called a staff meeting in the ${room}. That comes before everything else, and you are on your way there.`,
