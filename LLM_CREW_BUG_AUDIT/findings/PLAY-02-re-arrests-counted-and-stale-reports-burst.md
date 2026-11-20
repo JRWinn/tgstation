@@ -188,3 +188,7 @@ The fix keeps the rules: no cheats, the code does the work, nothing waits on the
 This file holds two faults, the count and the stale words. They have one cause in the round but separate fixes. They can be fixed and marked one at a time.
 
 Not done: no build, no simulator, no tables. The driver order was read from the code, not run.
+
+## Fix so far
+
+Group p-server, commit 792bff54a84 (compile only, not played): server step 2 is done, `hold_arrested` counts only when `arrested?.resolve() != person`. Left: the window steps 5 to 8 (stale words to the head).

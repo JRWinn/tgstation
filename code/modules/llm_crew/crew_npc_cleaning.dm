@@ -583,9 +583,35 @@
 		var/volume_before = tool.reagents?.total_volume
 		var/next_move_before = body.next_move
 		body.ClickOn(target)
-		// Something came of the click: the mess went, a scrub began, the spray was used, or the
-		// game set the wait that every use of a held thing sets.
-		if(QDELETED(mess) || length(body.do_afters) || tool.reagents?.total_volume != volume_before || body.next_move != next_move_before)
+		if(QDELETED(mess))
+			landed = TRUE
+			break
+		var/used = tool.reagents?.total_volume != volume_before || body.next_move != next_move_before
+		// A spray's puff leaves the bottle, and sets the wait, before it has gone anywhere. It then
+		// makes its own way to the mess, and a dense thing in its first step ends it with nothing
+		// washed. So a puff has landed only when the mess goes, which it does as soon as the puff
+		// gets there. One that did not reach it is a miss: tried once more from closer, as a player
+		// who saw the puff stop short would, and never counted against the room.
+		if(used && istype(tool, /obj/item/reagent_containers/spray))
+			var/watch_until = world.time + CREW_NPC_PUFF_TIME
+			while(!QDELETED(mess) && world.time < watch_until)
+				sleep(0.1 SECONDS)
+				if(QDELETED(body) || errand_serial != serial)
+					return list(FALSE, "You could not get to it.")
+			if(QDELETED(mess))
+				landed = TRUE
+				break
+			// Sprayed from the mess's own square, or started on the dense thing standing on it: the
+			// puff washed that square at once. It hit, and the mess stayed.
+			if(get_turf(body) == get_turf(mess) || target != mess)
+				landed = TRUE
+				break
+			if(go == 1)
+				target = spray_closer(mess)
+			continue
+		// Something came of the click: a scrub began, or the game set the wait that every use of a
+		// held thing sets.
+		if(used || length(body.do_afters))
 			landed = TRUE
 			break
 	// Twice clicked and nothing came of it: left as a mess it could not get to is, this one alone and
@@ -633,6 +659,35 @@
 			if(!QDELETED(other) && memory[2] == place && other.type == mess.type)
 				stubborn_messes[key] = TRUE
 	return list(FALSE, "You scrub at the [mess_name] but it will not come off.")
+
+/**
+ * After a puff that stopped short of a mess: what to spray at next, from where. A puff sprayed at a
+ * mess on the body's own square washes it at once, so the body steps onto that square if it can,
+ * as a player would. If a dense thing on it bars the way, and the body is beside it, the thing is
+ * sprayed: the game starts the puff on that thing's square, and the floor under it is washed.
+ * Otherwise the mess itself again, from where it stands.
+ */
+/datum/ai_controller/crew_npc/proc/spray_closer(obj/effect/decal/cleanable/mess)
+	var/mob/living/carbon/human/body = pawn
+	var/turf/mess_turf = get_turf(mess)
+	if(QDELETED(body) || isnull(mess_turf) || get_turf(body) == mess_turf || get_dist(body, mess_turf) > 1)
+		return mess
+	var/direction = get_dir(body, mess_turf)
+	if(!mess_turf.is_blocked_turf(exclude_mobs = TRUE) && crew_npc_safe_turf(mess_turf, body) && !crew_npc_steps_into_door(body, mess_turf, direction) && can_step())
+		body.Move(mess_turf, direction)
+		if(get_turf(body) == mess_turf)
+			return mess
+	// A structure such as a locker or a crate, not one the spray fills from or is put into when
+	// clicked: a sink, a cart, a tank. Machines are left alone: a click on one may work it.
+	for(var/obj/structure/thing in mess_turf)
+		if(!thing.density || !body.Adjacent(thing))
+			continue
+		if(istype(thing, /obj/structure/sink) || istype(thing, /obj/structure/mop_bucket))
+			continue
+		if(thing.is_drainable() || HAS_TRAIT(thing, TRAIT_COMBAT_MODE_SKIP_INTERACTION))
+			continue
+		return thing
+	return mess
 
 /// TRUE if the body carries a PDA with the custodial locator, which shows where the station's cleaning gear is.
 /datum/ai_controller/crew_npc/proc/has_custodial_locator()

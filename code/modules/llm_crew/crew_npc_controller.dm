@@ -130,6 +130,15 @@
 	var/blocked_bumps = 0
 	/// world.time it last walked into them.
 	var/blocked_at = 0
+	/// Weak reference to something it walked into that will never step aside or swap places (a parked
+	/// MULEbot, a body with nobody in it), and the tile it stood on. The walk's next plan goes round that
+	/// tile while it is still there. Cleared at the start of each walk.
+	var/datum/weakref/avoid_ref
+	var/turf/avoid_turf
+	/// TRUE once this walk found no way round it: it then plans through, and is stopped by it as before.
+	var/avoid_gave_up = FALSE
+	/// TRUE once the way round it has been logged, this walk.
+	var/avoid_logged = FALSE
 	/// world.time until which a door someone opened for the body is being held open.
 	var/door_held_until = 0
 	/// world.time until which a door is being held open for the body to leave the room it is in.
@@ -313,6 +322,8 @@
 		UnregisterSignal(pawn, list(COMSIG_MOB_MOVESPEED_UPDATED, COMSIG_MOVABLE_BUMP))
 		stop_senses(pawn)
 	blocked_by = null
+	avoid_ref = null
+	avoid_turf = null
 	return ..()
 
 /**
@@ -331,6 +342,40 @@
 		blocked_from = here
 		blocked_bumps = 1
 	blocked_at = world.time
+	// Nobody to ask and nothing that will ever move for it: it goes round, as a player would, from the
+	// next plan of the walk, the first time it is walked into. There is nothing to wait for.
+	if(!avoid_gave_up && avoid_ref?.resolve() != bumped && blocker_will_not_move(bumped))
+		avoid_ref = WEAKREF(bumped)
+		avoid_turf = get_turf(bumped)
+		avoid_logged = FALSE
+
+/**
+ * TRUE if this can never be got past by swapping places, nor asked to move: the game will not swap
+ * with it (a MULEbot), or nobody is behind it to hear (a bot, an animal, a body whose player is gone).
+ * A player, or a crew member whose brain can be asked to step aside, is not: it is stopped by them,
+ * and its brain asks.
+ */
+/datum/ai_controller/crew_npc/proc/blocker_will_not_move(mob/living/blocker)
+	if(HAS_TRAIT(blocker, TRAIT_NOMOBSWAP))
+		return TRUE
+	if(blocker.client || istype(blocker.ai_controller, /datum/ai_controller/crew_npc))
+		return FALSE
+	return TRUE
+
+/**
+ * The tile the walk's next plan should leave out: where a blocker that will not move still stands.
+ * Never the body's own tile, nor the one it is walking to; the planner finds nothing from or to a tile
+ * it is told to leave out. Null, and forgotten, once the blocker has gone from it.
+ */
+/datum/ai_controller/crew_npc/proc/tile_to_go_round(atom/walk_target)
+	if(isnull(avoid_turf))
+		return null
+	var/mob/living/blocker = avoid_ref?.resolve()
+	if(avoid_gave_up || QDELETED(blocker) || get_turf(blocker) != avoid_turf || get_turf(pawn) == avoid_turf || get_turf(walk_target) == avoid_turf)
+		avoid_ref = null
+		avoid_turf = null
+		return null
+	return avoid_turf
 
 /datum/ai_controller/crew_npc/setup_able_to_run()
 	. = ..()

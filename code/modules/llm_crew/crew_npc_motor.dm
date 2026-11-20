@@ -113,8 +113,29 @@
 /datum/ai_movement/navmap_astar/crew_npc/proc/route_planned(datum/move_loop/has_target/navmap_astar/source, list/path)
 	SIGNAL_HANDLER
 	var/datum/ai_controller/crew_npc/crew_controller = source.extra_info
-	if(istype(crew_controller))
-		crew_controller.last_route_steps = length(path)
+	if(!istype(crew_controller))
+		return
+	crew_controller.last_route_steps = length(path)
+	if(isnull(source.avoid))
+		return
+	var/mob/living/blocker = crew_controller.avoid_ref?.resolve()
+	// No way round what will not move: the next plan goes through it, and the body is stopped by it,
+	// knowing who by, as before.
+	if(!length(path))
+		crew_controller.avoid_gave_up = TRUE
+		crew_controller.avoid_ref = null
+		crew_controller.avoid_turf = null
+		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) found no way round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move.")
+		return
+	if(!crew_controller.avoid_logged)
+		crew_controller.avoid_logged = TRUE
+		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) went round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move: [length(path)] steps.")
+
+/// Each new plan of a walk leaves out the tile of something in the way that will never move (PLAY-04).
+/datum/ai_movement/navmap_astar/crew_npc/repath_incoming(datum/move_loop/has_target/navmap_astar/source)
+	. = ..()
+	var/datum/ai_controller/crew_npc/crew_controller = source.extra_info
+	source.avoid = istype(crew_controller) ? crew_controller.tile_to_go_round(source.target) : null
 
 /// Walks the body to the person or spot held in the walk target key, then reports how it went to the controller.
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk
@@ -139,6 +160,10 @@
 	if(istype(crew_controller))
 		crew_controller.blocked_by = null
 		crew_controller.blocked_bumps = 0
+		crew_controller.avoid_ref = null
+		crew_controller.avoid_turf = null
+		crew_controller.avoid_gave_up = FALSE
+		crew_controller.avoid_logged = FALSE
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/perform(seconds_per_tick, datum/ai_controller/controller)
 	var/atom/target = controller.blackboard[target_key]
