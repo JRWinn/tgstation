@@ -87,18 +87,43 @@ function callsOnWord(
  * "Ann, have the cook make lunch" does not call on Tom Cook.
  */
 export function callsOn(heard: string, name: string, inView = true): boolean {
-  const lower = heard.toLowerCase();
+  return calledBy(heard.toLowerCase(), name, inView) !== null;
+}
+
+/** Which of its names a line calls someone by, if any: the first name or the surname. */
+function calledBy(
+  lower: string,
+  name: string,
+  inView: boolean,
+): 'first' | 'last' | null {
   const parts = name
     .toLowerCase()
     .split(/[^a-z]+/)
     .filter((part) => part.length > 2);
   const first = parts[0];
   const last = parts.length > 1 ? parts[parts.length - 1] : undefined;
-  return (
-    (!!first && callsOnWord(lower, first, inView, true)) ||
-    (!!last && callsOnWord(lower, last, inView, false)) ||
-    callsOnShortName(lower, name)
-  );
+  if (callsOnShortName(lower, name)) {
+    return 'first';
+  }
+  if (first && callsOnWord(lower, first, inView, true)) {
+    // A name of two letters and a longer one ("Al Haines") has its longer one as `first`.
+    return name.toLowerCase().startsWith(first) ? 'first' : 'last';
+  }
+  return last && callsOnWord(lower, last, inView, false) ? 'last' : null;
+}
+
+/** The whole of a name as a pattern of words, any punctuation between: "josh[^a-z]+reed". Null for a name of one word. */
+function fullName(name: string): string | null {
+  const parts = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  return parts.length > 1 ? parts.join('[^a-z]+') : null;
+}
+
+/** The first word of a name, in lower case. */
+function firstWord(name: string): string {
+  return name.toLowerCase().split(/[^a-z]+/)[0] ?? '';
 }
 
 /**
@@ -179,26 +204,54 @@ export function saidTo(
   others: string[],
   nearest: boolean,
 ): SaidTo {
-  const heard = String(event.details.message ?? '');
+  const said = String(event.details.message ?? '');
   const speaker = String(event.details.speaker ?? '');
   const distance =
     typeof event.details.distance === 'number' ? event.details.distance : 99;
-
-  // Its own name is held to the same test as anyone else's: called on, not merely in the line
-  // (MEM-01). "There is a fire in the bar" is not said to Ben Fire, and "order a mop through
-  // cargo" is not said to a cargo technician.
-  if (
-    callsOn(heard, brain.name) ||
-    (!!brain.post && callsOnJob(heard, brain.job))
-  ) {
-    return { to: 'me' };
-  }
   const known = new Set([
     ...brain.peopleInView.map((person) => person.name),
     ...brain.people.keys(),
     ...others,
   ]);
   const inView = new Set(brain.peopleInView.map((person) => person.name));
+
+  // A whole name used to call on someone settles it, the longest first: "Josh Reed, come here"
+  // is not said to Josh Kim (PARSE-14). A whole name used otherwise is someone spoken of, and is
+  // cut out before the rest are tried: "Josh, have you seen Josh Reed?" calls on a Josh, not
+  // Josh Reed, and "Have you seen Josh Reed?" calls on nobody.
+  let heard = said.toLowerCase();
+  const wholeNames = [...known, brain.name]
+    .filter((name) => name !== speaker)
+    .map((name) => ({ name, whole: fullName(name) }))
+    .filter((one): one is { name: string; whole: string } => !!one.whole)
+    .sort((a, b) => b.whole.length - a.whole.length);
+  for (const { name, whole } of wholeNames) {
+    const own = name === brain.name;
+    if (callsOnWord(heard, whole, own || inView.has(name), true)) {
+      return own ? { to: 'me' } : { to: 'other', name };
+    }
+  }
+  for (const { whole } of wholeNames) {
+    heard = heard.replace(new RegExp(`\\b${whole}\\b`, 'g'), ' ');
+  }
+
+  // Its own name is held to the same test as anyone else's: called on, not merely in the line
+  // (MEM-01). "There is a fire in the bar" is not said to Ben Fire, and "order a mop through
+  // cargo" is not said to a cargo technician.
+  const byName = calledBy(heard, brain.name, true);
+  if (byName || (!!brain.post && callsOnJob(heard, brain.job))) {
+    // A first name it shares with someone else there, and no surname, is put to both of them:
+    // the nearest answers (PARSE-14).
+    const shared =
+      byName === 'first' &&
+      brain.peopleInView.some(
+        (person) =>
+          person.name !== brain.name &&
+          person.name !== speaker &&
+          firstWord(person.name) === firstWord(brain.name),
+      );
+    return { to: shared ? 'group' : 'me' };
+  }
   for (const name of known) {
     if (
       name !== brain.name &&

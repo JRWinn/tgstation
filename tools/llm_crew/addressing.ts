@@ -111,6 +111,27 @@ const cases: [string, string, string][] = [
   ['MEM-01: a technician at its post hears "is the cargo bay open"', hears('is the cargo bay open', { ...room, as: reed }), 'nobody'],
   ['MEM-01: a technician at its post hears "Cargo, open the door"', hears('Cargo, open the door', { ...room, as: reed }), 'me'],
   ['MEM-01: a technician at its post hears "the door please, technician"', hears('the door please, technician', { ...room, as: reed }), 'me'],
+  // PARSE-14: a whole name tells two of one first name apart; a first name they share is put to both.
+  ...((): [string, string, string][] => {
+    const kimP = { handle: 'p12', name: 'Josh Kim', job: 'Janitor' };
+    const kim = { name: 'Josh Kim', job: 'Janitor' };
+    const reedJ = { name: 'Josh Reed', job: 'Janitor' };
+    const two = { tiles: 4, facing: false, others: [] as string[] };
+    return [
+      ['PARSE-14: Josh Kim hears "Josh Reed, come here"', hears('Josh Reed, come here', { ...two, with: [josh], as: kim }), 'other:Josh Reed'],
+      ['PARSE-14: Josh Reed hears "Josh Reed, come here"', hears('Josh Reed, come here', { ...two, with: [kimP], as: reedJ }), 'me'],
+      ['PARSE-14: Josh Kim hears "Josh Kim, mop the bar"', hears('Josh Kim, mop the bar', { ...two, with: [josh], as: kim }), 'me'],
+      ['PARSE-14: Josh Reed hears "Josh Kim, mop the bar"', hears('Josh Kim, mop the bar', { ...two, with: [kimP], as: reedJ }), 'other:Josh Kim'],
+      ['PARSE-14: Josh Kim hears "Reed, come here"', hears('Reed, come here', { ...two, with: [josh], as: kim }), 'other:Josh Reed'],
+      ['PARSE-14: Josh Reed hears "Reed, come here"', hears('Reed, come here', { ...two, with: [kimP], as: reedJ }), 'me'],
+      ['PARSE-14: Josh Kim hears "Josh, come here" with Josh Reed there: both asked', hears('Josh, come here', { ...two, with: [josh], as: kim }), 'group'],
+      ['PARSE-14: Josh Kim, beside, hears "Have you seen Josh Reed?"', hears('Have you seen Josh Reed?', { tiles: 1, facing: true, with: [josh], as: kim, others: [] }), 'me'],
+      ['PARSE-14: Josh Reed, across the room, hears "Have you seen Josh Reed?"', hears('Have you seen Josh Reed?', { ...two, with: [kimP], as: reedJ }), 'nobody'],
+      ['PARSE-14: Al Stone hears "Al, open the door"', hears('Al, open the door', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'me'],
+      ['PARSE-14: Al Stone hears "Hey Al, come here"', hears('Hey Al, come here', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'me'],
+      ['PARSE-14: Al Stone hears "I also want it"', hears('I also want it', { ...two, with: [josh], as: { name: 'Al Stone', job: 'Janitor' } }), 'nobody'],
+    ];
+  })(),
 ];
 let failed = 0;
 for (const [label, got, want] of cases) {
