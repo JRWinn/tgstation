@@ -1033,6 +1033,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return broke_off(person_name, handle, 0)
 		if(cuffed_down)
 			return hold_arrested(person, 0, TRUE)
+		if(cuffed_by_other(person, cuffs))
+			stow_in_bag(cuffs)
+			return other_cuffs_outcome(person, handle, 0)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
 	// The baton, for someone who is still on their feet. Nobody hits someone who is down.
@@ -1071,6 +1074,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		put_baton_away(baton)
 		if(!cuffed)
 			stow_in_bag(cuffs)
+			if(cuffed_by_other(person, cuffs))
+				return other_cuffs_outcome(person, handle, hits)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, hits)
 			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (!QDELETED(person) && (person in view(CREW_NPC_VISION_RANGE, body))) ? "moved" : "lost", "hits" = hits))
@@ -1083,6 +1088,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		stow_in_bag(cuffs)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
+		if(cuffed_by_other(person, cuffs))
+			return other_cuffs_outcome(person, handle, 0)
 		if(knocked_down_itself())
 			return knocked_down_outcome(person_name, handle, 0)
 		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
@@ -1221,11 +1228,22 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				waited += 0.5 SECONDS
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person) || errand_over(serial))
 			return FALSE
+		// Only its own pair is its arrest (MULTI-01). Cuffs someone else put on while it tried are
+		// theirs: see cuffed_by_other().
 		if(!isnull(person.handcuffed))
-			return TRUE
+			return person.handcuffed == cuffs
 		if(!crew_npc_person_down(person))
 			return FALSE
 	return FALSE
+
+/// TRUE if the person is in cuffs that are not the pair the body was putting on: someone else got there first.
+/datum/ai_controller/crew_npc/proc/cuffed_by_other(mob/living/carbon/human/person, obj/item/restraints/handcuffs/cuffs)
+	return !QDELETED(person) && !isnull(person.handcuffed) && person.handcuffed != cuffs
+
+/// What an arrest comes to when someone else's cuffs went on while the body's own were coming up. Not its arrest, and no try at them.
+/datum/ai_controller/crew_npc/proc/other_cuffs_outcome(mob/living/carbon/human/person, handle, hits)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) was arresting [key_name(person)] at [AREACOORD(pawn)] when someone else put cuffs on them.")
+	return list(FALSE, "Someone else from security has put cuffs on [person.name] before you could.", list("handle" = handle, "reason" = "other_cuffs", "hits" = hits))
 
 /// Takes someone who is in cuffs by the arm. `hits` and `counted` are for the report: how many baton hits it took, and whether this is an arrest the body made.
 /datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
