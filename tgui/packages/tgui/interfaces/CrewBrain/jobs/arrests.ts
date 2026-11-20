@@ -425,7 +425,20 @@ type WarrantMore = {
   /** How many times in a row no cell would do, and why the last time: no_cell or no_power (ARR-04). */
   noCellTries?: number;
   noCellWhy?: string;
+  /** Walks through the door it asked at, found standing open, that came to nothing (ARR-06). */
+  openWalks?: number;
 };
+/** How many walks through a door found open may come to nothing before it waits as before (ARR-06). */
+const OPEN_WALKS = 3;
+
+/**
+ * TRUE if the door the body stands at, the one it wants through, is open: what its eyes tell it
+ * (ARR-06). The server sends it as at_door_open, copied to brain.atDoorOpen; until it does, this
+ * is always FALSE and nothing changes.
+ */
+function atDoorOpen(brain: NpcBrain): boolean {
+  return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
+}
 /** How many times no cell will do before whoever keeps the list is told (ARR-04). */
 const NO_CELL_TELL = 2;
 
@@ -831,6 +844,24 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   // the try is numbered so that the driver does not hold it back and send the body off on its
   // other warrant meanwhile.
   const atDoor = brain.atDoorOf === door;
+  // The door it asked at stands open now, with no crew member holding it: someone let it in by
+  // hand, as the Captain does with their own ID (ARR-06). Only the door it is standing at, and
+  // only once it has asked: a locked room's door someone else happens to open is no invitation.
+  // Numbered, so that a walk that just missed it shutting is not held back; three that came to
+  // nothing, and it waits as before.
+  const openWalks = more(warrant).openWalks ?? 0;
+  if (
+    atDoor &&
+    atDoorOpen(brain) &&
+    shut.asked.length > 0 &&
+    openWalks < OPEN_WALKS
+  ) {
+    return {
+      ready: true,
+      step: `The door into the ${door} has been opened for you, and you are going through for ${name}.`,
+      act: { tool: 'go_to', place: door, attempt: openWalks + 1 },
+    };
+  }
   const tries = shut.doorTries ?? 0;
   if (!atDoor && tries < DOOR_TRIES) {
     return {
@@ -1463,6 +1494,16 @@ export function beatAfterActing(
       }
       return;
     }
+  }
+  // A walk through the door it asked at, found open, is counted when it comes to nothing (ARR-06).
+  if (
+    warrant?.shutOut &&
+    !warrant.opened &&
+    act.tool === 'go_to' &&
+    act.attempt !== undefined
+  ) {
+    more(warrant).openWalks = ok ? 0 : (more(warrant).openWalks ?? 0) + 1;
+    return;
   }
   // A walk into a room engineering opened that came to nothing is counted.
   if (warrant?.opened && act.tool === 'go_to' && act.attempt !== undefined) {
