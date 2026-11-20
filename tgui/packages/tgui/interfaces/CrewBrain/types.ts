@@ -438,6 +438,8 @@ export type Warrant = {
   lastSeen: { place: string; at: number; by: string } | null;
   /** The sighting it last passed to its officer: the room and when. */
   passed: { place: string; at: number } | null;
+  /** The officer it was given to (MULTI-01). */
+  officer?: string;
 };
 
 /** What whoever keeps security's list knows: see jobs/desk.ts. Times are server time. */
@@ -457,8 +459,8 @@ export type DeskWork = {
       failed?: boolean;
     }
   >;
-  /** Who is in a cell, which, and when their time is up. */
-  held: Record<string, { cell: string; until: number }>;
+  /** Who is in a cell, which, and when their time is up; the officer who put them there (MULTI-01) and when (TRB-06). */
+  held: Record<string, { cell: string; until: number; by?: string; at?: number }>;
   /** Why its officer is making no arrests, if it is not: "hurt". Null while it is. */
   officerOut: string | null;
   /** How many arrests have been made on its warrants. */
@@ -485,6 +487,22 @@ export type DeskWork = {
   servedBy?: string | null;
   /** Warrants it kept in its own hands when its officer came to serve, being mid-arrest or holding them (ARR-13): given to the officer once it lets go of them. */
   keptBack?: string[];
+  /** Each word from its staff on how a warrant went, by "what|name|from|cell|why", and when it came (ARR-05). */
+  lately?: Record<string, number>;
+  /**
+   * Prisoners its officer put in a cell and has been told to let go, until it says they are free
+   * (TRB-11): the cell, when the word went, whether it was a pardon, which officer was told, and
+   * whether it has gone to do it itself.
+   */
+  toRelease?: {
+    name: string;
+    cell: string;
+    until: number;
+    pardoned: boolean;
+    at: number;
+    officer: string | null;
+    going?: boolean;
+  }[];
 };
 
 /** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */
@@ -553,6 +571,27 @@ export type BeatWarrant = {
   };
   /** Whom the server would not let it arrest (a Captain's ID), by handle, and when: passed over a while. */
   refused?: { handle: string; at: number }[];
+  /** The cell it left this warrant's person in, let go, and could not get out of past them (PLAY-01). */
+  stuckInside?: { cell: string; at: number; tries: number };
+  /** How many tries at arresting them it has made in all. It numbers each try, so the driver does not hold the next back (ARR-01). */
+  arrestAttempts?: number;
+  /** How many times in a row no cell would do, and why the last time: no_cell or no_power (ARR-04). */
+  noCellTries?: number;
+  noCellWhy?: string;
+  /** Walks through the door it asked at, found standing open, that came to nothing (ARR-06). */
+  openWalks?: number;
+  /**
+   * Its look round the room of a sighting (KNA-23): the sighting it is for (its time), which leg
+   * it is on (0 by the door it came in by, 1 walking to the middle, 2 looking from the middle),
+   * when the last leg began, and how many walks to the middle it has sent.
+   */
+  lookFor?: number;
+  lookLeg?: number;
+  lookLegAt?: number;
+  lookWalks?: number;
+  /** The door it last knocked at, asking to be let in, and whom it is asking aloud (KNA-26). */
+  knockedAt?: string;
+  sayingTo?: string;
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -564,6 +603,8 @@ export type BeatWord = {
   walkedUp?: boolean;
   soughtAt?: number;
   byPda?: boolean;
+  /** When its PDA last would not send it (ARR-05). */
+  unsent?: number;
 };
 
 /** What whoever serves warrants knows of its own work: see jobs/arrests.ts. Times are server time. */
