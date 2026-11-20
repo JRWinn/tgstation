@@ -93,6 +93,10 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 /** The words by which a head hears that a crate has been unpacked, with its number. */
 export const UNPACKED_WORDS = /crate #(\d+) is unpacked in/i;
+/** The words by which it tells its head it has given up hauling a crate. The head knows the message by them. */
+const GAVE_UP = 'I could not get crate #';
+/** The words by which a head hears that whoever it sent has given up hauling a crate, with its number (PLAY-12). */
+export const GAVE_UP_WORDS = /\bI could not get crate #(\d+) to the\b/i;
 
 function firstName(name: string): string {
   return name.split(' ')[0];
@@ -425,6 +429,31 @@ export function pickupsAfterActing(
   ok: boolean,
 ): void {
   if (task?.kind !== COLLECT) {
+    return;
+  }
+  // The haul given up on the way: the crate got away too often, or there was no way through
+  // with it. Whoever sent it is told which crate, and where it lies, so that someone else can be
+  // sent for it, and the errand is over: going back for it on top of them is two after one crate
+  // (PLAY-12). With nobody to tell, it is left to try again, as before.
+  const gaveUp = brain.gaveUp;
+  if (
+    act.tool === 'collect_crate' &&
+    !ok &&
+    gaveUp?.tool === 'collect_crate' &&
+    task.askedBy &&
+    brain.hasPda
+  ) {
+    const lies = gaveUp.leftIn ?? brain.location;
+    brain.toTell.push({
+      to: task.askedBy,
+      line: `${GAVE_UP}${task.item} to the ${task.place}. It is left in the ${lies}${gaveUp.leftIn ? ', clear of the doors' : ''}. Could you send someone else for it, please?`,
+      why: `You have given up hauling crate #${task.item}, which ${task.askedBy} sent you to collect and take to the ${task.place}: you could not get it there. You are sending ${task.askedBy} a PDA message to say where it is.`,
+      byPda: true,
+      at: Date.now(),
+    });
+    brain.gaveUp = null;
+    task.reported = true;
+    finishTask(brain, task);
     return;
   }
   if (act.tool === 'collect_crate' && ok) {
