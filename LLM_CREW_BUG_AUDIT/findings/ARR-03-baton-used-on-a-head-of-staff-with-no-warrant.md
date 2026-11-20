@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 3ee1db32f6f, 7bf567c25fc
+fixed_in: 3ee1db32f6f, 7bf567c25fc, 111a7206845
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -103,3 +103,5 @@ Commits: 7bf567c25fc, 3ee1db32f6f.
 - ARR-03 (server part): part done. An officer no longer stops a head of staff with the baton when there is no warrant: tool_arrest refuses how 'stop' on anyone crew_npc_is_command counts, with reason 'command' (crew_npc_security.dm, tool_arrest). The Captain check stays for every how. Left: Window part (jobs/arrests.ts, another worker this round): syncBeat should not open STOP when the attacker in view has command set, and should push the attacked outcome; beatAfterActing's how==='stop' branch should push attacked on reason 'captain' or 'command'; planBeat STOP should return not-ready when seen.command. Finding step 5 (whether an officer may get away from a head who keeps hitting it) is the owner's question.
 
 Round two (branch crew-bug-fixes-medium): no more code was needed. Both parts above were in round one, each by a different group, so the finding is now whole, apart from any step that waits on the owner.
+
+Round three (branch crew-bug-fixes-medium): 111a7206845. This finishes the parts left above, apart from any step that waits on the owner.

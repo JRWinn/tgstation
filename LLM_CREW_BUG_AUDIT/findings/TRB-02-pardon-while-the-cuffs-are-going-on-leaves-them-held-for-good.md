@@ -5,8 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
-fixed_in: 829851c8851
+status: fixed
+fixed_in: 829851c8851, d58b7dc2aab, 111a7206845
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -101,3 +101,5 @@ Confirmed. Severity lowered to medium: the word has to reach the officer in the 
 ## Reopened in round two (branch crew-bug-fixes-medium)
 
 The round-one fix (fixed_in above) does not cover the race this finding is about. The new simulator scenario `pardonmid` shows it: when the pardon reaches the officer while its arrest runs, dropWarrant removes the warrant, syncBeat finishes the serve task and syncTasks prunes it in the same pass, so when the arrest comes back cuffed `beatAfterActing` finds no task and the person is held for good. Being fixed in round three, in jobs/arrests.ts.
+
+Round three (branch crew-bug-fixes-medium): d58b7dc2aab. When the serve task is gone by the time the arrest answers, beatAfterActing hands it to cuffedOnNoWarrant (jobs/arrests.ts), which names the person by the task, else by the arrest handle in people in view, else by security.holding, and matches beat.dropped, so a pardoned person cuffed mid-arrest is let go. The `pardonmid` scenario passes on it and fails on the code before it.

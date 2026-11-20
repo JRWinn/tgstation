@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: c95bca71411, ac27729920e
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -81,3 +82,5 @@ Checked by Opus 5.5. The quotes match the code today. The fault stands, but only
 Commits: c95bca71411.
 
 - MAP-04: part done. free_cell now picks a free cell in /area/station/security/brig first, then any other room, with prison and execution rooms last, and the nearest within each rank. It no longer goes by name, so on Tramstation the prisoner is not walked to 'Cargo Cell' (crew_npc_security.dm, free_cell). A cell refused lately still drops behind. Left: Step 3, window plus server: when no counted cell is in the Brig (Tram), brigPlace in jobs/arrests.ts should send the officer to wait by the nearest cell's room. That needs the server to send each cell's room with security.cells, a 'room' key per cell, built where security.cells is built in crew_npc_security.dm or its senses.
+
+Round three (branch crew-bug-fixes-medium): ac27729920e. This finishes the parts left above, apart from any step that waits on the owner.

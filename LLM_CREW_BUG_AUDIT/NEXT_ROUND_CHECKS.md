@@ -223,3 +223,11 @@ Written by the fixers. Where a check greps crew_brain.log for a marker, nobody h
 - LIFE-03 (hands and link part): crew_brain.log: "working out the way" in the body's doing; no step sent while an explore or force_door is still testing routes.
 - DESK-10 (server part): game.log: "put away its" lines for janitors; crew_brain.log: no failed pick_up of a bucket before a janitor with mop and soap goes to a mess.
 - SUP-15 (step 1): game.log: "nobody can get to it" should not appear for a crate on a square; on MetaStation crates still land on all sixteen squares.
+
+## From the medium small-fix bugs, round three
+
+- TRB-02 (rest): game.log: after a pardon that reaches an officer mid-arrest, look for its "arrested" line followed by "took the cuffs off" for the same name.
+- ARR-13 (step 2): game.log: a Head of Security 'arrested' someone, followed by a 'put ... in Cell' line.
+- ARR-08 (step 3): crew_brain.log: an officer that broke off an arrest to get away, then a 'cuffed' report on that person.
+- MAP-04 (step 3): game.log on Tramstation: where an officer whose cells all refused waits; it should be a checkpoint room, not the Brig.
+- MAP-07 (step 4): crew_brain.log: a body in a room with the gravity off should be told "There is no gravity here"; game.log: how often walks are refused with the floating reason.

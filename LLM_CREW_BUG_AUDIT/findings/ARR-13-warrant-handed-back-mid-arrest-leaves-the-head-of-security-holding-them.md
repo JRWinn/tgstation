@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: 17237e81a11, 3494a7a2172
+fixed_in: 17237e81a11, 3494a7a2172, d58b7dc2aab
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

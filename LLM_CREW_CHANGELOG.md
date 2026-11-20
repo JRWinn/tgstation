@@ -284,6 +284,36 @@ The parts round one left because they needed another group's file, plus the simu
 - Left out as optional: BRAIN-03 steps 2, 4 and 5; SUP-15 steps 2 to 4; QM-05 step 3, ASYNC-07 step 4 and ARR-08 step 4 (owner questions already listed).
 - `nested` fails "the cargo technician ends at the post" now and then: two groups saw it 1 to 2 times in 5 on the base code of their files too, so it is older than this work.
 
+### Round three (two groups, branches `m3-*`, merged with no conflicts; then MAP-07 step 4 done here)
+
+What round two left: TRB-02's race, ARR-13 step 2, ARR-08 step 3, MAP-04 step 3, MAP-07 step 4 and GAP-23's one number, plus simulator scenarios for round one's security fixes. TRB-02, reopened at the round-two checkpoint, is fixed again, this time for the race. CARGO-15 was fixed in round one (4096466d87d) but its group reported it under another heading, so it is marked now.
+
+**Tested after the round-three merge (on the combined code, `5f5db05afb4`):** type check clean; lint of every changed window file and table, no new errors; all 50 tables pass (4 new); server compile to a side copy, 0 errors, 0 warnings; all 59 simulator scenarios (5 new: `pardonmid`, `headhit`, `cuffedfree`, `cuffedheld`, `twolocked`) twice each with a quiet LLM, all passing except `nested` once (see below). `pardonmid` fails on the arrests.ts from before round three, so it does catch the race.
+
+**`nested` is not a fault in the window code, and round two did not cause it.** It fails "the cargo technician ends at the post" when the clock stops while Cora is partway through one of its five-minute looks in on the Delivery Office (`jobs/rounds.ts`), about 10 s from being back. The check reads the room once, at the last second. Whether the last look lands at the end depends on the first one: when the janitor reaches the lobby before Cora sets off, the JUST_ARRIVED and LEFT_ALONE holds push every look about 40 s later. The look pattern changed with round one's JOBS-04 (81607d4716b): before it, a shuttle call the simulator always refuses blocked the rounds for the rest of the run, so Cora looked only twice; after it, the calls are put off and the looks come back. Counts, all with today's simulator: 13 failures in 32 runs on the round-two code, 8 in 30 on the round-one window code, 6 in 12 and 5 in 10 in a second count, 0 in 7 at 99f4d33dd0e. **Not changed:** a change to the check in `tools/llm_crew/sim.ts` (count a technician that set off for the Delivery Office or back to the bay in the last 40 s as at its post) passed `nested` 12 of 12 and qm, qmwait, office, crew, rounds and waiting once each in a copy. It was left for the owner, because it changes a check so that it passes. Its weakness: it would also excuse a technician that walked to the Delivery Office for some other reason in the last 40 s. Also seen: the simulator refuses `send_shuttle` while the shuttle is away, so Cora retries the call all run. What the real server does then was not checked.
+
+
+**arrests** (`m3-arrests`)
+
+- TRB-02 (rest): when a pardon or withdrawn warrant reaches the officer mid-arrest and the serve task is pruned before the answer, a cuffed answer still lets the person go. beatAfterActing hands it to the new cuffedOnNoWarrant, which names the person by the task, else by the arrest's handle in people in view, else by security.holding, then matches beat.dropped (jobs/arrests.ts).
+- ARR-13 (step 2): a cuffed answer for a warrant handed back mid-arrest that the desk still lists puts the warrant back in the holder's hands (giveWarrant, cuffedByMe, 'cuffed' outcome). It is added to DeskWork.keptBack while an officer serves, so the prisoner goes to a cell. A pardon note does not free someone the list still has. Same code path as TRB-02 (cuffedOnNoWarrant in jobs/arrests.ts).
+- ARR-08 (step 3): drive remembers an arrest (not a stop) that it sends another step over, in brain.droppedArrest {task, person, at} (driver.ts). syncBeat takes a warrant's person seen cuffed and held by nobody or by itself as its own (cuffedByMe, 'cuffed' told once) when its own arrest is still under way or was sent over less than 10 s ago (OWN_CUFFS_DS, ownArrestOf in jobs/arrests.ts).
+- MAP-04 (step 3): security_state sends room and dist with each cell (crew_npc_security.dm). With cells sent and none in a room named Brig..., brigPlace waits by the nearest known cell's room, a cell on another level last; otherwise the Brig as before (jobs/arrests.ts). The simulator's cells say Brig.
+- New simulator scenarios headhit (ARR-03), cuffedfree and cuffedheld (TRB-01), twolocked (ARR-14), each with its own checks, in tools/llm_crew/sim.ts. People in view now carry pulled_by. An arrest into a locked room across the counter fails no_way.
+
+**gravity** (`m3-gravity`)
+
+- GAP-23 (follow-on): the window keeps one number for how long a line a body may say, SAY_MAX_CHARS (200, the server's CREW_NPC_SAY_MAX_LENGTH). It is in a new leaf module, CrewBrain/limits.ts, which imports nothing. prompt.ts imports and re-exports it, so importers of prompt.ts are unchanged. jobs/reports.ts takes it from ../limits in place of its own SAY_MAX = 200, so a meeting remark is left off at the same limit fitSay cuts at. Nothing the crew does changes.
+- MAP-07 (step 4, done after the merge): the window is told when a body floats with the gravity off. ui_data sends floating = crew_npc_floating(body) (crew_brain_link.dm), ingest keeps it as brain.floating (brain.ts), and describeSituation adds "There is no gravity here: you float and cannot walk." while it is set (situation.ts). Table gravity3-floating.ts, 7 of 7. The driver still sends walks to a floating body, which the server refuses at once; the gravity group thinks it should hold them off, as it does while inHand. Not built.
+
+### Not fixed in this session (of the 131 medium small fixes: 125 fixed, 6 not)
+
+- **Wait on the owner, nothing or only part built:** DESK-03 (a dry mop and no water in sight), DESK-05 (two officers and no Head of Security), SECT-08 (a stranger says a head sent them), ARR-10 (go for the kit with the person in sight), SENSE-11 step 2a (would undo MULTI-03). Their questions are in `QUESTIONS_FOR_OWNER.md`.
+- **Larger than its label:** DOOR-06 steps 4 and 5 (step 4 is a medium change in `driver.ts`, step 5 changes `at_door_of`, `try_random_step` and `room_door_for`).
+- ARR-08 step 3's 10 s window (OWN_CUFFS_DS) is a guess. No simulator scenario sends an arrest over and then has the cuffs go on, and none has a Head of Security mid-arrest followed by "try again" (ARR-13).
+- MAP-04 step 3 was not tried on Tramstation or any map. Nobody has checked what `get_area_name` gives for Tram's checkpoint cells, or whether IceBox's brig rooms start with "Brig". The owner's question on MAP-04 still stands.
+- The new security scenarios were not run against the code from before round one, so they have not been shown to catch the faults they are for (only `pardonmid` was).
+
 ---
 
 ## 2026-11-19, from 08:30: fixes from the bug audit, worst first (branch `crew-bug-fixes`, cut from `crew-bug-audit`; one commit per finding)

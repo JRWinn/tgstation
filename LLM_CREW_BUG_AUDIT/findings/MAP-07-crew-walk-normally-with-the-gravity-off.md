@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 4317defc134, 5f5db05afb4
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -79,3 +80,5 @@ The change log (line 1039) and `LLM_CREW_PLAN_ENGINEERING.md:180` know of the gr
 Commits: 4317defc134.
 
 - MAP-07 (server part): part done. crew_npc_floating (crew_npc_motor.dm) is TRUE with no gravity and nothing within a tile to push off from (get_spacemove_backup). Buckled, pulled, thrown, flying, spacewalk or free-float bodies, and magboots through has_gravity, do not count. The crew move type's allowed_to_move refuses such a step. A walk ended that way says 'you are floating, with nothing to push off from', which writes off no room. The idle shuffle takes no step at all with no gravity. Left: Step 4: code/modules/llm_crew/crew_brain_link.dm ui_data (or crew_npc_senses.dm situation): add 'floating' = crew_npc_floating(body) (or !body.has_gravity()) to the state sent to the window, and a line in the situation text. The window (driver.ts) could hold off walks while it is set.
+
+Round three (branch crew-bug-fixes-medium): 5f5db05afb4. This finishes the parts left above, apart from any step that waits on the owner.

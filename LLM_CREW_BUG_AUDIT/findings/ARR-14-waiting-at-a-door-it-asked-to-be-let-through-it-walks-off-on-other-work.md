@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 56192170926
+fixed_in: 56192170926, 111a7206845
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

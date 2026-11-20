@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: e805fa14c20
+fixed_in: e805fa14c20, d5c8b52d56c
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain
