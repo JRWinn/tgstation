@@ -134,6 +134,11 @@ export function describeSituation(brain: NpcBrain): string[] {
   if (brain.floating) {
     lines.push('There is no gravity here: you float and cannot walk.');
   }
+  // CHEAT-15: in the dark it sees only what is right beside it, so that it can say why it has
+  // not seen what is across the room. One line, and only while it is dark.
+  if (brain.dark) {
+    lines.push('It is dark here: you see only what is right beside you.');
+  }
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
   } else if (brain.wantsOut && brain.wayOutTo) {

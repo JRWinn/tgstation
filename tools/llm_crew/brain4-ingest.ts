@@ -1,12 +1,13 @@
 // What the window makes of fields the server sends, through ingest itself (CrewBrain/brain.ts),
 // round M2: full crates aboard the shuttle (SUP-05), the door it stands at standing open (ARR-06),
 // work of its own job said to nobody in particular (PARSE-17), rooms got to only through another
-// (LOGB-05). No model is called; the brain is
+// (LOGB-05), standing in the dark (CHEAT-15). No model is called; the brain is
 // made by ingest from a body with nothing about it.
 //
 //   bun run brain4-ingest.ts
 const { ROOT, know } = await import('./fixtures');
 const B = await import(ROOT + 'brain');
+const { describeSituation } = await import(ROOT + 'situation');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -76,6 +77,16 @@ add('ARR-06: not sent: false', ingested('Central Primary Hallway', { at_door_of:
   B.ingest([body(id, 'Central Primary Hallway') as any], 150);
   add('LOGB-05: ten minutes on, the note lapses', brain.reachedThrough['Delivery Office'], undefined);
   add('LOGB-05: a newer one stands', brain.reachedThrough['Cargo Bay'], 'Cargo Lobby');
+}
+
+// ---- CHEAT-15: in the dark, one line in the situation, only while dark
+{
+  const DARK = 'It is dark here: you see only what is right beside you.';
+  const dark = ingested('Central Primary Hallway', { dark: 1 });
+  add('CHEAT-15: dark sent: read as dark', dark.dark, true);
+  add('CHEAT-15: and the situation says so, once', describeSituation(dark).filter((line: string) => line === DARK).length, 1);
+  const lit = ingested('Central Primary Hallway', {});
+  add('CHEAT-15: not sent: not dark, and no line', [lit.dark, describeSituation(lit).includes(DARK)], [false, false]);
 }
 
 let failed = 0;

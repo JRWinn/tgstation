@@ -298,6 +298,8 @@ export type Npc = {
   in_hand?: BooleanLike;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from (MAP-07). */
   floating?: BooleanLike;
+  /** TRUE when there is no light where it stands and it has no night vision: it sees only what is right beside it (CHEAT-15). */
+  dark?: BooleanLike;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
@@ -1614,6 +1616,8 @@ export type NpcBrain = {
   droppedArrest?: { task?: number; person: string; at: number } | null;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
   floating?: boolean;
+  /** TRUE while it stands in the dark, seeing only what is right beside it (CHEAT-15). */
+  dark?: boolean;
   /**
    * What the line now waiting to be said is for, when it is word for someone face to face or an
    * ask for the door (ASYNC-05, DRV-07): the step's key, the person, and the tell or the ask. The
