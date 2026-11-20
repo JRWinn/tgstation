@@ -243,6 +243,17 @@ export function takeToldWork(
   if (!kind || typeof room !== 'string' || !knowsPlace(brain, room)) {
     return null;
   }
+  // Work its job's code has just turned down is not taken on by the model's say-so, nor from the
+  // words of the line: a call to a mess it said it cannot shift (LOGA-07). The job says so
+  // through refusesWork, if it has one.
+  const refuses = (
+    jobFor(brain.job) as {
+      refusesWork?: (brain: NpcBrain, kind: string, place: string) => boolean;
+    }
+  ).refusesWork;
+  if (own && refuses?.(brain, kind, room)) {
+    return null;
+  }
   // Work in the room it is standing in is work it can see for itself. If it sees none, there is
   // none to take on; if it does, it has the task already, and this only says who is waiting on it.
   if (
