@@ -460,7 +460,10 @@ export type DeskWork = {
     }
   >;
   /** Who is in a cell, which, and when their time is up; the officer who put them there (MULTI-01) and when (TRB-06). */
-  held: Record<string, { cell: string; until: number; by?: string; at?: number }>;
+  held: Record<
+    string,
+    { cell: string; until: number; by?: string; at?: number }
+  >;
   /** Why its officer is making no arrests, if it is not: "hurt". Null while it is. */
   officerOut: string | null;
   /** How many arrests have been made on its warrants. */
