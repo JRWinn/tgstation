@@ -6,6 +6,7 @@
  * of, and to ask cargo for supplies when the code says it is time to. And with several messes it
  * could go to, it is asked which comes first (see choice.ts).
  */
+import { headOf } from '../hierarchy';
 import { allKnownItems, CARGO_LOBBY, knowsPlace } from '../memory';
 import {
   addTask,
@@ -568,6 +569,7 @@ function syncTasks(brain: NpcBrain): void {
   // been let through that door; a call done with leaves nothing behind, so the next starts with a
   // knock.
   delete brain.letInAsks[brain.location];
+  forgetWrote(brain, brain.location);
   const askingAt = new Set(
     brain.tasks
       .filter(
@@ -582,6 +584,11 @@ function syncTasks(brain: NpcBrain): void {
   for (const door of Object.keys(brain.letInAsks)) {
     if (!askingAt.has(door)) {
       delete brain.letInAsks[door];
+    }
+  }
+  for (const door of wroteNotes.get(brain)?.keys() ?? []) {
+    if (!askingAt.has(door)) {
+      forgetWrote(brain, door);
     }
   }
   for (const task of brain.tasks) {
@@ -820,7 +827,15 @@ function letInStep(
       act: { tool: 'knock' },
     };
   }
-  if (!asks.messaged && task.askedBy && brain.hasPda) {
+  // Written to already about this door, the caller is not written to again when the asking starts
+  // over: a knock, and a word to whoever has turned up.
+  const wrote = wroteAbout(brain, door);
+  if (
+    !asks.messaged &&
+    task.askedBy &&
+    brain.hasPda &&
+    !wrote.includes(task.askedBy)
+  ) {
     return {
       ready: true,
       step: `You have knocked at the door of the ${door}. You are sending ${task.askedBy}, who called you, a PDA message to say you are there.`,
@@ -847,6 +862,19 @@ function letInStep(
       // out of the room behind it, or the door of some other room, is no way in (BRAIN-03).
       sayIf: () =>
         !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door),
+    };
+  }
+  // Nobody came for the caller's word. Someone else who could open it is written to.
+  const next = nextToAsk(brain, task, door);
+  if (next) {
+    return {
+      ready: true,
+      step: `Nobody has let you into the ${door}. You are sending ${next.name} (${next.job}) a PDA message to ask to be let in.`,
+      act: {
+        tool: 'message',
+        person: next.name,
+        text: `I am at the ${which}door of the ${door} about the mess${within ? ` in the ${place}` : ''}. C${ASKING_IN.slice(1)}, please?`,
+      },
     };
   }
   if (brain.now - asks.at < LET_IN_WAIT_DS) {
@@ -886,7 +914,95 @@ function hasAsked(
   task: Task,
   asks: NpcBrain['letInAsks'][string],
 ): boolean {
-  return !!asks.knocked && (!!asks.messaged || !task.askedBy || !brain.hasPda);
+  const door = task.place ? doorFor(brain, task.place) : '';
+  return (
+    !!asks.knocked &&
+    (!!asks.messaged ||
+      !task.askedBy ||
+      !brain.hasPda ||
+      wroteAbout(brain, door).includes(task.askedBy)) &&
+    !nextToAsk(brain, task, door)
+  );
+}
+
+/** The most of the caller's workmates a janitor writes to about one door, after the caller. */
+const WORKMATES_WRITTEN_TO = 2;
+
+/**
+ * Whom each janitor has written to about each door it waits at, by the room the door is of. Kept
+ * beside the brain, as the notes on water are. It wrote only to whoever called it, eight times in
+ * thirteen minutes while that technician was in cuffs, and never to the other one (LOGB-06).
+ */
+const wroteNotes = new WeakMap<NpcBrain, Map<string, string[]>>();
+
+/** Whom this janitor has written to about the door of this room. */
+function wroteAbout(brain: NpcBrain, door: string): string[] {
+  let notes = wroteNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    wroteNotes.set(brain, notes);
+  }
+  let wrote = notes.get(door);
+  if (!wrote) {
+    wrote = [];
+    notes.set(door, wrote);
+  }
+  return wrote;
+}
+
+/** Forgets whom it wrote to about the door of this room: the call it wrote for is over. */
+function forgetWrote(brain: NpcBrain, door: string): void {
+  wroteNotes.get(brain)?.delete(door);
+}
+
+/**
+ * Who to write to next about the door it waits at, once word to whoever called it has brought
+ * nobody: one of the caller's workmates it has a PDA contact for (their doors are theirs to open),
+ * then the head of the caller's department. Each once. Null while the last word is still being
+ * waited on, or with nobody left.
+ */
+function nextToAsk(
+  brain: NpcBrain,
+  task: Task,
+  door: string,
+): { name: string; job: string } | null {
+  const asks = brain.letInAsks[door];
+  const wrote = wroteAbout(brain, door);
+  if (
+    !brain.hasPda ||
+    !task.askedBy ||
+    !asks?.knocked ||
+    !wrote.includes(task.askedBy) ||
+    brain.now - asks.at < LET_IN_WAIT_DS ||
+    brain.doorHeld
+  ) {
+    return null;
+  }
+  const callerJob = jobOf(brain, task.askedBy);
+  if (!callerJob) {
+    return null;
+  }
+  const others = brain.pdaPeople.filter(
+    (person) => person.name !== brain.name && person.name !== task.askedBy,
+  );
+  const workmates = others.filter(
+    (person) => person.job.toLowerCase() === callerJob.toLowerCase(),
+  );
+  const workmate = workmates.find((person) => !wrote.includes(person.name));
+  if (
+    workmate &&
+    workmates.filter((person) => wrote.includes(person.name)).length <
+      WORKMATES_WRITTEN_TO
+  ) {
+    return workmate;
+  }
+  const headJob = headOf(callerJob);
+  const head = headJob
+    ? others.find((person) =>
+        person.job.toLowerCase().includes(headJob.toLowerCase()),
+      )
+    : undefined;
+  return head && !wrote.includes(head.name) ? head : null;
 }
 
 /** Notes one of the things the body has done to be let into a room, and when. */
@@ -1111,6 +1227,11 @@ export const JANITOR: Job = {
     }
     if (act.tool === 'message') {
       noteAsked(brain, door, 'messaged');
+      const to = String(act.person ?? '');
+      const wrote = wroteAbout(brain, door);
+      if (to && !wrote.includes(to)) {
+        wrote.push(to);
+      }
     }
   },
   // Whoever told it of a mess hears that the mess is gone, which is true whoever cleaned it.
