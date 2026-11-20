@@ -295,6 +295,8 @@
 	// Putting a thing down is doing, not looking: not while it is stunned.
 	if(can_sense())
 		drop_disguise()
+	// A hand that stops working is felt when it happens, not the next time it reaches for something (HOLE-18).
+	note_working_hands()
 	note_place(body)
 	// In the dark it makes out only what a light falls on, and what is right beside it.
 	var/list/in_sight = crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body)
