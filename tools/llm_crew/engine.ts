@@ -156,6 +156,27 @@ said(sam, 'Ada Volt', lightLine('Sam Rees'));
 ENGINEER.syncTasks(sam);
 add('given the engine again, it tries again', [sam.engine.stuck, !!open(sam, 'light_engine')], [null, true]);
 
+// TRC-04: a step that fails for want of getting there, or of a free hand, is not the machine's fault.
+for (const [told, tries, stuck] of [
+  ['You could not get to it.', 5, 'I cannot get to the nitrogen canister'],
+  ['You have no free hand to take your wrench out with.', 5, 'my hands are full and I cannot work the nitrogen canister'],
+  ['The nitrogen canister will not connect.', 2, 'the nitrogen canister will not connect'],
+  ['You know of no such machine.', 1, 'I do not know this engine'],
+] as [string, number, string][]) {
+  const it = engineer();
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  let failed = 0;
+  for (let turn = 0; turn < 10; turn++) {
+    ENGINEER.syncTasks(it);
+    const task = open(it, 'light_engine');
+    const plan = task ? ENGINEER.plan(it, task) : null;
+    if (!task || !plan?.act) break;
+    failed++;
+    ENGINEER.afterActing(it, plan.act, task, false, false, {}, told);
+  }
+  add(`"${told}": tried ${tries} time(s), then stops with the true reason`, [failed, it.engine.stuck], [tries, stuck]);
+}
+
 // Nobody gives it the engine.
 sam = engineer(false);
 sam.now = 1300;

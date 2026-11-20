@@ -248,6 +248,40 @@ export function switchFailReason(text: string | undefined): string {
 }
 
 /**
+ * Why a work_machine step did not take, sorted from what the body was told (TRC-04): it never got
+ * to the machine or could not reach it ('unreached'), its hands were full or it had no wrench to
+ * hand ('hands'), it does not know the machine ('unknown'), or the machine itself would not take
+ * ('machine'). A reason the server gives in the result's details (`reason`) is taken first. The
+ * words are the server's, in crew_npc_hands.dm and crew_npc_machines.dm: keep them together.
+ */
+export function machineFailKind(
+  text: string | undefined,
+  reason?: unknown,
+): 'unreached' | 'hands' | 'unknown' | 'machine' {
+  if (
+    reason === 'unreached' ||
+    reason === 'hands' ||
+    reason === 'unknown' ||
+    reason === 'machine'
+  ) {
+    return reason;
+  }
+  const said = text ?? '';
+  if (/could not get to it|\bcannot reach\b/i.test(said)) {
+    return 'unreached';
+  }
+  if (/no free hand|\bno wrench\b|get your wrench out/i.test(said)) {
+    return 'hands';
+  }
+  if (
+    /know of no such machine|not a machine you know how to work/i.test(said)
+  ) {
+    return 'unknown';
+  }
+  return 'machine';
+}
+
+/**
  * The Chief Engineer's word back to an engineer who has told it something about the engine: that
  * it heard. Until this comes back the engineer has not passed its word on. The same words the
  * Quartermaster answers its technicians in: see jobs/supply.ts.
