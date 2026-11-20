@@ -82,6 +82,8 @@
 #define CREW_NPC_BUCKET_FILLS 5
 /// How long a crew NPC scrubs at one mess before giving up on it.
 #define CREW_NPC_CLEAN_TIME (8 SECONDS)
+/// How long a crew NPC watches a mess it sprayed for the puff to reach it and wash it.
+#define CREW_NPC_PUFF_TIME (1.5 SECONDS)
 /// The most containers a crew NPC looks inside in one search of a room.
 #define CREW_NPC_STORAGE_PER_SEARCH 6
 /// How long before a container, or a room's storage, is worth a second look.
