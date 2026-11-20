@@ -58,6 +58,7 @@
 //   bun run sim.ts quiet twolocked   two warrants: the monkey is in the locked Cargo Bay, Dana Reyes in the Library; the officer asks to be let into the bay and waits at its door, not walking off to Dana (ARR-14)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 //   bun run sim.ts quiet stuckcell  as the plain arrest, but the officer cannot get back out past the monkey it let go in the cell: the next jail only starts the timer, so one jailing and no second arrest (PLAY-01)
+//   bun run sim.ts quiet callme   the Captain, in the bay with no mess in sight, says "its messy in here" and then "Then ask for a janitor": the technician sends a janitor a PDA about the bay and tells the Captain whom (PLAY-10)
 //   bun run sim.ts quiet nocell   as the plain arrest, but every cell is in use: the officer takes the monkey to the Brig and waits there, and the Head of Security is told once that every cell is in use (ARR-04)
 //   bun run sim.ts quiet pdadown  as warrant on the monkey, but no PDA message of the officer's will send: after the jailing it takes its word to the Head of Security in the Security Office, face to face, and the Captain is told once (ARR-05)
 const MODE = process.argv[2] ?? 'quiet';
@@ -1290,6 +1291,15 @@ function spawnCaptainInBay() {
   players.push({ name: 'Ada Stone', job: 'Captain', room: 'Cargo Bay' });
   return crew;
 }
+// PLAY-10: a technician at its post, a janitor about the station, and the Captain in the bay, which has no mess anyone can see.
+function spawnCallMe() {
+  const crew = [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')];
+  rooms['Cargo Bay'].messes = []; rooms['Cargo Lobby'].messes = [];
+  players.push({ name: 'Ada Stone', job: 'Captain', room: 'Cargo Bay' });
+  return crew;
+}
+const CALL_ME_AT = 30;
+let callMeAt = 0;
 let captainSpokeAt = 0;
 // JOBS-06: when the Captain asked a second time.
 let askedAgainAt = 0;
@@ -1451,11 +1461,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'callme' ? spawnCallMe() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = SECURITY ? SECURITY_SECONDS : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = SECURITY ? SECURITY_SECONDS : VARIANT === 'callme' ? 240 : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 // With a Quartermaster who does not answer, the order, and the mail that comes with it, are three minutes later.
@@ -1509,6 +1519,10 @@ for (let second = 0; second < SECONDS; second++) {
   if (VARIANT === 'lost' && second === 20) playerSays('Hal Pott', 'Cora, I need to order a crate of janitorial supplies, please.');
   if ((VARIANT === 'lost' || VARIANT === 'qmlost') && !crateLostAt && second >= CRATE_LOST_AT && held[0]?.heldSince && !held[0].lost) { const gone = held[0]; gone.lost = 'it has been destroyed'; rooms['Cargo Bay'].boxes = rooms['Cargo Bay'].boxes.filter((box) => box !== gone.box); crateLostAt = clock; }
   if (VARIANT === 'lost' && crateLostAt && clock - crateLostAt === 90_000) playerSays('Hal Pott', 'Cora, I am here to collect crate 4521, please.');
+  // PLAY-10: the Captain says the bay is a mess, and then, nothing having come of it, says to ask for a janitor.
+  // Both are said with the technician at its post, in the bay beside the Captain, and not busy.
+  if (VARIANT === 'callme' && !captainSpokeAt && second >= CALL_ME_AT && bodies[0].room === 'Cargo Bay' && !bodies[0].busyText) { captainSpokeAt = clock; playerSays('Ada Stone', 'its messy in here'); }
+  if (VARIANT === 'callme' && captainSpokeAt && !callMeAt && clock - captainSpokeAt >= 10_000) { callMeAt = clock; playerSays('Ada Stone', 'Then ask for a janitor'); }
   if (VARIANT === 'orders' && second === HOP_ORDERS_AT) playerSays('Hal Pott', 'Cora, go and look at the Custodial Closet and report back to me.');
   if (VARIANT === 'orders' && second === CAPTAIN_ORDERS_AT) playerSays('Ada Stone', 'Cora, go and look at the Bar and report back to me.');
   // A head orders a crate at the counter and then leaves it sitting there. Much later it asks for it: first by a number that is no crate's, then by the right one.
@@ -1541,7 +1555,7 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'callme' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
 // With no technician aboard to order for it, the janitor with only a rag stays short.
 if (!HEADSHUT) check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
@@ -1569,6 +1583,22 @@ if (VARIANT === 'orders') {
   check('nobody asks the Captain or a head their business', !crew.some((body) => body.said.some((line) => /Ada|Hal/.test(line) && /why are you in here|out you go/i.test(line))));
 }
 // A crate left by a door is hauled clear of it, once, and the technician goes back to its post.
+if (VARIANT === 'callme') {
+  const cora = crew[0];
+  const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+  const calls = cora.log.filter((line) => line.slice(0, 8) >= clockAt(callMeAt) && / message /.test(line) && line.includes('"person":"Jan Itor"'));
+  const call = calls.find((line) => /There is a mess in the Cargo Bay/.test(line) && /Ada Stone has asked for a janitor/.test(line));
+  check('told to ask for a janitor, the technician sends one a PDA about the bay, saying the Captain asked', !!call, calls.join(' | ') || 'no message to a janitor after the order');
+  check('(the technician was in the bay both times the Captain spoke)', !!callMeAt, callMeAt ? '' : 'the Captain never spoke');
+  const callAt = call ? call.slice(0, 8) : clockAt(callMeAt);
+  const toldWhom = [...spoken.filter((line) => line.who === cora.name && clockAt(line.at) >= callAt).map((line) => line.text), ...cora.log.filter((line) => line.slice(0, 8) >= callAt && / message /.test(line) && line.includes('"person":"Ada Stone"'))];
+  check('and tells the Captain whom it sent for', toldWhom.some((line) => /Ada, about the Cargo Bay\. I have sent Jan Itor, a janitor, a PDA message/.test(line) || /About the Cargo Bay\. I have sent Jan Itor/.test(line)), toldWhom.join(' | ') || 'told nothing');
+  // Sent for on the Captain's word, the janitor is not then turned away from the bay as one nobody sent for.
+  const turnedAway = cora.log.filter((line) => / message /.test(line) && /nobody here sent for you to the Cargo Bay/.test(line));
+  check('the janitor it sent for is not turned away from the bay as one nobody sent for', turnedAway.length === 0, turnedAway.join(' | '));
+  const twice = cora.said.filter((line, index) => cora.said.indexOf(line) !== index);
+  check('it says no line twice', twice.length === 0, twice.join(' | '));
+}
 if (VARIANT === 'bydoor') {
   const cora = crew[0];
   check('a crate left right by a door is hauled to a clear spot, once', stowed.length === 1 && stowed[0].startsWith('supply crate') && cora.log.filter((line) => / stow_crate/.test(line)).length === 1, stowed.join(', ') || 'it was left where it lay');
