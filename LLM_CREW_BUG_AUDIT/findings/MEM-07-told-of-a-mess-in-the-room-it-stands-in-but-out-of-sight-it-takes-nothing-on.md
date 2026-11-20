@@ -72,3 +72,11 @@ Checked by Opus 5.5. The guard quoted at `tasks.ts:205` is what the code says to
 Ran a throwaway script (bun, in the scratchpad): `janitor()` in the Central Primary Hallway with Zim Fire in view; `takeToldWork(b, 'a mess that needs cleaning', 'Central Primary Hallway', 'Zim Fire', true)` gave null, `workInWords` on the quoted line gave null, and `b.tasks` stayed empty, while the same call for the Bar gave `clean Bar emergency`. Confirmed.
 
 Then checked the proposed fix by adding the told task by hand (`addTask` with `source: 'told'`, `askedBy: 'Zim Fire'`) to a janitor that had been in the hallway 50 seconds: at the next sync the task was `done` and `wordOwed` returned Zim Fire. So step 1 on its own turns "takes nothing on" into "tells its head the mess is cleaned up", which is worse. The fix line and step 2 now say it must come with DESK-08's look-round, and effort is raised to medium for that reason. Severity medium stands.
+
+## Fix so far
+
+The janitor's side (step 2) is built with DESK-08 on branch `m-janitor`: a told CLEAN task in the room the janitor stands in is no longer closed after five seconds of standing; it walks into the middle of the room first, and if it then sees none it says "I found no mess in the X", not that it is cleaned up. The table `tools/llm_crew/janitor-lookround.ts` checks a told task in the room it has stood in for a minute stays open, owes nobody word, and plans the walk.
+
+Held, needs `tgui/packages/tgui/interfaces/CrewBrain/tasks.ts` (step 1): in `takeToldWork`, the early return
+`if (own && room === brain.location && !findTask(brain, kind, { place: room })) return null;`
+must go for the janitor. Safest: keep it for other jobs and skip it when the job cleans, i.e. add `!jobFor(brain.job).cleans &&` to its condition (other jobs have no look-round, and their own kinds in the room they stand in were not looked at). With that in, the head's order, the model's `work` and `workInWords` all give an open told task. Step 3 (a hint inside a big room, "by the Bridge") is the owner's question and not built.

@@ -53,6 +53,15 @@ const SUPPLIES_WAIT_DS = 6000;
 export const HAS_COME = 'what you asked for has come';
 /** How long (deciseconds) a janitor must be in a room it was told is messy before it can say it saw no mess. */
 const LOOK_ABOUT_DS = 50;
+/**
+ * The mess jobs it was told of for which it has walked into the middle of the room to look, or
+ * tried to, with the time it got there. Kept by the task itself, since ids are counted per brain.
+ * Standing five seconds inside the door of a room bigger than it can see is not looking about: it
+ * told the caller the mess was cleaned up, and the mess was on the far side of the Cargo Bay (DESK-08).
+ */
+const lookedRound = new WeakMap<Task, number>();
+/** The mess jobs it was told of that it finished having looked round and found no mess. */
+const foundNone = new WeakSet<Task>();
 
 /**
  * Why a mess task cannot go on: what is left there is beyond what the janitor holds, would not
@@ -139,8 +148,8 @@ function canScrub(brain: NpcBrain): boolean {
 /** What a mess task is waiting on when what is left there is what the body could not get to. */
 const UNREACHED_LEFT =
   'what is left there you could not get to, and you will try again later';
-/** The mess jobs, by the task's id, whose last clean left only what the body could not get to (the server's `unreached`). */
-const unreachedLeft = new Set<number>();
+/** The mess jobs whose last clean left only what the body could not get to (the server's `unreached`). */
+const unreachedLeft = new WeakSet<Task>();
 
 /** The mess jobs for which a janitor has begun putting its mop and bucket back, by the task's id: see changeForScrubbing. */
 const puttingBack = new Set<number>();
@@ -561,10 +570,21 @@ function syncTasks(brain: NpcBrain): void {
     }
     // A mess it saw for itself is done with once the body has seen every spot of it clean. One it
     // was only told of is done with once it has gone there, looked about, and seen none.
-    const lookedAbout =
+    // Having cleaned there, what it saw is gone, and a few seconds' look will do. Having cleaned
+    // nothing, it has walked into the middle of the room to look first (see plan).
+    const inRoom =
       brain.location === task.place &&
       brain.now - brain.inPlaceSince >= LOOK_ABOUT_DS;
-    if (task.source !== 'told' || lookedAbout) {
+    const lookedAt = lookedRound.get(task);
+    const lookedRoundIt =
+      brain.location === task.place &&
+      lookedAt !== undefined &&
+      brain.now - lookedAt >= LOOK_ABOUT_DS;
+    if (task.source !== 'told' || (inRoom && task.cleanedSome) || lookedRoundIt) {
+      if (task.source === 'told' && !task.cleanedSome) {
+        foundNone.add(task);
+      }
+      lookedRound.delete(task);
       finishTask(brain, task);
     }
   }
@@ -604,11 +624,11 @@ function syncTasks(brain: NpcBrain): void {
     // What is left there is what it could not get to, not what its tool will not shift (HAND-02):
     // tried again later, and not put down to the tool.
     const leftUnreached =
-      unreachedLeft.has(task.id) &&
+      unreachedLeft.has(task) &&
       messy.has(task.place) &&
       !workable.has(task.place);
     if (!leftUnreached) {
-      unreachedLeft.delete(task.id);
+      unreachedLeft.delete(task);
     }
     const beyondIt =
       !!brain.cleaningTool &&
@@ -787,6 +807,24 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     }
   }
   if (task.place === brain.location) {
+    const seesWork =
+      brain.cleanableMesses.length > 0 ||
+      brain.workablePlaces.includes(brain.location) ||
+      !!brain.doing?.startsWith('cleaning');
+    // Told of a mess here, and none in sight or remembered: the room may be bigger than it can see
+    // from where it stands. It walks into the middle of the room to look, once (DESK-08).
+    if (
+      !seesWork &&
+      task.source === 'told' &&
+      !brain.messPlaces.includes(brain.location) &&
+      !lookedRound.has(task)
+    ) {
+      return {
+        ready: true,
+        step: `You were told of a mess here in ${task.place}${toldBy} and see none from where you stand. You are walking into the middle of the room to look.`,
+        act: { tool: 'go_to', place: task.place, middle: true },
+      };
+    }
     // A mess it remembers further off in the room counts: the body walks over to it.
     return brain.cleanableMesses.length > 0 ||
       brain.workablePlaces.includes(brain.location) ||
@@ -796,7 +834,12 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
           step: `You are cleaning up the mess here in ${task.place}${toldBy} with your ${brain.cleaningTool}.`,
           act: { tool: 'clean' },
         }
-      : { ready: false, step: `Your ${brain.cleaningTool} will not shift it.` };
+      : {
+          ready: false,
+          step: brain.messPlaces.includes(brain.location)
+            ? `Your ${brain.cleaningTool} will not shift it.`
+            : 'There is no mess in sight here.',
+        };
   }
   if (task.via && task.place && task.place !== task.via) {
     return letInStep(brain, task, task.place, task.via);
@@ -1215,6 +1258,15 @@ export const JANITOR: Job = {
   },
   // What it has done to be let into a locked room, each thing once.
   afterActing: (brain, act, task, ok, _looped, details) => {
+    // Back from the walk into the middle of a room it was told of a mess in, got there or not.
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'go_to' &&
+      act.middle &&
+      act.place === task.place
+    ) {
+      lookedRound.set(task, brain.now);
+    }
     // The soap or rag it meant to scrub with was not to be had after all: someone has taken it.
     // The mess is then one to go to with what it has, like any other, and it says what is left.
     if (
@@ -1248,9 +1300,9 @@ export const JANITOR: Job = {
     if (act.tool === 'clean') {
       const here = findTask(brain, CLEAN, { place: brain.location });
       if (here && details?.unreached) {
-        unreachedLeft.add(here.id);
+        unreachedLeft.add(here);
       } else if (here) {
-        unreachedLeft.delete(here.id);
+        unreachedLeft.delete(here);
       }
     }
     if (task?.kind !== CLEAN || !task.place || !task.via) {
@@ -1273,8 +1325,13 @@ export const JANITOR: Job = {
     }
   },
   // Whoever told it of a mess hears that the mess is gone, which is true whoever cleaned it.
+  // Told of one and having looked round and found none, it says that: the caller knows to say where.
   sayDone: (task) =>
-    task.kind === CLEAN ? `the mess in the ${task.place} is cleaned up` : null,
+    task.kind !== CLEAN
+      ? null
+      : foundNone.has(task)
+        ? `I found no mess in the ${task.place}`
+        : `the mess in the ${task.place} is cleaned up`,
   // Having asked cargo for supplies, it waits to hear. Only that line counts: anything else said
   // at the counter, a greeting or an answer, is not asking.
   afterSaying: (brain, called) => {
