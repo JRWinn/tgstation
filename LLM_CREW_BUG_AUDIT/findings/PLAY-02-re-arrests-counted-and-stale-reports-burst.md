@@ -188,3 +188,14 @@ The fix keeps the rules: no cheats, the code does the work, nothing waits on the
 This file holds two faults, the count and the stale words. They have one cause in the round but separate fixes. They can be fixed and marked one at a time.
 
 Not done: no build, no simulator, no tables. The driver order was read from the code, not run.
+
+## Fix so far
+
+Window part done on branch p-secwin (commits 1d299d8c5fa and the follow-up after it), compile, tables and simulator only, not played:
+
+- Step 5, changed: `syncTasks` in `jobs/officer.ts` drops waiting words on the same name by the table `STALE_AFTER`. "In a cell" and "let go" drop "cannot" and "lost", but not "in cuffs": having had them in cuffs stays true, and the warrant scenario checks that the Captain is told of the cuffs. "Lost" drops "in cuffs" and "cannot"; "in cuffs" drops "cannot" and "lost"; a new "cannot" drops an older one.
+- Step 6: a "cannot" on the person in `security.holding` is an emergency and goes by PDA unless the head is in sight.
+- Step 7: `deskOutcome`'s default case passes no "cannot" on for someone in `desk.held`.
+- Step 8: the words are now "no cell would take them".
+
+Left: the server's count, steps 1 to 4 (`hold_arrested` in `crew_npc_security.dm`), for the group that owns the .dm files. driver.ts was not needed.
