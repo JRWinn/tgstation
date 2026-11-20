@@ -57,6 +57,46 @@
 	return !isnull(job) && (istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF))
 
 /**
+ * The names the body's own PDA lists as the Captain or a head of staff, each with that job's title:
+ * what its messenger shows anyone who looks. Empty with no PDA on it. The job must be a head's title
+ * exactly, not merely contain one (HOLE-01).
+ */
+/datum/ai_controller/crew_npc/proc/command_on_pda()
+	var/list/heads = list()
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(isnull(own_messenger))
+		return heads
+	for(var/messenger_ref in GLOB.pda_messengers)
+		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
+		var/obj/item/modular_computer/computer = candidate?.computer
+		if(isnull(computer) || !computer.saved_identification || !computer.saved_job)
+			continue
+		var/turf/where = get_turf(computer)
+		if(isnull(where) || !is_station_level(where.z))
+			continue
+		var/datum/job/job = SSjob.get_job(computer.saved_job)
+		if(isnull(job) || !(istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF)))
+			continue
+		heads[computer.saved_identification] = computer.saved_job
+	return heads
+
+/**
+ * The job the body knows this person by as the Captain or a head of staff, or null: by the ID they
+ * wear, or, with no such ID on them, by their face, which shows their own name, being a name its
+ * PDA lists as the Captain or a head (SENSE-08). A head who has left their card in a console is
+ * still known. A hidden face is nobody's. Pass command_on_pda() when asking of many at once.
+ */
+/datum/ai_controller/crew_npc/proc/known_command_job(mob/living/carbon/human/person, list/heads)
+	var/datum/job/worn = crew_npc_job_of(person)
+	if(!isnull(worn) && (istype(worn, /datum/job/captain) || (worn.job_flags & JOB_HEAD_OF_STAFF)))
+		return worn.title
+	if(person.get_face_name() != person.real_name)
+		return null
+	if(isnull(heads))
+		heads = command_on_pda()
+	return heads[person.real_name]
+
+/**
  * Returns the job that goes with the ID this person wears, or null if it shows none. It goes by the
  * title on the card, which is what examining them shows, not by the trim it was printed with. Only
  * a title that is no job at all falls back to the trim, as before, until the owner says what such a
@@ -162,6 +202,10 @@
 		return "[person.name] has every right to be in [post_place]."
 	if(crew_npc_is_command(person))
 		return "[person.name] outranks you. You do not lay a hand on them."
+	// No head's card on them, but the face and the PDA list say who it is.
+	var/known_as = known_command_job(person)
+	if(known_as)
+		return "[person.name] is the [known_as]. You do not lay a hand on them."
 	// Someone who cannot answer has not refused to go, and someone in another's hands is not the body's to take.
 	if(crew_npc_person_down(person))
 		return "[person.name] is down and cannot walk. Someone should see to them."

@@ -306,11 +306,17 @@
 	for(var/obj/effect/decal/cleanable/mess as anything in messes_to_clean(in_sight))
 		cleanable_messes |= format_text(mess.name)
 	people_in_view = list()
+	// The heads its PDA lists, read only if someone in view wears no head's card and shows their face (SENSE-08).
+	var/list/heads_on_pda
 	for(var/mob/living/carbon/human/person in in_sight)
+		var/command = crew_npc_is_command(person)
+		if(!command && person.get_face_name() == person.real_name)
+			heads_on_pda ||= command_on_pda()
+			command = !isnull(heads_on_pda[person.real_name])
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
 		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
 		// And who has them by the arm, as anyone standing there would see: pulled_by is sent as null when nobody has, never left out.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = command, "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)
