@@ -190,6 +190,16 @@ const ordered = (b: any) => { b.asks[0].ordered = true; b.requisition = null; b.
   add('and it never goes to the counter', step(b)?.act ?? null, null);
 }
 
+// TRA-02: told to its face at the counter that its order has come in, it sends for the crate.
+const heard = (b: any, speaker: any, message: string, saidTo = 'me') => HEAD_OF_PERSONNEL.overhears(b, { seq: 1, time: '', at: b.now, kind: 'heard', text: '', details: { speaker: speaker.name, message, said_to: saidTo } });
+for (const [saidTo, want] of [['me', true], ['other', false]] as [string, boolean][]) {
+  const b = hop();
+  counter(b, 4000, [TECH], true);
+  HEAD_OF_PERSONNEL.afterSaying(b, step(b).say);
+  heard(b, TECH, 'Hop, your order has come in: crate #12 (Janitorial Supplies Crate). Send someone to the Cargo Lobby counter with the number to collect it.', saidTo);
+  add(`"your order has come in" said ${saidTo === 'me' ? 'to it' : 'to someone else'}: ${want ? '' : 'not '}sent for`, [b.pickups.map((p: any) => p.number), b.requisition === null], want ? [[12], true] : [[], false]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

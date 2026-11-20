@@ -422,6 +422,37 @@ function sendFor(
   });
 }
 
+/**
+ * Reads cargo's word that its order has come in, or that a crate of it is still waiting, by PDA or
+ * said to its face at the counter: the same words either way. Returns TRUE if the words were that.
+ * Read from a PDA message only, a crate whose PDA word was lost and that cargo told it of at the
+ * counter was never sent for (TRA-02).
+ */
+function crateWord(brain: NpcBrain, text: string): boolean {
+  // The order has come in. One of its staff is sent for each crate, by its number.
+  if (ARRIVED_WORDS.test(text)) {
+    for (const crate of cratesIn(text)) {
+      sendFor(brain, crate.number, crate.kind);
+    }
+    brain.requisition = null;
+    return true;
+  }
+  // A crate nobody has come for. Someone else is sent, unless whoever was sent has hardly had
+  // time to get there.
+  if (STILL_WAITING_WORDS.test(text)) {
+    for (const number of numbersIn(text)) {
+      sendFor(brain, number);
+    }
+    // A crate that is waiting is an order that has come in, whether or not word of that ever
+    // reached it. The order is done with: it is not asked for again as one that never came.
+    if (brain.requisition && brain.requisition.askedAt !== null) {
+      brain.requisition = null;
+    }
+    return true;
+  }
+  return false;
+}
+
 /** TRUE if the head is where it holds this meeting: in the room, or pushed out of it a moment ago, or as near as it could get. */
 function inPlace(brain: NpcBrain, meeting: Meeting): boolean {
   return stillIn(brain, meeting.room) || !!meeting.fromHere;
@@ -1474,6 +1505,15 @@ export const HEAD_OF_PERSONNEL: Job = {
     ) {
       order.heardBack = true;
     }
+    // Cargo telling it to its face that its order has come in, or that a crate is waiting: the
+    // same words as the PDA message, read the same way (TRA-02).
+    if (
+      isCargo(jobOf(brain, speaker)) &&
+      event.details.said_to === 'me' &&
+      crateWord(brain, heard)
+    ) {
+      return;
+    }
     // At the meeting: a report from one of its staff is noted, whoever's turn it is.
     const report = hearReport(brain, speaker, heard);
     if (report) {
@@ -1562,25 +1602,8 @@ export const HEAD_OF_PERSONNEL: Job = {
         return;
       }
     }
-    // The order has come in. One of its staff is sent for each crate, by its number.
-    if (isCargo(job) && ARRIVED_WORDS.test(text)) {
-      for (const crate of cratesIn(text)) {
-        sendFor(brain, crate.number, crate.kind);
-      }
-      brain.requisition = null;
-      return;
-    }
-    // A crate nobody has come for. Someone else is sent, unless whoever was sent has hardly had
-    // time to get there.
-    if (isCargo(job) && STILL_WAITING_WORDS.test(text)) {
-      for (const number of numbersIn(text)) {
-        sendFor(brain, number);
-      }
-      // A crate that is waiting is an order that has come in, whether or not word of that ever
-      // reached it. The order is done with: it is not asked for again as one that never came.
-      if (sentOrder && sentOrder.askedAt !== null) {
-        brain.requisition = null;
-      }
+    // The order has come in, or a crate of it is still waiting: see crateWord.
+    if (isCargo(job) && crateWord(brain, text)) {
       return;
     }
     // Cargo has lost crates of its order. They are not sent for any more. Unless cargo is having
