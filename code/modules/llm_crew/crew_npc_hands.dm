@@ -283,6 +283,15 @@
 
 /// Abandons the errand in progress without reporting on it. Used when the body is sent somewhere else.
 /datum/ai_controller/crew_npc/proc/cancel_errand()
+	// Its claim on a crate it set off for is given up with the errand: reached and in hand, the pull
+	// keeps workmates off it; dropped on the way, it held the crate out of everyone's count for 45 s,
+	// and the shuttle could be sent off with it aboard (SUP-05). A lost grip claims it again in go_back_for.
+	if(errand_tool == CREW_TOOL_UNLOAD || errand_tool == CREW_TOOL_STOW || errand_tool == CREW_TOOL_RECYCLE)
+		for(var/crate_ref in GLOB.crew_npc_crate_claims.Copy())
+			var/list/claim = GLOB.crew_npc_crate_claims[crate_ref]
+			var/datum/weakref/claimant_ref = length(claim) ? claim[1] : null
+			if(claimant_ref?.resolve() == src)
+				GLOB.crew_npc_crate_claims -= crate_ref
 	clean_queue = list()
 	errand_serial++
 	errand_tool = null

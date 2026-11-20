@@ -137,3 +137,5 @@ Not done (not this group's files): step 5's window half, step 6.
 Window part on branch `m-cargo` (`jobs/freight.ts` `syncFreight`; cases in `tools/llm_crew/cargo-freight.ts`; simulator rounds, crew, qmno passed; not played): the SEND task now needs `(freight.fullAboard ?? freight.toUnload) === 0`, so a full crate still aboard keeps the shuttle when the server says what is aboard. `fullAboard` is read through a cast, since `types.ts` and `brain.ts` are another group's.
 
 Held: `types.ts`, add `fullAboard?: number` to `Freight`; `brain.ts`, fill it from `npc.freight.full_aboard` where `freight` is built. Until then the old test (`toUnload`) stands. The server part is on branch `m-cargosrv`.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: step 6 built. `cancel_errand` (`crew_npc_hands.dm`), while `errand_tool` is still set to `unload`, `stow_crate` or `recycle`, drops every `GLOB.crew_npc_crate_claims` entry whose claimant is this controller.
