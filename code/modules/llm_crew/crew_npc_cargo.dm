@@ -582,7 +582,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			// Something that came on it has yet to be hauled off. Sent now, it would go back with it.
-			if(crate_to_unload())
+			if(full_crates_aboard())
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			if(shuttle.canMove())

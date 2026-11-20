@@ -257,6 +257,19 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			nearest = crate
 	return nearest
 
+/**
+ * How many crates that came in on the docked shuttle still have something in them, whoever is going
+ * for them. What is this body's to unload leaves out a crate a workmate has set off for; whether the
+ * shuttle may go does not. A workmate called away after claiming the last full crate left it out of
+ * every count, and the shuttle was sent with it aboard and sold (SUP-05).
+ */
+/datum/ai_controller/crew_npc/proc/full_crates_aboard()
+	var/count = 0
+	for(var/obj/structure/closet/crate/crate as anything in shuttle_arrivals())
+		if(!crate.anchored && !crew_npc_crate_spent(crate))
+			count++
+	return count
+
 /// Returns the crates in cargo's rooms, off the shuttle, that are not fixed in place and that nobody else has in hand.
 /datum/ai_controller/crew_npc/proc/crates_in_hand()
 	var/list/crates = list()
@@ -370,6 +383,8 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	freight_cache = list(
 		"shuttle_docked" = !isnull(docked_supply_shuttle()),
 		"to_unload" = to_unload,
+		// Every full crate that came on it, a workmate's too: while any is aboard the shuttle is not sent (SUP-05).
+		"full_aboard" = full_crates_aboard(),
 		"empties_aboard" = empties_aboard,
 		"mail_crate" = !isnull(mail_crate()),
 		"mail_for" = mail_for,
@@ -731,7 +746,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			return
 		start_errand(calling_from, CREW_TOOL_SEND, null)
 		return
-	if(supply_run_active || crate_to_unload())
+	if(supply_run_active || full_crates_aboard())
 		action_result(CREW_TOOL_SEND, FALSE, "There is still something aboard the supply shuttle that has to come off first.")
 		return
 	var/obj/machinery/computer/cargo/console = supply_console()
@@ -761,10 +776,16 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		// The shuttle will not fly with anyone aboard, or with cargo it is not allowed to carry.
 		// Which, it can see for itself: a body told only "someone or something" tried the console fifteen times.
 		return list(FALSE, "The supply shuttle will not leave: [what_bars_shuttle(shuttle) || "someone is standing aboard it, or something aboard is not allowed to travel"].")
+	// Asked again here: the walk to the console took time, and something may have come up meanwhile (SUP-05).
+	if(full_crates_aboard())
+		return list(FALSE, "There is still something aboard the supply shuttle that has to come off first.")
+	var/aboard = 0
 	var/empties = 0
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		empties++
-	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) sent the supply shuttle away with [empties] crate\s aboard.")
+		aboard++
+		if(crew_npc_crate_spent(crate))
+			empties++
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) sent the supply shuttle away with [aboard] crate\s aboard.")
 	SSshuttle.moveShuttle("cargo", "cargo_away", TRUE)
 	freight_changed()
 	return list(TRUE, "You send the supply shuttle back[empties ? " with [empties] empty crate[empties == 1 ? "" : "s"] aboard" : ""].")
