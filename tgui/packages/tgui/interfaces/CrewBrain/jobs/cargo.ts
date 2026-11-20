@@ -1341,8 +1341,15 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
 /**
  * Someone a door of the department is to be opened for: who, which room, and whether it is to let
  * them out. `beyond` is the room further in that they were sent for to, if this one is only on the way.
+ * `security` is set when they are let in as security, come about a warrant, not sent for to a mess.
  */
-type DoorWant = { name: string; room: string; out: boolean; beyond?: string };
+type DoorWant = {
+  name: string;
+  room: string;
+  out: boolean;
+  beyond?: string;
+  security?: boolean;
+};
 /** Who a door is opened for when all that is known is that someone is knocking from inside: the body finds who is standing there. */
 const SOMEONE_INSIDE = 'whoever is knocking';
 
@@ -1540,7 +1547,7 @@ function mayPass(
         '',
     )
   ) {
-    return { name, room: wanted, out: false };
+    return { name, room: wanted, out: false, security: true };
   }
   if (out || there) {
     return null;
@@ -1769,12 +1776,19 @@ function letOutFailed(
 ): boolean {
   const ask = askFrom(brain, name);
   const person = brain.peopleInView.find((seen) => seen.name === name);
-  if (!ask?.out || !person || !seenInside(brain, person)) {
-    return false;
-  }
   const unreached = /could not get to it/i.test(text ?? '');
   const key = `${brain.id}:${name}`;
   const tries = (letOutTries.get(key) ?? 0) + 1;
+  // A door to let them in that the body could not get to, the first time: someone in the way, or
+  // a crate. Their ask is kept for one more try, as one to let them out is (CARGO-04).
+  if (ask && !ask.out && unreached && tries < DOOR_TRIES) {
+    letOutTries.set(key, tries);
+    ask.after = brain.now + DOOR_RETRY_DS;
+    return true;
+  }
+  if (!ask?.out || !person || !seenInside(brain, person)) {
+    return false;
+  }
   if (unreached && tries < DOOR_TRIES) {
     letOutTries.set(key, tries);
     ask.after = brain.now + DOOR_RETRY_DS;
@@ -1949,7 +1963,9 @@ function doorSought(brain: NpcBrain): DoorWant | null {
 function doorCue(want: DoorWant): string {
   return want.out
     ? `${want.name} is inside the ${want.room} and cannot get out by themselves: the door is locked to them.`
-    : want.beyond
+    : want.security
+      ? `${want.name} is security, at the door of the ${want.room} about a warrant, and the door is locked to them.`
+      : want.beyond
       ? `${want.name} was sent for to clean up the mess in the ${want.beyond}, which is reached through the ${want.room}, and the door is locked to them.`
       : `${want.name} was sent for to clean up the mess in the ${want.room}, and the door is locked to them.`;
 }

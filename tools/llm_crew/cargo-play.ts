@@ -114,7 +114,17 @@ const asks = (b: any) => b.doorAsks.map((ask: any) => [ask.room ?? null, !!ask.b
   const b = tech([{ ...HAYDEN, place: 'Fore Port Maintenance', distance: 2 }]);
   b.doorAsks = [{ name: HAYDEN.name, at: b.now, room: 'Mining Office' }];
   CARGO.afterActing(b, { tool: 'open_door' }, addTask(b, { kind: 'door', item: HAYDEN.name, place: 'Mining Office', urgency: 'asked', source: 'own' }), false, false, {}, 'You could not get to it.');
-  add('PLAY-06: an ask to be let in that fails goes, as before', b.doorAsks.length, 0);
+  // CARGO-04: a let-in door the body could not get to is tried once more, like a let-out one.
+  add('CARGO-04: an ask to be let in whose door could not be got to is kept for one more try', [b.doorAsks.length, b.doorAsks[0]?.after - b.now], [1, 100]);
+  b.now += 120;
+  CARGO.afterActing(b, { tool: 'open_door' }, addTask(b, { kind: 'door', item: HAYDEN.name, place: 'Mining Office', urgency: 'asked', source: 'own' }), false, false, {}, 'You could not get to it.');
+  add('CARGO-04: a second time, the ask goes', b.doorAsks.length, 0);
+}
+{
+  const b = tech([{ ...HAYDEN, place: 'Fore Port Maintenance', distance: 2 }]);
+  b.doorAsks = [{ name: HAYDEN.name, at: b.now, room: 'Mining Office' }];
+  CARGO.afterActing(b, { tool: 'open_door' }, addTask(b, { kind: 'door', item: HAYDEN.name, place: 'Mining Office', urgency: 'asked', source: 'own' }), false, false, {}, 'You have no call to let Hayden Griffiths into Mining Office.');
+  add('PLAY-06: an ask to be let in that the server refuses goes, as before', b.doorAsks.length, 0);
 }
 
 // PLAY-10: an order to send for a janitor.
