@@ -165,3 +165,10 @@ Left (held, files not owned by m-doors):
 - `crew_npc_held.dm`, step 4: a `collected_by` claim lapses after 45 s with the crate not pulled (`loose_since` on the entry, checked in `crew_npc_held_crates()`).
 - `crew_npc_guarding.dm` / `crew_npc_senses.dm`, step 5: keep `in_hand_by` (weakref) in `taken_hold_of`; in `look_around`, while `world.time < in_hand_until` and `pulledby` is not that body, call `let_go_of` and clear it.
 - Simulator (`sim.ts`): an order to a janitor half way through `collect_crate`, the stand-in server answering the broken-off haul with a failed `collect_crate` ("you were called away").
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played:
+
+- `start_errand` (`crew_npc_hands.dm`) calls `break_off_haul(tool)` first, before the walk key is cleared.
+- Step 4: a `collected_by` claim lapses when the crate has had nobody pulling it for more than `CREW_NPC_CRATE_CLAIM` (45 s): `loose_since` on the entry, looked at in `crew_npc_held_crates()` (`crew_npc_held.dm`), logged "claim on it lapsed".
+- Step 5: `taken_hold_of` keeps `in_hand_by` (weakref); `check_arm_hold` (`crew_npc_guarding.dm`) looks once a second, on its own timer rather than in `look_around` (senses.dm is another group's), and on two misses in a row (the holder gone, not conscious, or no longer pulling) lets go: `let_go_of`, or the same reset when the holder is deleted. Left alone while `custody_phase` is set.
+- Still left: the simulator case (sim.ts).

@@ -246,6 +246,9 @@
 
 /// Sets the body walking to something in order to act on it. The errand leaves report back through finish_errand().
 /datum/ai_controller/crew_npc/proc/start_errand(atom/target, tool, wanted)
+	// A haul under way that this errand replaces lets go of its crate, or its person, and says so (SUP-06).
+	// Before the walk key is cleared below, or it would not be seen as under way.
+	break_off_haul(tool)
 	cancel_search()
 	clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	resting = FALSE
