@@ -159,6 +159,15 @@ const HELD_KINDS = new Set([HANDOVER, CHECK, REMIND, LOST]);
 const GIVEN = 'given_order';
 /** Word owed to the Quartermaster that a crate would not go where it was meant to. The task's item is what the crate is called. */
 const WONT_COME = 'wont_come';
+/**
+ * Word owed to the Quartermaster that an order it gave could not be placed (CARGO-03). The task's
+ * item is the order's number, `from` the Quartermaster who gave it, `found` why it could not be.
+ */
+const NOT_PLACED_TASK = 'not_placed';
+/** How long (deciseconds) it leaves word of an order not placed, having not found the Quartermaster, before it goes to tell it again. */
+const NOT_PLACED_AGAIN_DS = 1200;
+/** How long (deciseconds) word of an order not placed is kept, all told, before it is let go. */
+const NOT_PLACED_KEPT_DS = 18000;
 /** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of. */
 const WONT_COME_DS = 3000;
 /** How long (deciseconds) the shuttle and the rooms are its to see to as well, once the Quartermaster has sent it to help a workmate. */
@@ -818,6 +827,80 @@ function wontComeStep(brain: NpcBrain, task: Task): Plan {
   );
 }
 
+/** Why the console would not take an order, in the technician's words, from what the server said. */
+function notPlacedWhy(text: string): string {
+  if (/not enough money/i.test(text)) {
+    return 'There is not enough money in the cargo budget for it.';
+  }
+  if (/supply console/i.test(text)) {
+    return 'I could not find a supply console to order from.';
+  }
+  if (/could not get to/i.test(text)) {
+    return 'I could not get to the console.';
+  }
+  return 'The console would not take it.';
+}
+
+/**
+ * Keeps the word owed to the Quartermaster that an order could not be placed. It is told face to
+ * face, the way the other words are, and is done with once the Quartermaster says it has it. Not
+ * found, or not heard twice, it is left a while and taken to it again: nothing between the two of
+ * them goes by PDA, and a lost word leaves the order given in the book for the round (CARGO-03).
+ */
+function syncNotPlaced(brain: NpcBrain): void {
+  const quartermaster = quartermasterAboard(brain);
+  for (const task of brain.tasks) {
+    if (task.kind !== NOT_PLACED_TASK || task.state === 'done') {
+      continue;
+    }
+    if (
+      task.passedOn ||
+      !quartermaster ||
+      quartermaster.name !== task.from ||
+      brain.now - task.createdAt > NOT_PLACED_KEPT_DS
+    ) {
+      task.reported = true;
+      finishTask(brain, task);
+      continue;
+    }
+    blockTask(
+      task,
+      task.retryAt !== undefined && brain.now < task.retryAt
+        ? `you could not find ${task.from} to tell them, and will try again shortly`
+        : null,
+    );
+  }
+}
+
+/** What telling the Quartermaster that an order could not be placed comes down to right now. */
+function notPlacedStep(brain: NpcBrain, task: Task): Plan {
+  const by = task.from ?? '';
+  const line = `${firstName(by)}, order ${task.item} ${NOT_PLACED}. ${task.found ?? 'The console would not take it.'}`;
+  const step = tellQuartermaster(
+    brain,
+    task,
+    { name: by },
+    line,
+    `that order ${task.item}, which they gave you, could not be placed`,
+    // Never taken: once the Quartermaster has it, the task is closed and nothing more is done.
+    { tool: 'rest' },
+  );
+  if (step) {
+    return step;
+  }
+  // Not found, or twice not heard: left a while, then taken to it afresh.
+  task.byPda = false;
+  task.unheard = 0;
+  task.walkedUp = false;
+  task.knockedAt = undefined;
+  task.toldAt = undefined;
+  task.retryAt = brain.now + NOT_PLACED_AGAIN_DS;
+  return {
+    ready: false,
+    step: `You could not find ${by} to tell them that order ${task.item} could not be placed. You will try again shortly.`,
+  };
+}
+
 /** Says one of the tasks about held crates in a few words, or null if the task is not one. */
 function describeHeld(task: Task): string | null {
   if (task.kind === HANDOVER) {
@@ -924,6 +1007,7 @@ function syncTasks(brain: NpcBrain): void {
   syncFreight(brain);
   syncHeld(brain);
   syncWontCome(brain);
+  syncNotPlaced(brain);
   syncTidying(brain);
 
   // Whoever is to be let through the door has a task until the door has been opened for them.
@@ -1105,6 +1189,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind === WONT_COME) {
     return wontComeStep(brain, task);
+  }
+  if (task.kind === NOT_PLACED_TASK) {
+    return notPlacedStep(brain, task);
   }
   if (task.kind === DOOR_WATCH) {
     // Waiting, and asked for: it ranks ahead of the rest of its work, so no walk takes it off.
@@ -2046,6 +2133,9 @@ function describeTask(task: Task): string | null {
   if (task.kind === WONT_COME) {
     return `tell the Quartermaster that ${task.item} would not come`;
   }
+  if (task.kind === NOT_PLACED_TASK) {
+    return `tell the Quartermaster that order ${task.item} could not be placed`;
+  }
   return task.kind === ORDER
     ? 'see the crate you ordered through'
     : (describeHeld(task) ??
@@ -2362,13 +2452,16 @@ export const CARGO: Job = {
         given.placed = true;
       } else {
         brain.givenOrder = null;
-        brain.toTell.push({
-          to: given.by,
-          line: `${firstName(given.by)}, order ${given.n} ${NOT_PLACED}. The console would not take it.`,
-          why: `You could not place order ${given.n}, which ${given.by} gave you. You are telling ${given.by} so, face to face.`,
-          needs: new RegExp(`\\border ${given.n} ${NOT_PLACED}\\b`, 'i'),
-          at: Date.now(),
+        // Taken to the Quartermaster face to face, and said again until it says it has it: a line
+        // said once, or lost unsaid, leaves the order given in its book for the round (CARGO-03).
+        const telling = addTask(brain, {
+          kind: NOT_PLACED_TASK,
+          item: String(given.n),
+          urgency: 'asked',
+          source: 'own',
         });
+        telling.from = given.by;
+        telling.found = notPlacedWhy(String(text ?? ''));
       }
     }
     // Word of an order that has come in is passed on, or it knocked for the Quartermaster.

@@ -1993,6 +1993,9 @@ export const QUARTERMASTER: Job = {
       }
       const failed = heard.match(NOT_PLACED_WORDS);
       if (failed) {
+        // Said to its face like the rest, and answered like the rest: the technician goes on
+        // saying it until it hears this (CARGO-03).
+        heardIt();
         const order = ledger.orders.find((it) => it.n === Number(failed[1]));
         // Only from whoever has the order: from anyone else it would be given again while it is
         // being placed, and bought twice.
@@ -2001,7 +2004,13 @@ export const QUARTERMASTER: Job = {
           order.givenTo = null;
           order.pick = null;
           order.shortTold = false;
-          order.retryAt = brain.now + PLACE_AGAIN_DS;
+          // Refused for want of money, it is not sent back to the console in two minutes: the
+          // budget seldom fills that fast (CARGO-03).
+          order.retryAt =
+            brain.now +
+            (/not enough money/i.test(heard)
+              ? PLACE_AGAIN_DS * 5
+              : PLACE_AGAIN_DS);
           ledger.toWrite.push(BOOK.failed(order));
         }
         return;
