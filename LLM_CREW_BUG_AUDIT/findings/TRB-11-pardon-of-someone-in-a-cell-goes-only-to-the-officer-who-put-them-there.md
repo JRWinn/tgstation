@@ -95,3 +95,14 @@ Traced: `strike` deletes `desk.held[held]` before anything is done, sends `letGo
 One softening: an officer that is only knocked out keeps its `toFree` entry and frees the prisoner when it is up again, if the PDA line reached its brain while it was down (not checked). So for "knocked out" the pardon is late; for an officer that is dead, cuffed, jailed, without its PDA, off the station, or a player who ignores it, it is never done. The brig timer still opens the cell when the time runs out, so the harm is bounded by the sentence. Medium stands. Effort medium holds for the window-only way in step 4.
 
 Searched `LLM_CREW_CHANGELOG.md` for "pardon": the security entry (lines near 596) describes the officer doing it and lists no fallback; nothing later changes `strike`. Not run: read from the code only.
+
+## Fix so far
+
+Built on branch m-secdesk, all in `jobs/desk.ts`, by the window-only way of step 4 with the walk done by the desk rather than by `freeStep`: nothing in `arrests.ts` or the server changed.
+
+- `strike` keeps someone its officer put in a cell (`desk.held`, with who put them there) on a release list (`toRelease`: name, cell, when their time is up, pardon or not, which officer was told). Someone it put in a cell itself is left to its own `dropWarrant`, as before.
+- The Captain is answered "Captain, Dana Reyes is pardoned. Hale is letting them out." With the officer out hurt, only "Captain, Dana Reyes is pardoned.", and it goes at once.
+- A `freed` from anyone takes them off the list. Their time running out does too.
+- `syncRelease` (called from `syncDesk`): after two minutes with no "is free" (`RELEASE_WAIT_DS`), or at once with no officer fit to send, the Captain is told "Captain, Hale has not let Dana Reyes out. I am going to do it." and a `release_prisoner` task walks it to `brigPlace`. There it puts them on its own `beat.toFree`, and its own `let_go` step sends `free` from where the cell is in sight, which `tool_free` finds by `cell.occupants()` and `in_sight`.
+
+Not done: KNA-09's widening of "no officer fit to send" (an officer down or silent); until that is built, an officer that is down but still on the PDA is waited on for the two minutes first.
