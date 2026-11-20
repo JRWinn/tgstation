@@ -385,6 +385,13 @@
 	var/tool = errand_tool
 	// A cleaning job is a run of errands, one mess after another, with one report at the end.
 	var/list/messes_left = clean_queue
+	// A door it set off to open for someone and did not: only a door that opens was logged, so a round
+	// showed the asker walked out instead, with nothing to say why (PLAY-06).
+	if(tool == CREW_TOOL_DOOR && !outcome[1])
+		var/atom/door = blackboard[BB_CREW_NPC_ERRAND_TARGET]
+		var/datum/weakref/person_ref = istext(errand_item) ? handle_people[errand_item] : null
+		var/mob/living/person = person_ref?.resolve()
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) did not open [QDELETED(door) ? "the door" : "[door.name] at [AREACOORD(door)]"] for [person ? key_name(person) : "someone"]: [outcome[2]] It stands at [AREACOORD(pawn)].")
 	cancel_errand()
 	if(isnull(tool))
 		return
