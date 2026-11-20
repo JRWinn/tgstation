@@ -1705,6 +1705,11 @@ function mayPass(
  */
 function doorWanted(brain: NpcBrain): DoorWant | null {
   const want = doorSought(brain);
+  // A door it found dead a moment ago is not gone back to: it would only be found dead again
+  // (DOOR-14). Whoever wanted it has been told, and so has the head.
+  if (want && deadDoorOf(brain, want.room)) {
+    return null;
+  }
   // A door it has only just opened for them is still being held: the server holds it until they
   // are through, or for a quarter of a minute. Opening it again meanwhile is the same door opened
   // over and over, for someone who is standing talking or has been taken by the arm.
@@ -2084,6 +2089,66 @@ function doorSought(brain: NpcBrain): DoorWant | null {
   return null;
 }
 
+/** Why a door will not open, by the reason the server gives for it, as it is said (DOOR-14). */
+const DEAD_DOOR_WHY: Record<string, string> = {
+  no_power: 'it has no power',
+  bolted: 'it is bolted',
+  welded: 'it is welded shut',
+  stuck: 'it will not move',
+};
+/** How long (deciseconds) a door found dead is not gone back to. */
+const DEAD_DOOR_DS = 3000;
+/** The doors each technician found dead, by its id and the room: why, and when (server time). */
+const deadDoors = new Map<string, Record<string, { why: string; at: number }>>();
+
+/** Why the door of this room was found dead lately, or undefined. */
+function deadDoorOf(brain: NpcBrain, room: string): string | undefined {
+  const dead = deadDoors.get(brain.id)?.[room];
+  return dead && brain.now - dead.at < DEAD_DOOR_DS ? dead.why : undefined;
+}
+
+/**
+ * Notes a door of the department that will not open, and tells whoever it was for (to their face
+ * if in sight, by PDA if not) and its head by PDA, once while it is remembered. How to get it open
+ * (a crowbar, or engineering) is the owner's to decide: nothing is done about it here.
+ */
+function noteDeadDoor(brain: NpcBrain, task: Task, why: string): void {
+  const room = task.place ?? '';
+  const told = !!deadDoorOf(brain, room);
+  const rooms = deadDoors.get(brain.id) ?? {};
+  rooms[room] = { why, at: brain.now };
+  deadDoors.set(brain.id, rooms);
+  if (told) {
+    return;
+  }
+  const name = task.item && task.item !== SOMEONE_INSIDE ? task.item : null;
+  const way = task.out ? 'out' : 'in';
+  const head =
+    quartermasterAboard(brain)?.name ??
+    [...brain.peopleInView, ...brain.pdaPeople].find((person) =>
+      /head of personnel/i.test(person.job),
+    )?.name;
+  const inSight = !!name && brain.peopleInView.some((p) => p.name === name);
+  if (name && (inSight || brain.hasPda)) {
+    brain.toTell.push({
+      to: name,
+      line: `${firstName(name)}, the door of the ${room} will not open: ${why}. I cannot let you ${way} that way.${head ? ` I have told ${head}.` : ''}`,
+      why: `You went to open the door of the ${room} for ${name}, and it will not open: ${why}. You are telling them.`,
+      byPda: !inSight,
+      at: Date.now(),
+    });
+  }
+  if (head && head !== brain.name && brain.hasPda) {
+    brain.toTell.push({
+      to: head,
+      line: `The door of the ${room} will not open: ${why}.${name ? ` ${name} is ${task.out ? 'shut inside' : 'waiting to be let in'}, and I cannot let them ${way}.` : ''}`,
+      why: `The door of the ${room} will not open: ${why}. You are telling ${head}, your head, so that it can be seen to.`,
+      byPda: true,
+      at: Date.now(),
+    });
+  }
+}
+
 /** Says why someone is being let through a door, for the step and for what the LLM is told. */
 function doorCue(want: DoorWant): string {
   return want.out
@@ -2100,6 +2165,20 @@ function listed(names: string[]): string {
   return names.length < 2
     ? names.join('')
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * TRUE if a workmate at the post has called a janitor to this room lately. The server lists the
+ * rooms (`workmate_called_rooms`, "" for a call that named none); until the window is given that
+ * list, any call by a workmate counts, as before (MULTI-06).
+ */
+function workmateCalledFor(brain: NpcBrain, place: string): boolean {
+  const rooms = (brain as { workmateCalledRooms?: string[] })
+    .workmateCalledRooms;
+  if (!Array.isArray(rooms)) {
+    return brain.workmateCalled;
+  }
+  return rooms.includes(place) || rooms.includes('');
 }
 
 /**
@@ -2174,7 +2253,7 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // One call from a post is enough. Whoever is slower to it leaves it a while longer when a
   // workmate has sent for a janitor already.
   if (
-    brain.workmateCalled ||
+    workmateCalledFor(brain, place) ||
     brain.now - task.createdAt < NOTICE_DS + stagger(brain, CALL_STAGGER_DS)
   ) {
     return {
@@ -2253,6 +2332,9 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     act: {
       tool: 'message',
       person: janitor,
+      // The room the call is for, so that the server notes a janitor called to it, and only to
+      // it: a mail notice to a janitor is not a call (MULTI-06).
+      call_for: place,
       // What it wants is passed on only if whoever tried it said so. Otherwise the next janitor is
       // asked to come and try: what beat the first may have been only what it had in its hand.
       text: !tried
@@ -2780,6 +2862,15 @@ export const CARGO: Job = {
       }
       if (brain.knockAt?.room === task.place) {
         brain.knockAt = null;
+      }
+      // A door that will not open for anyone: no power, bolted, welded or stuck. It is
+      // remembered a while, and whoever wanted it and the head are told, once (DOOR-14).
+      const deadWhy =
+        !ok && typeof details?.reason === 'string'
+          ? DEAD_DOOR_WHY[details.reason]
+          : undefined;
+      if (deadWhy && task.place) {
+        noteDeadDoor(brain, task, deadWhy);
       }
       // A let-out the body is told is for someone not in that room: they are not in there, though
       // the department's list has them inside. Struck, so that the door is not tried for them every

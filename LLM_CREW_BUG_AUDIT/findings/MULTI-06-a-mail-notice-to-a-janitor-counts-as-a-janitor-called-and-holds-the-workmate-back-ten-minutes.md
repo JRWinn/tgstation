@@ -94,3 +94,5 @@ Held:
 - Window (steps 0, 1, 3): `tidyStep` (`jobs/cargo.ts`) adds `call_for: task.place` to its message act, and holds back only when `task.place` is in `workmate_called_rooms` (or `""` is, for a call from an old server path); step 0's stopgap if wanted. `types.ts`: `workmate_called_rooms?: string[]`.
 - Simulator (`sim.ts:725` and `:1196`): note a call only for a message with `call_for`, per room, and send `workmate_called_rooms`.
 Compile only; not played.
+
+Round M2 (group g-cargo): window step 1 and 3 in `jobs/cargo.ts`. `tidyStep`'s message act carries `call_for: <room>`; it holds back for a workmate's call only when the room (or "") is in `brain.workmateCalledRooms` (`workmateCalledFor`), read through a cast; while that is not set it goes by `workmateCalled` as before. Table cases in `tools/llm_crew/cargo-deaddoor.ts`. Held: `brain.ts` ingest `brain.workmateCalledRooms = npc.workmate_called_rooms` (and `types.ts`: `workmate_called_rooms?: string[]` on the npc data, `workmateCalledRooms?: string[]` on the brain); until then the window cannot see the list. The server side (`tool_message` taking `call_for`) is g-srv-a/g-srv-b's this round.
