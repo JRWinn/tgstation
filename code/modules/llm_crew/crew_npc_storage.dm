@@ -92,6 +92,17 @@
 	if(tool)
 		action_result(tool, FALSE, "You could not finish looking through the storage.")
 
+/**
+ * Moves a search on past a container that was deleted while the body walked to it or looked in it:
+ * the tree dropped the look, and nothing else would (RT-02). `set_at` is the storage_target_at of
+ * that container. See sig_remove_from_blackboard().
+ */
+/datum/ai_controller/crew_npc/proc/storage_target_gone(set_at)
+	if(QDELETED(src) || isnull(search_tool) || storage_target_at != set_at || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) lost a container it was going to look in: it was gone. Moving the search on.")
+	next_storage()
+
 /// Ends the search and tells the brain how it went.
 /datum/ai_controller/crew_npc/proc/finish_search()
 	clear_blackboard_key(BB_CREW_NPC_STORAGE_TARGET)

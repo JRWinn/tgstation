@@ -505,6 +505,9 @@
 	else if(outcome[1])
 		cleaned_count++
 		work_cleaned++
+	// The mess went before it got there (RT-02): neither cleaned by it nor beyond it.
+	else if(isnull(outcome[1]))
+		pass()
 	else
 		// The first failure of a job: any count left from a job broken off before it is not this one's.
 		if(!clean_failed_count)
@@ -584,6 +587,34 @@
 	// unless the body has been given something else to do in the meantime.
 	if(!QDELETED(crew_controller) && crew_controller.errand_serial == serial)
 		crew_controller.finish_errand(outcome)
+
+/**
+ * Something the blackboard held has been deleted. The errand's or the search's target going while the
+ * body walks to it clears its key, the tree drops the whole branch, and nothing in it runs to close the
+ * errand off: the brain heard nothing, the rest of a cleaning job was dropped, and errand_tool stayed
+ * set (RT-02). So it is noted here, and seen to a moment later, once the tree has reset itself.
+ * A signal handler: it must not sleep.
+ */
+/datum/ai_controller/crew_npc/sig_remove_from_blackboard(datum/source)
+	var/lost_errand = blackboard[BB_CREW_NPC_ERRAND_TARGET] == source
+	var/lost_storage = blackboard[BB_CREW_NPC_STORAGE_TARGET] == source
+	. = ..()
+	// While the errand's work runs, that work closes it off when it ends: a mess it cleans itself is deleted then.
+	if(lost_errand && errand_tool && !errand_in_flight)
+		addtimer(CALLBACK(src, PROC_REF(errand_target_gone), errand_serial), 1)
+	if(lost_storage && search_tool)
+		addtimer(CALLBACK(src, PROC_REF(storage_target_gone), storage_target_at), 1)
+
+/// Closes off an errand whose target was deleted before the body got to it, and tells the brain. See sig_remove_from_blackboard().
+/datum/ai_controller/crew_npc/proc/errand_target_gone(serial)
+	if(QDELETED(src) || errand_serial != serial || isnull(errand_tool) || errand_in_flight || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) lost the target of its [errand_tool] errand: it was gone before it got there.")
+	// A mess someone else cleaned first: on to the next, and the job reported as usual when there are none.
+	if(errand_tool == CREW_TOOL_CLEAN)
+		finish_errand(list(null, "The mess you were making for is gone."))
+		return
+	finish_errand(list(FALSE, "It is gone."))
 
 /// Gives up on an errand whose target the body could not reach.
 /datum/bt_node/ai_behavior/crew_npc_fail_errand
