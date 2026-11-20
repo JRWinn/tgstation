@@ -290,6 +290,27 @@ export function captainName(brain: NpcBrain): string | null {
   );
 }
 
+/**
+ * Crates of an order that has come in and are not yet unpacked, with room in them for more people
+ * than they were ordered for: by head, the crate numbers, what is in them and how many more they
+ * serve. Someone who asks meanwhile is put on one of these (TRA-08).
+ */
+const comingWithRoom = new WeakMap<
+  NpcBrain,
+  { numbers: number[]; what: string; room: number }[]
+>();
+
+/** Forgets the room in crates that are unpacked or lost: see comingWithRoom. */
+function dropComing(brain: NpcBrain, numbers: number[]): void {
+  const coming = comingWithRoom.get(brain);
+  if (coming) {
+    comingWithRoom.set(
+      brain,
+      coming.filter((it) => !it.numbers.some((n) => numbers.includes(n))),
+    );
+  }
+}
+
 /** Notes that one of its staff has asked for something, unless it has that noted already. */
 function noteAsk(brain: NpcBrain, who: string, at: number): void {
   if (!staff(brain).some((person) => person.name === who)) {
@@ -299,15 +320,29 @@ function noteAsk(brain: NpcBrain, who: string, at: number): void {
     return;
   }
   const supply = SUPPLIES.find((it) => it.for(jobOf(brain, who)));
-  if (supply) {
-    brain.asks.push({
-      who,
-      what: supply.what,
-      at,
-      ordered: false,
-      told: false,
-    });
+  if (!supply) {
+    return;
   }
+  const ask = { who, what: supply.what, at, ordered: false, told: false };
+  // An order in hand, or crates come in and not yet unpacked, with room in them for one more:
+  // this person is put on that, and nothing new is ordered. Ordered afresh, a second crate was
+  // bought for a need the first one coming had room for (TRA-08).
+  const order = brain.requisition;
+  const line = order?.lines.find((it) => it.crate === supply.crate);
+  if (order && line && line.people.length < line.count * supply.perCrate) {
+    line.people.push(who);
+    // Sent already: it is ordered. Not yet: it is marked so when the order goes.
+    ask.ordered = order.askedAt !== null;
+  } else {
+    const coming = comingWithRoom
+      .get(brain)
+      ?.find((it) => it.what === supply.ordered && it.room > 0);
+    if (coming) {
+      coming.room--;
+      ask.ordered = true;
+    }
+  }
+  brain.asks.push(ask);
 }
 
 /**
@@ -441,9 +476,27 @@ function sendFor(
 function crateWord(brain: NpcBrain, text: string): boolean {
   // The order has come in. One of its staff is sent for each crate, by its number.
   if (ARRIVED_WORDS.test(text)) {
-    for (const crate of cratesIn(text)) {
+    const crates = cratesIn(text);
+    for (const crate of crates) {
       sendFor(brain, crate.number, crate.kind);
     }
+    // What room is left in them is kept until they are unpacked, so that someone who asks
+    // meanwhile is put on them and not ordered for afresh (TRA-08).
+    const order = brain.requisition;
+    const coming = (comingWithRoom.get(brain) ?? []).filter(
+      (it) => !it.numbers.some((n) => crates.some((c) => c.number === n)),
+    );
+    for (const line of order?.lines ?? []) {
+      const supply = SUPPLIES.find((it) => it.crate === line.crate);
+      const room = (supply?.perCrate ?? 1) * line.count - line.people.length;
+      const numbers = crates
+        .filter((crate) => !crate.kind || crate.kind === line.crate)
+        .map((crate) => crate.number);
+      if (room > 0 && numbers.length > 0) {
+        coming.push({ numbers, what: line.what, room });
+      }
+    }
+    comingWithRoom.set(brain, coming);
     brain.requisition = null;
     return true;
   }
@@ -1637,6 +1690,7 @@ export const HEAD_OF_PERSONNEL: Job = {
     const lost = isCargo(job) ? text.match(LOST_WORDS) : null;
     if (lost) {
       const numbers = numbersIn(lost[1]);
+      dropComing(brain, numbers);
       const kind = lost[1].match(/\(([^)]+)\)/)?.[1];
       const lostWhat = brain.pickups
         .filter((pickup) => numbers.includes(pickup.number))
@@ -1698,6 +1752,8 @@ export const HEAD_OF_PERSONNEL: Job = {
     if (unpacked) {
       const number = Number(unpacked[1]);
       const pickup = brain.pickups.find((it) => it.number === number);
+      // The room in it is used now: those told below are served from it.
+      dropComing(brain, [number]);
       const room =
         placeNamedIn(brain, text.toLowerCase()) ??
         pickup?.room ??

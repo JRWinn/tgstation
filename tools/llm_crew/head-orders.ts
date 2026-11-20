@@ -223,6 +223,37 @@ for (const [line, saidTo, want] of [
   add('order sent by PDA: a technician\'s word is not its Noted', b.requisition.heardBack, false);
 }
 
+// TRA-08: someone who asks while a crate with room for them is coming is put on it.
+const MO = { name: 'Mo Mopp', job: 'Janitor' };
+const CAL = { name: 'Cal Clean', job: 'Janitor' };
+{
+  const b = hop([CAPTAIN, JAN, MO, CAL]);
+  counter(b, 4000, [TECH], true);
+  HEAD_OF_PERSONNEL.afterSaying(b, step(b).say);
+  heard(b, TECH, 'Of course, Hop.');
+  HEAD_OF_PERSONNEL.readsMessage(b, MO.name, 'Hop, I need something to clean with for my work. Could you get it ordered, please?', b.now, 'Janitor');
+  add('a second asker while the order is out: put on it', [b.requisition.lines[0].people, b.asks.find((a: any) => a.who === MO.name)?.ordered], [[JAN.name, MO.name], true]);
+  HEAD_OF_PERSONNEL.readsMessage(b, TECH.name, 'Hop, your order has come in: crate #12 (Janitorial Supplies Crate). Send someone to the Cargo Lobby counter with the number to collect it.', b.now, 'Cargo Technician');
+  b.now += 10;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('no second order once it has come in', b.requisition, null);
+  HEAD_OF_PERSONNEL.readsMessage(b, CAL.name, 'Hop, I need something to clean with for my work. Could you get it ordered, please?', b.now, 'Janitor');
+  b.now += 10;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('a third, with no room left in the crate: ordered for', b.requisition?.lines?.[0]?.people, [CAL.name]);
+}
+{
+  const b = hop([CAPTAIN, JAN, MO]);
+  counter(b, 4000, [TECH], true);
+  HEAD_OF_PERSONNEL.afterSaying(b, step(b).say);
+  heard(b, TECH, 'Of course, Hop.');
+  HEAD_OF_PERSONNEL.readsMessage(b, TECH.name, 'Hop, your order has come in: crate #12 (Janitorial Supplies Crate). Send someone to the Cargo Lobby counter with the number to collect it.', b.now, 'Cargo Technician');
+  HEAD_OF_PERSONNEL.readsMessage(b, MO.name, 'Hop, I need something to clean with for my work. Could you get it ordered, please?', b.now, 'Janitor');
+  b.now += 10;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('asked after the crate came in, before it is unpacked: put on it, nothing ordered', [b.requisition, b.asks.find((a: any) => a.who === MO.name)?.ordered], [null, true]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
