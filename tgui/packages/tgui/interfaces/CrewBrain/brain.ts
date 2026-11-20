@@ -89,6 +89,11 @@ const SAID_LATELY_KEPT = 8;
 const SAID_LATELY_MS = 600000;
 /** How much of a line's wording has to match an earlier one for it to be the same line over again. */
 const SAME_LINE_SHARE = 0.6;
+/** An answer the same as one said this recently (milliseconds), by this much of its wording, is not said again (PLAY-10). */
+const REPEAT_MS = 60000;
+const REPEAT_SHARE = 0.9;
+/** Words (of more than three letters) a line needs before it can count as said again: short answers are said as often as asked. */
+const REPEAT_MIN_WORDS = 4;
 /** The most lines of events kept waiting for the next time the LLM is asked. */
 const PENDING_MAX_LINES = 30;
 /**
@@ -769,6 +774,11 @@ export function ingest(npcs: Npc[], now: number): void {
               ? event.details.left_in
               : null,
           at: event.at,
+          // PLAY-12: where the crate itself lies, so the job can tell its head where to find it.
+          liesIn:
+            typeof event.details.lies_in === 'string'
+              ? event.details.lies_in
+              : null,
         };
       }
       // Someone has hit it, shoved it or taken hold of it. Only security staff are told, for now.
@@ -923,6 +933,27 @@ function saidBefore(brain: NpcBrain, text: string): boolean {
     const before = gist(said.text);
     const shared = [...words].filter((word) => before.has(word)).length;
     return shared / Math.min(words.size, before.size || 1) >= SAME_LINE_SHARE;
+  });
+}
+
+/**
+ * TRUE if an answer is, all but word for word, a line the NPC said within the last minute (PLAY-10).
+ * An answer is let through what a remark is not, but the same refusal given twice to the same ask
+ * is a broken record. The test is tighter than saidBefore's: nearly every word, both ways, and a
+ * line long enough to be more than "Yes, sir".
+ */
+function saidJustNow(brain: NpcBrain, text: string): boolean {
+  const words = gist(text);
+  if (words.size < REPEAT_MIN_WORDS) {
+    return false;
+  }
+  return brain.saidLately.some((said) => {
+    if (Date.now() - said.at > REPEAT_MS) {
+      return false;
+    }
+    const before = gist(said.text);
+    const shared = [...words].filter((word) => before.has(word)).length;
+    return shared / Math.max(words.size, before.size) >= REPEAT_SHARE;
   });
 }
 
@@ -1748,6 +1779,15 @@ async function think(brain: NpcBrain): Promise<void> {
         unanswered = true;
         return false;
       }
+      // Nor is an answer said that it gave word for word a moment ago (PLAY-10). It is not asked
+      // again: a model that gives the same line twice would give it a third time. The plain line
+      // its work calls for, if any, is said in its place below.
+      if (speakers.length > 0 && saidJustNow(brain, text)) {
+        decision.calls.push(
+          `say(${JSON.stringify(text)}) [said word for word just now: not said]`,
+        );
+        return false;
+      }
       return !(
         alone ||
         (dropped && speakers.length === 0) ||
@@ -2093,6 +2133,9 @@ function logDecision(
     error: decision.error ?? '',
     ms: decision.ms,
     tokens: decision.promptTokens ?? 0,
+    // PLAY-07: what the code did with the reply (a line held back, an order made out from talk,
+    // a call dropped), so the log says what was done and not only what the model wrote.
+    calls: decision.calls.join(NEWLINE),
   };
   setTimeout(() => send?.('brain_log', record), LOG_SEND_GAP_MS);
 }

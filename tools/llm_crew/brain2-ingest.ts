@@ -68,6 +68,18 @@ const fresh = (location: string) => {
   add('CHK-07: walking at the last update (round one): not still in the bay', brain.leftPlace, null);
 }
 
+// ---- PLAY-12 (brain part): a haul given up on keeps where the crate lies, when the server says
+{
+  const { id, brain } = fresh('Central Primary Hallway');
+  B.ingest([body(id, 'Central Primary Hallway', [event('action_result', { tool: 'collect_crate', ok: 0, gave_up: 1, number: 2, lies_in: 'Central Primary Hallway' })]) as any], 200);
+  add('PLAY-12: a collect given up on: what and where it lies', [brain.gaveUp?.tool, brain.gaveUp?.what, brain.gaveUp?.liesIn], ['collect_crate', 'crate #2', 'Central Primary Hallway']);
+}
+{
+  const { id, brain } = fresh('Central Primary Hallway');
+  B.ingest([body(id, 'Central Primary Hallway', [event('action_result', { tool: 'collect_crate', ok: 0, gave_up: 1, number: 2 })]) as any], 200);
+  add('PLAY-12: a server that does not say where it lies: liesIn null', brain.gaveUp?.liesIn, null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
