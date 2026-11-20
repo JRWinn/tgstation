@@ -500,7 +500,9 @@
 		if(CREW_NPC_SECURITY_TOOL(tool))
 			details = security_details(tool, outcome)
 		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
-		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
+		// A door that would not open says why (welded, bolted, no_power, no_access, fire_doors, stuck),
+		// so the window can tell a dead door from one it could not get to (DOOR-14).
+		else if((tool == CREW_TOOL_RESET_ALARM || tool == CREW_TOOL_DOOR) && length(outcome) >= 3 && islist(outcome[3]))
 			details = outcome[3]
 		// A machine that did not end as asked says why: a walk that came to nothing and a full hand are
 		// not the machine's fault, and the engineer stopped lighting the engine over them (TRC-04).
