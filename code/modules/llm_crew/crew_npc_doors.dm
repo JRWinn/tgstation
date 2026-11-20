@@ -412,6 +412,13 @@
 		return null
 	return wanted_door_place
 
+/// TRUE if the door the body is standing at, wanting through, stands open just now: it can see that from beside it.
+/datum/ai_controller/crew_npc/proc/wanted_door_open()
+	if(isnull(at_door_of()))
+		return FALSE
+	var/obj/machinery/door/airlock/door = wanted_door?.resolve()
+	return !QDELETED(door) && !door.density
+
 /// TRUE if this route goes through an airlock that does not open to the body's ID: one that is standing open just now.
 /datum/ai_controller/crew_npc/proc/route_by_open_door(list/route)
 	var/mob/living/carbon/human/body = pawn

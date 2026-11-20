@@ -245,6 +245,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"at_door_of" = npc.at_door_of(),
 			// What that door is called, to tell it from the room's other doors.
 			"at_door_label" = npc.at_door_label(),
+			// That door stands open just now, so it can walk through.
+			"at_door_open" = npc.wanted_door_open(),
 			// It is standing in a doorway or right beside a door, in the way of anyone coming through.
 			"in_doorway" = !crew_npc_clear_of_doors(body) || npc.on_top_of_someone(),
 			"grenade_messes" = npc.grenade_messes,
