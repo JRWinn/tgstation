@@ -543,7 +543,7 @@ function cratesWritten(numbers: number[]): string {
 /**
  * The held crate someone at the counter means. It goes by the number they gave. With no number, or
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
- * that name, and for a head their job will do as well. With no number given, the one crate held
+ * that name, and the name alone: not their job. With no number given, the one crate held
  * for whoever is asking comes first: "I'm here for my crate" from the one it is for (CARGO-08).
  * With several held for them and no number, it does not pick: they are asked which.
  */
@@ -571,13 +571,13 @@ function crateMeant(
     new RegExp(`\\b${words.toLowerCase().replace(/[^a-z0-9 ]/g, '.')}\\b`).test(
       said,
     );
+  // By the name on it, not by a job: a job is not written on the label, and anyone at all can say
+  // "for the Head of Personnel" (TRUST-04).
   return brain.heldCrates.find((crate) => {
     if (!crate.for || crate.out || crate.takenBy) {
       return false;
     }
-    const job =
-      brain.pdaPeople.find((person) => person.name === crate.for)?.job ?? '';
-    return says(crate.for) || says(firstName(crate.for)) || says(job);
+    return says(crate.for) || says(firstName(crate.for));
   });
 }
 

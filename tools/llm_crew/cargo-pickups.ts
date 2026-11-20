@@ -91,6 +91,17 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('asked of Maria, who is standing there: left to her', said(false), null);
   add('asked of Maria, who is lying there: taken by this one', said(true), 12);
 }
+// TRUST-04 step 3: a crate is not handed out by its owner's job, only by number or by their name.
+{
+  const ask = (said: string) => {
+    const b = tech([{ number: 37, for: 'Hop Kins' }]);
+    b.pdaPeople.push({ name: 'Hop Kins', job: 'Head of Personnel' });
+    hear(b, said);
+    return b.pickupAsked?.number ?? null;
+  };
+  add('TRUST-04: "here to collect the crate for the Head of Personnel": not by the job', ask('I am here to collect the crate for the Head of Personnel.'), null);
+  add('TRUST-04: "here to collect the crate for Hop Kins": by the name, as before', ask('I am here to collect the crate for Hop Kins.'), 37);
+}
 // CARGO-15: an order that says who will come for it is an order.
 {
   const { comeForCrate } = await import(ROOT + 'jobs/pickups');
