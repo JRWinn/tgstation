@@ -1132,18 +1132,21 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
     ? people.filter((person) => !meeting.invited.includes(person.name))
     : [];
   if (uncalled.length > 0) {
-    const nearest = uncalled
+    const seen = uncalled
       .map((person) =>
-        brain.peopleInView.find((seen) => seen.name === person.name),
+        brain.peopleInView.find((it) => it.name === person.name),
       )
-      // Only those in the meeting room or a doorway of it. Walking up to one in the next room
-      // took the head out of its own meeting, and it held it from the lobby (LOGA-06). Anyone
-      // else is called by PDA, or once they come in.
-      .filter(
-        (seen): seen is PersonInView =>
-          !!seen && (seen.place === undefined || seen.place === room),
-      )
-      .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))[0];
+      .filter((it): it is PersonInView => !!it)
+      .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    // Walked up to: only those in the meeting room or a doorway of it. Walking up to one in the
+    // next room took the head out of its own meeting, and it held it from the lobby (LOGA-06).
+    // Anyone in sight elsewhere is called aloud from inside the room, and counts as called once
+    // the call has been made twice (meetingSaid). Not by PDA: a head that calls its staff aloud
+    // sends a PDA call only to those it cannot see.
+    const nearest = seen.find(
+      (it) => it.place === undefined || it.place === room,
+    );
+    const inSight = nearest ?? seen[0];
     if (
       nearest &&
       (nearest.distance ?? 0) > CALL_NEAR &&
@@ -1155,7 +1158,7 @@ export function meetStep(brain: NpcBrain, way: MeetingWay): Plan {
         act: { tool: 'approach', person: nearest.handle },
       };
     }
-    if (nearest) {
+    if (inSight) {
       const line = aloudCall(room);
       return {
         ready: true,
