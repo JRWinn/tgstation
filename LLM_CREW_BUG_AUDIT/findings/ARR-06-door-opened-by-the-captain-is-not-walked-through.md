@@ -90,3 +90,5 @@ The walk would work: `tool_go_to` (`crew_npc_tools.dm:200`) has no refusal for a
 ## Fix so far
 
 Group m-secsrv, commit 5f42cf32506 (tables only; inert until the rest lands). The window's part of step 2 in `letInStep`: at the door it asked at, having asked, with `brain.atDoorOpen` set, it sends `go_to` the room, numbered, three failed walks at most (`openWalks`). Table: `tools/llm_crew/arrests3-opendoor.ts`. Left: step 1 (`wanted_door_open()` in `crew_npc_doors.dm`, `"at_door_open"` in `crew_brain_link.dm` ui_data), `brain.atDoorOpen` in `brain.ts` and `types.ts`, `inBackoff` in `driver.ts` passing a held-back step while it is set, and step 4 (the janitor's let-in wait in `jobs/janitor.ts`).
+
+Round M2 (g-tasks): step 4, the janitor's let-in wait (`letInStep`, `jobs/janitor.ts`): at the door it asked at (knocked, messaged or said), with `brain.atDoorOpen` read through a cast, it sends `go_to` the room numbered `attempt`, three walks that came to nothing at most (counted on the letInAsks entry in `afterActing`). Table: `tools/llm_crew/janitor-letin.ts`. Inert until the server sends `at_door_open` and `brain.ts` copies it.

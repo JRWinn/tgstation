@@ -111,3 +111,5 @@ Left (held):
 - `crew_brain_link.dm` `ui_data`: `wants_bucket` uses `length(body.get_empty_held_indexes())`; use `length(npc.free_hands())`. Send `"working_hands" = npc.working_hand_count()` too, and in the window (`jobs/janitor.ts` water plan, `wants_bucket`) ask for a bucket only with two working hands (step 3, the simpler of its two choices).
 - `crew_npc_quartermaster.dm:94` loops over `get_empty_held_indexes()` to see if there is a hand free for the order book: use `free_hands()`.
 - For the event to come at the moment of the injury, `note_working_hands()` could be called from the sense tick (`crew_npc_senses.dm`), not only from hand use.
+
+Round M2 (g-tasks): the janitor's bucket step (`jobs/janitor.ts`, the CLEAN plan) needs `workingHands(brain) >= 2`, read from `brain.workingHands` through a cast, two when unset. Table: `tools/llm_crew/janitor-hands.ts`. Held: nothing copies `npc.working_hands` into the brain yet: `brain.ts` ingest needs `brain.workingHands = typeof npc.working_hands === 'number' ? npc.working_hands : 2` (and the field in `types.ts`).
