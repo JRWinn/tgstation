@@ -14,7 +14,7 @@ const HAUL = { tool: 'collect_crate', number: 7740, place: 'Custodial Closet' };
 function hauling() {
   const b: any = janitor();
   at(b, 3000, 'Central Primary Hallway', []);
-  b.doing = 'hauling crate #7740 to the Custodial Closet';
+  b.doing = 'taking crate #7740 to the Custodial Closet';
   b.lastAct = { key: 'haul', tool: 'collect_crate', at: Date.now(), act: HAUL };
   b.pdaPeople = [{ name: zim.name, job: zim.job }];
   b.summons = { by: zim.name, room: 'Bar', at: 3000, answered: false, walkUps: 0, tries: 0, wording: 0 };
