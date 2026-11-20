@@ -145,7 +145,8 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /**
  * What the brain is told of the crates being held: each one's number, who it is for, where it is
  * and how long it has waited. Cargo staff are told of all of them. Everyone else is told only of
- * those put out in the lobby, which anyone there can see.
+ * those put out in the lobby, and only while it is in the crate's room or can see it, or is the
+ * one hauling it.
  */
 /datum/ai_controller/crew_npc/proc/held_state()
 	var/list/held = list()
@@ -153,14 +154,26 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	// Looking over what is held is when one that has been lost is found to be.
 	crew_npc_held_crates()
 	write_off_lost_crates()
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	var/list/seen
 	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
 		if(!cargo && !entry.out)
 			continue
+		var/obj/structure/closet/crate/crate = entry.crate_ref.resolve()
+		// Anyone else knows of a crate put out only by being where it is: in its room, or in sight of
+		// it. A collector anywhere aboard used to set off for it the moment it was put out (JOBS-05).
+		// The one hauling it keeps it in mind wherever it has got to with it.
+		if(!cargo && entry.collected_by != body.real_name && get_area(crate) != here)
+			seen ||= view(CREW_NPC_VISION_RANGE, pawn)
+			if(!(crate in seen))
+				continue
 		held += list(list(
 			"number" = entry.number,
-			"for" = entry.for_name,
-			"what" = entry.what,
-			"place" = get_area_name(entry.crate_ref.resolve(), TRUE),
+			// What the order book at the counter says. Nobody else reads it.
+			"for" = cargo ? entry.for_name : null,
+			"what" = cargo ? entry.what : null,
+			"place" = get_area_name(crate, TRUE),
 			"out" = entry.out,
 			"taken_by" = entry.collected_by,
 			"waited" = entry.held_since ? world.time - entry.held_since : 0,
@@ -325,6 +338,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/turf/destination = middle_of(/area/station/cargo/lobby)
 	if(isnull(lobby) || isnull(destination))
 		return list(FALSE, "You do not know where to put the crate out.")
+	// Someone else has it in hand. Taking hold of it now would pull it out of their hands (MULTI-07).
+	if(crate.pulledby && crate.pulledby != body)
+		return list(FALSE, "[crate.pulledby.name] already has hold of crate #[entry.number].")
 	body.start_pulling(crate)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
@@ -394,6 +410,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/turf/destination = room ? room_middle(room) : null
 	if(isnull(destination))
 		return list(FALSE, "You do not know where to take the crate.")
+	// Someone else has it in hand. Taking hold of it now would pull it out of their hands (MULTI-07).
+	if(crate.pulledby && crate.pulledby != body)
+		return list(FALSE, "[crate.pulledby.name] already has hold of crate #[entry.number].")
 	body.start_pulling(crate)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
@@ -433,9 +452,15 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		crate_to_return = WEAKREF(hauled)
 		action_result(CREW_TOOL_COLLECT, TRUE, "You haul the [hauled_name] to [place] and unpack it there[length(names) ? ": [english_list(names)]" : ""]. The empty crate is yours to take back to cargo.", list("place" = place, "number" = entry?.number))
 		return
-	// Left where it stopped, it is still there for the taking.
-	if(entry)
-		entry.collected_by = null
 	var/list/details = list("place" = place)
+	// Left where it stopped, it is still there for the taking. Only this body's own claim is let go
+	// of: one who took it out of the body's hands has set their own, and it stands (MULTI-07).
+	if(entry && entry.collected_by == body.real_name)
+		entry.collected_by = null
+	var/mob/taker = (!QDELETED(hauled) && hauled.pulledby && hauled.pulledby != body) ? hauled.pulledby : null
+	if(taker)
+		details["held_by"] = taker.name
+		action_result(CREW_TOOL_COLLECT, FALSE, "You could not get the [hauled_name] where it was going: [taker.name] has taken hold of it. You are in [place].", details)
+		return
 	var/blocker = in_the_way_report(hauled, details)
 	action_result(CREW_TOOL_COLLECT, FALSE, "You could not get the [hauled_name] where it was going: [reason || "you lost your grip on it"].[blocker][gave_up_report(details)] You are in [place].", details)
