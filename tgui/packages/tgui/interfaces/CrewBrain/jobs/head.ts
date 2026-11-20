@@ -227,6 +227,8 @@ function counterOf(order: Requisition): AtCounter {
   }
   return state;
 }
+/** The heads that have told the Captain they have nowhere to hold a staff meeting: said once a round (HEAD-10). */
+const noRoomTold = new WeakSet<NpcBrain>();
 /** What it has told the Captain about orders it had to put by, so that each is said once a round. */
 const parkToldCaptain = new WeakMap<NpcBrain, Set<string>>();
 
@@ -749,6 +751,31 @@ export function syncMeeting(
         orderedBy: brain.meetingOrderedBy,
       };
       brain.meetingOrderedBy = null;
+    } else {
+      // Nowhere it knows of to call its staff together. The Captain is told, once a round, and
+      // the next try is a meeting gap off. Before, the meeting was put in the Bar, behind the
+      // counter where its staff could not get in, or never called with the order to hold one
+      // left standing for good (HEAD-10). Only for a head whose room is one found for it to call
+      // its staff to by PDA: one that holds its meeting aloud holds it at its own post, and with
+      // no post it has not been set up to hold one at all.
+      const captain = captainName(brain);
+      if (
+        !way.aloud &&
+        captain &&
+        captain !== brain.name &&
+        !noRoomTold.has(brain)
+      ) {
+        noRoomTold.add(brain);
+        brain.toTell.push({
+          to: captain,
+          line: 'There is nowhere I can call my staff together, so I am not holding staff meetings.',
+          why: 'You know of no room your staff can all get into for a staff meeting. You are telling the Captain by PDA.',
+          byPda: true,
+          at: Date.now(),
+        });
+      }
+      brain.meetingOrderedBy = null;
+      brain.nextMeetingAt = brain.now + MEETING_EVERY_DS;
     }
   }
   const meeting = brain.meeting;
@@ -824,7 +851,8 @@ function meetingCallable(brain: NpcBrain): boolean {
 
 /** How the Head of Personnel holds its meeting: in a room all its staff can walk into, called by PDA. */
 const HOP_WAY: MeetingWay = {
-  // The server names a room all its staff can walk into. Failing that, the department's own.
+  // The server names a room all its staff can walk into. Failing that, the department's own, if
+  // it has one its staff can get into: the Service department has none (HEAD-10).
   room: (brain) => brain.meetingRoom ?? departmentHeadedBy(brain.job)?.meetsIn,
   aloud: false,
   firstAt: FIRST_MEETING_DS,

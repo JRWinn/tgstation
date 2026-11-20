@@ -123,6 +123,8 @@ for (const [line, want] of [
     know(hop, ['Bar Lounge', 'Bridge']);
     hop.pdaPeople = [{ name: 'Jan Itor', job: 'Janitor' }, { name: 'Cap Tain', job: 'Captain' }];
     hop.location = 'Bridge';
+    // The server names its meeting room: there is no fallback to the Bar (HEAD-10).
+    hop.meetingRoom = 'Bar Lounge';
     hop.now = 5000;
     hop.nextMeetingAt = 4000;
     hop.metOnce = true;

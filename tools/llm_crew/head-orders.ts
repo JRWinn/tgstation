@@ -223,6 +223,23 @@ for (const [line, saidTo, want] of [
   add('order sent by PDA: a technician\'s word is not its Noted', b.requisition.heardBack, false);
 }
 
+// HEAD-10: no room named by the server: no meeting in the Bar, and the Captain told once.
+{
+  const b = hop();
+  b.meetingRoom = null;
+  b.requisition = null;
+  b.asks = [];
+  b.nextMeetingAt = b.now;
+  b.meetingOrderedBy = 'Cap Tain';
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('no room: no meeting is called', b.meeting, null);
+  add('the Captain is told there is nowhere to hold one', b.toTell.filter((t: any) => /nowhere I can call my staff together/.test(t.line)).length, 1);
+  add('the order to hold one is not left standing, and the next try is a gap off', [b.meetingOrderedBy, b.nextMeetingAt > b.now], [null, true]);
+  b.now = b.nextMeetingAt + 1;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('told once only', b.toTell.filter((t: any) => /nowhere I can call my staff together/.test(t.line)).length, 1);
+}
+
 // HEAD-04: only the set asking line, outside a meeting, is an ask; at a meeting, only a report.
 for (const [line, want] of [
   ['Excuse me, Hop, could you step aside, please? I need to get this past you.', false],
