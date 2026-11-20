@@ -1436,7 +1436,19 @@ type DoorWant = {
   out: boolean;
   beyond?: string;
   security?: boolean;
+  /**
+   * TRUE for the long stop: someone the department's list has inside a room a good while, who has
+   * not asked. Nobody is at the door, so it does not stop an order being taken (CARGO-09).
+   */
+  unasked?: boolean;
 };
+/**
+ * What the body is told when a door is opened to let out someone who is not in that room: not in
+ * sight and not at its door, or not inside it at all. Whatever the department's list says, they
+ * are not in there (CARGO-09). The server will mark these `not_inside`; the words are read too.
+ */
+const NOT_INSIDE_WORDS =
+  /you cannot see that person, and they are not at the door|you have no call to let .+ into|you do not know who that is/i;
 /** Who a door is opened for when all that is known is that someone is knocking from inside: the body finds who is standing there. */
 const SOMEONE_INSIDE = 'whoever is knocking';
 
@@ -2062,7 +2074,7 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       (entry) => brain.now - entry.at > LEFT_INSIDE_DS,
     );
     if (left) {
-      return { name: left.name, room, out: true };
+      return { name: left.name, room, out: true, unasked: true };
     }
   }
   return null;
@@ -2098,7 +2110,16 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // A locked room of its department other than its post is out of everyone's sight. A janitor is
   // in there only if one was let in.
   const lockedAway = !inPost && brain.closedRooms.includes(place);
-  const letIn = brain.post ? stillInside(brain.post, place, brain.now)[0] : null;
+  // One let in is taken to be in there seeing to it only for as long as a call stands, and not
+  // once they have said it is beyond them: a janitor who left unseen kept the room from ever being
+  // called about again (CARGO-09).
+  const letIn = brain.post
+    ? stillInside(brain.post, place, brain.now).find(
+        (entry) =>
+          brain.now - entry.at < CALL_AGAIN_DS &&
+          !brain.janitorCalls[place]?.declined?.includes(entry.name),
+      )
+    : null;
   const here = lockedAway
     ? letIn
       ? { name: letIn.name }
@@ -2569,7 +2590,9 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     brain.orderable.length === 0 ||
     brain.orderPending ||
     // Someone at the door wants the door. Offered an order as well, the LLM sometimes takes it.
-    doorWanted(brain) ||
+    // Not the long stop for someone let in a while ago: nobody is at the door, and one who left
+    // unseen stopped every order at the post for the rest of the round (CARGO-09).
+    (doorWanted(brain) && !doorWanted(brain)?.unasked) ||
     // Likewise someone come to collect a crate: "I am here for crate 12" is not an order for one.
     (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS)
   ) {
@@ -2602,7 +2625,7 @@ export const CARGO: Job = {
       ? 'All that takes is a PDA message to a janitor.'
       : null,
   // A message sent about a mess is a janitor called to it.
-  afterActing: (brain, act, task, ok, _looped, _details, text) => {
+  afterActing: (brain, act, task, ok, _looped, details, text) => {
     afterFreight(brain, act, task, ok, text);
     // The order the Quartermaster gave it is placed, or could not be. Either way it is done with
     // here: one that could not be placed goes back to the Quartermaster, who gives it again.
@@ -2677,6 +2700,19 @@ export const CARGO: Job = {
       }
       if (brain.knockAt?.room === task.place) {
         brain.knockAt = null;
+      }
+      // A let-out the body is told is for someone not in that room: they are not in there, though
+      // the department's list has them inside. Struck, so that the door is not tried for them every
+      // two minutes for the rest of the round (CARGO-09).
+      if (
+        !ok &&
+        task.out &&
+        task.item &&
+        task.place &&
+        brain.post &&
+        (details?.not_inside || NOT_INSIDE_WORDS.test(text ?? ''))
+      ) {
+        noteLetOut(brain.post, task.item, task.place);
       }
       // Whoever it opened the door for went through it by its leave. The department keeps track
       // of who is in which of its rooms, so that they are let out again.
