@@ -39,6 +39,18 @@ add('placeNamedIn: "I came from the Bar, there is blood there": all set aside, t
 add('placeNamedIn: "no room here" names none', named('no room here'), null);
 add('placeNamedIn: "the Bar, the Bar again" is the Bar', named('the Bar, the Bar again'), 'Bar');
 
+// ---- MEM-08: a look order by code only when the look word is said of the room, as an order
+add('"I\'ll check the Bar myself, Tolly." is no order', ordered("I'll check the Bar myself, Tolly."), null);
+add('"Tolly, did you check in at the Bar this morning?" is no order', ordered('Tolly, did you check in at the Bar this morning?'), null);
+add('"Look, Tolly, the Kitchen staff are upset with you." is no order', ordered('Look, Tolly, the Kitchen staff are upset with you.'), null);
+add('"Don\'t bother looking at the Bar, it\'s fine." is no order', ordered("Don't bother looking at the Bar, it's fine."), null);
+add('"Could you check on the Bar, Tolly?" is left to the model', ordered('Could you check on the Bar, Tolly?'), null);
+add('"Tolly, go and check the Bar"', ordered('Tolly, go and check the Bar'), 'look Bar emergency');
+add('"Check on the Kitchen for me, Tolly"', ordered('Check on the Kitchen for me, Tolly'), 'look Kitchen emergency');
+add('"Tolly, look at the Library and report back"', ordered('Tolly, look at the Library and report back'), 'look Library emergency');
+add('"Check the Bar, there is blood everywhere." is still a mess to a janitor', ordered('Check the Bar, there is blood everywhere.'), 'clean Bar emergency');
+add('"Tolly, call a janitor to the Bar" is still sending for one', ordered('Tolly, call a janitor to the Bar'), 'call Bar emergency');
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

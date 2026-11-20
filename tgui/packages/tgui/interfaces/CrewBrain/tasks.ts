@@ -21,6 +21,7 @@ import {
 import {
   describeOrders,
   noteOrdered,
+  orderIn,
   ORDER_SOUNDS,
   ORDERS,
   orderTakesHere,
@@ -348,10 +349,11 @@ export function workInWords(
     }
   }
   if (fromSuperior) {
-    for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
-      // Sending for a janitor is read, as the job's own work is, from the clauses that are orders:
-      // "don't call a janitor for the bar" sends for nobody.
-      if (words.test(orderTakesHere(kind) ? asWork : heard)) {
+    // Orders are read, as the job's own work is, from the clauses that are orders: "don't call a
+    // janitor for the bar" sends for nobody. A look needs the look word right before the room
+    // (orderIn): any other line with "check" or "look" in it is left to the model (MEM-08).
+    for (const kind of Object.keys(ORDER_SOUNDS)) {
+      if (orderIn(kind, asWork, place, heard)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
     }
