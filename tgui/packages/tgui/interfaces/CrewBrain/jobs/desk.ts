@@ -137,6 +137,29 @@ function moreOf(brain: NpcBrain): DeskMore {
   return deskOf(brain) as DeskMore;
 }
 
+/** A warrant, with the officer it was given to (MULTI-01). */
+type WarrantMore = Warrant & { officer?: string };
+/** Someone in a cell, with the officer who put them there (MULTI-01). */
+type HeldMore = DeskWork['held'][string] & { by?: string };
+
+/** TRUE if this officer is still aboard as far as it can tell: in view, or on its PDA. */
+function officerKnown(brain: NpcBrain, name: string): boolean {
+  return [...brain.peopleInView, ...brain.pdaPeople].some(
+    (person) => person.name === name && isOfficer(person.job),
+  );
+}
+
+/**
+ * The officer a warrant goes to: the one it was given to, while that one is still aboard and its
+ * officers are not out, and otherwise whoever serving() picks (MULTI-01). With two officers, the
+ * word on one warrant all goes to one of them. Null if it serves the warrant itself.
+ */
+function officerFor(brain: NpcBrain, warrant: Warrant): string | null {
+  const officer = serving(brain);
+  const holder = (warrant as WarrantMore).officer;
+  return officer && holder && officerKnown(brain, holder) ? holder : officer;
+}
+
 /**
  * TRUE if this word on how a warrant went has come already, lately: the same word said to its
  * face and then sent again by the server's own copy of a PDA that would not send at the time
@@ -269,9 +292,17 @@ function tellCaptain(brain: NpcBrain, line: string, why: string): void {
   }
 }
 
-/** Tells its officer something outside a warrant: to its face if it is there, by PDA if not. */
-function tellOfficer(brain: NpcBrain, line: string, why: string): void {
-  const officer = officerAboard(brain);
+/**
+ * Tells its officer something outside a warrant: to its face if it is there, by PDA if not. `to`
+ * is the officer it is about, if it knows which (MULTI-01); else any officer aboard.
+ */
+function tellOfficer(
+  brain: NpcBrain,
+  line: string,
+  why: string,
+  to?: string | null,
+): void {
+  const officer = to ?? officerAboard(brain);
   if (!officer) {
     return;
   }
@@ -331,6 +362,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   const desk = deskOf(brain);
   const warrant = desk.warrants.find((it) => sameName(name, it.name));
   const held = Object.keys(desk.held).find((it) => sameName(name, it));
+  const heldBy = held ? desk.held[held] : undefined;
   if (warrant) {
     desk.warrants = desk.warrants.filter((it) => it !== warrant);
     desk.serial += 1;
@@ -342,13 +374,19 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   if (desk.cuffed) {
     delete desk.cuffed[who];
   }
-  // Whoever may have them lets them go: its officer, if the officer was given the warrant or
-  // put them in the cell, and itself.
-  if (officerAboard(brain) && (held || (warrant && warrant.given !== 'no'))) {
+  // Whoever may have them lets them go: the officer it gave the warrant to, or who put them in
+  // the cell, if it is still aboard (MULTI-01), else any officer aboard; and itself.
+  const theirs =
+    (warrant as WarrantMore | undefined)?.officer ??
+    (heldBy as HeldMore | undefined)?.by;
+  const officer =
+    theirs && officerKnown(brain, theirs) ? theirs : officerAboard(brain);
+  if (officer && (held || (warrant && warrant.given !== 'no'))) {
     tellOfficer(
       brain,
-      letGoLine(officerAboard(brain) ?? '', who, pardoned),
+      letGoLine(officer, who, pardoned),
       `${who} is to be let go${pardoned ? ': the Captain has pardoned them' : ''}. You are telling your officer.`,
+      officer,
     );
   }
   dropWarrant(brain, who, pardoned);
@@ -404,8 +442,10 @@ export function deskTakes(
   // Its own staff: that they have a warrant, or how one went.
   if (isSecurity(fromJob)) {
     if (WARRANT_ACK_WORDS.test(text)) {
+      // Only the warrants given to whoever says it (MULTI-01).
       for (const warrant of desk.warrants) {
-        if (warrant.given === 'said') {
+        const to = (warrant as WarrantMore).officer;
+        if (warrant.given === 'said' && (!to || to === from)) {
           warrant.given = 'taken';
         }
       }
@@ -904,10 +944,12 @@ export function deskOutcome(
       return;
     case 'jailed': {
       const minutes = outcome.minutes ?? MINUTES_USUAL;
-      desk.held[outcome.name] = {
+      const entry: HeldMore = {
         cell: outcome.cell ?? 'a cell',
         until: brain.now + minutes * 600,
+        by: from,
       };
+      desk.held[outcome.name] = entry;
       desk.arrests += 1;
       if (warrant) {
         desk.warrants = desk.warrants.filter((it) => it !== warrant);
@@ -919,11 +961,15 @@ export function deskOutcome(
         forgetWarrant(brain, warrant?.name ?? outcome.name);
       } else if (warrant && officerAboard(brain)) {
         // Its officer may have it still: given it before it broke off hurt, or given it and
-        // then outrun to the arrest.
+        // then outrun to the arrest. The one it was given to, if it knows which (MULTI-01).
+        const to = (warrant as WarrantMore).officer;
+        const officer =
+          to && officerKnown(brain, to) ? to : (officerAboard(brain) ?? '');
         tellOfficer(
           brain,
-          servedLine(officerAboard(brain) ?? '', warrant.name),
+          servedLine(officer, warrant.name),
           `${warrant.name} is in a cell, and you served the warrant yourself. You are telling your officer, who may still have it, that it is served.`,
+          officer,
         );
       }
       tellCaptain(
@@ -1116,7 +1162,9 @@ export function syncDesk(brain: NpcBrain): void {
     beatOf(brain).warrants.some((it) => sameName(it.name, name));
   // An officer to send who was not sending before (told to try again, or come aboard): every
   // warrant is given to it, but those still in its own hands, which wait until it lets go of them.
-  if (officer && officer !== (desk.servedBy ?? null)) {
+  // Another officer coming into sight while the one before is still aboard is no change (MULTI-01).
+  const before = desk.servedBy ?? null;
+  if (officer && (before === null || !officerKnown(brain, before))) {
     desk.keptBack = [];
     for (const warrant of desk.warrants) {
       if (ownHands(warrant.name)) {
@@ -1144,6 +1192,15 @@ export function syncDesk(brain: NpcBrain): void {
   }
   desk.servedBy = officer;
   for (const warrant of desk.warrants) {
+    // The officer it was given to is gone from sight and PDA: it is given afresh to another
+    // (MULTI-01).
+    const holder = (warrant as WarrantMore).officer;
+    if (holder && !officerKnown(brain, holder)) {
+      (warrant as WarrantMore).officer = undefined;
+      if (officer && warrant.given !== 'no') {
+        giveAgain(warrant);
+      }
+    }
     if (!officer) {
       // Nobody to send. It serves the warrant itself.
       giveWarrant(brain, { ...warrant, byCaptain: byCaptain(warrant) });
@@ -1175,10 +1232,13 @@ export function syncDesk(brain: NpcBrain): void {
     ) {
       warrant.passed = { place: seen.place, at: seen.at };
       if (officer) {
+        // To the officer it gave the warrant to, not whoever is nearest (MULTI-01).
+        const to = officerFor(brain, warrant) ?? officer;
         tellOfficer(
           brain,
-          seenLine(officer, warrant.name, seen.place),
+          seenLine(to, warrant.name, seen.place),
           `${seen.by} has sent word that ${warrant.name} is in the ${seen.place}. You are passing it to your officer.`,
+          to,
         );
       } else {
         noteSeen(brain, warrant.name, seen.place, seen.at);
@@ -1218,10 +1278,12 @@ function giveAgain(warrant: Warrant): void {
 
 /** What giving its officer a warrant comes down to right now: to its face if it is there, and by PDA if not. */
 function giveStep(brain: NpcBrain, warrant: Warrant): Plan {
-  const officer = serving(brain);
+  // Given again, it goes to the same officer as before while that one is aboard (MULTI-01).
+  const officer = officerFor(brain, warrant);
   if (!officer) {
     return { ready: false, step: 'You have no officer to give it to.' };
   }
+  (warrant as WarrantMore).officer = officer;
   const line = giveLine(
     officer,
     warrant.name,

@@ -137,6 +137,70 @@ const shown = (plan: any) => plan && (plan.act ? plan.act : plan.say ? { say: pl
   add('ARR-05: hurt again after "try again" is news', [D.deskOf(h).officerOut, said(h).length], ['hurt', 1]);
 }
 
+// ---- MULTI-01: two officers: the word on one warrant goes to the one it was given to
+const twoOfficers = () => {
+  const h = head([CAPTAIN, HOP, HALE, SAM]);
+  at(h, 3000, 'Security Office', [seeing(HALE)]);
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  D.syncDesk(h);
+  const plan = HOS_JOB.plan(h, open(h, 'give_warrant', 'Dana Reyes'));
+  HOS_JOB.afterSaying(h, plan.say);
+  h.toTell = [];
+  return h;
+};
+{
+  const h = twoOfficers();
+  add('MULTI-01: the warrant is given to Hale, in sight', D.deskOf(h).warrants[0].officer, 'Hale Stone');
+  at(h, 3100, 'Security Office', [seeing(SAM)]);
+  D.deskTakes(h, 'Sam Reed', 'Security Officer', 'The warrant, right away.', true);
+  add('MULTI-01: Sam saying "The warrant, right away" does not settle the give to Hale', D.deskOf(h).warrants[0].given, 'said');
+  at(h, 3000 + 700, 'Security Office', [seeing(SAM)]);
+  D.syncDesk(h);
+  const again = HOS_JOB.plan(h, open(h, 'give_warrant', 'Dana Reyes'));
+  add('MULTI-01: given again with no word back: to Hale by PDA, though Sam is in sight', again?.act, { tool: 'message', person: 'Hale Stone', text: S.giveLine('Hale Stone', 'Dana Reyes', 'theft', 5, true) });
+  HOS_JOB.afterActing(h, again?.act ?? { tool: 'wait' }, open(h, 'give_warrant', 'Dana Reyes'), true, false, {});
+  add('MULTI-01: sent to Hale: taken', D.deskOf(h).warrants[0].given, 'taken');
+  h.toTell = [];
+  D.deskTakes(h, 'Walker Wolfe', 'Head of Personnel', 'Dana Reyes is in the Bar', false);
+  D.syncDesk(h);
+  add('MULTI-01: a sighting goes to Hale, not Sam in sight', said(h), ['PDA to Hale Stone: Hale, Dana Reyes was seen in the Bar.']);
+  h.toTell = [];
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  add('MULTI-01: and the let-go on a pardon', said(h).filter((it: string) => /let go/.test(it)), ['PDA to Hale Stone: Hale, Dana Reyes is to be let go: the Captain has pardoned them.']);
+}
+{
+  const h = twoOfficers();
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'The warrant, right away.', true);
+  h.toTell = [];
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, Dana Reyes is in Cell 1 for 5 minutes.', false);
+  at(h, 3200, 'Security Office', [seeing(SAM)]);
+  h.toTell = [];
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Pardon Dana Reyes', false);
+  add('MULTI-01: someone in a cell: the let-go goes to who put them there', said(h).filter((it: string) => /let go/.test(it)), ['PDA to Hale Stone: Hale, Dana Reyes is to be let go: the Captain has pardoned them.']);
+}
+{
+  const h = twoOfficers();
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'The warrant, right away.', true);
+  h.pdaPeople = [CAPTAIN, HOP, SAM];
+  at(h, 3300, 'Security Office', [seeing(SAM)]);
+  D.syncDesk(h);
+  add('MULTI-01: Hale gone from sight and PDA: the warrant is given afresh, to Sam', [D.deskOf(h).warrants[0].given, HOS_JOB.plan(h, open(h, 'give_warrant', 'Dana Reyes'))?.say], ['no', S.giveLine('Sam Reed', 'Dana Reyes', 'theft', 5, true)]);
+}
+{
+  // One officer, as the test crew has: nothing changes.
+  const h = head();
+  at(h, 3000, 'Security Office', [seeing(HALE)]);
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  D.syncDesk(h);
+  HOS_JOB.afterSaying(h, HOS_JOB.plan(h, open(h, 'give_warrant', 'Dana Reyes')).say);
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'The warrant, right away.', true);
+  at(h, 3100, 'Security Office');
+  h.toTell = [];
+  D.deskTakes(h, 'Walker Wolfe', 'Head of Personnel', 'Dana Reyes is in the Bar', false);
+  D.syncDesk(h);
+  add('MULTI-01: one officer: given, taken, and the sighting passed by PDA as before', [D.deskOf(h).warrants[0].given, said(h)], ['taken', ['PDA to Hale Stone: Hale, Dana Reyes was seen in the Bar.']]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
