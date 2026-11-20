@@ -105,3 +105,5 @@ Checked by Opus 5.5. Confirmed. Severity lowered to medium.
 ## Fix so far
 
 Done in part (group m-heads, 41232bb3aa1): `engineerToOrder`, `engineerAnswered` and `engineerUnanswered` in `jobs/engineering.ts`; the Chief Engineer uses them for every order (steps 1 to 4; the state is kept in a WeakMap in `engineering.ts`, not in `ChiefWork`, since `types.ts` is not this group's). Left: step 5, in `jobs/forcing.ts` `forcingReads`, use `engineerToOrder(brain)` in place of `engineersAboard(brain)[0]` (both places), and call `engineerAnswered(brain, from)` on a forcing `DONE_WORDS`/`FAILED_WORDS`.
+
+Round M2 (group g-sec, 2c2131a58fa): step 5 built (`forcingReads` and `askEngineering` in `jobs/forcing.ts` use `engineerToOrder`; the forcing done and failed words call `engineerAnswered`). Table `tools/llm_crew/forcing-eng03.ts`. Not done: a forcing sent with no word back (`checkSent`) is not counted with `engineerUnanswered`.
