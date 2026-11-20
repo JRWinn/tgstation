@@ -51,6 +51,7 @@
 //   bun run sim.ts quiet hallfail    no word of where the monkey is, and the officer cannot walk to the first main hallway: it goes on to the next one at once, finds it there and brings it in (ARR-11)
 //   bun run sim.ts quiet hurtagain   as hurt, but the Captain then says "Try again": the officer, no more hurt than it was, makes the arrest and does not break off again (ARR-09)
 //   bun run sim.ts quiet badtimer    as badcell, but the first cell's timer will not start: the officer tries another cell at once, not the same one again (SEC-04)
+//   bun run sim.ts quiet pardonmid   the Captain pardons the monkey the moment the baton comes out: the cuffs go on all the same, and the officer then lets it go (TRB-02)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -311,7 +312,7 @@ const steppedAside: { who: string; at: number }[] = [];
 let asideFailedAt = 0;
 const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
 // HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
@@ -1007,6 +1008,8 @@ function toolCall(body: Body, tool: string, args: any) {
       // A crew NPC stands still for it.
       if (npc && args.how !== 'stop') { npc.inHandUntil = clock + 600_000; npc.busyText = null; npc.walking = false; npc.onDone = null; emit(npc, 'knowledge', `${body.name} is arresting you. You stand still.`, { under_arrest: 1, by: body.name }); }
       if (pun) pun.busy = true;
+      // TRB-02: the arrest that will put the cuffs on is under way. The Captain's pardon comes in the next tick.
+      if (VARIANT === 'pardonmid' && pun && args.how === 'force' && !pardonMid.arrestAt) pardonMid.arrestAt = clock;
       // The monkey bites whoever lays a hand on it, while it has bites left in it.
       const bite = () => { if (pun && pun.bites > 0) { pun.bites--; mine.health -= pun.hard; bitten.push({ who: body.name, at: clock }); emit(body, 'knowledge', `${pun.name} bites you.`, { struck_by: args.person, struck_name: pun.name, how: 'hit' }); } };
       if (args.how === 'stop') return busy(body, 5, `stopping ${name}`, false, () => { if (pun) pun.busy = false; note(true, { hits: 2 }); result(body, 'arrest', true, `You stop ${name} with your baton.`, { handle: args.person, hits: 2 }); });
@@ -1340,6 +1343,8 @@ const TRY_AGAIN_AT = 30;
 let tryAgainAt = 0;
 // ARR-09: when the Captain was told the officer broke off hurt.
 let hurtToldAt = 0;
+// TRB-02: when the arrest that puts the cuffs on was sent, and when the Captain's pardon came.
+const pardonMid = { arrestAt: 0, sentAt: 0 };
 function securityTick(second: number) {
   for (const cell of cells) if (cell.occupant && clock >= cell.until) openCell(cell, 'time up');
   const pun = punPun;
@@ -1353,6 +1358,7 @@ function securityTick(second: number) {
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
   // SECT-11: the warrant was declared while the officer was out hurt, and the Head of Security took it into its own hands. Then the Captain says to try again.
   if (second === TRY_AGAIN_AT && VARIANT === 'tryagain') { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
+  if (VARIANT === 'pardonmid' && pardonMid.arrestAt && !pardonMid.sentAt && clock > pardonMid.arrestAt) { pardonMid.sentAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pardon Pun Pun.'); }
   // ARR-09: five seconds after being told the officer broke off hurt, the Captain says to try again.
   if (VARIANT === 'hurtagain' && hurtToldAt && !tryAgainAt && clock - hurtToldAt >= 5000) { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
   // SEC-05: once the Head of Personnel's time is up, the monkey is wanted and put in the same cell; then the Captain pardons the Head of Personnel.
@@ -2038,7 +2044,7 @@ if (SECURITY && VARIANT !== 'recell') {
   const ownFirst = arrests.find((work) => work.who === arrester.name);
   check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
   check('nobody is hit who was not first given the chance to stand still', firstHand?.how === 'quiet', listed(arrests));
-  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
+  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === cellFor, listed(secWork));
   }
   // Bitten by the monkey it is arresting, the officer adds five minutes for resisting arrest.
@@ -2058,7 +2064,7 @@ if (SECURITY && VARIANT !== 'recell') {
     check('an order code cannot read is put to the LLM once', readingCalls === 1, `${readingCalls} reading(s)`);
     if (MODE === 'dead') check('with no LLM, the Captain is told it was not followed', sentTo(desk, SEC_CAPTAIN, /Captain, I did not follow that\./).length === 1);
   }
-  if (joan && VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
+  if (joan && VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     const cuffer = VARIANT === 'hurt' ? 'I have' : 'Hale has';
     check('the Captain is told when they are in cuffs', sentTo(joan, SEC_CAPTAIN, new RegExp(`Captain, ${cuffer} ${wanted} in cuffs\\.`)).length >= 1, sentTo(joan, SEC_CAPTAIN, /in cuffs/).join(' | '));
   }
@@ -2077,8 +2083,8 @@ if (SECURITY && VARIANT !== 'recell') {
     check('the Head of Security calls no staff meeting inside five minutes of a sighting', !call || callAt >= SIGHTING_AT + 295, call ? `${callAt} s in` : 'none called');
     check('called to one while it is with the monkey, the officer sends its report by PDA and stays', !call || sentTo(hale, joan!.name, /I cannot come to the meeting: I am after someone on a warrant\./).length === 1, call ? '' : 'no meeting was called in the time');
   }
-  if (VARIANT !== 'nobaton') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${resisted ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
-  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton') {
+  if (VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${resisted ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
+  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in ${cellFor} for ${minutes} minutes`)) >= 1);
   }
 
@@ -2150,6 +2156,19 @@ if (SECURITY && VARIANT !== 'recell') {
     check('and the officer puts the monkey in the cell', jailings.length === 1 && jailings[0].who === hale.name, listed(secWork));
     check('its health the same, it does not say again that it is hurt', kitOf(hale).health === 40 && told(hale, joan!.name, /I am hurt/) === 1, `health ${kitOf(hale).health}, said ${told(hale, joan!.name, /I am hurt/)} time(s)`);
     check('nor does the Head of Security tell the Captain so again', sentTo(joan, SEC_CAPTAIN, /is hurt/).length === 1, sentTo(joan, SEC_CAPTAIN, /is hurt/).join(' | '));
+  }
+  if (VARIANT === 'pardonmid') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const cuffedAt = arrests.find((work) => work.who === hale.name && work.ok)?.at ?? 0;
+    check('the Captain pardons the monkey while the cuffs are going on', !!pardonMid.arrestAt && !!pardonMid.sentAt && !!cuffedAt && pardonMid.sentAt < cuffedAt, `arrest sent ${pardonMid.arrestAt ? seconds(pardonMid.arrestAt) : 'never'}, pardon ${pardonMid.sentAt ? seconds(pardonMid.sentAt) : 'never'}, cuffs on ${cuffedAt ? seconds(cuffedAt) : 'never'}`);
+    check('the Captain is answered that it is pardoned', sentTo(joan, SEC_CAPTAIN, /Captain, Pun Pun is pardoned\./).length === 1, sentTo(joan, SEC_CAPTAIN, /pardon/).join(' | '));
+    const letGoWords = /Hale, Pun Pun is to be let go: the Captain has pardoned them\./;
+    const letGo = sentTo(joan, hale.name, letGoWords).map((line) => line.slice(0, 8)).concat(saidBy(joan!.name, letGoWords).map((line) => clockAt(line.at)));
+    // Told before the cuffs were on, the warrant was dropped while the arrest ran: the case TRB-02 is about.
+    check('the officer is told to let it go before the cuffs are on', letGo.length >= 1 && !!cuffedAt && letGo[0] <= clockAt(cuffedAt), `told ${letGo.join(', ') || 'never'}; cuffs on ${cuffedAt ? clockAt(cuffedAt) : 'never'}`);
+    const freed = secWork.find((work) => work.tool === 'free' && work.who === hale.name && work.target === 'Pun Pun' && work.ok);
+    check('the cuffs having gone on, the officer lets the monkey go', !!freed && freed.at >= cuffedAt && walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'let go'), listed(secWork));
+    check('nobody is put in a cell, and the officer ends holding nobody', jailings.length === 0 && kitOf(hale).holding === null, `holding ${kitOf(hale).holding ?? 'nobody'}; ${listed(jailings)}`);
   }
   if (VARIANT === 'tryagain') {
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
