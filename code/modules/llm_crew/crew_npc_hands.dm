@@ -57,7 +57,8 @@
 		var/list/memory = storage_memory[container_ref]
 		var/datum/weakref/container_weakref = memory["container"]
 		var/obj/structure/closet/container = container_weakref?.resolve()
-		if(QDELETED(container) || container.z != body.z)
+		// A large wooden crate is not opened by hand, whatever is remembered of it.
+		if(QDELETED(container) || container.z != body.z || istype(container, /obj/structure/closet/crate/large))
 			continue
 		var/holds_one = FALSE
 		for(var/held_name in memory["items"])
@@ -86,6 +87,22 @@
  */
 /datum/ai_controller/crew_npc/proc/free_a_hand()
 	var/mob/living/carbon/human/body = pawn
+	var/obj/item/spare = spare_held_item()
+	if(isnull(spare))
+		return FALSE
+	var/spare_name = format_text(spare.name)
+	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
+		return FALSE
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
+	return !!length(body.get_empty_held_indexes())
+
+/**
+ * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
+ * spent spray, a rag beside a mop, or one of two alike. Null if it needs everything it holds.
+ * One rule in one place, so the window's wants_bucket and the freeing of a hand agree (DESK-10).
+ */
+/datum/ai_controller/crew_npc/proc/spare_held_item()
+	var/mob/living/carbon/human/body = pawn
 	var/list/trade_tools = trade_tool_types()
 	var/obj/item/spare
 	for(var/obj/item/held in body.held_items)
@@ -99,13 +116,11 @@
 		// A rag is spare to someone who holds a mop: the hand is better used for a bucket of water.
 		if(istype(held, /obj/item/rag) && (locate(/obj/item/mop) in body.held_items))
 			spare ||= held
-	if(isnull(spare))
-		return FALSE
-	var/spare_name = format_text(spare.name)
-	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
-		return FALSE
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
-	return !!length(body.get_empty_held_indexes())
+		// Two of one kind, two rags say: one does the work, and the other hand is better kept free.
+		for(var/obj/item/other in body.held_items)
+			if(other != held && istype(other, held.type))
+				spare ||= held
+	return spare
 
 /// TRUE if a thing is used up and no good to anyone as it is: a spray bottle with nothing left in it.
 /datum/ai_controller/crew_npc/proc/is_spent(obj/item/thing)
@@ -166,6 +181,30 @@
 	errand_item = wanted
 	errand_serial++
 	set_blackboard_key(BB_CREW_NPC_ERRAND_TARGET, target)
+	addtimer(CALLBACK(src, PROC_REF(errand_overdue), errand_serial), CREW_NPC_ERRAND_LIMIT)
+
+/**
+ * The backstop for an errand whose work never ended: the body would stand counted as busy for the
+ * rest of the round, and be sent nothing more. Given up, and the brain told it failed.
+ */
+/datum/ai_controller/crew_npc/proc/errand_overdue(serial)
+	if(QDELETED(src) || errand_serial != serial || !blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	var/tool = errand_tool
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) gave up its [tool || "unknown"] errand: still not done after [DisplayTimeText(CREW_NPC_ERRAND_LIMIT)].")
+	errand_in_flight = FALSE
+	cancel_errand()
+	if(tool)
+		action_result(tool, FALSE, "You could not finish that.")
+
+/**
+ * TRUE if the errand a run of work belongs to has been called off, or the body or this controller
+ * is gone. An errand's work is one proc that sleeps, and calling the errand off cannot stop it: it
+ * has to ask, after every sleep, and stop itself. `serial` is the errand_serial it began with. A
+ * null serial is work that is not an errand, and is never called off.
+ */
+/datum/ai_controller/crew_npc/proc/errand_over(serial)
+	return QDELETED(src) || QDELETED(pawn) || (!isnull(serial) && errand_serial != serial)
 
 /// Abandons the errand in progress without reporting on it. Used when the body is sent somewhere else.
 /datum/ai_controller/crew_npc/proc/cancel_errand()
@@ -194,6 +233,11 @@
 		return make_arrest(target)
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
 		return list(FALSE, "You could not get to it.")
+	// A held crate reached is one that can be got to: the times nobody could get to it start again.
+	if(istype(target, /obj/structure/closet/crate))
+		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)
+		if(entry)
+			entry.unreachable = 0
 	body.face_atom(target)
 	switch(errand_tool)
 		if(CREW_TOOL_GET_KIT)
@@ -270,9 +314,12 @@
 	var/container_name = format_text(container.name)
 	var/atom/spill = container.drop_location()
 	var/list/already_there = list()
-	for(var/obj/item/thing in spill)
+	for(var/atom/movable/thing in spill)
 		already_there[thing] = TRUE
 	var/was_open = container.opened
+	if(!was_open && istype(container, /obj/structure/closet/crate/large))
+		storage_checked_at[REF(container)] = world.time
+		return list(FALSE, "The [container_name] is nailed shut. It would take a crowbar to pry it open.")
 	if(!was_open && !container.open(body))
 		storage_checked_at[REF(container)] = world.time
 		report_storage(container, "locked", null)
@@ -281,13 +328,15 @@
 	// Take the first thing that came out of it with the right name, and note what else was inside.
 	var/obj/item/found
 	var/list/inside = list()
+	// One standing open holds what lies in front of it: all of that is looked through.
 	for(var/obj/item/thing in spill)
-		if(was_open || already_there[thing])
+		if(!was_open && already_there[thing])
 			continue
 		if(isnull(found) && name_matches(thing.name, errand_item))
 			found = thing
 			continue
 		inside[format_text(thing.name)]++
+	var/list/people = was_open ? list() : came_out_of(container, already_there)
 	sleep(CREW_NPC_LOOK_TIME)
 	if(QDELETED(body) || QDELETED(container))
 		return list(FALSE, "You could not get to it.")
@@ -295,14 +344,22 @@
 	var/taken = !QDELETED(found) && body.put_in_hands(found)
 	if(!taken && found)
 		inside[format_text(found.name)]++
+	// Shut again, unless someone (the body itself included) is on its tile: shutting it would take
+	// them in with everything else lying there. Then it is left open.
+	var/left_open = FALSE
 	if(!was_open && container.opened)
-		container.close(body)
+		if(crew_npc_someone_on(get_turf(container)))
+			left_open = TRUE
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) left the [container_name] open in [get_area_name(container, TRUE)]: someone is on it.")
+		else
+			container.close(body)
+	var/open_note = left_open ? " You leave it open: someone is in the way of shutting it." : ""
 	// What the body just saw replaces what it remembered of this container.
 	storage_checked_at[REF(container)] = world.time
-	report_storage(container, was_open ? "open" : "looked", inside)
+	report_storage(container, "looked", inside, people)
 	if(taken)
-		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].")
-	return list(FALSE, "There is no [errand_item] in the [container_name] any more.")
+		return list(TRUE, "You take the [format_text(found.name)] out of the [container_name].[open_note]")
+	return list(FALSE, "There is no [errand_item] in the [container_name] any more.[open_note]")
 
 /// Hands what the body is holding to a person next to it.
 /datum/ai_controller/crew_npc/proc/hand_over(mob/living/carbon/human/person)
@@ -346,7 +403,13 @@
 		return
 	if(tool != CREW_TOOL_CLEAN)
 		// Security's errands say why they came to nothing, and what came of them: see crew_npc_security.dm.
-		action_result(tool, outcome[1], outcome[2], CREW_NPC_SECURITY_TOOL(tool) ? security_details(tool, outcome) : null)
+		var/list/details = null
+		if(CREW_NPC_SECURITY_TOOL(tool))
+			details = security_details(tool, outcome)
+		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
+		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
+			details = outcome[3]
+		action_result(tool, outcome[1], outcome[2], details)
 		// A mop is no use dry. Having just picked one up with a sink in sight, the body wets it there
 		// and then, as anyone would. Left for later, it walks off and finds out it cannot clean.
 		if(tool == CREW_TOOL_PICK_UP && outcome[1] && dry_mop() && isnull(proper_tool()) && sink_in_view)
@@ -376,6 +439,13 @@
 	else
 		action_result(tool, FALSE, outcome[2] || "Your mop is wet, but there is no mess here for it to clean.", list("place" = place, "beyond" = beyond_it))
 
+/**
+ * TRUE while a run of errand work is out. A stun resets the tree and the leaf forgets its run, but
+ * the run sleeps on; up again, the tree would start a second copy of it beside the first. So no new
+ * run starts, and the errand's walk waits, until this one has ended.
+ */
+/datum/ai_controller/crew_npc/var/errand_in_flight = FALSE
+
 /// Does what the body came to its errand target to do.
 /datum/bt_node/ai_behavior/crew_npc_do_errand
 	/// Blackboard key holding the thing the errand is about.
@@ -387,12 +457,27 @@
 		return async_flags
 	if(QDELETED(controller.blackboard[target_key]))
 		return AI_BEHAVIOR_DELAY | AI_BEHAVIOR_FAILED
+	// The run from before a stun is still at work: it ends the errand, or leaves the next one to start.
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	if(crew_controller.errand_in_flight)
+		return AI_BEHAVIOR_DELAY
 	return start_async()
 
 /datum/bt_node/ai_behavior/crew_npc_do_errand/perform_async(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	var/serial = crew_controller.errand_serial
-	var/list/outcome = crew_controller.do_errand(controller.blackboard[target_key])
+	var/list/outcome
+	crew_controller.errand_in_flight = TRUE
+	// Cleared however the run ends, a thrown error too, or every later errand would wait on it for good.
+	var/tool = crew_controller.errand_tool
+	// An error in the work must not leave the body busy for good: it is logged, and the errand closed as failed.
+	try
+		outcome = crew_controller.do_errand(controller.blackboard[target_key])
+	catch(var/exception/error)
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) errand [tool] stopped on an error: [error.name] at [error.file]:[error.line].")
+		stack_trace("crew NPC errand [tool]: [error.name] at [error.file]:[error.line]")
+		outcome = list(FALSE, "Something stopped you, and you could not finish.")
+	crew_controller.errand_in_flight = FALSE
 	if(async_still_valid())
 		finish_async(AI_BEHAVIOR_SUCCEEDED)
 	// The thing an errand is about can vanish as the errand is done: a cleaned mess is deleted, which
@@ -417,6 +502,12 @@
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
+		if(istype(target, /obj/structure/table) || istype(target, /obj/structure/rack) || istype(target, /obj/machinery/disposal/bin))
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) could not get to the [target.name] at [AREACOORD(target)] to put things on it: passed over for a while.")
+	// Water it could not get to, a sink behind glass most often, is not water to hand for a while.
+	if(crew_controller.errand_tool == CREW_TOOL_CLEAN && !QDELETED(target) && (istype(target, /obj/structure/sink) || istype(target, /obj/structure/mop_bucket) || istype(target, /obj/structure/reagent_dispensers)))
+		crew_controller.water_failed[REF(target)] = world.time
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) could not get to the [target.name] at [AREACOORD(target)] for water.")
 	// A crate being held for collection that nobody can get to is, after a try or two, not one cargo can hand over.
 	if(istype(target, /obj/structure/closet/crate) && (crew_controller.errand_tool == CREW_TOOL_CHECK_HELD || crew_controller.errand_tool == CREW_TOOL_RELEASE || crew_controller.errand_tool == CREW_TOOL_STOW))
 		var/datum/crew_npc_held_crate/entry = crew_npc_held_entry(target)
@@ -447,6 +538,9 @@
 
 /// Says what the body is in the middle of, in words for the brain, or null if it is free.
 /datum/ai_controller/crew_npc/proc/describe_doing()
+	// Testing routes before a walk takes a while: the body is busy, not idle (LIFE-03).
+	if(choosing_where_to_explore || finding_door || finding_door_to_force)
+		return "working out the way"
 	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET))
 		switch(walk_tool)
 			if(CREW_TOOL_EXPLORE)
@@ -568,12 +662,16 @@
 	SIGNAL_HANDLER
 	if(!(slot & ITEM_SLOT_HANDS) || (item.item_flags & ABSTRACT))
 		return
-	// Its own doing, or handed over by one of the crew.
-	if(errand_tool || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
-		return
+	// Handed over by one of the crew, or a tool of its trade, drawn for the work in hand.
 	if(handed_at && world.time - handed_at < 2 SECONDS)
 		return
 	if(is_trade_tool(item, trade_tool_types()))
+		return
+	// Its own doing, on an errand that fetches things. Errands that bring nothing to hand but a tool
+	// of its trade (an arrest, opening a door, seeing someone out, resetting an alarm, handing
+	// something over), and a look in a locker, are no reason: what lands then was put there.
+	var/static/list/takes_nothing = list(CREW_TOOL_ARREST, CREW_TOOL_DOOR, CREW_TOOL_EVICT, CREW_TOOL_RESET_ALARM, CREW_TOOL_GIVE)
+	if(errand_tool ? !(errand_tool in takes_nothing) : blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	unasked_item = WEAKREF(item)
 	unasked_item_waits = 0

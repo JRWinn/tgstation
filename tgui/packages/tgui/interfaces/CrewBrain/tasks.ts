@@ -45,8 +45,12 @@ import type { NpcBrain, Plan, Task, Urgency } from './types';
 const KEEP_DONE_DS = 6000;
 /** How long (deciseconds) a task may sit before it is given up on as forgotten business. */
 const GIVE_UP_DS = 18000;
+/** How long (deciseconds) work may wait blocked before it is given up on: an hour. */
+const BLOCKED_GIVE_UP_DS = 36000;
 /** Most tasks listed to the LLM. */
 const TASKS_SHOWN = 4;
+/** How many of the latest lines of whoever told it of work are read for that work. */
+const ORDER_LINES = 2;
 /** What "work" says when the NPC was told of no work. */
 export const WORK_NOTHING = 'nothing';
 /** Where "work" says the work is when there is none, or it cannot tell which room was meant. */
@@ -151,8 +155,34 @@ export function syncTasks(brain: NpcBrain): void {
       const owedWord = task.askedBy && !task.reported;
       return owedWord && brain.now - (task.doneAt ?? 0) < KEEP_DONE_DS;
     }
-    return brain.now - task.createdAt < GIVE_UP_DS || task.state === 'blocked';
+    const kept = keepsGoing(brain, task);
+    if (!kept && task.askedBy) {
+      // Work someone asked for and never got: at least the window shows it was given up on.
+      brain.lastJob = {
+        time: new Date().toLocaleTimeString(),
+        what: `Gave up on, not done: ${describeTask(brain, task)}`,
+      };
+    }
+    return kept;
   });
+}
+
+/**
+ * FALSE once a task that is not done has sat too long and is given up on as forgotten business.
+ * Blocked work is kept while it waits, up to a limit of its own. Open work is given up on only once
+ * it has been open that long, so work that was blocked a long while and can go on at last is not
+ * dropped the moment it can (MEM-11). A job may keep open work longer with keepUntil, as a crate
+ * errand does from when the crate is out (JOBS-02).
+ */
+function keepsGoing(brain: NpcBrain, task: Task): boolean {
+  if (task.state === 'blocked') {
+    task.blockedSince ??= brain.now;
+    task.openSince = brain.now;
+    return brain.now - task.blockedSince < BLOCKED_GIVE_UP_DS;
+  }
+  task.blockedSince = undefined;
+  const openLimit = (task.openSince ?? task.createdAt) + GIVE_UP_DS;
+  return brain.now < Math.max(openLimit, task.keepUntil ?? 0);
 }
 
 /**
@@ -238,14 +268,25 @@ export function workInWords(
   toldBy: string | undefined,
   /** TRUE if whoever said it is someone the NPC answers to. */
   fromSuperior = false,
+  /**
+   * The report lines that were said to this NPC, if known. Only those are read: an order the
+   * Captain gave someone else, heard a minute before he spoke to this one, is not its order.
+   */
+  forMe?: ReadonlySet<string>,
 ): Task | null {
   const job = jobFor(brain.job);
   // Only what people said, which the report gives in double quotes. And where it is known who
   // told it of the work, only what they said: a room someone else named in the same breath is not
   // the room it was sent to.
-  const spoken = report.filter((line) => line.includes('(person '));
+  const spoken = report.filter(
+    (line) => line.includes('(person ') && (!forMe || forMe.has(line)),
+  );
+  // Of what they said, only the latest: an order is what was just said, not something said a
+  // minute ago and let pass.
   const theirs = toldBy
-    ? spoken.filter((line) => line.includes(`] ${toldBy} says: `))
+    ? spoken
+        .filter((line) => line.includes(`] ${toldBy} says: `))
+        .slice(-ORDER_LINES)
     : [];
   const heard = (theirs.length > 0 ? theirs : spoken)
     .flatMap((line) => line.match(/"[^"]*"/g) ?? [])
@@ -258,8 +299,12 @@ export function workInWords(
     return null;
   }
   // The job's own work first: "check the Bar, there is blood everywhere" is a mess to a janitor.
+  // From someone it answers to, that is an order it cannot turn down, so a question about the
+  // work, being told not to bother, or that it is done already, is not one: those are left to
+  // the model. The room may be named in another part of the line.
+  const asWork = fromSuperior ? orderClauses(heard) : heard;
   for (const [kind, words] of Object.entries(job.soundsLike ?? {})) {
-    if (job.takes?.[kind] && words.test(heard)) {
+    if (job.takes?.[kind] && words.test(asWork)) {
       return takeToldWork(brain, job.takes[kind], place, toldBy, fromSuperior);
     }
   }
@@ -271,6 +316,43 @@ export function workInWords(
     }
   }
   return null;
+}
+
+/** A clause that asks, even typed with no question mark: "is there any blood in the bar". */
+const QUESTION_START = /^(is|are|was|were|did|do|does|have|has|any)\b/;
+/** A clause that says not to: "no need to clean the bar". Not a bare "not": "it is not cleaned up yet" is still an order. */
+const NOT_WANTED = /\b(no need|don'?t|do not|never mind|no more|forget)\b/;
+/** A clause that says the work is done: "the bar was a mess but its fine now". */
+const DONE_ALREADY =
+  /\b(cleaned|clean now|gone|fine now|got it|dealt with|sorted|took care|taken care)\b/;
+/** What keeps a clause an order though it has a done word in it: "not cleaned up yet", "still not gone". */
+const NOT_YET = /\b(not|isn'?t|wasn'?t|hasn'?t|yet|still)\b/;
+
+/**
+ * The parts of what a superior said that can be orders, run together: every clause that is a
+ * question, says not to, or says the work is done already, is left out.
+ */
+export function orderClauses(heard: string): string {
+  const clauses = heard
+    .split(/(?<=[?])|[.!,;]| but | and then /)
+    .map((clause) => clause.replace(/^[\s"]+|[\s"]+$/g, ''))
+    .filter((clause) => clause.length > 0);
+  // Word that it is done already speaks for the whole line: "the bar was a mess but its fine now".
+  if (
+    clauses.some(
+      (clause) => DONE_ALREADY.test(clause) && !NOT_YET.test(clause),
+    )
+  ) {
+    return '';
+  }
+  return clauses
+    .filter(
+      (clause) =>
+        !clause.endsWith('?') &&
+        !QUESTION_START.test(clause) &&
+        !NOT_WANTED.test(clause),
+    )
+    .join('. ');
 }
 
 /** How long (milliseconds) a body that was in a room still counts as in it after it is found outside. */
@@ -418,10 +500,41 @@ export function wordOwed(brain: NpcBrain): Task[] {
   );
 }
 
-/** Notes that the NPC has spoken, which tells anyone in view who was waiting to hear a task was done. */
-export function afterSaying(brain: NpcBrain): void {
+/** Words that say a piece of work is done, whoever words it. */
+const DONE_WORDS = /\b(done|finished|clean|cleaned|sorted|taken care)\b/;
+
+/**
+ * Notes what the NPC has just said, which tells whoever was waiting to hear a task was done, if a
+ * line was to them and said it was done. Any other line, or a done line to someone else, leaves
+ * them still to be told.
+ */
+export function afterSaying(brain: NpcBrain, said: string[]): void {
+  const job = jobFor(brain.job);
   for (const task of wordOwed(brain)) {
-    task.reported = true;
+    const asker = task.askedBy ?? '';
+    const first = asker.split(' ')[0];
+    const doneLine = `${first}, ${job.sayDone?.(task) ?? 'that is done'}.`;
+    const own = job.sayDone?.(task)?.toLowerCase();
+    // The model is apt to say "Captain, ..." to the Captain or a head, not their name.
+    const title = brain.peopleInView
+      .find((person) => person.name === asker)
+      ?.job.toLowerCase();
+    const told = said.some((line) => {
+      if (line === doneLine) {
+        return true;
+      }
+      const lower = line.toLowerCase();
+      const words = lower.split(/[^a-z']+/);
+      const toThem =
+        words.includes(first.toLowerCase()) ||
+        (!!title && lower.includes(title));
+      return (
+        toThem && ((!!own && lower.includes(own)) || DONE_WORDS.test(lower))
+      );
+    });
+    if (told) {
+      task.reported = true;
+    }
   }
 }
 

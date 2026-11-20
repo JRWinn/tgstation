@@ -61,8 +61,11 @@ const WALK_UP_AGAIN_DS = 150;
 const TELL_AGAIN_DS = 4800;
 /** How the server words what a body is doing while it has hold of a crate. That is finished before it goes to a meeting. */
 const HAULING = /^hauling\b/i;
-/** The words that mark a PDA message as a call to a meeting. */
-const CALL_WORDS = /\bmeeting in the\b/i;
+/** The words that mark a PDA message as a call to a meeting: how a head's call begins, and nothing said in passing. */
+const CALL_WORDS = /^staff meeting in the\b/i;
+/** How a head tells someone by PDA that a meeting it was called to is over: see endMeeting in jobs/head.ts. */
+const OVER_BY_PDA_WORDS =
+  /\bthe staff meeting is over\. Send me your report\b/i;
 /**
  * How a head calls a meeting aloud, to its staff's faces, where nothing between them goes by PDA.
  * Said word for word, and known by how it begins: nothing a head might say in passing begins so.
@@ -71,8 +74,18 @@ export function aloudCall(room: string): string {
   return `Staff meeting in the ${room} now, please. Gather round and have your reports ready.`;
 }
 export const ALOUD_CALL_WORDS = /^staff meeting in the .+? now, please\b/i;
-/** The words by which a head calls on one of its staff, by name, for their report. */
-const CALLED_ON_WORDS = /\breport\b/i;
+/**
+ * TRUE if a line calls on this NPC for its report in the head's set words: "Alex, your report"
+ * or "Alex Reed, your report". Not "Thanks, Alex, Bea and Carl. Alex, your report, please." for
+ * Bea, nor "Hello Bea, have your report ready."
+ */
+function calledOn(brain: NpcBrain, heard: string): boolean {
+  const quote = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `\\b(?:${quote(brain.name)}|${quote(firstName(brain.name))}),? your report\\b`,
+    'i',
+  ).test(heard);
+}
 /** The words by which a head says the meeting is over, out loud or by PDA. */
 export const OVER_WORDS = /\bmeeting is over\b/i;
 /**
@@ -98,6 +111,22 @@ function firstName(name: string): string {
   return name.split(' ')[0];
 }
 
+/**
+ * TRUE if a line calls someone else who shares its first name, by their full name: "Alex Moor,
+ * your report, please." is not a call on Alex Reed. "Alex, your report" is a call on any Alex.
+ */
+function calledByAnotherName(brain: NpcBrain, heard: string): boolean {
+  const [first, ...rest] = brain.name.split(' ');
+  const surname = rest.join(' ');
+  if (!first || !surname) {
+    return false;
+  }
+  const quote = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${quote(first)}\\s+(?!${quote(surname)}\\b)[A-Z]`).test(
+    heard,
+  );
+}
+
 /** The head this NPC answers to who is in view, if one is. */
 function headInView(brain: NpcBrain): PersonInView | undefined {
   return brain.peopleInView.find(
@@ -118,6 +147,23 @@ export function headName(brain: NpcBrain): string | null {
       (a, b) => Number(/captain/i.test(a.job)) - Number(/captain/i.test(b.job)),
     );
   return listed[0]?.name ?? null;
+}
+
+/** TRUE if someone with that job is this NPC's own head: one it answers to that is not the Captain. */
+function isOwnHead(brain: NpcBrain, job: string): boolean {
+  return answersTo(brain.job, job) && !/captain/i.test(job);
+}
+
+/**
+ * Who to ask for what it needs: its own head, in view and then on its PDA, and only with no head
+ * of its own aboard whoever else it answers to (the Captain), as headName finds them.
+ */
+function ownHeadName(brain: NpcBrain): string | null {
+  return (
+    brain.peopleInView.find((person) => isOwnHead(brain, person.job))?.name ??
+    brain.pdaPeople.find((person) => isOwnHead(brain, person.job))?.name ??
+    headName(brain)
+  );
 }
 
 /**
@@ -194,7 +240,7 @@ export function meetingCues(brain: NpcBrain): string[] {
  * once, and then it waits to hear, and tells them again only after a good while.
  */
 export function needStep(brain: NpcBrain, need: string): Plan {
-  const head = headName(brain);
+  const head = ownHeadName(brain);
   if (!head) {
     return {
       ready: false,
@@ -211,7 +257,7 @@ export function needStep(brain: NpcBrain, need: string): Plan {
     };
   }
   const first = firstName(head);
-  if (headInView(brain)?.name === head) {
+  if (brain.peopleInView.some((person) => person.name === head)) {
     return {
       ready: true,
       step: `You need ${need}. ${head}, who you answer to, is here: in "say", tell ${head} what you need and ask them to get it ordered. Cargo only takes orders from heads of department.`,
@@ -274,7 +320,12 @@ export function readSummons(
     return false;
   }
   // The meeting is over and it was not there, or was not heard: its report goes by PDA instead.
-  if (OVER_WORDS.test(text)) {
+  // Only as an answer to a call from them, or in a head's own words for it: anything else with
+  // "meeting is over" in it is not about a meeting it was called to.
+  if (
+    OVER_WORDS.test(text) &&
+    (brain.summons?.by === from || OVER_BY_PDA_WORDS.test(text))
+  ) {
     const summons =
       brain.summons?.by === from
         ? brain.summons
@@ -288,7 +339,7 @@ export function readSummons(
     return true;
   }
   // A head told by the Captain to hold a meeting is being given an order, not called to one.
-  if (!CALL_WORDS.test(text) || isMeetingOrder(brain, text)) {
+  if (!CALL_WORDS.test(text.trim()) || isMeetingOrder(brain, text)) {
     return false;
   }
   const room = placeNamedIn(brain, text.toLowerCase());
@@ -567,7 +618,8 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   // Left to the call alone, two technicians stood through a whole meeting and reported nothing.
   if (
     !brain.summons &&
-    new RegExp(`\\b${firstName(brain.name)}\\b.*\\byour report\\b`, 'i').test(heard)
+    calledOn(brain, heard) &&
+    !calledByAnotherName(brain, heard)
   ) {
     const head = brain.peopleInView.find((person) => person.name === speaker);
     const theirJob =
@@ -597,8 +649,8 @@ export function meetingsOverhear(brain: NpcBrain, event: SenseEvent): void {
   }
   if (
     summons.askedAt === null &&
-    CALLED_ON_WORDS.test(heard) &&
-    new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard)
+    calledOn(brain, heard) &&
+    !calledByAnotherName(brain, heard)
   ) {
     summons.askedAt = brain.now;
   }

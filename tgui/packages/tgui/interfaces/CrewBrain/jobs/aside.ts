@@ -12,12 +12,46 @@
 import type { Action, NpcBrain, SenseEvent } from '../types';
 import { namesPerson } from './guarding';
 
-/** The words that mark what someone says as asking a person to get out of the way. */
+/** The words that mark what someone says as asking a person to get out of the way, wherever they stand in the line. */
 const ASIDE_WORDS =
-  /\bstep aside\b|\b(stand|move|shift) aside\b|\bout of (the|my) way\b|\bmake way\b|\blet me (past|through|by)\b|\b(could|can|would|will) you (please )?move\b|\bplease move\b|\bmove over\b|\bmove,? please\b|\bget (this |it )?past you\b/;
+  /\bstep aside\b|\b(stand|move|shift) aside\b|\bmake way\b|\blet me (past|through|thru|by|pass)\b|\b(please|pls|plz) move\b|\bmove,? (please|pls|plz)\b|\b(move|scoot) over\b|\bbudge up\b|\bget (this |it )?past you\b|\b(you are|you're|youre|ur) in (the|my) way\b|\bcoming (through|thru)\b|\b(move|get) out of the (doorway|door)\b/;
+/** "Could you move", "can u move": but not "can you move the crate to the bay", which is about a thing. */
+const YOU_MOVE =
+  /\b(could|can|would|will) (you|u) (please |pls |plz )?move\b(?!\s+(the|that|this|it\s+to|those|these|a|an|my|your|them)\b)/;
+/** "Out of the way", said to the one hearing it: "get out of the way", "I need you out of the way". */
+const OUT_OF_WAY = /\b(out of|outta) (the|my) way\b/;
+/** But not of a thing: "I moved the bucket out of the way", "put it out of the way". */
+const THING_OUT_OF_WAY =
+  /\b(the|that|this|it|my|those|these|a|an|them)\s+(?!hell\b)(\w+\s+)?(out of|outta) (the|my) way\b/;
+/** Words that ask only when they are the whole line, give or take a name, "please" and the like: "move", "excuse me". */
+const WHOLE_LINE =
+  /^(move|move it|excuse me|step back|scoot|(get |move )?(out of|outta) the way)$/;
+/** Words left out of a line before it is held up to WHOLE_LINE. */
+const FILLER = new Set(['please', 'pls', 'plz', 'hey', 'oi', 'sorry', 'sir']);
+
+/** TRUE if a line, lower-cased, asks whoever hears it to get out of the way. `name` is the hearer's. */
+export function asksAside(heard: string, name: string): boolean {
+  if (
+    ASIDE_WORDS.test(heard) ||
+    YOU_MOVE.test(heard) ||
+    (OUT_OF_WAY.test(heard) && !THING_OUT_OF_WAY.test(heard))
+  ) {
+    return true;
+  }
+  const names = name.toLowerCase().split(/\s+/);
+  const bare = heard
+    .replace(/[^a-z' ]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word && !names.includes(word) && !FILLER.has(word))
+    .join(' ');
+  return WHOLE_LINE.test(bare);
+}
 /** How long (milliseconds) being asked to step aside stands. After that the moment has passed. */
 const ASIDE_STANDS_MS = 20000;
-/** Names the step of getting out of the way. */
+/**
+ * Names the step of getting out of the way. Each asking adds its own time to it, so that a step
+ * aside that found nowhere to go holds back only the asking it answered, not the next one.
+ */
 export const ASIDE_STEP_KEY = 'stepping-aside';
 /** How long (milliseconds) it stays where it stepped to, so that it does not walk straight back into the way. */
 export const ASIDE_HOLD_MS = 15000;
@@ -26,7 +60,7 @@ export const ASIDE_HOLD_MS = 15000;
 export function asideOverhears(brain: NpcBrain, event: SenseEvent): void {
   const speaker = String(event.details.speaker ?? '');
   const heard = String(event.details.message ?? '').toLowerCase();
-  if (!speaker || speaker === brain.name || !ASIDE_WORDS.test(heard)) {
+  if (!speaker || speaker === brain.name || !asksAside(heard, brain.name)) {
     return;
   }
   if (event.details.said_to !== 'me' && !namesPerson(heard, brain.name)) {
@@ -59,7 +93,7 @@ export function asideStep(
     return null;
   }
   return {
-    key: ASIDE_STEP_KEY,
+    key: `${ASIDE_STEP_KEY}:${asked.at}`,
     text: `${asked.by} has asked you to step aside: you are in their way. You are stepping clear of them, and will get on with your own work once they are past.`,
     act: { tool: 'step_aside', person: asked.handle },
   };

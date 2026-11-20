@@ -50,7 +50,7 @@ ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled j
 	log_admin("[key_name(user)] spawned crew NPC [key_name(npc)] at [AREACOORD(spawn_turf)].")
 	message_admins("[key_name_admin(user)] spawned crew NPC [ADMIN_LOOKUPFLW(npc)] at [ADMIN_VERBOSEJMP(spawn_turf)].")
 	BLACKBOX_LOG_ADMIN_VERB("Spawn Crew NPC")
-	get_crew_brain_link(user.ckey).ui_interact(user.mob)
+	get_crew_brain_link(user.ckey).open_for(user)
 
 /// TRUE if the standing test crew is spawned, and the brain window opened, when a round starts.
 GLOBAL_VAR_INIT(crew_npc_autostart, TRUE)
@@ -64,20 +64,25 @@ SUBSYSTEM_DEF(crew_npc)
 	SSticker.OnRoundstart(CALLBACK(src, PROC_REF(round_started)))
 	return SS_INIT_SUCCESS
 
-/// Called when the round starts. The crew is spawned a few seconds in, once whoever owns them has a body.
+/// Called when the round starts. The crew is spawned ten seconds in, whether or not whoever owns them has a body by then: if they are still in the lobby, the brain window waits until they join or observe.
 /datum/controller/subsystem/crew_npc/proc/round_started()
 	if(GLOB.crew_npc_autostart)
 		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(spawn_test_crew)), CREW_NPC_AUTOSTART_DELAY)
 
-/// Returns somewhere to stand in the first room of one of these kinds that has anywhere, or null.
-/proc/crew_npc_spawn_turf(list/area_types, z_level)
+/**
+ * Returns somewhere to stand in the first room of one of these kinds that has anywhere, or null.
+ * Each kind of room is looked for on every one of these levels before the next kind is tried, so an
+ * office upstairs wins over a hallway downstairs.
+ */
+/proc/crew_npc_spawn_turf(list/area_types, list/z_levels)
 	for(var/area_type in area_types)
-		for(var/area/station/place in GLOB.areas)
-			if(!istype(place, area_type))
-				continue
-			for(var/turf/candidate as anything in place.get_turfs_by_zlevel(z_level))
-				if(crew_npc_safe_turf(candidate) && !candidate.is_blocked_turf())
-					return candidate
+		for(var/z_level in z_levels)
+			for(var/area/station/place in GLOB.areas)
+				if(!istype(place, area_type))
+					continue
+				for(var/turf/candidate as anything in place.get_turfs_by_zlevel(z_level))
+					if(crew_npc_safe_turf(candidate) && !candidate.is_blocked_turf())
+						return candidate
 	return null
 
 /**
@@ -98,12 +103,17 @@ SUBSYSTEM_DEF(crew_npc)
 	if(isnull(owner) || isnull(owner.mob))
 		return 0
 	var/list/station_levels = SSmapping.levels_by_trait(ZTRAIT_STATION)
-	var/z_level = length(station_levels) ? station_levels[1] : owner.mob.z
+	if(!length(station_levels))
+		station_levels = list(owner.mob.z)
+	// The owner's own tile is the last resort, and only if it is on the station: not the lobby's start room.
+	var/turf/owner_turf = get_turf(owner.mob)
+	if(!isnull(owner_turf) && !is_station_level(owner_turf.z))
+		owner_turf = null
 	// The outfit, the rooms to look for somewhere to stand in, and how many.
 	var/static/list/crew = list(
 		list(/datum/outfit/job/hop, list(/area/station/command/heads_quarters/hop, /area/station/hallway), 1),
-		list(/datum/outfit/job/quartermaster, list(/area/station/command/heads_quarters/qm, /area/station/cargo/storage, /area/station/cargo), 1),
-		list(/datum/outfit/job/cargo_tech, list(/area/station/cargo/storage, /area/station/cargo/lobby, /area/station/cargo), 2),
+		list(/datum/outfit/job/quartermaster, list(/area/station/command/heads_quarters/qm, /area/station/cargo/storage, /area/station/cargo/office, /area/station/cargo/lobby), 1),
+		list(/datum/outfit/job/cargo_tech, list(/area/station/cargo/storage, /area/station/cargo/office, /area/station/cargo/lobby), 2),
 		list(/datum/outfit/job/janitor, list(/area/station/service/janitor, /area/station/hallway), 3),
 		list(/datum/outfit/job/ce, list(/area/station/command/heads_quarters/ce, /area/station/engineering/main), 1),
 		list(/datum/outfit/job/engineer, list(/area/station/engineering/main, /area/station/engineering/break_room), 1),
@@ -112,15 +122,16 @@ SUBSYSTEM_DEF(crew_npc)
 	)
 	var/spawned = 0
 	for(var/list/entry as anything in crew)
-		var/turf/spot = crew_npc_spawn_turf(entry[2], z_level) || get_turf(owner.mob)
+		var/turf/spot = crew_npc_spawn_turf(entry[2], station_levels) || owner_turf
 		if(isnull(spot))
+			log_game("Crew NPC test crew: nowhere on the station to stand for [entry[1]], so none was spawned.")
 			continue
 		for(var/number in 1 to entry[3])
 			create_crew_npc(spot, entry[1], owner.ckey)
 			spawned++
 	log_admin("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name(owner)].")
 	message_admins("The standing crew NPC test crew ([spawned] bodies) was spawned for [key_name_admin(owner)].")
-	get_crew_brain_link(owner.ckey).ui_interact(owner.mob)
+	get_crew_brain_link(owner.ckey).open_for(owner)
 	return spawned
 
 ADMIN_VERB(spawn_test_crew, R_SPAWN, "Spawn Test Crew", "Spawns the standing crew NPC test crew, owned by you: a Head of Personnel, a Quartermaster, a Chief Engineer, a Head of Security, two cargo technicians, a station engineer, a security officer and three janitors.", ADMIN_CATEGORY_FUN)
@@ -148,4 +159,4 @@ ADMIN_VERB(jump_to_cargo_lobby, R_SPAWN, "Jump To Cargo Lobby", "Takes you to th
 	BLACKBOX_LOG_ADMIN_VERB("Jump To Cargo Lobby")
 
 ADMIN_VERB(crew_brain, R_SPAWN, "Crew Brain", "Opens the brain window for the crew NPCs you own.", ADMIN_CATEGORY_FUN)
-	get_crew_brain_link(user.ckey).ui_interact(user.mob)
+	get_crew_brain_link(user.ckey).open_for(user)

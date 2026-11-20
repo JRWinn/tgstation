@@ -93,6 +93,250 @@ for (const duties of [['counter'], ['shuttle', 'rooms'], ['counter', 'shuttle', 
 }
 add('talk about the work is not handing it out', dutiesIn('Cora, the counter is busy this shift.'), null);
 
+// QM-14: "Sam, I have that." is said at once every time, and a line held back holds up none behind it.
+{
+  const { drive } = await import(ROOT + 'driver');
+  const spoken: string[] = [];
+  const nextStep = (b: any) => drive(b, () => 'x', (line: string) => { spoken.push(line); });
+  const qm: any = makeBrain('Ada Stone', 'Quartermaster');
+  qm.location = 'Cargo Bay';
+  qm.hasPda = true;
+  qm.peopleInView = [{ name: 'Sam Rees', job: 'Cargo Technician', handle: 'p1', distance: 1 }];
+  const said: string[] = [];
+  for (let word = 0; word < 8; word++) {
+    qm.toTell = [{ to: 'Sam Rees', line: 'Sam, I have that.', why: 'x', whileBusy: true, exact: true, at: Date.now() }];
+    qm.failures.forEach((failure: any) => { failure.until = 0; });
+    qm.sayingNow = false; qm.mustSay = null; qm.lastAct = null;
+    const step = nextStep(qm);
+    if (step?.say) said.push(step.say);
+  }
+  const hold = qm.failures.get('tell:Sam Rees:Sam, I have that.');
+  add('said eight times, "I have that" is held back no longer than the first time', [said.length, hold.count, hold.until - Date.now() <= 5000], [8, 0, true]);
+  qm.failures.forEach((failure: any) => { failure.until = 0; });
+  qm.toTell = [
+    { to: 'Sam Rees', line: 'Sam, one.', why: 'x', at: Date.now() },
+    { to: 'Hop Kins', line: 'Hop, crate #3 is in.', why: 'x', byPda: true, at: Date.now() },
+  ];
+  qm.failures.set('tell:Sam Rees:Sam, one.', { count: 3, until: Date.now() + 60000 });
+  qm.sayingNow = false; qm.mustSay = null; qm.lastAct = null;
+  const behind = nextStep(qm);
+  add('a held-back line does not hold up the PDA behind it', behind?.act?.text, 'Hop, crate #3 is in.');
+}
+
+// QM-08: which waiting order an answer from the Captain is about.
+{
+  const { orderAnswered } = await import(ROOT + 'jobs/quartermaster');
+  const waiting = { orders: [{ n: 1, state: 'asking', approved: null, askedAt: 1000 }, { n: 2, state: 'asking', approved: null, askedAt: 4000 }, { n: 3, state: 'new', approved: 'self', askedAt: null }] } as any;
+  add('two waiting, a bare yes is to the one asked about last', orderAnswered(waiting, 'Yes.')?.n, 2);
+  add('"yes to order 1" is to order 1', orderAnswered(waiting, 'Yes to order 1')?.n, 1);
+  add('"#1 is fine" is to order 1', orderAnswered(waiting, '#1 is fine')?.n, 1);
+  add('a count of crates is no order number', orderAnswered(waiting, 'yes, 1 crate is fine')?.n, 2);
+}
+
+// QM-01: the Captain's answer about an order waiting on their say, read for both yes and no.
+{
+  const waitingQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 600;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 1. Asked the Captain.'], 5000), next: 2, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    return qm;
+  };
+  const answered = (line: string) => {
+    const qm = waitingQm();
+    QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, 5100, 'Captain');
+    const one = qm.ledger.orders[0];
+    const said = qm.toTell.map((tell: any) => tell.line).join(' | ');
+    return `${one.state}${one.approved ? ` (${one.approved})` : ''}, ${qm.ledger.orders.length} in book${/yes or a no/.test(said) ? ', asked' : ''}${/said no/.test(said) ? ', told no' : ''}${/cannot order/i.test(said) ? ', cannot order' : ''}`;
+  };
+  add('"Sure, no worries." is a yes', answered('Sure, no worries.'), 'new (captain), 1 in book');
+  add('"Approved, but don\'t spend more than that." is a yes', answered("Approved, but don't spend more than that."), 'new (captain), 1 in book');
+  add('"Yes, go for it. No need to ask again." is a yes', answered('Yes, go for it. No need to ask again.'), 'new (captain), 1 in book');
+  add('"No one goes into the vault today." is no answer', answered('No one goes into the vault today.'), 'asking, 1 in book');
+  add('"No rush, but order me a crate of replacement lights." is a new order, and order 1 waits', answered('No rush, but order me a crate of replacement lights.'), 'asking, 2 in book');
+  add('"Ok, order me a crate of replacement lights." is a new order, and the ok is asked about', answered('Ok, order me a crate of replacement lights.'), 'asking, 2 in book, asked');
+  add('"Go for it" is a yes', answered('Go for it'), 'new (captain), 1 in book');
+  add('"Affirmative" is a yes', answered('Affirmative'), 'new (captain), 1 in book');
+  add('"Yes, place that order." is a yes, and nothing is sent back', answered('Yes, place that order.'), 'new (captain), 1 in book');
+  add('"No, not now." is a no', answered('No, not now.'), 'refused, 1 in book, told no');
+  add('"Not approved." is a no', answered('Not approved.'), 'refused, 1 in book, told no');
+  add('"Don\'t buy it." is a no', answered("Don't buy it."), 'refused, 1 in book, told no');
+  add('"Yes. No." is asked about', answered('Yes. No.'), 'asking, 1 in book, asked');
+  add('"No to order 3" is not about order 1', answered('No to order 3'), 'asking, 1 in book');
+  // PARSE-06: naming the kind of crate the waiting order is for does not make the yes a new order.
+  add('"Yes, the janitorial one." to a janitorial order is a yes', answered('Yes, the janitorial one.'), 'new (captain), 1 in book');
+  add('"Yes, and order some lights." is still a new order, and the yes is asked about', answered('Yes, and order some lights.'), 'asking, 2 in book, asked');
+  const paperQm = () => {
+    const qm = waitingQm();
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights', 'Bureaucracy Crate'];
+    qm.crateCosts['Bureaucracy Crate'] = 300;
+    qm.ledger.orders = readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Bureaucracy Crate. 300 cr.', 'Order 1. Asked the Captain.'], 5000);
+    return qm;
+  };
+  for (const [line, want] of [['Yes, the paper one.', 'new (captain)'], ['No, not the paper.', 'refused'], ['Yes, the lights.', 'asking']]) {
+    const qm = paperQm();
+    QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, 5100, 'Captain');
+    add(`"${line}" to an order of paper waiting on the Captain`, `${qm.ledger.orders[0].state}${qm.ledger.orders[0].approved ? ` (${qm.ledger.orders[0].approved})` : ''}`, want);
+  }
+}
+
+// QM-10: a head's line sorted into cancel, question, order or talk before anything is ordered.
+{
+  const clearedQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 2000;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. No Captain aboard: approved by me.'], 5000), next: 2, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    qm.ledger.orders[0].state = 'cleared';
+    return qm;
+  };
+  const sent = (line: string, from = 'Cap Tain', job = 'Captain') => {
+    const qm = clearedQm();
+    QUARTERMASTER.readsMessage(qm, from, line, 5100, job);
+    return qm;
+  };
+  const toldOf = (qm: any) => qm.toTell.map((tell: any) => `${tell.to}: ${tell.line}`).join(' | ');
+  {
+    const qm = sent('Cancel the replacement lights order, we do not need it.');
+    add('"Cancel the replacement lights order" cancels order 1 and orders nothing', [qm.ledger.orders.length, qm.ledger.orders[0].state, qm.ledger.toWrite], [1, 'refused', ['Order 1. Cancelled by Cap Tain.']]);
+    add('and Hop Kins is told, in words the head reads as the order not coming', qm.toTell.some((tell: any) => tell.to === 'Hop Kins' && REFUSED_WORDS.test(tell.line)), true);
+    add('and the Captain is told it is cancelled', qm.toTell.some((tell: any) => tell.to === 'Cap Tain' && /order 1: .* is cancelled/i.test(tell.line)), true);
+  }
+  for (const line of ['Has the janitorial order come in yet?', 'Why did you order janitorial supplies?', 'Did order 1 for lights arrive?']) {
+    const qm = sent(line);
+    add(`"${line}" orders nothing, and is answered from the book`, [qm.ledger.orders.length, qm.toTell.length === 1 && qm.toTell[0].to === 'Cap Tain'], [1, true]);
+  }
+  add('the answer names order 1 and where it stands', toldOf(sent('Did order 1 for lights arrive?')), 'Cap Tain: Order 1, 1 Replacement Lights for Hop Kins: cleared, and being given to a technician to place.');
+  {
+    const qm = sent("Don't order any more lights.");
+    add('"Don\'t order any more lights." orders nothing and cancels nothing', [qm.ledger.orders.length, qm.ledger.orders[0].state], [1, 'cleared']);
+  }
+  {
+    const qm = sent('Has my order come in?', 'Hal Pott', 'Chief Engineer');
+    add('"Has my order come in?" from a head with none: no order, and no "I cannot order that"', [qm.ledger.orders.length, /cannot order/i.test(toldOf(qm)), /no order from you/.test(toldOf(qm))], [1, false, true]);
+  }
+  add('"Can we get a crate of replacement lights?" is an order', sent('Can we get a crate of replacement lights?').ledger.orders.length, 2);
+  add('"Could you order janitorial supplies, please?" is an order', sent('Could you order janitorial supplies, please?').ledger.orders.length, 2);
+  {
+    const qm = sent('Cancel my lights order.', 'Hal Pott', 'Chief Engineer');
+    add('a head cannot cancel another head\'s order', [qm.ledger.orders[0].state, /no order like that/.test(toldOf(qm))], ['cleared', true]);
+  }
+  {
+    const qm = clearedQm();
+    qm.ledger.orders[0].state = 'given'; qm.ledger.orders[0].givenTo = 'Cora Tech';
+    QUARTERMASTER.readsMessage(qm, 'Hop Kins', 'Please cancel order 1.', 5100, 'Head of Personnel');
+    add('an order already with a technician is said to be past calling off', [qm.ledger.orders[0].state, /already with Cora Tech/.test(toldOf(qm))], ['given', true]);
+  }
+  add('a cancel written in the book is read back as off', readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Replacement Lights. 400 cr.', 'Order 1. Cancelled by Hop Kins.'], 5000).map((order: any) => `${order.state} ${order.cancelledBy}`), ['refused Hop Kins']);
+}
+
+// QM-12: a lost crate is ordered again once by cargo, and the reorder, lost too, is not.
+{
+  const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400 };
+  qm.budget = 5000;
+  qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay'; qm.staffPost = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }];
+  qm.peopleInView = [{ handle: 'p2', name: 'Cora Tech', job: 'Cargo Technician' }];
+  qm.ledger = { orders: readBook(['Order 3. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 3. Given to Cora Tech.', 'Order 3. Docked: crate #12 (Janitorial Supplies Crate).'], 5000, 'Ada Finch'), next: 4, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+  const tell = (line: string, saidTo = 'me') => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: 'Cora Tech', handle: 'p2', message: line, said_to: saidTo } } as any);
+  // KNB-10: the same word said to someone else by name is not told to it, and nothing is reordered.
+  tell('Hop, crate #12 for Hop Kins is lost: nobody can get to it.', 'other');
+  add('a loss said to Hop Kins, not to it: not ordered again', [qm.ledger.orders.map((order: any) => order.n), qm.toTell.length], [[3], 0]);
+  tell('Ada, crate #12 for Hop Kins is lost: nobody can get to it.');
+  add('the first loss is ordered again', qm.ledger.orders.map((order: any) => order.n), [3, 4]);
+  const four = qm.ledger.orders.find((order: any) => order.n === 4);
+  four.state = 'docked';
+  four.crates = [{ number: 13, kind: 'Janitorial Supplies Crate' }];
+  qm.ledger.toWrite = [];
+  tell('Ada, crate #13 for Hop Kins is lost: nobody can get to it.');
+  add('the reorder lost as well: not bought again', qm.ledger.orders.map((order: any) => order.n), [3, 4]);
+  add('and written as lost with no reorder', qm.ledger.toWrite, ['Order 4. Lost: crate #13.']);
+  const back = readBook(['Order 3. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 3. Lost: crate #12. Ordered again as order 4.', 'Order 4. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.'], 5000);
+  add('read back from the book: the reorder is known for one', back.map((order: any) => `${order.n} ${!!order.reordered}`), ['3 true', '4 true']);
+}
+
+// TRUST-07: "did not go through" only from whoever has the order; a big reorder goes to the Captain.
+{
+  const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400 };
+  qm.budget = 5000;
+  qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay'; qm.staffPost = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Sam Tech', job: 'Cargo Technician' }, { name: 'Kim Lie', job: 'Cargo Technician' }, { name: 'Jane Marsh', job: 'Head of Personnel' }, { name: 'Zim Fire', job: 'Captain' }];
+  const book = readBook([
+    'Order 4. From Jane Marsh, Head of Personnel: 2 Janitorial Supplies Crate. 800 cr.', 'Order 4. Given to Sam Tech.',
+    'Order 5. From Jane Marsh, Head of Personnel: 3 Janitorial Supplies Crate. 1200 cr.', 'Order 5. Asked the Captain.', 'Order 5. The Captain said yes.', 'Order 5. Given to Sam Tech.',
+    'Order 5. Docked: crates #21, #22 and #23 (Janitorial Supplies Crate).',
+  ], 5000, 'Ada Finch');
+  qm.ledger = { orders: book, next: 6, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+  const from = (who: string, line: string) => QUARTERMASTER.overhears(qm, { seq: 1, time: '', at: 100, kind: 'heard', text: '', details: { speaker: who, handle: 'p9', message: line, said_to: 'me' } } as any);
+  const four = qm.ledger.orders.find((order: any) => order.n === 4);
+  from('Kim Lie', 'Ada, order 4 did not go through.');
+  add('"did not go through" from a technician who has not the order: it stays with Sam', [four.state, four.givenTo], ['given', 'Sam Tech']);
+  from('Sam Tech', 'Ada, order 4 did not go through.');
+  add('from Sam, who has it: it is to be given again', [four.state, four.givenTo, qm.ledger.toWrite.includes('Order 4. Could not be placed.')], ['new', null, true]);
+  from('Kim Lie', 'Ada, crates #21, #22 and #23 for Jane Marsh are lost: they have been destroyed.');
+  const again = qm.ledger.orders.find((order: any) => order.n === 6);
+  add('a lost crate told by another technician is still ordered again', again?.items, [{ crate: 'Janitorial Supplies Crate', count: 3 }]);
+  add('but a big reorder does not carry the Captain\'s yes over: it is asked again', again?.approved, null);
+}
+
+// CARGO-14: "for <name>" of someone on the Quartermaster's PDA list is who it is for, not a crate.
+{
+  const qm = makeBrain('Ada Finch', 'Quartermaster');
+  qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+  qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+  qm.budget = 2000;
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Paige Rags', job: 'Janitor' }];
+  QUARTERMASTER.readsMessage(qm, 'Hop Kins', 'I need to order a crate of replacement lights for Paige Rags, please.', 5100, 'Head of Personnel');
+  add('"lights for Paige Rags" orders lights only', qm.ledger?.orders.at(-1)?.items, [{ crate: 'Replacement Lights', count: 1 }]);
+}
+
+// QM-05 (words only, not yet said): the Quartermaster sending a technician to let a workmate out.
+{
+  const S = await import(ROOT + 'jobs/supply');
+  const line = S.letOutLine('Sam', 'Cora', 'Warehouse');
+  add('the let-out line', line, 'Sam, Cora is shut in the Warehouse. Could you let them out, please?');
+  add('read back: to whom, who, and where', line.match(S.SEND_TO_LET_OUT_WORDS)?.slice(1, 4), ['Sam', 'Cora', 'Warehouse']);
+  add('and it is not the "see to it" line', S.SEE_TO_WORDS.test(line), false);
+}
+
+// QM-05: told by PDA that Cora is shut in the Warehouse, the Quartermaster sends Sam with the
+// let-out line, and Sam, hearing it, goes to the Warehouse door for Cora.
+{
+  const { CARGO } = await import(ROOT + 'jobs/cargo');
+  const S = await import(ROOT + 'jobs/supply');
+  const qm = makeBrain('Ada Finch', 'Quartermaster');
+  qm.staffPost = 'Cargo Bay'; qm.office = "Quartermaster's Office"; qm.location = 'Cargo Bay';
+  qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Sam Rees', job: 'Cargo Technician' }, { name: 'Kim Lie', job: 'Cargo Technician' }];
+  // Kim is in view, lying on the floor: Sam is sent, not Kim.
+  qm.peopleInView = [{ name: 'Kim Lie', job: 'Cargo Technician', handle: 'p3', distance: 3, down: true }];
+  QUARTERMASTER.readsMessage(qm, 'Cora Tech', 'I am shut in the Warehouse and nobody has come to the door. Could you send someone to let me out to the Cargo Bay, please?', 5000, 'Cargo Technician');
+  const sent = qm.ledger?.sendFor;
+  add('the shut-in word sends one who is on their feet, with the let-out line', [sent?.to, sent?.line], ['Sam Rees', 'Sam, Cora is shut in the Warehouse. Could you let them out, please?']);
+  const sam: any = makeBrain('Sam Rees', 'Cargo Technician');
+  sam.post = 'Cargo Bay'; sam.location = 'Cargo Bay'; sam.closedRooms = ['Warehouse']; sam.now = 5100;
+  sam.peopleInView = [{ name: 'Ada Finch', job: 'Quartermaster', handle: 'p1', distance: 1 }];
+  sam.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }];
+  CARGO.overhears(sam, { kind: 'speech', details: { speaker: 'Ada Finch', message: sent?.line ?? '', said_to: 'me' } });
+  add('Sam takes it as a let-out ask from Cora, by PDA, for the Warehouse', (sam.doorAsks ?? []).map((ask: any) => `${ask.name} ${ask.room} ${ask.out} ${ask.byPda}`), ['Cora Tech Warehouse true true']);
+  add('and is not only given the shuttle and the rooms', sam.seeToUntil, 0);
+  CARGO.syncTasks(sam);
+  add('and goes to the Warehouse door for her', sam.tasks.filter((task: any) => task.kind === 'door' && task.state !== 'done').map((task: any) => `${task.item} ${task.place} ${task.out}`), ['Cora Tech Warehouse true']);
+  const kim: any = makeBrain('Kim Lie', 'Cargo Technician');
+  kim.post = 'Cargo Bay'; kim.location = 'Cargo Bay'; kim.closedRooms = ['Warehouse']; kim.now = 5100;
+  kim.peopleInView = [{ name: 'Ada Finch', job: 'Quartermaster', handle: 'p1', distance: 1 }];
+  CARGO.overhears(kim, { kind: 'speech', details: { speaker: 'Ada Finch', message: sent?.line ?? '', said_to: 'other' } });
+  add('a technician it was not said to takes no ask from it', kim.doorAsks ?? [], []);
+  add('the crate line is still the see-to line', S.SEE_TO_WORDS.test(S.seeToLine('Sam', 'crate #12 is in the Supply Shuttle and Cora could not get it off the shuttle')), true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

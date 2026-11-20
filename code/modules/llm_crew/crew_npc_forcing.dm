@@ -114,8 +114,13 @@
 	if(isnull(room))
 		forcing_failure("no_door", "You do not know of anywhere aboard by that name.", null, asked_for, null, tell_now = TRUE)
 		return
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	// Already looking for a way to a door: the routes are still being tested, and that call will answer.
+	// This call is turned away, and handle_tool_call() did not count it as a newer one.
 	if(finding_door_to_force)
+		action_result(CREW_TOOL_FORCE_DOOR, FALSE, "You are still working out the way.")
 		return
 	var/turf/here = get_turf(body)
 	if(isnull(here) || !isturf(body.loc))
@@ -166,16 +171,11 @@
 			first = door
 	var/first_label = labels[first]
 
-	// A tool's kind is also its name: "screwdriver", "multitool", "crowbar".
-	var/list/missing = list()
-	for(var/tool_kind in list(TOOL_SCREWDRIVER, TOOL_MULTITOOL, TOOL_CROWBAR))
-		if(isnull(tool_carried(tool_kind)))
-			missing += tool_kind
-	if(length(missing))
-		forcing_failure("no_tools", "You have no [english_list(missing, and_text = " or ")] on you. It takes a screwdriver, a multitool and a crowbar to open a locked door.", first, room_name, first_label, more_details = list("missing" = missing), tell_now = TRUE)
-		return
-	if(!HAS_TRAIT(body, TRAIT_KNOW_ENGI_WIRES))
-		forcing_failure("no_knowledge", "You do not know one wire in an airlock from another, and you are not going to guess at them.", first, room_name, first_label, tell_now = TRUE)
+	// A tool's kind is also its name: "screwdriver", "multitool", "crowbar". The crowbar opens every
+	// door, and is asked for now. The panel and the wires are only for a door with power, which is
+	// not known until the door is chosen: see below.
+	if(isnull(tool_carried(TOOL_CROWBAR)))
+		forcing_failure("no_tools", "You have no crowbar on you. Every locked door is pried open in the end, and a door with no power only wants prying.", first, room_name, first_label, more_details = list("missing" = list(TOOL_CROWBAR)), tell_now = TRUE)
 		return
 
 	// The nearest of them that it can walk up to. A door may open from somewhere it has no way to,
@@ -227,6 +227,9 @@
 		if(isnull(through) && outer != get_area(body) && (locked_out_of(outer) || hallway_locked_to(outer)))
 			through = format_text(outer.name)
 	finding_door_to_force = FALSE
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out which door of [room_name] to force, and had been given something else to do meanwhile.")
+		return
 	if(QDELETED(best))
 		// Every door it looked at leads to floor it can walk to: there is a way in already.
 		if(!QDELETED(leads_nowhere) && !length(no_way_to))
@@ -235,6 +238,19 @@
 			return
 		forcing_failure("no_way", through ? "You cannot get to a door of [room_name]: the way to it is through [through], which is locked to you as well." : "You cannot find a way to a door of [room_name].", first, room_name, first_label, "It found no way to: [english_list(no_way_to)]", more_details = through ? list("through" = through) : null, tell_now = TRUE)
 		return
+	// A door with power has its panel opened and its power cut first (force_door_open()), which takes
+	// a screwdriver, a multitool and knowing the wires. A dead door is only pried.
+	if(best.hasPower())
+		var/list/missing = list()
+		for(var/tool_kind in list(TOOL_SCREWDRIVER, TOOL_MULTITOOL))
+			if(isnull(tool_carried(tool_kind)))
+				missing += tool_kind
+		if(length(missing))
+			forcing_failure("no_tools", "You have no [english_list(missing, and_text = " or ")] on you. It takes a screwdriver, a multitool and a crowbar to open a locked door that has power.", best, room_name, labels[best], more_details = list("missing" = missing), tell_now = TRUE)
+			return
+		if(!HAS_TRAIT(body, TRAIT_KNOW_ENGI_WIRES))
+			forcing_failure("no_knowledge", "You do not know one wire in an airlock from another, and you are not going to guess at them.", best, room_name, labels[best], tell_now = TRUE)
+			return
 	forcing_place = room_name
 	forcing_label = labels[best]
 	forcing_door = WEAKREF(best)

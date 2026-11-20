@@ -188,25 +188,42 @@
 	var/mob/living/carbon/human/body = pawn
 	var/turf/here = get_turf(body)
 	var/room = current_place
+	// Just outside each door of the room it stands in is tried first: a short way, and a way out
+	// if there is one (DOOR-03). A door only touching the room, or blocked, is found out by the route.
+	// A door its ID does not open is no way out, and from a hallway it is a way into a locked room.
+	var/list/door_spots = list()
+	var/area/standing_in = get_area(body)
+	if(standing_in)
+		var/list/doors = crew_npc_doors_of(standing_in, here.z)
+		for(var/obj/machinery/door/airlock/door as anything in doors)
+			if(!door.allowed(body))
+				continue
+			var/list/sides = doors[door]
+			door_spots[sides[2]] = get_dist(here, sides[2])
+	// Then other rooms it has been in, leaving out any locked to it, which a route never reaches,
+	// and a hallway before a room as far off.
 	var/list/spots = list()
 	for(var/place in visited_places)
-		if(place == room)
+		if(place == room || place_locked_to_body(place))
 			continue
 		var/list/spot = visited_places[place]
 		var/turf/there = spot[3] == here.z ? locate(spot[1], spot[2], spot[3]) : null
-		if(there)
-			spots[there] = get_dist(here, there)
+		if(there && !door_spots[there])
+			spots[there] = get_dist(here, there) - (istype(get_area(there), /area/station/hallway) ? 0.5 : 0)
 	var/way_out = FALSE
 	var/tries_left = CREW_NPC_SHUT_IN_ROUTES
+	var/tested = 0
 	// What the test found, for the round's log: where it found a way to, and how long a way.
 	var/found
-	while(length(spots) && tries_left > 0 && !way_out)
+	while((length(door_spots) || length(spots)) && tries_left > 0 && !way_out)
 		tries_left--
+		var/list/from = length(door_spots) ? door_spots : spots
 		var/turf/nearest
-		for(var/turf/candidate as anything in spots)
-			if(isnull(nearest) || spots[candidate] < spots[nearest])
+		for(var/turf/candidate as anything in from)
+			if(isnull(nearest) || from[candidate] < from[nearest])
 				nearest = candidate
-		spots -= nearest
+		from -= nearest
+		tested++
 		var/list/route = get_path_to(body, nearest, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
 		if(QDELETED(src) || QDELETED(body))
 			return
@@ -214,13 +231,14 @@
 			way_out = TRUE
 			found = "a way of [length(route)] steps to [AREACOORD(nearest)]"
 	checking_shut_in = FALSE
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) tested whether it is shut in [room] at [AREACOORD(here)]: found [found || "no way out"].")
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) tested whether it is shut in [room] at [AREACOORD(here)], [tested] way\s tried: found [found || (tested ? "no way out" : "nowhere to test")].")
 	// It may have got out, or been let out, while the routes were being tested.
 	if(current_place != room)
 		return
 	if(way_out)
 		ways_out_failed = 0
-	else
+	// Nothing tested is no answer: the next failed walk tries again.
+	else if(tested)
 		shut_in = TRUE
 
 /// TRUE if the body remembers a mess, still there, in the room of this name.
@@ -287,6 +305,10 @@
 	var/mob/living/carbon/human/body = pawn
 	for(var/turf/tile as anything in route)
 		for(var/obj/machinery/door/airlock/door in tile)
+			// One that stays open for good, unpowered (forced), bolted open or broken by an emag, is
+			// open to anyone, the one it was forced for above all.
+			if(!door.density && (!door.hasPower() || door.locked || (door.obj_flags & EMAGGED)))
+				continue
 			if(!door.allowed(body))
 				return TRUE
 	return FALSE
@@ -304,6 +326,7 @@
 		return
 	// Already looking for a way to a door: the routes are still being tested.
 	if(finding_door)
+		action_result(CREW_TOOL_TO_DOOR, FALSE, "You are still working out the way.")
 		return
 	var/leaving = isnull(known)
 	var/area/room = leaving ? get_area(body) : crew_npc_station_places()[known]
@@ -337,13 +360,17 @@
 		// The door it came in by is the one it goes back to: that is the way it knows leads out.
 		if(leaving && came_in_by == door)
 			score -= 100
+		// A bolted or welded door is seen to be one, and is the last to make for (DOOR-06). One with
+		// no power is not passed over: it can be pried.
+		if(door.locked || door.welded)
+			score += 300
 		scores[door] = score
 		spots[door] = spot
 	var/goal = "the door [leaving ? "out of" : "into"] [room_name]"
 	if(!length(scores))
 		action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot find [goal].")
 		return
-	// The best of them, and for a door into a room, the best of them that it can walk up to. A door
+	// The best of them that it can walk up to, for a door in or a door out. A door
 	// may open from somewhere it has no way to: the far side of a security post, say. Making for
 	// that one gets it nowhere, however near it lies, so each is tried for a way to it, best first.
 	var/obj/machinery/door/airlock/best
@@ -352,6 +379,9 @@
 	// The first door it had no way to that opens from a room locked to it as well: the name of that room.
 	var/outer_name
 	finding_door = TRUE
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	while(length(scores) && tries_left > 0)
 		tries_left--
 		var/obj/machinery/door/airlock/nearest
@@ -360,7 +390,9 @@
 				nearest = door
 		scores -= nearest
 		var/turf/spot = spots[nearest]
-		if(leaving || get_dist(body, nearest) <= CREW_NPC_AT_DOOR)
+		// A door out is tried for a way to it too: the best-scored one may be past a counter it
+		// cannot cross, and it was sent back to it every time (DOOR-06).
+		if(get_dist(body, nearest) <= CREW_NPC_AT_DOOR)
 			best = nearest
 			best_spot = spot
 			break
@@ -369,13 +401,15 @@
 		// the kitchen, by its open shutters, and the bar's own door is in there.
 		var/list/nearest_sides = doors[nearest]
 		var/area/outer = get_area(nearest_sides[2])
-		var/outer_locked = outer != get_area(body) && locked_out_of(outer)
+		var/outer_locked = !leaving && outer != get_area(body) && locked_out_of(outer)
 		var/list/route = get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
 		if(QDELETED(src) || QDELETED(body))
 			return
 		// A way into a locked room that is only there because one of its doors happens to stand open
-		// this minute is no way in: it has no more right to walk through that door than it had.
-		if(outer_locked && length(route) && route_by_open_door(route))
+		// this minute is no way in: it has no more right to walk through that door than it had. So
+		// for any way to a door, a locked hallway's among them, which locked_out_of() takes for open
+		// (KNA-31): the Service Hallway, walked into through a door a janitor had open.
+		if(!leaving && length(route) && route_by_open_door(route))
 			route = null
 		if(length(route))
 			best = nearest
@@ -388,8 +422,11 @@
 		if(outer_locked)
 			outer_name ||= format_text(outer.name)
 			continue
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door into [room_name], and looks for another.")
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door [leaving ? "out of" : "into"] [room_name], and looks for another.")
 	finding_door = FALSE
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [goal], and had been given something else to do meanwhile.")
+		return
 	if(isnull(best))
 		if(outer_name)
 			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
@@ -589,18 +626,17 @@
 	if(isnull(room))
 		return list(FALSE, "You have lost track of which room the door was for.")
 	var/inside = get_area(person) == room
-	door.autoclose = FALSE
-	if(door.density && !door.open())
-		door.autoclose = TRUE
+	// Opened as a player opens it: a click with an empty hand, from beside it. The door makes its
+	// own checks, and shuts itself after its own few seconds. One standing open already is left
+	// open: a click would shut it.
+	if(door.density && !click_door(door, TRUE))
 		return list(FALSE, "The door will not open for you.")
-	// The door shuts behind them the moment they are through, so that nobody else walks in after.
-	// Failing that, it shuts when it has been held long enough. If it is being held for someone
-	// else as well, whoever has longest to go is the one it shuts behind.
+	// It stays by the door while it is wanted open, opens it again if it shuts too soon, and shuts
+	// it behind them once they are through. If it is being held for someone else as well, it is
+	// shut only when nobody it is held for is still to come through (DOOR-01).
 	var/held_until = world.time + CREW_NPC_DOOR_HELD
-	GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+	GLOB.crew_npc_door_holds[REF(door)] += 1
 	watch_door(WEAKREF(door), WEAKREF(person), inside, held_until, room)
-	// Having opened it, the body gets out of the doorway and back to where it works.
-	addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) opened [door] to let [key_name(person)] [inside ? "out of" : "into"] [room_name].")
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
@@ -621,10 +657,9 @@
 			if(!istype(other_controller) || !other_controller.is_shut_in())
 				continue
 			other_controller.door_opened_for(body, room_name, way_out, door)
-			// Each is watched a tick longer than the last, so that the door shuts behind whoever
-			// is last through it and not on them: see watch_door.
-			held_until += 1
-			GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], held_until)
+			// Each is counted, so that the door shuts behind whoever is last through it and not
+			// on them: see watch_door.
+			GLOB.crew_npc_door_holds[REF(door)] += 1
 			watch_door(WEAKREF(door), WEAKREF(other), TRUE, held_until, room)
 	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].")
 
@@ -632,6 +667,8 @@
 /datum/ai_controller/crew_npc/proc/watch_door(datum/weakref/door_ref, datum/weakref/person_ref, was_inside, until, area/room, extended = 0)
 	var/obj/machinery/door/airlock/door = door_ref?.resolve()
 	if(QDELETED(door) || QDELETED(src) || isnull(room))
+		door_hold_over(person_ref, room)
+		door_watch_ended(door_ref)
 		let_door_close(door_ref)
 		return
 	var/mob/living/carbon/human/person = person_ref?.resolve()
@@ -646,7 +683,6 @@
 	if(!through && world.time >= until && extended < CREW_NPC_DOOR_HELD_ON_TIMES && person.stat == STABLE && !IS_UNCONSCIOUS(person) && person.z == door.z && get_dist(person, door) <= CREW_NPC_VISION_RANGE)
 		until = world.time + CREW_NPC_DOOR_HELD_ON
 		extended++
-		GLOB.crew_npc_door_holds[REF(door)] = max(GLOB.crew_npc_door_holds[REF(door)], until)
 		// They are told nothing new: only that the door they were making for is open that much longer.
 		var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 		if(istype(their_controller))
@@ -654,17 +690,48 @@
 			if(was_inside)
 				their_controller.let_out_until = max(their_controller.let_out_until, until)
 	if(through || world.time >= until)
-		// Held for someone else too, who came to it later and is not through yet: one janitor going
-		// in must not shut the door on the one behind. Whoever is holding it for them shuts it.
-		if(GLOB.crew_npc_door_holds[REF(door)] > until)
+		door_hold_over(person_ref, room)
+		// Held for someone else too, who is not through yet, whichever was asked for first: one
+		// janitor going through must not shut the door on the one behind. The last watch to end
+		// shuts it.
+		if(!door_watch_ended(door_ref))
+			addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 			return
-		GLOB.crew_npc_door_holds -= REF(door)
 		let_door_close(door_ref)
 		return
+	// The door has shut itself before they are through: it is opened again, from beside it. A body
+	// that has been called away from the door is no longer there to.
+	if(door.density && !door.operating && !QDELETED(pawn) && pawn.Adjacent(door))
+		INVOKE_ASYNC(src, PROC_REF(click_door), door, TRUE)
 	addtimer(CALLBACK(src, PROC_REF(watch_door), door_ref, person_ref, was_inside, until, room, extended), CREW_NPC_DOOR_WATCH)
 
-/// Doors being held open for someone, by REF: the world.time the longest of those holds runs to.
+/**
+ * The body's hold of a door for someone is over: they are through, or time is up. The brain is
+ * told, so that it gives the body no new walk while it is still standing by the door (KNB-04, step
+ * 7). The details name the room and whom it was held for.
+ */
+/datum/ai_controller/crew_npc/proc/door_hold_over(datum/weakref/person_ref, area/room)
+	if(QDELETED(src) || QDELETED(pawn) || !can_sense())
+		return
+	var/mob/living/carbon/human/person = person_ref?.resolve()
+	var/room_name = room ? format_text(room.name) : ""
+	var/person_name = QDELETED(person) ? "" : person.name
+	emit_sense(CREW_SENSE_KNOWLEDGE, "You are done holding the door[room_name ? " of [room_name]" : ""][person_name ? " for [person_name]" : ""].", list("door_hold_over" = room_name, "door_held_for" = person_name))
+
+/// Doors being held open for someone, by REF: how many people the door is still being watched for.
 GLOBAL_LIST_EMPTY(crew_npc_door_holds)
+
+/// One watch of a held door has ended. Returns TRUE if it was the last, so nobody is left to come through.
+/datum/ai_controller/crew_npc/proc/door_watch_ended(datum/weakref/door_ref)
+	var/key = door_ref?.reference
+	if(isnull(key) || !(key in GLOB.crew_npc_door_holds))
+		return TRUE
+	var/left = GLOB.crew_npc_door_holds[key] - 1
+	if(left > 0)
+		GLOB.crew_npc_door_holds[key] = left
+		return FALSE
+	GLOB.crew_npc_door_holds -= key
+	return TRUE
 
 /**
  * Tool: knock at the door the body is standing at. A voice does not carry through a shut door, so
@@ -692,10 +759,27 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 
 /// TRUE if a room's fire alarm is on because someone pulled it, and no fire door there has found anything wrong with the air.
 /proc/crew_npc_alarm_was_pulled(area/room)
-	if(!(room.fire || LAZYLEN(room.active_firelocks)) || room.fault_status != AREA_FAULT_MANUAL)
+	if(!(room.fire || LAZYLEN(room.active_firelocks)))
 		return FALSE
 	for(var/obj/machinery/door/firedoor/door as anything in room.firedoors)
 		if(door.alarm_type && door.alarm_type != FIRELOCK_ALARM_TYPE_GENERIC)
+			return FALSE
+	if(room.fault_status == AREA_FAULT_MANUAL)
+		return TRUE
+	// A room can catch a pulled alarm from next door: a fire door they share shuts for the
+	// neighbour's alarm and puts this room's alarm on as well, as if the air had set it off. It
+	// was pulled all the same if every shut door here is shared with a room whose alarm was pulled.
+	if(room.fault_status != AREA_FAULT_AUTOMATIC || !LAZYLEN(room.active_firelocks))
+		return FALSE
+	for(var/obj/machinery/door/firedoor/door as anything in room.active_firelocks)
+		if(door.alarm_type != FIRELOCK_ALARM_TYPE_GENERIC)
+			return FALSE
+		var/from_pulled = FALSE
+		for(var/area/neighbour as anything in door.affecting_areas)
+			if(neighbour != room && neighbour.fault_status == AREA_FAULT_MANUAL && (door in neighbour.active_firelocks))
+				from_pulled = TRUE
+				break
+		if(!from_pulled)
 			return FALSE
 	return TRUE
 
@@ -718,11 +802,17 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	if(isnull(nearest))
 		return ""
 	// The door may stand between two rooms. The one whose alarm is on is the one that shut it.
+	// Where both are, the body's own room is named when it has an alarm: that one is on the body's
+	// side, and resetting it opens the door they share.
 	var/area/alarmed
-	for(var/area/place as anything in nearest.affecting_areas)
-		if(place.fire || LAZYLEN(place.active_firelocks))
-			alarmed = place
-			break
+	var/area/here = get_area(body)
+	if((here in nearest.affecting_areas) && (here.fire || LAZYLEN(here.active_firelocks)) && length(here.firealarms))
+		alarmed = here
+	else
+		for(var/area/place as anything in nearest.affecting_areas)
+			if(place.fire || LAZYLEN(place.active_firelocks))
+				alarmed = place
+				break
 	alarmed ||= get_area(nearest)
 	var/alarmed_name = format_text(alarmed.name)
 	details["fire_doors"] = alarmed_name
@@ -777,7 +867,28 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		return list(TRUE, "The fire alarm in [errand_item] has been reset already.")
 	if(!crew_npc_alarm_was_pulled(room))
 		return list(FALSE, "Something is wrong with the air in [errand_item] after all. You leave the alarm alone.")
-	alarm.reset(body)
+	// Reset as a player resets one: a right click with an empty hand (a left click sets it off). The
+	// alarm does nothing when it has no power, is broken or its reset wire is cut, so the room is
+	// looked at again after, and a reset that did not happen is not reported as one (DOOR-11).
+	var/clicked = FALSE
+	for(var/try_number in 1 to 2)
+		if(!empty_clicking_hand())
+			break
+		clicked = click_as_body(alarm, "right=1")
+		if(QDELETED(src) || QDELETED(body) || QDELETED(alarm))
+			return list(FALSE, "You cannot reach the fire alarm in [errand_item].")
+		if(!(room.fire || LAZYLEN(room.active_firelocks)))
+			break
+	if(room.fire || LAZYLEN(room.active_firelocks))
+		// The next try goes to another of the room's alarms, if it has one.
+		fire_alarms_failed[REF(alarm)] = world.time
+		if(!clicked)
+			return list(FALSE, "You cannot reach the fire alarm in [errand_item].")
+		if(alarm.machine_stat & NOPOWER)
+			return list(FALSE, "The fire alarm in [errand_item] has no power. It will not reset.", list("alarm_dead" = errand_item))
+		if(alarm.machine_stat & BROKEN)
+			return list(FALSE, "The fire alarm in [errand_item] is broken.", list("alarm_dead" = errand_item))
+		return list(FALSE, "The fire alarm in [errand_item] would not reset.", list("alarm_dead" = errand_item))
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reset the fire alarm in [errand_item].")
 	// The way is open again, so nothing it gave up on because of the fire doors stands.
 	ways_reopened()
@@ -792,14 +903,47 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		return
 	start_walk(post_turf, CREW_TOOL_RETURN, post_place, CREW_NPC_WALK_TIMEOUT)
 
-/// Lets a door the body was holding open shut again.
+/**
+ * Shuts a door the body was holding open, with a click, if it is still beside it; and then the
+ * body gets back to where it works. Called away from the door, it leaves the door to shut itself,
+ * as it would for anyone.
+ */
 /datum/ai_controller/crew_npc/proc/let_door_close(datum/weakref/door_ref)
-	var/obj/machinery/door/airlock/door = door_ref?.resolve()
-	if(QDELETED(door))
+	if(QDELETED(src) || QDELETED(pawn))
 		return
-	door.autoclose = TRUE
-	if(!door.density)
-		INVOKE_ASYNC(door, TYPE_PROC_REF(/obj/machinery/door, close))
+	var/obj/machinery/door/airlock/door = door_ref?.resolve()
+	if(!QDELETED(door) && !door.density && !door.operating && pawn.Adjacent(door))
+		INVOKE_ASYNC(src, PROC_REF(click_door), door, FALSE)
+	addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 1 SECONDS)
+
+/**
+ * Clicks a door open or shut, with an empty hand, from beside it: the door makes its own checks of
+ * access, bolts and power. A door already as wanted is not clicked, since a click would undo it.
+ * Sleeps. Returns TRUE if the door ends up open (or shut) as wanted.
+ */
+/datum/ai_controller/crew_npc/proc/click_door(obj/machinery/door/airlock/door, open)
+	if(QDELETED(door) || door.operating)
+		return FALSE
+	if(door.density != open)
+		return TRUE
+	if(!empty_clicking_hand())
+		return FALSE
+	// A moment to reach for it. Looked at again after, in case it has moved by itself meanwhile.
+	sleep(0.5 SECONDS)
+	if(QDELETED(src) || QDELETED(door) || door.operating)
+		return FALSE
+	if(door.density != open)
+		return TRUE
+	if(!click_as_body(door, null, 0))
+		return FALSE
+	// The door takes a moment to open or shut.
+	for(var/i in 1 to 8)
+		if(QDELETED(door))
+			return FALSE
+		if(door.density != open && !door.operating)
+			return TRUE
+		sleep(0.25 SECONDS)
+	return !QDELETED(door) && door.density != open
 
 /// Someone has opened a door for this body and is holding it. It learns the way through and that it had better go now.
 /datum/ai_controller/crew_npc/proc/door_opened_for(mob/living/carbon/human/opener, place, turf/spot, obj/machinery/door/airlock/door)

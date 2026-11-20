@@ -14,13 +14,16 @@
 //   bun run sim.ts quiet alarm     someone pulls a fire alarm on a janitor: it resets it and gets on (alarmagain: it is pulled again at once)
 //   bun run sim.ts quiet crew      the crew a round starts with: a Head of Personnel, two technicians and three janitors
 //   bun run sim.ts quiet shutout   the head calls its meeting in a room the staff cannot get into: they answer by PDA
-//   bun run sim.ts quiet vouch     two technicians: one sends for a janitor, the other asks what the janitor is doing in the bay
+//   bun run sim.ts quiet headshut  the head is shut in its office when its first meeting is due: it calls none until it is let out, then calls it (HEAD-06)
+//   bun run sim.ts quiet headnoroom  the head cannot get to the room it called its meeting in: three minutes on, its staff are told by PDA the meeting is over (HEAD-06)
+//   bun run sim.ts quiet vouch    two technicians: one sends for a janitor, the other asks what the janitor is doing in the bay
 //   bun run sim.ts quiet waiting   a head orders a crate and nobody comes for it: the technicians take turns to look and remind, and hand it over when asked for by number
 //   bun run sim.ts quiet captain   the Captain tells the head to find out how its section is doing: a second staff meeting is called there and then
 //   bun run sim.ts quiet mixed     a head orders two kinds of crate in one breath: one order is placed for both, and each crate is told apart when it comes
 //   bun run sim.ts quiet evict     the Captain, in the bay, orders the technician to put out a janitor it sent for (leave: tells the janitor to go)
 //   bun run sim.ts quiet aside     a janitor scrubbing the bay is asked to step aside: it moves, and stays clear a while
-//   bun run sim.ts quiet bydoor    a crate has been left right by a door: the technician hauls it clear
+//   bun run sim.ts quiet asidetwice  as aside, but its first step aside finds nowhere to go: asked again ten seconds later, it steps aside then, and nothing is sent over its work meanwhile (JOBS-06)
+//   bun run sim.ts quiet bydoor   a crate has been left right by a door: the technician hauls it clear
 //   bun run sim.ts quiet lost      a crate being held for collection is destroyed: it is written off aloud and whoever ordered it is told
 //   bun run sim.ts quiet nested    a mess in a locked room that lies inside the locked bay: the janitor is let through both doors, and back out through both
 //   bun run sim.ts quiet qm        the crew with a Quartermaster aboard: the head's order goes to it by PDA, into its order book, to a technician face to face, and word of the crates comes back the same way
@@ -33,6 +36,7 @@
 //   bun run sim.ts quiet engine    a Chief Engineer and one engineer: the engine is given at the first meeting and lit, emitters last; the batteries are set
 //   bun run sim.ts quiet enginestuck  a canister will not connect: the job stops, the emitters are never touched, and the Chief Engineer is told which step
 //   bun run sim.ts quiet enginehot    the lit engine starts to come apart: the emitters are ordered off, and the Captain is told
+//   bun run sim.ts quiet enginelocked  as enginehot, but one emitter's controls are locked: the other two go off, and the Captain is told why the engine is still firing
 //   bun run sim.ts quiet engalone     a Chief Engineer who never speaks: the engineer starts by itself two minutes in
 //   bun run sim.ts quiet enginedim    the emitters stop on a sound engine: the engineer is sent to switch them on again
 //   bun run sim.ts quiet warrant     the Captain declares a warrant on the bar's monkey: the heads are sent the notice, a head reads it out at its meeting, a sighting is sent, and the officer arrests it and puts it in a cell
@@ -43,6 +47,15 @@
 //   bun run sim.ts quiet badcell     the first cell will not take the prisoner: the officer tries the next at once, and walks nowhere else with it by the arm
 //   bun run sim.ts quiet loose       the Captain words the warrant loosely: code cannot read it, the LLM does, and it is read back in the fixed words. With a dead LLM the Captain is told it was not followed, and says it again plainly
 //   bun run sim.ts quiet nohos       an officer with no Head of Security aboard: it takes the warrant from the Captain and keeps the list itself
+//   bun run sim.ts quiet tryagain    the officer starts the shift hurt and says it can make no arrests; a warrant is declared, then the Captain says "Try again": the officer is given it and makes the arrest (SECT-11)
+//   bun run sim.ts quiet hallfail    no word of where the monkey is, and the officer cannot walk to the first main hallway: it goes on to the next one at once, finds it there and brings it in (ARR-11)
+//   bun run sim.ts quiet hurtagain   as hurt, but the Captain then says "Try again": the officer, no more hurt than it was, makes the arrest and does not break off again (ARR-09)
+//   bun run sim.ts quiet badtimer    as badcell, but the first cell's timer will not start: the officer tries another cell at once, not the same one again (SEC-04)
+//   bun run sim.ts quiet pardonmid   the Captain pardons the monkey the moment the baton comes out: the cuffs go on all the same, and the officer then lets it go (TRB-02)
+//   bun run sim.ts quiet headhit     as warrant on the monkey, but first a head of staff (the Quartermaster) shoves the officer: it does not baton them, and tells the Head of Security once (ARR-03)
+//   bun run sim.ts quiet cuffedfree  the monkey is in cuffs already and nobody holds it: the officer takes it by the arm and jails it (TRB-01)
+//   bun run sim.ts quiet cuffedheld  the monkey is in cuffs already and the Head of Security has it by the arm: the officer leaves it be (TRB-01)
+//   bun run sim.ts quiet twolocked   two warrants: the monkey is in the locked Cargo Bay, Dana Reyes in the Library; the officer asks to be let into the bay and waits at its door, not walking off to Dana (ARR-14)
 //   bun run sim.ts quiet qmwait   a head never sends for its crate: the technician who looks over the bay tells the Quartermaster, who reminds the head
 const MODE = process.argv[2] ?? 'quiet';
 // BRAIN=<folder> runs another copy of the window code, to compare it with the one in the tree.
@@ -163,6 +176,8 @@ const rooms: Record<string, Room> = {
   "Head of Security's Office": { kind: 'room', messes: [], items: [], boxes: [], sink: false },
   Library: { kind: 'room', messes: [], items: [], boxes: [], sink: false },
 };
+// ARR-11: a second main hallway, in the scenario where the officer cannot walk to the first.
+if (process.argv[3] === 'hallfail') rooms['Fore Primary Hallway'] = { kind: 'hallway', messes: [], items: [], boxes: [], sink: false };
 const QM_OFFICE = "Quartermaster's Office";
 // Where there is paper to be had: a bin of it, with a pen.
 let paperIn: string | null = process.argv[3] === 'qmpaper' ? null : 'Delivery Office';
@@ -297,10 +312,21 @@ const stowed: string[] = [];
 // The technician whose first haul off the shuttle came to nothing, in the scenario about that.
 let stuckBy = '';
 const steppedAside: { who: string; at: number }[] = [];
+// JOBS-06: when the first step aside found nowhere to go, and each step sent to the janitor while it was still busy with another.
+let asideFailedAt = 0;
+const sentOverBusy: string[] = [];
 // ---- security: what its staff have on them, the brig's cells, and someone to arrest
-const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose'].includes(process.argv[3]);
+const SECURITY = ['warrant', 'arresthead', 'pardon', 'fight', 'hurt', 'nohos', 'nobaton', 'badcell', 'loose', 'recell', 'tryagain', 'hallfail', 'badtimer', 'hurtagain', 'pardonmid', 'headhit', 'cuffedfree', 'cuffedheld', 'twolocked'].includes(process.argv[3]);
 // The cells that would not take a prisoner, in the scenario about that. The body tries another before it tries one of these again, as the server has it do.
 const refusedCells = new Set<string>();
+// HEAD-06: the scenarios about a head who cannot get to its own meeting. In one it is shut in its office until four minutes in
+// (its first meeting is due at two); in the other every walk it makes to the meeting room fails. Each walk of the head's that failed.
+const HEADSHUT = process.argv[3] === 'headshut' || process.argv[3] === 'headnoroom';
+const HEAD_LET_OUT_AT = 1_000_000 + 240_000;
+const headShut = (body: { job: string }) => process.argv[3] === 'headshut' && body.job === 'Head of Personnel' && clock < HEAD_LET_OUT_AT;
+const headWalksFailed: number[] = [];
+// ARR-11: each time the officer's walk to the hallway it could not get to came to nothing.
+const hallFails: number[] = [];
 const SEC_OFFICE = 'Security Office';
 const HOS_OFFICE = "Head of Security's Office";
 const BRIG = 'Brig';
@@ -318,6 +344,8 @@ const secWork: { at: number; who: string; tool: string; how?: string; ok: boolea
 const walkedFree: { who: string; at: number; why: string }[] = [];
 const bitten: { who: string; at: number }[] = [];
 const custody = new Map<string, string>();
+// Who each of the security staff remembers putting in which cell, as the server keeps it: not put right when a time runs out, so it may name a cell that now holds someone else.
+const jailedBy = new Map<string, Map<string, string>>();
 // A cell's door opens: its time is up, or someone stopped the timer. Whoever was in it walks free, and a crew NPC is told so.
 function openCell(cell: (typeof cells)[number], why: string) {
   const name = cell.occupant;
@@ -327,10 +355,13 @@ function openCell(cell: (typeof cells)[number], why: string) {
   const npc = bodies.find((other) => other.name === name);
   if (npc) { custody.delete(name); npc.inHandUntil = 0; emit(npc, 'knowledge', 'You are free to go.', { set_free: 1 }); }
   if (punPun?.name === name) { punPun.cell = null; punPun.cuffed = false; punPun.room = punPun.route[0] ?? 'Bar'; punPun.movedAt = clock; }
+  // TRB-03: in the scenario where the Head of Security served the warrant, the monkey, let out, goes where the hurt officer is.
+  const officer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && punPun?.name === name && officer) punPun.room = officer.room;
 }
 
 // ---- the engine: its room's machines as the server names them to engineering staff, how each is set, and the crystal.
-const ENGINE = ['engine', 'enginestuck', 'enginehot', 'engalone', 'enginedim'].includes(process.argv[3]);
+const ENGINE = ['engine', 'enginestuck', 'enginehot', 'enginelocked', 'engalone', 'enginedim'].includes(process.argv[3]);
 const CE_OFFICE = "Chief Engineer's Office";
 const ENGINE_ROOM = 'Supermatter Engine Room';
 type Machine = { id: string; name: string; kind: string; nth: number; place: string; on: boolean; full: boolean };
@@ -363,7 +394,7 @@ function engineTick() {
   const firing = emitters().filter((machine) => machine.on).length;
   crystal.energy = firing ? Math.min(900, crystal.energy + firing * 40) : Math.max(0, crystal.energy - 150);
   if (firing === 3 && !crystal.litAt) crystal.litAt = clock;
-  if (process.argv[3] === 'enginehot' && crystal.litAt && !crystal.faultAt && clock - crystal.litAt >= 60_000) crystal.faultAt = clock;
+  if (['enginehot', 'enginelocked'].includes(process.argv[3]) && crystal.litAt && !crystal.faultAt && clock - crystal.litAt >= 60_000) crystal.faultAt = clock;
   if (firing && (!loopRunning() || crystal.faultAt)) crystal.integrity = Math.max(0, crystal.integrity - 0.5);
   if (crystal.integrity < 95 && !crystal.lowAt) crystal.lowAt = clock;
   if (crystal.lowAt && !firing && !crystal.offAt) crystal.offAt = clock;
@@ -497,9 +528,11 @@ const RAG = 'damp rag';
 const cleaningTool = (body: Body) => toolOf(body) ?? (mopWorks(body) ? 'mop' : body.holding.includes(RAG) ? RAG : null);
 // A spray only washes, and a rag only wipes. Soap and a wet mop scrub as well.
 const canShift = (body: Body, m: Mess, held = cleaningTool(body) ?? (body.holding.includes('mop') ? 'mop' : null)) => !body.stubborn.has(m.id) && (held === null || (held !== 'space cleaner' && held !== RAG) || !m.scrub);
-// The kinds of crate cargo may order, and what comes in each.
+// The kinds of crate cargo may order, and what comes in each. The janitorial crate holds the
+// cleaning tools of the real pack (code/modules/cargo/packs/service.dm): one mop, one spray
+// cleaner and one rag, the rag a poor tool (TRA-01). Its buckets, signs, broom, bag and grenades are left out.
 const CRATES: Record<string, { box: string; contents: string[] }> = {
-  'Janitorial Supplies Crate': { box: 'janitorial supplies crate', contents: ['mop', 'space cleaner'] },
+  'Janitorial Supplies Crate': { box: 'janitorial supplies crate', contents: ['mop', 'space cleaner', RAG] },
   'Replacement Lights': { box: 'replacement lights crate', contents: ['light tube', 'light bulb'] },
   'Bureaucracy Crate': { box: 'bureaucracy crate', contents: ['paper bin'] },
 };
@@ -522,6 +555,7 @@ function toolCall(body: Body, tool: string, args: any) {
   // Standing still to talk is not a step of anyone's work, so it is not logged as one.
   if (tool === 'hold') { body.stillUntil = Math.max(body.stillUntil, clock + 4000); return; }
   body.log.push(`${stamp()} ${body.room.padEnd(24)} ${tool}${Object.keys(args).length ? ' ' + JSON.stringify(args) : ''}`);
+  if (VARIANT === 'asidetwice' && body.job === 'Janitor' && body.busyText && tool !== 'say' && tool !== 'step_aside') sentOverBusy.push(`${stamp()} ${tool} while ${body.busyText}`);
   // Someone has it by the arm. It can speak, and that is all.
   if (clock < body.inHandUntil && tool !== 'say') return result(body, tool, false, 'Someone has you by the arm and is walking you out.');
   // What it says it will do and then at once does is one act. Wandering off after speaking is another.
@@ -571,6 +605,10 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!(args.place in rooms)) return result(body, 'go_to', false, 'You do not know of anywhere aboard by that name.');
       if (args.place === body.room) return result(body, 'go_to', true, `You are already in ${args.place}.`, { place: args.place });
       if (pushedOut(body) && args.place === 'Bar' && meetingOn()) walksToMeeting++;
+      // HEAD-06: the head is shut in its office until it is let out; in the other scenario it can get anywhere but the meeting room.
+      if (headShut(body) || (VARIANT === 'headnoroom' && body.job === 'Head of Personnel' && args.place === 'Bar')) return busy(body, 3, `walking to ${args.place}`, true, () => { body.blocked.set(args.place, clock); headWalksFailed.push(clock); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
+      // ARR-11: the way from the security rooms to the Central Primary Hallway is shut to the officer, as fire doors would shut it.
+      if (VARIANT === 'hallfail' && body.job === 'Security Officer' && args.place === 'Central Primary Hallway') return busy(body, 3, `walking to ${args.place}`, true, () => { body.blocked.set(args.place, clock); hallFails.push(clock); result(body, 'go_to', false, `You stop on the way to ${args.place}: there is no way through. You are in ${body.room}.`); });
       // Only cargo staff can open the doors of the bay and the delivery office. Anyone else behind
       // one that is not standing open finds no way through. A walk to a room that is locked to it
       // as well says nothing about getting out, and does not count towards being shut in.
@@ -723,6 +761,7 @@ function toolCall(body: Body, tool: string, args: any) {
     case 'message': {
       const target = bodies.find((other) => other.name === args.person);
       if (target?.job === 'Janitor' && body.post) janitorCall = { by: body.name, at: clock };
+      if (VARIANT === 'hurtagain' && !hurtToldAt && args.person === SEC_CAPTAIN && /could not take .* and is hurt/.test(String(args.text))) hurtToldAt = clock;
       // The Quartermaster asking the Captain whether a purchase may be made.
       if (players.some((player) => player.name === args.person && player.job === 'Captain') && String(args.text).includes('Yes or no?')) captainAsked.push({ at: clock, text: String(args.text) });
       // A head calling its staff to a meeting: the first of the calls is when it was called.
@@ -866,6 +905,8 @@ function toolCall(body: Body, tool: string, args: any) {
       });
     }
     case 'step_aside':
+      // JOBS-06: the first time, there is nowhere clear to step to.
+      if (VARIANT === 'asidetwice' && !asideFailedAt) { asideFailedAt = clock; return result(body, 'step_aside', false, 'There is nowhere clear to step to.'); }
       // Asked to get out of the way, it steps to a clear spot nearby, whatever it was in the middle of.
       body.busyText = null; body.walking = false; body.onDone = null;
       // Clear of any doorway it was standing in, on whichever side of it that was.
@@ -966,11 +1007,15 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!isSecurityJob(body.job)) return result(body, 'arrest', false, 'Making arrests is security\'s job.');
       if (!them || !inSight(body, them.room) || pun?.cell) return fails('lost', 'You cannot see that person.');
       if (them.job === 'Captain') return fails('captain', 'You do not lay a hand on the Captain.');
+      // Across the cargo counter, in a locked room it is not in: it cannot get to them (ARR-14).
+      if (LOCKED.includes(them.room) && body.room !== them.room && !doorOpen(them.room)) { note(false, { reason: 'no_way' }); return result(body, 'arrest', false, `You cannot get to ${name}: there is no way through.`, { handle: args.person, reason: 'no_way', place: them.room }); }
       if (args.how !== 'quiet' && !mine.baton) return fails('no_baton', 'You have no stun baton.');
       if (args.how !== 'stop' && !mine.cuffs && !pun?.cuffed) return fails('no_cuffs', 'You have no cuffs.');
       // A crew NPC stands still for it.
       if (npc && args.how !== 'stop') { npc.inHandUntil = clock + 600_000; npc.busyText = null; npc.walking = false; npc.onDone = null; emit(npc, 'knowledge', `${body.name} is arresting you. You stand still.`, { under_arrest: 1, by: body.name }); }
       if (pun) pun.busy = true;
+      // TRB-02: the arrest that will put the cuffs on is under way. The Captain's pardon comes in the next tick.
+      if (VARIANT === 'pardonmid' && pun && args.how === 'force' && !pardonMid.arrestAt) pardonMid.arrestAt = clock;
       // The monkey bites whoever lays a hand on it, while it has bites left in it.
       const bite = () => { if (pun && pun.bites > 0) { pun.bites--; mine.health -= pun.hard; bitten.push({ who: body.name, at: clock }); emit(body, 'knowledge', `${pun.name} bites you.`, { struck_by: args.person, struck_name: pun.name, how: 'hit' }); } };
       if (args.how === 'stop') return busy(body, 5, `stopping ${name}`, false, () => { if (pun) pun.busy = false; note(true, { hits: 2 }); result(body, 'arrest', true, `You stop ${name} with your baton.`, { handle: args.person, hits: 2 }); });
@@ -995,6 +1040,8 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!cell) { note(false, { reason: 'no_cell' }); return result(body, 'jail', false, 'Every cell is in use.', { reason: 'no_cell' }); }
       // In one scenario the first cell will not take anyone, as in the round of 15:52: its door did not open in time.
       if (process.argv[3] === 'badcell' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'no_way', cell: cell.name }); result(body, 'jail', false, `You cannot get into ${cell.name} with ${name}.`, { reason: 'no_way', prisoner: name, cell: cell.name }); });
+      // SEC-04: in its twin the first cell's timer will not start. The server passes a cell over for that as well (cell_refuses in put_in_cell).
+      if (process.argv[3] === 'badtimer' && cell.name === 'Cell 1') return busy(body, 10, `taking ${name} to the brig`, true, () => { moveTo(body, BRIG); refusedCells.add(cell.name); note(false, { reason: 'timer', cell: cell.name }); result(body, 'jail', false, `The timer of ${cell.name} will not start.`, { reason: 'timer', prisoner: name, cell: cell.name }); });
       return busy(body, 10, `taking ${name} to the brig`, true, () => {
         const minutes = Math.min(15, Math.max(1, Number(args.minutes) || 5));
         const npc = bodies.find((other) => other.name === name);
@@ -1002,7 +1049,10 @@ function toolCall(body: Body, tool: string, args: any) {
         // A crew NPC stands for having the cuffs taken off. Anyone else is left in them.
         if (npc) { moveTo(npc, BRIG); custody.set(name, cell.name); npc.inHandUntil = clock + minutes * 60_000; mine.cuffs = true; emit(npc, 'knowledge', `${body.name} has put you in ${cell.name} for ${minutes} minutes.`, { in_cell: cell.name, minutes }); }
         if (punPun?.name === name) { punPun.room = BRIG; punPun.cell = cell.name; }
-        cell.occupant = name; cell.until = clock + minutes * 60_000; cell.by = body.name;
+        // In the scenario about a cell given to the next prisoner, the first one's timer runs out early, as if it had been set short.
+        cell.occupant = name; cell.until = clock + (VARIANT === 'recell' && name === 'Hop Kins' ? 30_000 : minutes * 60_000); cell.by = body.name;
+        if (!jailedBy.has(body.name)) jailedBy.set(body.name, new Map());
+        jailedBy.get(body.name)!.set(name, cell.name);
         mine.holding = null;
         note(true, { cell: cell.name, minutes });
         result(body, 'jail', true, `You put ${name} in ${cell.name} and start its timer: ${minutes} minutes.`, { cell: cell.name, minutes, prisoner: name, cuffs_left: npc ? 0 : 1 });
@@ -1021,9 +1071,16 @@ function toolCall(body: Body, tool: string, args: any) {
         note(true);
         return result(body, 'free', true, `You let go of ${name} and take the cuffs off.`, { freed: name, from: 'hold' });
       }
-      // It lets out only someone it put in a cell itself, or can see in one.
-      const cell = cells.find((it) => it.occupant === name && (it.by === body.name || body.room === BRIG));
-      if (!cell) { note(true, { reason: 'nothing' }); return result(body, 'free', true, `Nothing is holding ${name}.`, { nothing: 1 }); }
+      // It lets out someone it can see in a cell, or goes to the cell it remembers putting them in and looks in first, as the server does
+      // (SEC-05). Someone not in the cell it remembers is not let out: the cell may hold somebody else now.
+      const remembered = jailedBy.get(body.name)?.get(name);
+      const cell = cells.find((it) => it.occupant === name && body.room === BRIG) ?? cells.find((it) => it.name === remembered && it.occupant === name);
+      if (!cell) {
+        jailedBy.get(body.name)?.delete(name);
+        note(true, { reason: 'nothing', cell: remembered });
+        return result(body, 'free', true, remembered ? `${name} is not in ${remembered} any more.` : `Nothing is holding ${name}.`, { freed: name, nothing: 1 });
+      }
+      jailedBy.get(body.name)?.delete(name);
       return busy(body, 8, `going to let ${name} out of ${cell.name}`, true, () => {
         moveTo(body, BRIG);
         openCell(cell, 'let out');
@@ -1040,13 +1097,15 @@ function toolCall(body: Body, tool: string, args: any) {
       return busy(body, body.room === machine.place ? 3 : 7, 'going to work a machine', true, () => {
         moveTo(body, machine.place); body.visited.add(machine.place); body.known.add(machine.place); body.nextTo = null; body.doorwayOf = null;
         // In one scenario the nitrogen canisters will not go onto their connectors, however often they are tried.
-        const takes = !(VARIANT === 'enginestuck' && how === 'connect');
+        // In another, the first emitter's controls are locked, so it will not switch off.
+        const locked = VARIANT === 'enginelocked' && how === 'switch_off' && machine === emitters()[0];
+        const takes = !(VARIANT === 'enginestuck' && how === 'connect') && !locked;
         const before = String(machine.on) + String(machine.full);
         if (takes) { if (how === 'full') machine.full = true; else machine.on = !['off', 'switch_off'].includes(how); }
         const changed = before !== String(machine.on) + String(machine.full);
         machineWork.push({ at: clock, who: body.name, name: machine.name, kind: machine.kind, how, ok: takes, changed, loop: loopRunning() });
         if (changed) machinesSet.set(body.name, (machinesSet.get(body.name) ?? 0) + 1);
-        result(body, 'work_machine', takes, takes ? (changed ? 'You work the ' + machine.name + ': ' + how + '.' : 'The ' + machine.name + ' is so already.') : 'The ' + machine.name + ' will not connect.');
+        result(body, 'work_machine', takes, takes ? (changed ? 'You work the ' + machine.name + ': ' + how + '.' : 'The ' + machine.name + ' is so already.') : locked ? 'The emitter will not switch off: its controls are locked.' : 'The ' + machine.name + ' will not connect.');
       });
     }
     default:
@@ -1067,6 +1126,9 @@ brainModule.setAct((action: string, payload: any) => {
 
 // TRUE if one of the security staff has this person by the arm, in cuffs.
 const kitsHolding = (name: string) => [...kits.values()].some((mine) => mine.holding === name);
+// Who has someone by the arm, as the server says in people in view (TRB-01): whoever of security holds them, or nobody. In the
+// scenario about it the monkey is in the Head of Security's hold from the start.
+const pulledBy = (name: string): string | null => [...kits.entries()].find(([, mine]) => mine.holding === name)?.[0] ?? (VARIANT === 'cuffedheld' && name === 'Pun Pun' ? 'Joan Marsh' : null);
 // ---- what the server tells the window about each body, once a second
 function uiData(body: Body) {
   const room = rooms[body.room];
@@ -1089,7 +1151,7 @@ function uiData(body: Body) {
   const unopened = room.boxes.filter((box) => !box.openedBy.has(body.id)).length;
   return {
     id: body.id, name: body.name, job: body.job, awake: 1, location: body.room, place_kind: room.kind,
-    people_in_view: others.map((other) => ({ handle: handleFor(body, other.name), name: other.name, job: other.job, place: (other as any).room, distance: body.nextTo === other.name || (other as any).nextTo === body.name ? 1 : 4, in_post: body.post && (other as any).room === body.post ? 1 : 0, belongs: body.post && belongsInBay(other) ? 1 : 0, command: isCommand(other) ? 1 : 0, superior: answersTo(body, other) ? 1 : 0, cuffed: (other as any).cuffed || kitsHolding(other.name) ? 1 : 0, down: 0 })),
+    people_in_view: others.map((other) => ({ handle: handleFor(body, other.name), name: other.name, job: other.job, place: (other as any).room, distance: body.nextTo === other.name || (other as any).nextTo === body.name ? 1 : 4, in_post: body.post && (other as any).room === body.post ? 1 : 0, belongs: body.post && belongsInBay(other) ? 1 : 0, command: isCommand(other) ? 1 : 0, superior: answersTo(body, other) ? 1 : 0, cuffed: (other as any).cuffed || kitsHolding(other.name) ? 1 : 0, pulled_by: pulledBy(other.name), down: 0 })),
     things_in_view: [...[...counts].map(([name, count]) => ({ name, count, kind: 'mess' })), ...room.items.map((name) => ({ name, count: 1, kind: 'item' })), ...(room.sink ? [{ name: 'sink', count: 1, kind: 'structure' }] : [])],
     holding: body.holding, cleaning_tool: cleaningTool(body), has_locator: body.hasLocator ? 1 : 0,
     // All it has to clean with is a rag. And the server's count of its work so far.
@@ -1097,7 +1159,7 @@ function uiData(body: Body) {
     cleanable_messes: cleaningTool(body) ? [...new Set(room.messes.filter((m) => canShift(body, m)).map((m) => m.name))] : [],
     mess_places: [...new Set(remembered.map((x) => x.place))],
     workable_mess_places: [...new Set(remembered.filter((x) => canShift(body, x.m!) && !shut(x.place)).map((x) => x.place))],
-    mop_needs_water: body.holding.includes('mop') && !toolOf(body) && !body.mopWet ? 1 : 0, sink_in_view: room.sink ? 1 : 0, shut_in: isShutIn(body) ? 1 : 0, door_open: isShutIn(body) && doorOpen(body.room) ? 1 : 0, door_held: clock < body.doorHeldUntil ? 1 : 0, door_held_out: clock < body.letOutUntil ? 1 : 0, let_in_by: body.trail.find((entry) => entry.place === body.room)?.by ?? body.letInBy, at_door_of: body.atDoorOf, in_doorway: body.doorwayOf ? 1 : 0,
+    mop_needs_water: body.holding.includes('mop') && !toolOf(body) && !body.mopWet ? 1 : 0, sink_in_view: room.sink ? 1 : 0, shut_in: isShutIn(body) || headShut(body) ? 1 : 0, door_open: isShutIn(body) && doorOpen(body.room) ? 1 : 0, door_held: clock < body.doorHeldUntil ? 1 : 0, door_held_out: clock < body.letOutUntil ? 1 : 0, let_in_by: body.trail.find((entry) => entry.place === body.room)?.by ?? body.letInBy, at_door_of: body.atDoorOf, in_doorway: body.doorwayOf ? 1 : 0,
     // It means to get out, and where to: the room it was in before it first went through a door it could not open. And who else can open the door, once it is shut in.
     wants_out: body.wantsOut ? 1 : 0, way_out_to: body.trail[0]?.from ?? null, door_keepers: isShutIn(body) ? bodies.filter((other) => other.post).map((other) => other.name) : [],
     dry_mop: body.holding.includes('mop') && !toolOf(body) && !body.mopWet && !room.sink ? 1 : 0,
@@ -1135,7 +1197,7 @@ function uiData(body: Body) {
     in_hand: clock < body.inHandUntil ? 1 : 0,
     // The cell it is held in. And for security staff: their kit, who they have by the arm, how well they are, and the cells, which are only seen from the brig.
     custody: custody.get(body.name) ?? null,
-    security: isSecurityJob(body.job) ? { has_baton: kitOf(body).baton ? 1 : 0, has_cuffs: kitOf(body).cuffs ? 1 : 0, holding: kitOf(body).holding, health: kitOf(body).health, baton_seen: null, cells: cells.map((cell) => (body.room === BRIG ? { name: cell.name, running: cell.occupant ? 1 : 0, left: cell.occupant ? Math.round((cell.until - clock) / 1000) : 0, occupants: cell.occupant ? [cell.occupant] : [] } : { name: cell.name, running: null, left: null, occupants: null })) } : null,
+    security: isSecurityJob(body.job) ? { has_baton: kitOf(body).baton ? 1 : 0, has_cuffs: kitOf(body).cuffs ? 1 : 0, holding: kitOf(body).holding, health: kitOf(body).health, baton_seen: null, cells: cells.map((cell) => (body.room === BRIG ? { name: cell.name, running: cell.occupant ? 1 : 0, left: cell.occupant ? Math.round((cell.until - clock) / 1000) : 0, occupants: cell.occupant ? [cell.occupant] : [], room: BRIG } : { name: cell.name, running: null, left: null, occupants: null, room: BRIG })) } : null,
     out_of_bounds: LOCKED.includes(body.room) && !hasKeys(body) ? 1 : 0,
     pda_janitors: bodies.filter((other) => other !== body && other.job === 'Janitor').map((other) => other.name),
     blocked_places: [...body.blocked.keys()].filter(shut),
@@ -1181,6 +1243,8 @@ function spawnCaptainInBay() {
   return crew;
 }
 let captainSpokeAt = 0;
+// JOBS-06: when the Captain asked a second time.
+let askedAgainAt = 0;
 // A technician alone, with a loaded crate that someone has left right by the lobby door.
 function spawnByDoor() {
   const crew = [spawn('Cora Tech', 'Cargo Technician')];
@@ -1265,41 +1329,80 @@ function spawnSecurity() {
   const staff: Body[] = [];
   if (VARIANT !== 'nohos') { const joan = spawn('Joan Marsh', 'Head of Security'); joan.office = HOS_OFFICE; joan.room = HOS_OFFICE; staff.push(joan); }
   const hale = spawn('Hale Stone', 'Security Officer'); hale.room = SEC_OFFICE; staff.push(hale);
+  // SECT-11: the officer comes aboard under half its health, with no warrant yet to break off from.
+  if (VARIANT === 'tryagain') kitOf(hale).health = 40;
   for (const body of staff) for (const place of [SEC_OFFICE, HOS_OFFICE, BRIG]) body.known.add(place);
   players.push({ name: SEC_CAPTAIN, job: 'Captain', room: 'Bridge' });
   if (VARIANT === 'warrant') staff.push(spawn('Hop Kins', 'Head of Personnel'), spawn('Jan Itor', 'Janitor'), spawn('Mo Pper', 'Janitor'));
-  if (VARIANT === 'arresthead' || VARIANT === 'pardon') staff.push(spawn('Hop Kins', 'Head of Personnel'));
+  if (VARIANT === 'arresthead' || VARIANT === 'pardon' || VARIANT === 'recell') staff.push(spawn('Hop Kins', 'Head of Personnel'));
   if (VARIANT !== 'arresthead' && VARIANT !== 'pardon') {
     // In the long scenario the monkey keeps out of everyone's way until the list has been read out, and then goes round where people are. In the rest it sits in the Bar.
-    punPun = { name: 'Pun Pun', job: '', room: VARIANT === 'warrant' ? 'Library' : 'Bar', route: VARIANT === 'warrant' ? ['Bar', HOP_OFFICE] : [], from: 300, every: 70, movedAt: 0, cuffed: false, cell: null, busy: false, bites: VARIANT === 'fight' ? 1 : VARIANT === 'hurt' ? 2 : 0, hard: VARIANT === 'hurt' ? 30 : 10, slips: VARIANT === 'hurt' ? 1 : 0 };
+    punPun = { name: 'Pun Pun', job: '', room: VARIANT === 'warrant' ? 'Library' : VARIANT === 'hallfail' ? 'Fore Primary Hallway' : 'Bar', route: VARIANT === 'warrant' ? ['Bar', HOP_OFFICE] : [], from: 300, every: 70, movedAt: 0, cuffed: false, cell: null, busy: false, bites: VARIANT === 'fight' ? 1 : VARIANT === 'hurt' || VARIANT === 'hurtagain' ? 2 : 0, hard: VARIANT === 'hurt' || VARIANT === 'hurtagain' ? 30 : 10, slips: VARIANT === 'hurt' || VARIANT === 'hurtagain' ? 1 : 0 };
     players.push(punPun);
+    // TRB-01: cuffed already, by someone else, before any warrant. ARR-14: in the locked Cargo Bay, seen across the counter.
+    if (VARIANT === 'cuffedfree' || VARIANT === 'cuffedheld') punPun.cuffed = true;
+    if (VARIANT === 'twolocked') { punPun.room = 'Cargo Bay'; players.push({ name: 'Dana Reyes', job: 'Assistant', room: 'Library' }); for (const body of staff) body.known.add('Cargo Bay').add('Library'); }
   }
   return staff;
 }
-const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'arresthead' || VARIANT === 'nobaton' ? 480 : 360;
+const SECURITY_SECONDS = VARIANT === 'warrant' ? 840 : VARIANT === 'hurt' ? 660 : VARIANT === 'arresthead' || VARIANT === 'nobaton' || VARIANT === 'recell' || VARIANT === 'tryagain' ? 480 : VARIANT === 'hurtagain' ? 600 : 360;
 // When the Captain declares its warrant, by PDA, to whoever keeps security's list; when it then says where they are; and when, in the one scenario, it pardons them.
 const WARRANT_AT = 20;
 const SIGHTING_AT = 45;
 const PARDON_AT = 150;
+// When the Captain says "Try again", in the scenarios about that, and when it did.
+const TRY_AGAIN_AT = 30;
+let tryAgainAt = 0;
+// ARR-09: when the Captain was told the officer broke off hurt.
+let hurtToldAt = 0;
+// TRB-02: when the arrest that puts the cuffs on was sent, and when the Captain's pardon came.
+const pardonMid = { arrestAt: 0, sentAt: 0 };
+// ARR-03: when the head of staff shoves the officer.
+const HEAD_HIT_AT = 14;
 function securityTick(second: number) {
   for (const cell of cells) if (cell.occupant && clock >= cell.until) openCell(cell, 'time up');
   const pun = punPun;
   if (pun && pun.route.length && !pun.cuffed && !pun.cell && !pun.busy && second >= pun.from && clock - pun.movedAt >= pun.every * 1000) { pun.room = pun.route[(pun.route.indexOf(pun.room) + 1) % pun.route.length]; pun.movedAt = clock; }
   const desk = bodies.find((other) => other.job === 'Head of Security') ?? bodies.find((other) => other.job === 'Security Officer')!;
-  const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon';
+  const onHead = VARIANT === 'arresthead' || VARIANT === 'pardon' || VARIANT === 'recell';
   if (second === WARRANT_AT) playerMessages(SEC_CAPTAIN, desk, VARIANT === 'loose' ? 'could you see that Pun Pun spends ten minutes behind bars' : onHead ? 'Warrant for Hop Kins, for theft.' : 'Warrant for Pun Pun, for wrecking the Custodial Closet.');
   // Told it was not followed, the Captain says it again in the words it was given.
   if (second === WARRANT_AT + 15 && VARIANT === 'loose' && MODE === 'dead') playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, 10 minutes.');
-  if (second === SIGHTING_AT && VARIANT !== 'warrant') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : 'Pun Pun is in the Bar.');
+  if (second === SIGHTING_AT && VARIANT !== 'warrant' && VARIANT !== 'hallfail') playerMessages(SEC_CAPTAIN, desk, onHead ? "Hop Kins is in the Head of Personnel's Office." : VARIANT === 'twolocked' ? 'Pun Pun is in the Cargo Bay.' : 'Pun Pun is in the Bar.');
   if (second === PARDON_AT && VARIANT === 'pardon') playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.');
+  // SECT-11: the warrant was declared while the officer was out hurt, and the Head of Security took it into its own hands. Then the Captain says to try again.
+  if (second === TRY_AGAIN_AT && VARIANT === 'tryagain') { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
+  // ARR-03: a head of staff comes into the officer's room and shoves it, with no warrant on them, then goes off to the Cargo Bay.
+  const struck = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'headhit' && struck && second === HEAD_HIT_AT) { players.push({ name: 'Quin Mark', job: 'Quartermaster', room: struck.room }); emit(struck, 'knowledge', 'Quin Mark shoves you.', { struck_by: handleFor(struck, 'Quin Mark'), struck_name: 'Quin Mark', how: 'shove' }); }
+  if (VARIANT === 'headhit' && second === HEAD_HIT_AT + 20) { const quin = players.find((other) => other.name === 'Quin Mark'); if (quin) quin.room = 'Cargo Bay'; }
+  // ARR-14: a second warrant, on someone in the Library.
+  if (VARIANT === 'twolocked' && second === WARRANT_AT + 5) playerMessages(SEC_CAPTAIN, desk, 'Warrant for Dana Reyes, for theft.');
+  if (VARIANT === 'twolocked' && second === SIGHTING_AT + 5) playerMessages(SEC_CAPTAIN, desk, 'Dana Reyes is in the Library.');
+  if (VARIANT === 'pardonmid' && pardonMid.arrestAt && !pardonMid.sentAt && clock > pardonMid.arrestAt) { pardonMid.sentAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pardon Pun Pun.'); }
+  // ARR-09: five seconds after being told the officer broke off hurt, the Captain says to try again.
+  if (VARIANT === 'hurtagain' && hurtToldAt && !tryAgainAt && clock - hurtToldAt >= 5000) { tryAgainAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Try again.'); }
+  // SEC-05: once the Head of Personnel's time is up, the monkey is wanted and put in the same cell; then the Captain pardons the Head of Personnel.
+  const hurtOfficer = bodies.find((other) => other.job === 'Security Officer');
+  if (VARIANT === 'hurt' && pun && hurtOfficer && !pun.cell && walkedFree.some((it) => it.who === pun.name && it.why === 'time up') && inSight(hurtOfficer, pun.room)) freedInSight++;
+  if (VARIANT === 'recell') {
+    const out = walkedFree.find((it) => it.who === 'Hop Kins' && it.why === 'time up');
+    if (out && !recell.warrantAt && clock - out.at >= 5000) { recell.warrantAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Warrant for Pun Pun, for theft.'); }
+    if (recell.warrantAt && !recell.seenAt && clock - recell.warrantAt >= 5000) { recell.seenAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pun Pun is in the Bar.'); }
+    if (!recell.inAt && cells[0].occupant === 'Pun Pun') recell.inAt = clock;
+    if (recell.inAt && !recell.pardonAt && clock - recell.inAt >= 10_000) { recell.pardonAt = clock; playerMessages(SEC_CAPTAIN, desk, 'Pardon Hop Kins.'); }
+  }
 }
+const recell = { warrantAt: 0, seenAt: 0, inAt: 0, pardonAt: 0 };
+// TRB-03: how many seconds the hurt officer has had the monkey in sight since it was let out.
+let freedInSight = 0;
 const FULL = !VARIANT || VARIANT === 'crew' || VARIANT === 'shutout' || VARIANT === 'qm' || VARIANT === 'qmgone';
 const HOP_ORDERS_AT = 90;
 const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
@@ -1350,7 +1453,9 @@ for (let second = 0; second < SECONDS; second++) {
   // Pulled again as soon as it is reset: a real problem, or someone who will not leave it alone.
   if (clock >= repullAt) { fireAlarm = bodies[0].room; repullAt = Infinity; }
   // The Captain gives its order once the janitor has been let into the bay and has started on the mess there.
-  if ((VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside') && !captainSpokeAt && bodies[1].room === 'Cargo Bay' && bodies[1].busyText?.startsWith('cleaning')) { captainSpokeAt = clock; playerSays('Ada Stone', VARIANT === 'evict' ? 'Cora, throw this janitor out.' : VARIANT === 'leave' ? 'Jan, leave.' : 'Jan, could you step aside, please? I need to get past you.'); }
+  if ((VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice') && !captainSpokeAt && bodies[1].room === 'Cargo Bay' && bodies[1].busyText?.startsWith('cleaning')) { captainSpokeAt = clock; playerSays('Ada Stone', VARIANT === 'evict' ? 'Cora, throw this janitor out.' : VARIANT === 'leave' ? 'Jan, leave.' : 'Jan, could you step aside, please? I need to get past you.'); }
+  // JOBS-06: ten seconds after the first asking, whose step aside found nowhere to go, the Captain asks again from somewhere with room.
+  if (VARIANT === 'asidetwice' && captainSpokeAt && !askedAgainAt && clock - captainSpokeAt >= 10_000) { askedAgainAt = clock; playerSays('Ada Stone', 'Jan, could you step aside, please? I need to get past you.'); }
   // A head orders a crate and does not come for it. Once it is off the shuttle and held in the bay, it is destroyed. Later the head asks for it.
   if (VARIANT === 'lost' && second === 20) playerSays('Hal Pott', 'Cora, I need to order a crate of janitorial supplies, please.');
   if ((VARIANT === 'lost' || VARIANT === 'qmlost') && !crateLostAt && second >= CRATE_LOST_AT && held[0]?.heldSince && !held[0].lost) { const gone = held[0]; gone.lost = 'it has been destroyed'; rooms['Cargo Bay'].boxes = rooms['Cargo Bay'].boxes.filter((box) => box !== gone.box); crateLostAt = clock; }
@@ -1387,9 +1492,10 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
-check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
+// With no technician aboard to order for it, the janitor with only a rag stays short.
+if (!HEADSHUT) check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
 const bayTries = janitors.map((body) => body.bayFails);
 // A room it failed to get into is left alone for five minutes and then tried again: the longer runs have time for one more try.
 check('no janitor keeps walking at a room it cannot get into', bayTries.every((tries) => tries <= (FULL || SECURITY ? 3 : 2)), `tries at the Cargo Bay: ${bayTries.join(', ')}`);
@@ -1429,6 +1535,19 @@ if (VARIANT === 'aside') {
   const backAt = jan.log.find((line) => moved && line.slice(0, 8) > stamped(moved.at) && / clean/.test(line))?.slice(0, 8);
   check('it stays out of the way a little while before it takes up its work again', !!moved && !!backAt && backAt >= stamped(moved.at + 12000), backAt ? `back at it at ${backAt}, having moved at ${moved ? stamped(moved.at) : '?'}` : 'it never went back to its work');
   check('it steps aside once for one asking', steppedAside.filter((step) => step.who === jan.name).length === 1, `${steppedAside.length} time(s)`);
+  check('and the bay is still cleaned in the end', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
+}
+// Asked to step aside, a janitor finds nowhere to go; asked again ten seconds later, it steps aside then.
+if (VARIANT === 'asidetwice') {
+  const jan = crew[1];
+  const stamped = (at: number) => new Date(at).toISOString().slice(11, 19);
+  const asks = jan.log.filter((line) => / step_aside/.test(line)).map((line) => line.slice(0, 8));
+  check('the janitor is asked while it is in the middle of scrubbing the bay, and its step aside finds nowhere to go', captainSpokeAt > 0 && asideFailedAt >= captainSpokeAt && asideFailedAt - captainSpokeAt <= 6000, asideFailedAt ? `${(asideFailedAt - captainSpokeAt) / 1000}s after being asked` : 'it never tried');
+  const moved = steppedAside.find((step) => step.who === jan.name);
+  check('asked again ten seconds later, it steps aside within a few seconds', askedAgainAt > 0 && !!moved && moved.at >= askedAgainAt && moved.at - askedAgainAt <= 6000, moved ? `${(moved.at - askedAgainAt) / 1000}s after the second asking` : 'it never moved');
+  check('it tries to step aside once for each asking', asks.length === 2, asks.join(', ') || 'never');
+  const over = sentOverBusy.filter((line) => line.slice(0, 8) >= stamped(captainSpokeAt) && (!moved || line.slice(0, 8) <= stamped(moved.at)));
+  check('nothing else is sent to it while it is busy, from the first asking until it has stepped aside', over.length === 0, over.join(' | '));
   check('and the bay is still cleaned in the end', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
 }
 // A crate that was being held is destroyed: one technician writes it off aloud, whoever ordered it is told, and nobody is chased about it or handed anything.
@@ -1520,7 +1639,10 @@ if (tech) {
   // A crate that is lost is ordered again: two orders, one after the other.
   if (VARIANT === 'qmlost') check('two orders were placed: the one the head sent, and the same again when its crate was lost', orders === 2, `orders: ${orders}`);
   else check(ordered ? 'exactly one order was placed, by one technician' : 'no order was needed', ordered ? orders === 1 : orders === 0, `orders: ${orders}`);
-  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay'), techs.map((body) => `${body.name} in ${body.room}`).join('; '));
+  // A technician the clock stops on in the middle of its routine look in on a room of its department (an open look_in task
+  // for the very room it stands in, jobs/rounds.ts) is on its rounds, not lost. Nothing else away from the post passes.
+  const onRounds = (body: Body) => body.room !== 'Cargo Bay' && !!brainModule.getBrain(body.id)?.tasks.some((task: any) => task.kind === 'look_in' && task.state !== 'done' && task.place === body.room);
+  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay' || onRounds(body)), techs.map((body) => `${body.name} in ${body.room}${onRounds(body) ? ' (looking round it on its rounds)' : body.room !== 'Cargo Bay' ? ` (last: ${body.log.at(-1) ?? 'nothing'}; tasks: ${(brainModule.getBrain(body.id)?.tasks ?? []).map((task: any) => `${task.kind}${task.place ? ' ' + task.place : ''} ${task.state}`).join(', ') || 'none'})` : ''}`).join('; '));
   check('nobody is still owed a PDA message about their crates', techs.every((body) => body.notices.length === 0), techs.map((body) => `${body.name}: ${body.notices.length}`).join('; '));
   check('no technician carries a crate anywhere but out to the lobby', !techLog.some((line) => / collect_crate /.test(line)) && tippedOut.every((_, index) => !techs.some((body) => body.name === unpackedBy[index])));
 }
@@ -1693,7 +1815,32 @@ if (VARIANT === 'qmgone') {
 }
 // The head finds out what its staff have done and what they need, tells the Captain, and gets what is needed ordered.
 const head = crew.find((body) => body.job === 'Head of Personnel');
-if (head && janitors.length > 2) {
+if (HEADSHUT) {
+  const hop = head!;
+  const seconds = (at: number) => Math.round((at - 1_000_000) / 1000);
+  const invites = hop.log.filter((line) => / message /.test(line) && /"Staff meeting in the [^"]* now, please/.test(line));
+  const overTold = hop.log.filter((line) => / message /.test(line) && /, the staff meeting is over\. Send me your report by PDA, please\./.test(line));
+  const toCaptain = hop.log.filter((line) => / message /.test(line) && line.includes(`"person":"${CAPTAIN}"`) && /Staff meeting in the|for the staff meeting/.test(line)).map((line) => line.match(/"text":"([^"]*)"/)?.[1]);
+  if (VARIANT === 'headshut') {
+    const stamped = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const askedOut = hop.log.filter((line) => line.slice(0, 8) < stamped(HEAD_LET_OUT_AT) && (/ knock/.test(line) || (/ message /.test(line) && /shut in|let me out/i.test(line))));
+    check('shut in its office when its first meeting is due, the head asks to be let out', askedOut.length >= 1, askedOut.map((line) => line.slice(0, 8) + line.slice(33)).join(' | ') || 'it never asked');
+    check('it calls no staff meeting while it is shut in', meetingCalls.every((at) => at >= HEAD_LET_OUT_AT), meetingCalls.map((at) => `${seconds(at)} s in`).join(', ') || 'none called');
+    check('let out, it calls one soon after', meetingCalls.length >= 1 && meetingCalls[0] - HEAD_LET_OUT_AT <= 60_000, meetingCalls.length ? `${(meetingCalls[0] - HEAD_LET_OUT_AT) / 1000}s after it was let out` : 'none called');
+    check('and calls each of its staff to it once', invites.length === janitors.length && janitors.every((body) => invites.some((line) => line.includes(`"person":"${body.name}"`))), `${invites.length} call(s)`);
+    check('and holds it', meetings.length === 1 && meetings[0].overAt > 0, meetings.map((meeting) => `${meeting.thereAtStart.length} there, ${meeting.overAt ? 'ended' : 'not ended'}`).join('; ') || 'no meeting began');
+  } else {
+    const calledAt = meetingCalls[0] ?? 0;
+    check('the head calls its first staff meeting in the Bar, by PDA, about two minutes in', !!calledAt && seconds(calledAt) >= 115 && seconds(calledAt) <= 160 && invites.length === janitors.length, calledAt ? `${seconds(calledAt)} s in, ${invites.length} call(s)` : 'none called');
+    check('every walk it makes to the Bar comes to nothing, and the meeting never begins', headWalksFailed.length >= 1 && meetings.length === 0, `${headWalksFailed.length} walk(s) failed; ${meetings.length} meeting(s) began`);
+    const told = janitors.map((body) => overTold.find((line) => line.includes(`"person":"${body.name}"`)));
+    const after = told.map((line) => (line ? line.slice(0, 8).split(':').reduce((total, part) => total * 60 + Number(part), 0) * 1000 - calledAt : -1));
+    check('about three minutes after the call, each of its staff is told by PDA the meeting is over and to send its report', told.every(Boolean) && after.every((ms) => ms >= 175_000 && ms <= 215_000), after.map((ms, index) => `${janitors[index].name.split(' ')[0]}: ${ms < 0 ? 'never' : `${ms / 1000}s`}`).join(', '));
+    check('each of them is told once', janitors.every((body) => overTold.filter((line) => line.includes(`"person":"${body.name}"`)).length === 1), `${overTold.length} message(s)`);
+    check('the Captain is told it could not get to the room', toCaptain.length === 1 && /I could not get to the Bar for the staff meeting/.test(toCaptain[0] ?? ''), toCaptain.join(' | ') || 'not told');
+  }
+}
+if (head && janitors.length > 2 && !HEADSHUT) {
   const first = (body: { name: string }) => body.name.split(' ')[0];
   const invites = head.log.filter((line) => / message /.test(line) && /"Staff meeting in the [^"]* now, please/.test(line));
   const calledAt = invites[0]?.slice(0, 8) ?? 'never';
@@ -1849,6 +1996,15 @@ if (ENGINE) {
     check('the Captain is told it is losing integrity, and then that the emitters are off', sentTo(ada, 'Cap Tain', /"text":"The engine is losing integrity:/).length === 1 && sentTo(ada, 'Cap Tain', /"text":"The emitters are off\./).length === 1);
     check('the crystal is still mostly whole', crystal.integrity > 80, crystal.integrity + ' percent');
   }
+  if (VARIANT === 'enginelocked') {
+    const offs = byEngineer.filter((work) => work.how === 'switch_off');
+    const lockedTries = offs.filter((work) => !work.ok).length;
+    check('the Chief Engineer orders the emitters off', told(ada, 'Ada Volt', 'Sam Rees', /Emitters off, now/) >= 1);
+    check('the other two are switched off: one locked emitter does not keep them firing', firing === 1, firing + ' on');
+    check('the locked one is not tried over and over', lockedTries >= 2 && lockedTries <= 6, lockedTries + ' tries');
+    check('the engineer tells the Chief Engineer why', told(sam, 'Sam Rees', 'Ada Volt', /I cannot switch the emitters off: its controls are locked/) >= 1);
+    check('the Captain is told once that the engine is still firing', sentTo(ada, 'Cap Tain', /"text":"The emitters will not go off: its controls are locked/).length === 1);
+  }
   if (VARIANT === 'engalone') {
     const first = byEngineer[0];
     check('with no word from the Chief Engineer it starts by itself, two minutes in', !!first && first.at - began >= 120_000 && first.at - began <= 160_000, first ? seconds(first.at) : 'never started');
@@ -1863,7 +2019,20 @@ if (ENGINE) {
     check('nobody orders them off', told(ada, 'Ada Volt', 'Sam Rees', /Emitters off, now/) === 0);
   }
 }
-if (SECURITY) {
+if (VARIANT === 'recell') {
+  const hale = crew.find((body) => body.job === 'Security Officer')!;
+  const jailings = secWork.filter((work) => work.tool === 'jail' && work.ok);
+  const listed = secWork.map((it) => `${it.who} ${it.tool}${it.how ? ' ' + it.how : ''} ${it.ok ? 'ok' : it.reason}${it.target ? ' ' + it.target : ''}${it.cell ? ' ' + it.cell : ''}`).join('; ');
+  const hop = jailings.find((work) => work.target === 'Hop Kins');
+  const pun = jailings.find((work) => work.target === 'Pun Pun');
+  check('the Head of Personnel is put in Cell 1, and walks free when its time runs out', hop?.cell === 'Cell 1' && walkedFree.some((it) => it.who === 'Hop Kins' && it.why === 'time up'), listed);
+  check('the monkey is then put in the same cell', !!hop && pun?.cell === 'Cell 1' && pun.at > hop.at, listed);
+  const free = secWork.find((work) => work.tool === 'free' && work.target === 'Hop Kins');
+  check('pardoned after, the Head of Personnel is let go: the officer goes to the cell it remembers', !!pun && !!free && free.at > pun.at && free.who === hale.name, listed);
+  check('and finds them not in it, and opens nothing', free?.reason === 'nothing' && free.cell === 'Cell 1', listed);
+  check('the monkey is still in the cell', !walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'let out') && (cells[0].occupant === 'Pun Pun' || walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'time up')), `${cells[0].occupant ?? 'nobody'} in Cell 1; ${walkedFree.map((it) => `${it.who} ${it.why}`).join(', ')}`);
+}
+if (SECURITY && VARIANT !== 'recell' && VARIANT !== 'cuffedheld' && VARIANT !== 'twolocked') {
   const began = clock - SECONDS * 1000;
   const seconds = (at: number) => Math.round((at - began) / 1000) + ' s in';
   const joan = crew.find((body) => body.job === 'Head of Security');
@@ -1876,7 +2045,7 @@ if (SECURITY) {
   const reason = onHead ? 'theft' : VARIANT === 'loose' ? '' : 'wrecking the Custodial Closet';
   const forWhat = reason ? `, for ${reason}` : '';
   const term = VARIANT === 'loose' ? 10 : 5;
-  const cellFor = VARIANT === 'badcell' ? 'Cell 2' : 'Cell 1';
+  const cellFor = VARIANT === 'badcell' || VARIANT === 'badtimer' ? 'Cell 2' : 'Cell 1';
   const saidBy = (who: string, words: RegExp) => spoken.filter((line) => line.who === who && words.test(line.text));
   const sentTo = (body: Body | undefined, person: string, words: RegExp) => (body?.log ?? []).filter((line) => / message /.test(line) && line.includes('"person":"' + person + '"') && words.test(line));
   const told = (body: Body | undefined, person: string, words: RegExp) => (body ? saidBy(body.name, words).length : 0) + sentTo(body, person, words).length;
@@ -1890,22 +2059,28 @@ if (SECURITY) {
   check('the officer fetches its baton from the lockers before anything else', !!fetched && fetched.at - began < 60_000, fetched ? seconds(fetched.at) : 'never');
   if (joan) {
     check('the Head of Security gives its officer the warrant, to its face or by PDA', told(joan, hale.name, new RegExp(`Hale, warrant: ${wanted}${forWhat}\\. Bring them in, ${term} minutes\\.`)) >= 1);
-    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name), listed(secWork.filter((work) => work.who === joan.name)));
+    // Told to try again, the Head of Security may have fetched its own baton while its officer was out: it still lays a hand on nobody.
+    const tryingAgain = VARIANT === 'tryagain' || VARIANT === 'hurtagain';
+    check('the Head of Security lays a hand on nobody while its officer is fit', VARIANT === 'hurt' || secWork.every((work) => work.who !== joan.name || (tryingAgain && work.tool === 'get_kit')), listed(secWork.filter((work) => work.who === joan.name)));
   }
   const arrester = VARIANT === 'hurt' ? joan! : hale;
   const toldArrest = saidBy(arrester.name, new RegExp(`^${wanted}, you are under arrest${forWhat}\\. Stand still\\.`))[0];
   const ownFirst = arrests.find((work) => work.who === arrester.name);
-  check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
+  // Someone in cuffs already is taken by the arm with nothing said (TRB-01).
+  if (VARIANT !== 'cuffedfree') check('they are told they are under arrest, word for word, before a hand is laid on them', !!toldArrest && !!ownFirst && toldArrest.at <= ownFirst.at, toldArrest ? seconds(toldArrest.at) : 'never told');
   check('nobody is hit who was not first given the chance to stand still', firstHand?.how === 'quiet', listed(arrests));
-  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
+  if (VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     check(`${wanted} ends up in a cell, once`, jailings.length === 1 && jailings[0].target === wanted && jailings[0].cell === cellFor, listed(secWork));
   }
-  const minutes = VARIANT === 'fight' ? 10 : term;
-  if (VARIANT === 'badcell') {
+  // Bitten by the monkey it is arresting, the officer adds five minutes for resisting arrest.
+  const resisted = VARIANT === 'fight' || VARIANT === 'hurtagain';
+  const minutes = resisted ? 10 : term;
+  if (VARIANT === 'badcell' || VARIANT === 'badtimer') {
     const tries = secWork.filter((work) => work.tool === 'jail');
     const refused = tries.find((work) => !work.ok);
     const put = tries.find((work) => work.ok);
     check('the first cell refuses, and the officer has them in the next within half a minute', !!refused && !!put && put.at - refused.at <= 30_000, listed(tries));
+    if (VARIANT === 'badtimer') check('the cell whose timer would not start is tried once, and the next try is at another cell', tries.filter((work) => work.cell === 'Cell 1').length === 1 && !!put && put.cell !== 'Cell 1', tries.map((work) => `${work.ok ? 'ok' : work.reason} ${work.cell ?? '?'}`).join('; '));
     const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
     const strayed = hale.log.filter((line) => !!refused && !!put && line.slice(0, 8) > clockAt(refused.at) && line.slice(0, 8) < clockAt(put.at) && / (go_to|get_kit|explore|approach) /.test(line));
     check('with a prisoner by the arm it goes nowhere but the cells', strayed.length === 0, strayed.join(' | '));
@@ -1914,7 +2089,7 @@ if (SECURITY) {
     check('an order code cannot read is put to the LLM once', readingCalls === 1, `${readingCalls} reading(s)`);
     if (MODE === 'dead') check('with no LLM, the Captain is told it was not followed', sentTo(desk, SEC_CAPTAIN, /Captain, I did not follow that\./).length === 1);
   }
-  if (joan && VARIANT !== 'pardon' && VARIANT !== 'nobaton') {
+  if (joan && VARIANT !== 'pardon' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     const cuffer = VARIANT === 'hurt' ? 'I have' : 'Hale has';
     check('the Captain is told when they are in cuffs', sentTo(joan, SEC_CAPTAIN, new RegExp(`Captain, ${cuffer} ${wanted} in cuffs\\.`)).length >= 1, sentTo(joan, SEC_CAPTAIN, /in cuffs/).join(' | '));
   }
@@ -1933,8 +2108,8 @@ if (SECURITY) {
     check('the Head of Security calls no staff meeting inside five minutes of a sighting', !call || callAt >= SIGHTING_AT + 295, call ? `${callAt} s in` : 'none called');
     check('called to one while it is with the monkey, the officer sends its report by PDA and stays', !call || sentTo(hale, joan!.name, /I cannot come to the meeting: I am after someone on a warrant\./).length === 1, call ? '' : 'no meeting was called in the time');
   }
-  if (VARIANT !== 'nobaton') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${VARIANT === 'fight' ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
-  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton') {
+  if (VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') check('the Captain is told which cell and for how long', sentTo(desk, SEC_CAPTAIN, new RegExp(`Captain, ${wanted} is in ${cellFor} for ${minutes} minutes${resisted ? ', 5 of them for resisting arrest' : ''}\\.`)).length === 1, sentTo(desk, SEC_CAPTAIN, /is in Cell/).join(' | '));
+  if (joan && VARIANT !== 'hurt' && VARIANT !== 'nobaton' && VARIANT !== 'pardonmid') {
     check('the officer tells the Head of Security how the warrant went', told(hale, joan.name, new RegExp(`Joan, ${wanted} is in ${cellFor} for ${minutes} minutes`)) >= 1);
   }
 
@@ -1983,6 +2158,58 @@ if (SECURITY) {
     check('it gets five minutes more for it', jailings[0]?.minutes === 10, `${jailings[0]?.minutes} minutes`);
     check('the officer is not hurt enough to break off', saidBy(hale.name, /I am hurt/).length + sentTo(hale, joan!.name, /I am hurt/).length === 0);
   }
+  if (VARIANT === 'hallfail') {
+    const walks = hale.log.filter((line) => / go_to /.test(line)).map((line) => `${line.slice(0, 8)} ${line.match(/"place":"([^"]*)"/)?.[1]}`);
+    check('with no word of where the monkey is, the officer sets off for the first main hallway, and cannot get there', hallFails.length >= 1 && /Central Primary Hallway$/.test(walks[0] ?? ''), walks.join(', ') || 'it never walked');
+    const failAt = hallFails[0] ?? 0;
+    const next = hale.log.find((line) => / go_to /.test(line) && line.slice(0, 8) > new Date(failAt).toISOString().slice(11, 19));
+    // The simulated clock starts on the first day, so a log line's time of day is its clock time.
+    const nextAt = next ? next.slice(0, 8).split(':').reduce((total, part) => total * 60 + Number(part), 0) * 1000 - failAt : Infinity;
+    check('it sets off for the next main hallway within seconds', !!next && /"place":"Fore Primary Hallway"/.test(next) && nextAt <= 15_000, next ? `${nextAt / 1000}s after: ${next.trim()}` : 'it walked nowhere after');
+    check('it does not try the hallway it could not get to over and over', hallFails.length <= 2, `${hallFails.length} time(s)`);
+    check('the search goes on: it finds the monkey there and brings it in', jailings.length === 1 && jailings[0].who === hale.name, listed(secWork));
+  }
+  if (VARIANT === 'hurtagain') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const hurtTold = told(hale, joan!.name, /Joan, I could not take Pun Pun\. I am hurt\./);
+    check('the officer, bitten to under half its health, breaks off and tells the Head of Security', kitOf(hale).health < 50 && hurtTold >= 1, `health ${kitOf(hale).health}, told ${hurtTold} time(s)`);
+    check('the Captain is told, and says to try again', !!hurtToldAt && !!tryAgainAt, hurtToldAt ? `told ${seconds(hurtToldAt)}, try again ${tryAgainAt ? seconds(tryAgainAt) : 'never'}` : 'never told');
+    const again = sentTo(joan, hale.name, /Hale, you are to make arrests again\./).concat(saidBy(joan!.name, /Hale, you are to make arrests again\./).map((line) => `${clockAt(line.at)} said`));
+    check('the Head of Security tells the officer to make arrests again', again.length >= 1, again.join(' | ') || 'never told');
+    const after = arrests.filter((work) => work.who === hale.name && work.at > tryAgainAt);
+    check('an arrest by the officer follows, and the cuffs go on', !!tryAgainAt && after.some((work) => work.ok), listed(after) || 'no arrest after');
+    check('and the officer puts the monkey in the cell', jailings.length === 1 && jailings[0].who === hale.name, listed(secWork));
+    check('its health the same, it does not say again that it is hurt', kitOf(hale).health === 40 && told(hale, joan!.name, /I am hurt/) === 1, `health ${kitOf(hale).health}, said ${told(hale, joan!.name, /I am hurt/)} time(s)`);
+    check('nor does the Head of Security tell the Captain so again', sentTo(joan, SEC_CAPTAIN, /is hurt/).length === 1, sentTo(joan, SEC_CAPTAIN, /is hurt/).join(' | '));
+  }
+  if (VARIANT === 'pardonmid') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const cuffedAt = arrests.find((work) => work.who === hale.name && work.ok)?.at ?? 0;
+    check('the Captain pardons the monkey while the cuffs are going on', !!pardonMid.arrestAt && !!pardonMid.sentAt && !!cuffedAt && pardonMid.sentAt < cuffedAt, `arrest sent ${pardonMid.arrestAt ? seconds(pardonMid.arrestAt) : 'never'}, pardon ${pardonMid.sentAt ? seconds(pardonMid.sentAt) : 'never'}, cuffs on ${cuffedAt ? seconds(cuffedAt) : 'never'}`);
+    check('the Captain is answered that it is pardoned', sentTo(joan, SEC_CAPTAIN, /Captain, Pun Pun is pardoned\./).length === 1, sentTo(joan, SEC_CAPTAIN, /pardon/).join(' | '));
+    const letGoWords = /Hale, Pun Pun is to be let go: the Captain has pardoned them\./;
+    const letGo = sentTo(joan, hale.name, letGoWords).map((line) => line.slice(0, 8)).concat(saidBy(joan!.name, letGoWords).map((line) => clockAt(line.at)));
+    // Told before the cuffs were on, the warrant was dropped while the arrest ran: the case TRB-02 is about.
+    check('the officer is told to let it go before the cuffs are on', letGo.length >= 1 && !!cuffedAt && letGo[0] <= clockAt(cuffedAt), `told ${letGo.join(', ') || 'never'}; cuffs on ${cuffedAt ? clockAt(cuffedAt) : 'never'}`);
+    const freed = secWork.find((work) => work.tool === 'free' && work.who === hale.name && work.target === 'Pun Pun' && work.ok);
+    check('the cuffs having gone on, the officer lets the monkey go', !!freed && freed.at >= cuffedAt && walkedFree.some((it) => it.who === 'Pun Pun' && it.why === 'let go'), listed(secWork));
+    check('nobody is put in a cell, and the officer ends holding nobody', jailings.length === 0 && kitOf(hale).holding === null, `holding ${kitOf(hale).holding ?? 'nobody'}; ${listed(jailings)}`);
+  }
+  if (VARIANT === 'tryagain') {
+    const clockAt = (at: number) => new Date(at).toISOString().slice(11, 19);
+    const hurtTold = told(hale, joan!.name, /Joan, I am hurt and can make no arrests\./);
+    check('the officer, hurt before any warrant, tells the Head of Security it can make no arrests, once', hurtTold === 1, `${hurtTold} time(s)`);
+    check('the Head of Security tells the Captain, once, that it is serving the warrants itself', sentTo(joan, SEC_CAPTAIN, /Captain, Hale is hurt\. I am serving the warrants myself\./).length === 1, sentTo(joan, SEC_CAPTAIN, /hurt/).join(' | '));
+    check('the Captain says to try again after the warrant was declared', tryAgainAt > 0 && tryAgainAt - began > WARRANT_AT * 1000);
+    const again = sentTo(joan, hale.name, /Hale, you are to make arrests again\./).concat(saidBy(joan!.name, /Hale, you are to make arrests again\./).map((line) => `${clockAt(line.at)} said`));
+    check('the Head of Security tells the officer to make arrests again', again.length >= 1 && again.every((line) => line.slice(0, 8) >= clockAt(tryAgainAt)), again.join(' | ') || 'never told');
+    const giveWords = /Hale, warrant: Pun Pun, for wrecking the Custodial Closet\. Bring them in, 5 minutes\./;
+    const given = sentTo(joan, hale.name, giveWords).map((line) => line.slice(0, 8)).concat(saidBy(joan!.name, giveWords).map((line) => clockAt(line.at)));
+    check('and gives it the warrant declared while it was out, after being told to try again', given.some((at) => at >= clockAt(tryAgainAt)), given.join(', ') || 'never given');
+    check('the officer makes the arrest and puts them in the cell', jailings.length === 1 && jailings[0].who === hale.name && arrests.some((work) => work.who === hale.name && work.ok), listed(secWork));
+    check('the Head of Security makes no arrest itself', !secWork.some((work) => work.who === joan!.name && work.tool !== 'get_kit'), listed(secWork.filter((work) => work.who === joan!.name)));
+    check('the officer does not say again that it is hurt', told(hale, joan!.name, /I am hurt/) === 1, `${told(hale, joan!.name, /I am hurt/)} time(s)`);
+  }
   if (VARIANT === 'hurt') {
     const hurtTold = told(hale, joan!.name, /Joan, I could not take Pun Pun\. I am hurt\./);
     check('the officer, bitten to under half its health, breaks off and tells the Head of Security', kitOf(hale).health < 50 && hurtTold >= 1, `health ${kitOf(hale).health}, told ${hurtTold} time(s)`);
@@ -1991,6 +2218,54 @@ if (SECURITY) {
     check('the Head of Security tells the Captain, once', sentTo(joan, SEC_CAPTAIN, /Captain, Hale could not take Pun Pun and is hurt\. I am serving the warrants myself\./).length === 1);
     check('fetches a baton of its own', secWork.some((work) => work.tool === 'get_kit' && work.who === joan!.name));
     check('and makes the arrest itself', jailings[0]?.who === joan!.name, listed(secWork.filter((work) => work.who === joan!.name)));
+    // TRB-03: the officer gives up its copy of the warrant the Head of Security served, so the monkey let out is not arrested again.
+    check('the officer is told the warrant is served', told(joan, hale.name, /Hale, Pun Pun is in a cell: the warrant is served\./) >= 1);
+    const out = walkedFree.find((it) => it.who === 'Pun Pun' && it.why === 'time up');
+    check("let out when its time is up, the monkey is in the officer's sight for a while", !!out && freedInSight >= 10, out ? `${freedInSight} s in sight` : 'never let out');
+    const again = secWork.filter((work) => work.tool === 'arrest' && work.target === 'Pun Pun' && !!out && work.at > out.at);
+    const toldAgain = saidBy(hale.name, /^Pun Pun, you are under arrest/).filter((line) => !!out && line.at > out.at);
+    check('and nobody arrests it again', !!out && again.length === 0 && toldAgain.length === 0 && jailings.length === 1, listed(again) || `${toldAgain.length} told`);
+  }
+}
+// The scenarios for round one's security fixes, apart from the main checks.
+if (SECURITY && ['headhit', 'cuffedfree', 'cuffedheld', 'twolocked'].includes(VARIANT)) {
+  const began = clock - SECONDS * 1000;
+  const at = (line: string) => line.slice(0, 8);
+  const clockAt = (ms: number) => new Date(ms).toISOString().slice(11, 19);
+  const joan = crew.find((body) => body.job === 'Head of Security')!;
+  const hale = crew.find((body) => body.job === 'Security Officer')!;
+  const saidBy = (who: string, words: RegExp) => spoken.filter((line) => line.who === who && words.test(line.text));
+  const sentTo = (body: Body | undefined, person: string, words: RegExp) => (body?.log ?? []).filter((line) => / message /.test(line) && line.includes('"person":"' + person + '"') && words.test(line));
+  const listed = (work: typeof secWork) => work.map((it) => `${it.who} ${it.tool}${it.how ? ' ' + it.how : ''} ${it.ok ? 'ok' : it.reason}${it.target ? ' ' + it.target : ''}`).join('; ');
+  const jailings = secWork.filter((work) => work.tool === 'jail' && work.ok);
+  if (VARIANT === 'headhit') {
+    const stops = secWork.filter((work) => work.tool === 'arrest' && (work.how === 'stop' || work.target === 'Quin Mark'));
+    check('the officer lays no baton on the head of staff who shoved it', stops.length === 0, listed(stops));
+    const words = /Joan, Quin Mark attacked me\./;
+    const told = saidBy(hale.name, words).length + sentTo(hale, joan.name, words).length;
+    check('and tells the Head of Security it was attacked, once', told === 1, `${told} time(s)`);
+  }
+  if (VARIANT === 'cuffedfree') {
+    const first = secWork.find((work) => work.tool === 'arrest' && work.who === hale.name);
+    check('the officer takes the monkey, in cuffs and held by nobody, by the arm: an arrest with no baton', first?.how === 'quiet' && first.ok && first.target === 'Pun Pun', listed(secWork));
+  }
+  if (VARIANT === 'cuffedheld') {
+    const onPun = secWork.filter((work) => work.target === 'Pun Pun' && work.tool !== 'get_kit');
+    check('the monkey in the Head of Security\'s hold is left to it: no arrest, no cell', onPun.length === 0 && jailings.length === 0, listed(onPun));
+    check('the officer has the warrant and comes to the Bar', hale.log.some((line) => / Bar +/.test(line.slice(9, 34))) || hale.room === 'Bar', hale.room);
+    check('and tells nobody someone else has them: that is security', !/has them in cuffs/.test([...sentTo(hale, joan.name, /./), ...sentTo(joan, SEC_CAPTAIN, /./)].join(' ')));
+  }
+  if (VARIANT === 'twolocked') {
+    const letIn = hale.log.find((line) => / message /.test(line) && /let me in|let me into|open the/i.test(line));
+    check('the officer asks to be let into the Cargo Bay, from its door', !!letIn && /Cargo Lobby/.test(letIn.slice(9, 34)), letIn ?? 'never asked');
+    const from = letIn ? at(letIn) : '99';
+    const until = letIn ? clockAt(Date.parse(`1970-01-01T${from}Z`) + 80_000) : '99';
+    const walks = hale.log.filter((line) => at(line) > from && at(line) <= until && / (go_to|go_to_door|explore|approach) /.test(line));
+    check('and waits there: no walk anywhere for eighty seconds after asking', walks.length === 0, walks.join(' | ') || 'no walks');
+    const danaArrest = secWork.filter((work) => work.target === 'Dana Reyes' && clockAt(work.at) > from && clockAt(work.at) <= until);
+    check('Dana Reyes, in the Library, waits while it is at the door', danaArrest.length === 0, listed(danaArrest));
+    check('(both warrants were given to the officer)', sentTo(joan, hale.name, /Hale, warrant: Dana Reyes/).length + saidBy(joan.name, /Hale, warrant: Dana Reyes/).length >= 1);
+    void began;
   }
 }
 const tooSoon = crew.reduce((total, body) => total + body.setOffTooSoon, 0);

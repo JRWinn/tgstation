@@ -35,6 +35,80 @@ add('"is wanted for", said to someone by name', S.readWarrant('Joan, Dana Reyes 
 add('"Nobody is wanted" declares nothing', S.readWarrant('Nobody is wanted. The meeting is over, thank you.', KNOWN), null);
 add('nor does "Who is wanted?"', S.readWarrant('Who is wanted?', KNOWN), null);
 
+// SECT-01: saying not to arrest someone, or asking about a warrant, declares none.
+for (const line of [
+  'Do not arrest Pun Pun.',
+  "Joan, don't arrest Dana Reyes, she is with me.",
+  'Is there a warrant for Dana Reyes?',
+  'Why did you arrest Pun Pun?',
+  'Did your officer arrest Pun Pun yet?',
+  'No warrant for Dana Reyes, she is fine.',
+  'Joan, did your officer arrest Pun Pun yet',
+  "Don't lock Pun Pun up.",
+]) {
+  add(`"${line}" declares no warrant`, S.readWarrant(line, KNOWN), null);
+}
+for (const line of ['Could you arrest Pun Pun, please?', "Don't wait, arrest Pun Pun now.", 'Leave the bar and arrest Pun Pun', 'Warrant for Pun Pun. Did you get that?']) {
+  add(`"${line}" is still a warrant`, S.readWarrant(line, KNOWN)?.name, 'Pun Pun');
+}
+
+// SECT-03: a name nobody knows stops at the first word that is no part of a name.
+const FEW = ['Dana Reyes', 'Hale Stone'];
+for (const [line, name] of [
+  ['Arrest Pun Pun in the bar', 'Pun Pun'],
+  ['Warrant for Pun Pun who wrecked the bar', 'Pun Pun'],
+  ['Arrest Pun Pun because he stole my id', 'Pun Pun'],
+  ['Warrant on Pun Pun - theft', 'Pun Pun'],
+  ['Lock up Pun Pun in the brig', 'Pun Pun'],
+  ['Arrest Bob Smith who is in the bar', 'Bob Smith'],
+  ['Arrest Pun Pun on site', 'Pun Pun'],
+  ['Arrest Mary-Ann Lee in the bar', 'Mary-Ann Lee'],
+  ['Warrant for Bob the clown, for theft', 'Bob the clown'],
+]) {
+  add(`"${line}" is a warrant on ${name}`, S.readWarrant(line, FEW)?.name, name);
+}
+add('and what follows the name is the reason', S.readWarrant('Arrest Pun Pun because he stole my id', FEW)?.reason, 'because he stole my id');
+
+// SECT-21: "wanted" somewhere, a word a letter off a key word, and "put X up" are no warrant.
+const SOME = ['Walker Wolfe', 'Dana Reyes', 'Pun Pun'];
+for (const line of ['Joan, Walker is wanted on the bridge.', 'Dana is wanted in the kitchen', 'Pun Pun is wasted again', 'Put Dana up for the night shift', 'Dana is waited on in the bar', 'Walker is wanted by the Captain on the bridge']) {
+  add(`"${line}" declares no warrant`, S.readWarrant(line, SOME), null);
+}
+for (const [line, name, reason, minutes] of [
+  ['Pun Pun is wanted', 'Pun Pun', '', null],
+  ['Joan, Dana Reyes is wanted for theft', 'Dana Reyes', 'theft', null],
+  ['Dana Reyes is wanted, she took the ID', 'Dana Reyes', 'she took the ID', null],
+  ['Pun Pun is wanted for theft. 10 minutes', 'Pun Pun', 'theft', 10],
+  ['throw Dana in the brig', 'Dana Reyes', '', null],
+  ['lock Pun Pun up for 10 minutes', 'Pun Pun', '', 10],
+  ['warrent for pun pun', 'Pun Pun', '', null],
+  ['Pun Pun is wanted by security', 'Pun Pun', 'by security', null],
+] as [string, string, string, number | null][]) {
+  add(`"${line}" still reads`, S.readWarrant(line, SOME), { name, reason, minutes });
+}
+add('"wasted" and "detail" are left as they are', S.mendWords('wasted detail withdrawn'), 'wasted detail withdrawn');
+add('"warrent", "arest" and "warrants" are still mended', S.mendWords('warrent arest warrants'), 'warrant arrest warrant');
+
+// PARSE-03: a known first name of three letters is found with more words after it.
+const SHORT = ['Bob Hale', 'Dana Reyes', 'Ann Moss', 'Tom Reed', 'Eli Moor', 'Joe Bloggs'];
+for (const [line, name, reason] of [
+  ['arrest bob pls', 'Bob Hale', ''],
+  ['arrest bob in the bar', 'Bob Hale', 'in the bar'],
+  ['arrest ann in the bar', 'Ann Moss', 'in the bar'],
+  ['arrest tom he stole my id', 'Tom Reed', 'he stole my id'],
+  ['arrest eli who is in the bar', 'Eli Moor', 'who is in the bar'],
+  ['warrant for ann - theft', 'Ann Moss', '- theft'],
+  ['arrest ann stole my id', 'Ann Moss', 'stole my id'],
+  ['arrest dana pls', 'Dana Reyes', ''],
+  // A first name alone is the one known person who has it, as for longer first names: the owner should know.
+  ['arrest joe smith', 'Joe Bloggs', 'smith'],
+]) {
+  const read = S.readWarrant(line, SHORT);
+  add(`"${line}" is a warrant on ${name}`, [read?.name, read?.reason], [name, reason]);
+}
+add('a three-letter first name two people share is nobody in particular', S.closeName('bob', ['Bob Hale', 'Bob Stone']), undefined);
+add('nor is one a letter out', S.closeName('bab', ['Bob Hale']), undefined);
+
 // ---- names
 add('a warrant for Pun Pun names Pun Pun III', S.sameName('Pun Pun', 'Pun Pun III'), true);
 add('and not Pun Punch', S.sameName('Pun Pun', 'Pun Punch'), false);
@@ -59,8 +133,9 @@ add('nobody reads back as nobody', S.readMeetingLine(S.meetingLines([])[0]), { n
 add('talk is not that', S.readMeetingLine('Security is in the Bar.'), null);
 
 // ---- the Head of Security to its officer, and back
-add('a warrant given reads back', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'trespass in the Cargo Bay', 5)), { name: 'Pun Pun', reason: 'trespass in the Cargo Bay', minutes: 5 });
-add('with no reason', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', '', 15)), { name: 'Pun Pun', reason: '', minutes: 15 });
+add('a warrant given reads back', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'trespass in the Cargo Bay', 5)), { name: 'Pun Pun', reason: 'trespass in the Cargo Bay', minutes: 5, byCaptain: false });
+add('with no reason', S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', '', 15)), { name: 'Pun Pun', reason: '', minutes: 15, byCaptain: false });
+add('TRUST-06: one the Captain declared says so, and reads back so', [S.giveLine('Hale Stone', 'Pun Pun', 'theft', 5, true), S.readGiven(S.giveLine('Hale Stone', 'Pun Pun', 'theft', 5, true))], ['Hale, warrant: Pun Pun, for theft. Bring them in, 5 minutes. The Captain declared it.', { name: 'Pun Pun', reason: 'theft', minutes: 5, byCaptain: true }]);
 for (const outcome of [
   { what: 'jailed', name: 'Pun Pun', cell: 'Cell 1', minutes: 10, resisted: true },
   { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 2', minutes: 5, resisted: false },
@@ -136,11 +211,92 @@ add('the Captain pardons: off the list, and answered', [deskOf(b).warrants.lengt
 b.toTell = [];
 deskTakes(b, 'Zim Fire', 'Captain', 'Pardon Dana Reyes.', true);
 add('a pardon for someone with nothing against them', said(b), ['says to Zim Fire: Captain, there is nothing against Dana Reyes.']);
+// SECT-02: a pardon is read only with the name by the pardon word, and never when said not to.
+function wantedPunPun() {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for theft.', false);
+  d.toTell = [];
+  return d;
+}
+function heldPunPun() {
+  const d = wantedPunPun();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, Pun Pun is in Cell 1 for 5 minutes.', false);
+  d.toTell = [];
+  return d;
+}
+for (const line of ["Don't release Pun Pun until his time is up.", 'Do not let go of Pun Pun', 'Pun Pun broke free of the cuffs, find him', "Keep Pun Pun locked up, don't let him go free", 'Did you release Pun Pun?']) {
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', line, false);
+  const h = heldPunPun();
+  deskTakes(h, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" pardons nobody, wanted or held`, [deskOf(w).warrants.length, Object.keys(deskOf(h).held), said(w).concat(said(h)).filter((it: string) => /pardon|let go/.test(it))], [1, ['Pun Pun'], []]);
+}
+for (const line of ['Pardon Pun Pun', 'Release Pun Pun', 'Let Pun Pun go', 'Set Pun Pun free', "Don't worry, release Pun Pun", 'Could you set free Pun Pun?']) {
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', line, false);
+  const h = heldPunPun();
+  deskTakes(h, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" pardons, wanted or held`, [deskOf(w).warrants.length, Object.keys(deskOf(h).held), said(w)], [0, [], ['PDA to Zim Fire: Captain, Pun Pun is pardoned.']]);
+}
+{
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for setting the slimes free, 10 minutes', false);
+  add('a warrant with "free" in its reason changes the time, and pardons nobody', [deskOf(w).warrants.map((it: any) => [it.name, it.minutes]), said(w)], [[['Pun Pun', 10]], ['PDA to Zim Fire: Captain, I have that: Pun Pun, 10 minutes.']]);
+  w.toTell = [];
+  deskTakes(w, 'Walker Wolfe', 'Head of Personnel', "Don't release Pun Pun until his time is up.", false);
+  add('a head saying not to release someone is not told a pardon is the Captain\'s', said(w).filter((it: string) => /pardon/.test(it)), []);
+}
+{
+  // SECT-03: a longer reading of a name already wanted is the same person.
+  const w = wantedPunPun();
+  deskTakes(w, 'Zim Fire', 'Captain', 'Arrest Pun Pun in the bar, 10 minutes', false);
+  add('"Arrest Pun Pun in the bar, 10 minutes" with Pun Pun wanted changes the time', [deskOf(w).warrants.map((it: any) => [it.name, it.minutes]), said(w)], [[['Pun Pun', 10]], ['PDA to Zim Fire: Captain, I have that: Pun Pun, 10 minutes.']]);
+  w.toTell = [];
+  deskTakes(w, 'Zim Fire', 'Captain', 'Warrant for Pun Pun the monkey.', false);
+  add('"Pun Pun the monkey" with Pun Pun wanted is no second warrant', [deskOf(w).warrants.length, said(w)], [1, ['PDA to Zim Fire: Captain, there is already a warrant on Pun Pun.']]);
+}
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
 b.toTell = [];
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Cancel the warrant on Pun Pun.', false);
 add('a head takes back its own', [deskOf(b).warrants.length, said(b)], [0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+// SECT-04: other ways of taking a warrant back. SECT-22: and a cancel word not bound to the warrant is none.
+function headsPunPun() {
+  const d = head();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
+  d.toTell = [];
+  return d;
+}
+for (const line of ['The warrant on Pun Pun is withdrawn.', "Pun Pun's warrant is cancelled", 'Forget the warrant on Pun Pun', 'Call off the arrest of Pun Pun', 'Joan, drop the warrant on Pun Pun, my mistake', "Withdraw Pun Pun's warrant", 'The warrant for Pun Pun is lifted now.']) {
+  const d = headsPunPun();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', line, false);
+  add(`"${line}" takes it back`, [deskOf(d).warrants.length, said(d)], [0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+}
+for (const line of ["Don't forget the warrant on Pun Pun", 'Warrant for Pun Pun, he dropped the crate', 'Drop everything, the warrant on Pun Pun comes first', "Don't cancel the warrant on Pun Pun, he did it", 'Do not withdraw the warrant on Pun Pun', 'Has the warrant on Pun Pun been withdrawn?', 'Drop it and arrest Pun Pun']) {
+  const d = headsPunPun();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', line, false);
+  add(`"${line}" takes nothing back`, [deskOf(d).warrants.map((it: any) => it.name), said(d).filter((it: string) => /withdrawn/.test(it))], [['Pun Pun'], []]);
+}
+for (const line of ['Hale, drop what you are doing, warrant for Dana Reyes, for theft', 'Call off your patrol, I have a warrant for Dana Reyes']) {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" is a warrant on Dana Reyes`, [deskOf(d).warrants.map((it: any) => it.name), said(d).filter((it: string) => /I have that: a warrant for Dana Reyes/.test(it)).length], [['Dana Reyes'], 1]);
+}
+{
+  const d = headsPunPun();
+  deskOf(d).unread = [{ from: 'Walker Wolfe', fromJob: 'Head of Personnel', text: 'never mind about pun pun', at: Date.now() }];
+  add('the LLM reading "withdraw" takes it back through the same code', [deskRead(d, deskOf(d).unread[0], { kind: 'withdraw', name: 'pun pun', minutes: 0 }), deskOf(d).warrants.length, said(d)], ['Read as: "Cancel the warrant on pun pun." The body answers Walker Wolfe in the fixed words.', 0, ['PDA to Walker Wolfe: Walker, the warrant on Pun Pun is withdrawn.']]);
+  add('and the reading is let through', S.readReading('{"kind":"withdraw","name":"Pun Pun","minutes":0}', 'never mind about Pun Pun')?.kind, 'withdraw');
+}
+// SECT-13: no warrant on Unknown, from a head or from the Captain.
+for (const [from, job, to] of [['Walker Wolfe', 'Head of Personnel', 'Walker'], ['Zim Fire', 'Captain', 'Captain']]) {
+  const d = head();
+  deskTakes(d, from, job, 'Warrant for Unknown, for trespass in the Cargo Bay.', false);
+  add(`a warrant on Unknown from the ${job} is refused`, [deskOf(d).warrants.length, said(d)], [0, [`PDA to ${from}: ${to}, I cannot take a warrant on Unknown: that is anyone with their face hidden. Tell me who it is.`]]);
+}
+add('"Unknown (as Pun Pun)" is no name either', S.isNoName('Unknown (as Pun Pun)'), true);
+add('and Pun Pun is one', S.isNoName('Pun Pun'), false);
+add('the not-followed line fits a PDA message',S.notFollowedLine('Walker').length <= 200, true);
 // The officer says someone is in a cell: off the list, into the cells, and the Captain and whoever declared it are told.
 b = head();
 deskTakes(b, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Pun Pun, for trespass in the Bar.', false);
@@ -155,18 +311,188 @@ deskTakes(b, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
 syncDesk(b);
 add('with no officer aboard the warrant goes into its own hands', beatOf(b).warrants.map((w: any) => w.name), ['Pun Pun']);
 
+// ---- TRB-03: a warrant served by one holder is given up by the other, and nobody is let go by it
+{
+  const OFFICER = (await import(ROOT + 'jobs/index')).jobFor('Security Officer');
+  const outHurt = () => {
+    const d = head();
+    deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+    deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, I could not take Pun Pun. I am hurt.', false);
+    syncDesk(d);
+    d.toTell = [];
+    return d;
+  };
+  let d = outHurt();
+  add('the officer out hurt, the Head of Security holds the warrant itself', beatOf(d).warrants.map((w: any) => w.name), ['Dana Reyes']);
+  deskOutcome(d, { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 2', minutes: 5, resisted: false }, 'Joan Marsh', false);
+  const served = said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'));
+  add('served by the Head of Security: the officer is told it is served', served, ['PDA to Hale Stone: Hale, Dana Reyes is in a cell: the warrant is served.']);
+  add('and the line is not read as an outcome', S.readOutcome(S.servedLine('Hale Stone', 'Dana Reyes')), null);
+  const hale = makeBrain('Hale Stone', 'Security Officer');
+  hale.pdaPeople = [...PDA.filter((person) => person.name !== 'Hale Stone'), { name: 'Joan Marsh', job: 'Head of Security' }];
+  know(hale, ['Security Office', 'Brig']);
+  // In the brig, with the prisoner left in cuffs in the cell before it.
+  at(hale, 5000, 'Brig', [{ handle: 'p5', name: 'Dana Reyes', job: 'Janitor', place: 'Brig', distance: 2, cuffed: 1 }]);
+  (await import(ROOT + 'jobs/arrests')).giveWarrant(hale, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  OFFICER.readsMessage(hale, 'Joan Marsh', S.servedLine('Hale Stone', 'Dana Reyes'), 0, 'Head of Security');
+  add('the officer gives its copy up, and lets nobody out of the cell', [beatOf(hale).warrants.length, beatOf(hale).toFree.length], [0, 0]);
+  d = outHurt();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, Dana Reyes is in Cell 1 for 5 minutes.', false);
+  add('served by the hurt officer: the Head of Security gives its own copy up', [beatOf(d).warrants.length, beatOf(d).toFree.length, said(d).filter((it: string) => it.startsWith('PDA to Hale Stone'))], [0, 0, []]);
+}
+
+// ---- SECT-11: a warrant declared while the officer is out is given to it when it is back
+{
+  const giving = (d: any) => d.tasks.filter((task: any) => task.kind === 'give_warrant' && task.state !== 'done').map((task: any) => task.item);
+  const d = head();
+  deskTakes(d, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(d);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(d);
+  add('declared while the officer is out: the Head of Security holds it', [deskOf(d).warrants.map((w: any) => w.given), beatOf(d).warrants.map((w: any) => w.name)], [['taken'], ['Dana Reyes']]);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(d);
+  add('told to try again: it is given to the officer, and handed back', [giving(d), beatOf(d).warrants.length], [['Dana Reyes'], 0]);
+  syncDesk(d);
+  add('and still is a sync later', giving(d), ['Dana Reyes']);
+  const late = head();
+  late.pdaPeople = PDA.filter((person) => person.job !== 'Security Officer');
+  deskTakes(late, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  syncDesk(late);
+  late.pdaPeople = PDA;
+  syncDesk(late);
+  add('no officer aboard, then one: the warrant is given to it', [giving(late), beatOf(late).warrants.length], [['Pun Pun'], 0]);
+
+  // ARR-13: a warrant kept back in its own hands, mid-arrest, is not also given to the officer.
+  const { addTask } = await import(ROOT + 'tasks');
+  const m = head();
+  deskTakes(m, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(m);
+  deskTakes(m, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(m, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  syncDesk(m);
+  const serve = addTask(m, { kind: 'serve_warrant', urgency: 'asked', source: 'told', item: 'Dana Reyes' });
+  m.lastAct = { key: 'x', tool: 'arrest', at: 0, act: { tool: 'arrest', person: 'p9', how: 'force' }, task: serve.id };
+  deskTakes(m, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(m);
+  add('ARR-13: told to try again mid-arrest: the one being arrested is kept, the other given', [giving(m), beatOf(m).warrants.map((w: any) => w.name)], [['Pun Pun'], ['Dana Reyes']]);
+  syncDesk(m);
+  add('ARR-13: and a sync later, still not given while the arrest is under way', [giving(m), beatOf(m).warrants.map((w: any) => w.name)], [['Pun Pun'], ['Dana Reyes']]);
+  m.lastAct = null;
+  syncDesk(m);
+  add('ARR-13: the arrest failed and nobody is held: it is given to the officer then', [giving(m).sort(), beatOf(m).warrants.length], [['Dana Reyes', 'Pun Pun'], 0]);
+  // Kept back, then jailed: off the list, never given.
+  const j = head();
+  deskTakes(j, 'Hale Stone', 'Security Officer', 'Joan, I am hurt and can make no arrests.', false);
+  syncDesk(j);
+  deskTakes(j, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(j);
+  j.security = { ...(j.security ?? {}), holding: 'Dana Reyes' };
+  deskTakes(j, 'Zim Fire', 'Captain', 'Try again.', false);
+  syncDesk(j);
+  add('ARR-13: holding them when the officer is back: kept, not given', [giving(j), deskOf(j).keptBack], [[], ['Dana Reyes']]);
+  deskOutcome(j, { what: 'jailed', name: 'Dana Reyes', cell: 'Cell 1', minutes: 5, resisted: false }, j.name, false);
+  j.security = { ...j.security, holding: null };
+  beatOf(j).warrants = [];
+  syncDesk(j);
+  add('ARR-13: then jailed: off the list, and never given', [giving(j), deskOf(j).warrants.length, deskOf(j).keptBack], [[], 0, []]);
+}
+
+// ---- TRUST-06: a warrant is settled on one person at once, and a name two share is asked about
+{
+  const twoJanes = () => {
+    const d = head();
+    d.pdaPeople = [...PDA, { name: 'Jane Doe', job: 'Assistant' }, { name: 'Jane Marsh', job: 'Research Director' }, { name: 'Dana Smith', job: 'Cook' }];
+    return d;
+  };
+  let d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane, for theft.', false);
+  add('a first name two share is no warrant, and is asked about', [deskOf(d).warrants.length, said(d)], [0, ['PDA to Walker Wolfe: Walker, there are two by that name: Jane Doe and Jane Marsh. Which one?']]);
+  d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane Doe, for theft.', false);
+  add('the full name is taken', deskOf(d).warrants.map((w: any) => w.name), ['Jane Doe']);
+  d = twoJanes();
+  deskTakes(d, 'Walker Wolfe', 'Head of Personnel', 'Warrant for Jane Marsh, for theft.', false);
+  add('and the rule on heads holds for the one named', deskOf(d).warrants.length, 0);
+  d = twoJanes();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Arrest Dana for theft.', false);
+  add('"Arrest Dana" with two Danas aboard is asked about', [deskOf(d).warrants.length, said(d)], [0, ['PDA to Zim Fire: Captain, there are two by that name: Dana Reyes and Dana Smith. Which one?']]);
+  d = twoJanes();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Arrest Dana Smith for theft.', false);
+  add('"Arrest Dana Smith" is a warrant on Dana Smith', deskOf(d).warrants.map((w: any) => w.name), ['Dana Smith']);
+  d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Reyes, for theft.', false);
+  add('a surname one person has is kept under their full name', deskOf(d).warrants.map((w: any) => w.name), ['Dana Reyes']);
+  const { onLead } = await import(ROOT + 'jobs/arrests');
+  const off = makeBrain('Hale Stone', 'Security Officer');
+  off.pdaPeople = [{ name: 'Joan Marsh', job: 'Head of Security' }, { name: 'Pun Pun', job: 'Assistant' }, { name: 'Pun Pun II', job: 'Assistant' }];
+  know(off, ['Security Office', 'Bar']);
+  (await import(ROOT + 'jobs/arrests')).giveWarrant(off, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  at(off, 5000, 'Bar', [{ handle: 'p2', name: 'Pun Pun II', job: 'Assistant', place: 'Bar', distance: 2 }]);
+  add('an officer with a warrant on Pun Pun, a name it knows, does not go for Pun Pun II', onLead(off), false);
+  at(off, 5010, 'Bar', [{ handle: 'p1', name: 'Pun Pun', job: 'Assistant', place: 'Bar', distance: 2 }]);
+  add('and does go for Pun Pun', onLead(off), true);
+  // Steps 4 and 5: a head of staff is arrested only on a warrant the Captain declared.
+  const A = await import(ROOT + 'jobs/arrests');
+  const onHead = (byCaptain: boolean) => {
+    const o = makeBrain('Hale Stone', 'Security Officer');
+    o.post = 'Security Office';
+    o.pdaPeople = [{ name: 'Joan Marsh', job: 'Head of Security' }, { name: 'Jane Marsh', job: 'Research Director' }];
+    know(o, ['Security Office', 'Bar', 'Brig']);
+    o.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+    A.giveWarrant(o, { name: 'Jane Marsh', reason: 'theft', minutes: 5, byCaptain });
+    at(o, 5000, 'Bar', [{ handle: 'p4', name: 'Jane Marsh', job: 'Research Director', place: 'Bar', distance: 1, command: 1 }]);
+    A.syncBeat(o);
+    const task = o.tasks.find((it: any) => it.kind === 'serve_warrant' && it.item === 'Jane Marsh');
+    const plan = A.planBeat(o, task);
+    return [plan?.act?.tool ?? (plan?.say ? 'says' : null), A.takeOutcomes(o)];
+  };
+  add('TRUST-06: a head in view, on a warrant the Captain did not declare: no arrest, and the list is told why', onHead(false), [null, [{ what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' }]]);
+  add('TRUST-06: and that word reads back whole', S.readOutcome(S.outcomeLine('Joan', { what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' })), { what: 'cannot', name: 'Jane Marsh', why: 'they are a head of staff, and the Captain did not declare it' });
+  add('TRUST-06: on the Captain\'s warrant the head is told they are under arrest', onHead(true), ['says', []]);
+  // The Head of Security serving one itself carries who declared it.
+  const self = head();
+  self.pdaPeople = PDA.filter((person: any) => person.job !== 'Security Officer');
+  deskTakes(self, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  syncDesk(self);
+  add('TRUST-06: serving the Captain\'s warrant itself, the desk notes the Captain declared it', beatOf(self).warrants.map((w: any) => [w.name, w.byCaptain]), [['Dana Reyes', true]]);
+}
+
 // ---- the desk says so when it cannot use what it is sent
 const { jobFor } = await import(ROOT + 'jobs/index');
 const HOS = jobFor('Head of Security');
 b = head();
 deskTakes(b, 'Zim Fire', 'Captain', 'Pun Pun is in the bar', false);
 add('a sighting of someone with no warrant on them is answered, with the words that would declare one', said(b), ['PDA to Zim Fire: Captain, there is no warrant on Pun Pun. To declare one, say: Warrant for Pun Pun.']);
+// SECT-15: a sighting by first name, or run together, of someone wanted is taken.
+for (const [line, name] of [['Dana is in the bar', 'Dana Reyes'], ['Punpun is in the bar', 'Pun Pun'], ['I just saw Dana in the bar', 'Dana Reyes']]) {
+  const d = head();
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun.', false);
+  d.toTell = [];
+  deskTakes(d, 'Zim Fire', 'Captain', line, false);
+  add(`"${line}" is a sighting of ${name}`, [deskOf(d).warrants.find((w: any) => w.name === name)?.lastSeen?.place, said(d).filter((it: string) => /no warrant/.test(it))], ['Bar', []]);
+}
+{
+  const d = head();
+  d.pdaPeople = [...PDA, { name: 'Dana Smith', job: 'Cook' }];
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Dana Smith, for theft.', false);
+  deskTakes(d, 'Zim Fire', 'Captain', 'Dana is in the bar', false);
+  add('"Dana is in the bar" with two Danas wanted is taken for neither', deskOf(d).warrants.map((w: any) => w.lastSeen), [null, null]);
+}
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
 add('a message from the Captain that code can make nothing of waits for the LLM to read it', [said(b), deskOf(b).unread.map((it: any) => it.text)], [[], ['How are things over there today']]);
-add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.']]);
+add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.']]);
 HOS.readsMessage(b, 'Zim Fire', 'Hello?', 0, 'Captain');
 add('a second one straight after is not put to the LLM, and is not answered twice in a minute', [b.toTell.length, deskOf(b).unread.length], [1, 0]);
+for (const line of ['Joan, do not arrest Dana Reyes, she is with me.', 'Is there a warrant for Dana Reyes?', 'Did your officer arrest Pun Pun yet?']) {
+  b = head();
+  add(`SECT-01: "${line}" from the Captain is not taken by code`, deskTakes(b, 'Zim Fire', 'Captain', line, false), false);
+  HOS.readsMessage(b, 'Zim Fire', line, 0, 'Captain');
+  add('and waits for the LLM reader, with no warrant', [deskOf(b).warrants.length, (deskOf(b).unread ?? []).map((it: any) => it.text)], [0, [line]]);
+}
 b = head();
 HOS.readsMessage(b, 'Dana Reyes', 'How are things over there today', 0, 'Janitor');
 add('and not to someone who could not declare one anyway', b.toTell.length, 0);
@@ -217,6 +543,18 @@ at(outranked, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Walker Wolfe', job: 'He
 wantedAfterActing(outranked, { tool: 'throw_out', person: 'p9' }, false, 'Walker Wolfe outranks you. You do not lay a hand on them.');
 syncWanted(outranked);
 add('someone it had no right to put out is no word for anyone', said(outranked), []);
+for (const [why, line, word] of [
+  ['a stranger the body never reached', 'You could not get to it.', []],
+  ['a walk out that took too long', 'You could not get Pun Pun out of Cargo Bay: it was taking too long.', []],
+  ['a stranger it could not get a hold of', 'You cannot get a hold of Pun Pun.', ['PDA to Quin Master: Quin, I could not put Pun Pun out of the Cargo Bay.']],
+] as const) {
+  const t = makeBrain('Cora Tech', 'Cargo Technician');
+  t.post = 'Cargo Bay'; t.pdaPeople = tech.pdaPeople;
+  at(t, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Cargo Bay', distance: 2, in_post: 1 }]);
+  wantedAfterActing(t, { tool: 'throw_out', person: 'p9' }, false, line);
+  syncWanted(t);
+  add(`${why} is ${word.length ? 'word for the head' : 'no word for anyone'}`, said(t), [...word]);
+}
 const qm = makeBrain('Quin Master', 'Quartermaster');
 qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Joan Marsh', job: 'Head of Security' }];
 at(qm, 4000, 'Cargo Bay');
@@ -238,6 +576,49 @@ add('"on site" is no part of the name', S.readWarrant('Arrest Pun Pun on site', 
 add('nor is what follows "and"', S.readWarrant('Arrest Pun Pun on site and keep him in jail for 30 minutes', CREW), { name: 'Pun Pun', reason: '', minutes: 15 });
 add('a time with no name is a time', S.readTerm('Keep him in jail for 30 minutes'), { minutes: 15, asked: 30 });
 add('talk with no time in it is not', S.readTerm('Keep him out of my office'), null);
+// SECT-05: times past fifteen, and in hours, are times, not the reason.
+for (const [line, minutes, reason] of [
+  ['Warrant for Pun Pun, twenty minutes', 15, ''],
+  ['Warrant for Pun Pun for half an hour', 15, ''],
+  ['Warrant for Pun Pun, for theft, an hour', 15, 'theft'],
+  ['Warrant for Pun Pun, 120 minutes', 15, ''],
+  ['Warrant for Pun Pun, for theft, twelve minutes', 12, 'theft'],
+  ['Warrant for Pun Pun for a quarter of an hour', 15, ''],
+  ['Warrant for Pun Pun, for theft. Ten minutes.', 10, 'theft'],
+  ['Warrant for Pun Pun, he broke in an hour ago', null, 'he broke in an hour ago'],
+] as [string, number | null, string][]) {
+  const read = S.readWarrant(line, []);
+  add(`"${line}" is ${minutes} minutes`, [read?.name, read?.minutes, read?.reason], ['Pun Pun', minutes, reason]);
+}
+add('"Warrant for Dana Reyes twenty minutes", nobody known, is on Dana Reyes', S.readWarrant('Warrant for Dana Reyes twenty minutes', [])?.name, 'Dana Reyes');
+add('"twenty minutes" said after the warrant is a time', S.readTerm('Keep him in for twenty minutes'), { minutes: 15, asked: 20 });
+add('"twenty-five minutes" is 25', S.readTerm('Keep him in for twenty-five minutes'), { minutes: 15, asked: 25 });
+add('"half an hour" is 30', S.readTerm('Keep him in for half an hour'), { minutes: 15, asked: 30 });
+// SECT-12: a time is a term only when it is said of the person.
+const NO_TERM = ["It's been 10 minutes, where is he?", 'Tell them the meeting is in 5 minutes', 'Give it ten minutes and then search the bar', 'I will be at the bridge in 2 minutes, bring him there'];
+const TERMS: [string, number][] = [['Keep him in jail for 10 minutes', 10], ['Hold them for ten minutes', 10], ['Make it 10 minutes', 10], ['Joan, make it 10 minutes.', 10], ['Lock him up for 15 minutes', 15], ['Give him 10 minutes', 10], ['10 minutes for him', 10]];
+for (const line of NO_TERM) {
+  add(`"${line}" is no term`, S.readTerm(line), null);
+}
+for (const [line, minutes] of TERMS) {
+  add(`"${line}" is ${minutes} minutes`, S.readTerm(line)?.minutes, minutes);
+}
+{
+  const termAfter = (line: string) => {
+    const d = head();
+    deskTakes(d, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for theft.', false);
+    d.toTell = [];
+    d.now += 600;
+    deskTakes(d, 'Zim Fire', 'Captain', line, false);
+    return [deskOf(d).warrants[0].minutes, said(d).filter((it: string) => /I have that/.test(it)).length];
+  };
+  for (const line of NO_TERM) {
+    add(`after a warrant, "${line}" leaves its time`, termAfter(line), [5, 0]);
+  }
+  for (const [line, minutes] of TERMS) {
+    add(`after a warrant, "${line}" sets it to ${minutes}`, termAfter(line), [minutes, 1]);
+  }
+}
 b = head();
 deskTakes(b, 'Zim Fire', 'Captain', 'Arrest Pun Pun on site', false);
 b.toTell = [];
@@ -274,6 +655,14 @@ add('a warrant read', S.readReading('{"kind":"warrant","name":"pun pun","minutes
 add('a name the message does not have in it is not taken', S.readReading('{"kind":"warrant","name":"Dana Reyes","minutes":0}', 'could you see that pun pun spends ten minutes behind bars'), null);
 add('"neither" is nothing', S.readReading('{"kind":"neither","name":"","minutes":0}', 'how are you'), null);
 add('nor is anything that is not JSON', S.readReading('Sure! I think that is a warrant.', 'how are you'), null);
+// BRAIN-11: the minutes are read from the message by code, never taken from the LLM.
+add('the LLM is not asked for minutes', [/minutes/i.test(S.buildReading('bring pun pun to me').user), 'minutes' in (S.buildReading('bring pun pun to me').schema as any).properties], [false, false]);
+add('a message with no time: the LLM\'s minutes are not taken', S.readReading('{"kind":"warrant","name":"Pun Pun","minutes":10}', 'Bring that clown Pun Pun to me when you get a chance, he took my hat'), { kind: 'warrant', name: 'Pun Pun', minutes: 0 });
+add('a message with a time in digits: that time, whatever the LLM says', S.readReading('{"kind":"warrant","name":"pun pun","minutes":3}', 'see that pun pun gets 7 minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 7 });
+add('a time in words, the LLM giving none', S.readReading('{"kind":"warrant","name":"pun pun"}', 'could you see that pun pun spends twelve minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 12 });
+add('an hour said: capped at the most a cell allows', S.readReading('{"kind":"warrant","name":"pun pun","minutes":60}', 'pun pun should sit in a cell for an hour'), { kind: 'warrant', name: 'pun pun', minutes: S.MINUTES_MOST });
+add('"an hour ago" is no time held', S.readReading('{"kind":"warrant","name":"pun pun","minutes":5}', 'pun pun took my hat an hour ago, sort him out'), { kind: 'warrant', name: 'pun pun', minutes: 0 });
+add('a pardon keeps no minutes the LLM made up', S.readReading('{"kind":"pardon","name":"pun pun","minutes":9}', 'pun pun has done enough, let him off'), { kind: 'pardon', name: 'pun pun', minutes: 0 });
 add('as an order', S.readingAsOrder({ kind: 'warrant', name: 'pun pun', minutes: 10 }), 'Warrant for pun pun, 10 minutes.');
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'could you see that pun pun spends ten minutes behind bars', 0, 'Captain');
@@ -308,6 +697,48 @@ add('with the lockers no use, it goes back to its post', planBeat(hit, away)?.ac
 hit.security.has_baton = 1;
 syncBeat(hit);
 add('with a baton it does not run: it stops them', [hit.tasks.some((task: any) => task.kind === 'get_away' && task.state !== 'done'), hit.tasks.some((task: any) => task.kind === 'stop_attacker' && task.state !== 'done')], [false, true]);
+// ARR-02: the server no longer tells of a hold by a keeper walking the body out, or by whoever
+// arrested it. A grab it does tell of (a player's pull) is still an attack.
+{
+  const pulled = makeBrain('Hale Stone', 'Security Officer');
+  pulled.post = 'Security Office'; pulled.pdaPeople = PDA;
+  know(pulled, ['Security Office', 'Bar', 'Brig']);
+  pulled.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+  at(pulled, 5000, 'Bar', [{ handle: 'p8', name: 'Rex Hand', job: 'Assistant', place: 'Bar', distance: 1 }]);
+  securityFeels(pulled, { details: { struck_name: 'Rex Hand', struck_by: 'p8', how: 'grab' } });
+  syncBeat(pulled);
+  add('ARR-02: a grab the server tells of is still an attack: it stops them', [beatOf(pulled).attacker?.name, pulled.tasks.some((task: any) => task.kind === 'stop_attacker' && task.state !== 'done')], ['Rex Hand', true]);
+}
+
+// ---- SEC-01: knocked down itself is no try at them, and no getting away
+{
+  const A = await import(ROOT + 'jobs/arrests');
+  const fallen = () => {
+    const o = makeBrain('Hale Stone', 'Security Officer');
+    o.post = 'Security Office'; o.pdaPeople = PDA;
+    know(o, ['Security Office', 'Bar', 'Brig']);
+    o.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+    A.giveWarrant(o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+    at(o, 5000, 'Bar', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Bar', distance: 1 }]);
+    A.syncBeat(o);
+    const task = o.tasks.find((it: any) => it.kind === 'serve_warrant');
+    const warrant = beatOf(o).warrants[0];
+    warrant.toldAt = 4990;
+    return { o, task, warrant };
+  };
+  let f = fallen();
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'down' });
+  add('SEC-01: an arrest cut short by its own fall is no try, and does not bring the baton out', [f.warrant.tries, f.warrant.force, f.warrant.toldAt, A.takeOutcomes(f.o)], [0, false, 4990, []]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'arrest', person: 'p9', how: 'quiet' }, f.task, false, { reason: 'moved' });
+  add('SEC-01: one they walked off from still is a try', [f.warrant.tries, f.warrant.force], [1, true]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'jail', minutes: 5, attempt: 1 }, f.task, false, { reason: 'down', prisoner: 'Pun Pun', cell: 'Cell 1' });
+  add('SEC-01: knocked down on the way into a cell: not lost, not the cell refusing, the same try again', [A.takeOutcomes(f.o), f.warrant.toldAt, f.warrant.cellTries ?? 0, f.warrant.cellAttempts ?? 0, f.warrant.lastSeen], [[], 4990, 0, 0, { place: 'Bar', at: 5000 }]);
+  f = fallen();
+  A.beatAfterActing(f.o, { tool: 'jail', minutes: 5, attempt: 1 }, f.task, false, { reason: 'got_away', prisoner: 'Pun Pun' });
+  add('SEC-01: one who got away on the walk is still lost', A.takeOutcomes(f.o).map((it: any) => it.what), ['lost']);
+}
 
 // ---- asking to be let in
 add('the ask names the door, the room and who the warrant is on', S.letInLine('Quin', 'Cargo Lobby ', 'Cargo Bay', 'Marisol Burris'), 'Quin, I am at the Cargo Lobby door of the Cargo Bay with a warrant for Marisol Burris. Could you let me in, please?');

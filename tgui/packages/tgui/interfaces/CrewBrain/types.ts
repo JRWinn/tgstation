@@ -61,6 +61,8 @@ export type PersonInView = {
   cuffed?: BooleanLike;
   /** TRUE if this person is lying on the floor and cannot get up: knocked down, or out cold. */
   down?: BooleanLike;
+  /** Who is pulling this person, null if nobody. Left out by a server that does not say. */
+  pulled_by?: string | null;
 };
 
 /**
@@ -290,6 +292,8 @@ export type Npc = {
   workmate_called?: BooleanLike;
   /** TRUE while someone has it by the arm and is walking it out of a room. */
   in_hand?: BooleanLike;
+  /** TRUE while it floats with the gravity off and nothing within a tile to push off from (MAP-07). */
+  floating?: BooleanLike;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
@@ -333,6 +337,10 @@ export type SecurityCell = {
   left: number | null;
   /** The names of whoever is inside. */
   occupants: string[] | null;
+  /** The room the cell is in (MAP-04): not always the Brig, as on Tramstation. */
+  room?: string;
+  /** How far off it is, in tiles, on this level; null on another level. */
+  dist?: number | null;
 };
 
 /** What the server tells security staff of themselves and of the brig. */
@@ -467,6 +475,10 @@ export type DeskWork = {
   }[];
   /** When it last put an order to the LLM to read (this window's clock). */
   readingAt?: number;
+  /** Who served its warrants at the last sync: its officer, or null for itself. A change gives them all again. */
+  servedBy?: string | null;
+  /** Warrants it kept in its own hands when its officer came to serve, being mid-arrest or holding them (ARR-13): given to the officer once it lets go of them. */
+  keptBack?: string[];
 };
 
 /** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */
@@ -477,6 +489,8 @@ export type ForcingWork = {
   jobs: { room: string; by: string; tries: number }[];
   /** For the Chief Engineer: each door it has sent an engineer to, and who asked for it. */
   sent: { room: string; to: string; askedBy: string; at: number }[];
+  /** For the Chief Engineer: when it told whoever asked that nobody from engineering had said a room in `sent` was open, by room. */
+  sentGivenUp?: Record<string, number>;
 };
 
 /** A warrant in the hands of whoever is to serve it: see jobs/arrests.ts. Times are server time. */
@@ -484,6 +498,8 @@ export type BeatWarrant = {
   name: string;
   reason: string;
   minutes: number;
+  /** TRUE if the Captain declared it. Only then may it be served on a head of staff. */
+  byCaptain?: boolean;
   /** Where they were last seen, and when. */
   lastSeen: { place: string; at: number } | null;
   /** When it last looked for them where they were last seen. */
@@ -529,6 +545,8 @@ export type BeatWarrant = {
     doorTries?: number;
     gaveUp?: boolean;
   };
+  /** Whom the server would not let it arrest (a Captain's ID), by handle, and when: passed over a while. */
+  refused?: { handle: string; at: number }[];
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -578,6 +596,10 @@ export type BeatWork = {
   batonTold?: boolean;
   /** Why it has said it cannot bring someone in, and when (server time), by "name|why". Each is said once. */
   cannotTold?: Record<string, number>;
+  /** Its health (percent) when it was last told to try again, hurt: it breaks off again only a good deal under it. */
+  againAt?: number;
+  /** Warrants pardoned or taken back lately, by name, and when: an arrest still under way for one lets them go. */
+  dropped?: { name: string; pardoned: boolean; at: number }[];
 };
 
 /**
@@ -614,7 +636,7 @@ export type EngineReading = {
 /** One thing an engineer has to tell the Chief Engineer, and how far it has got with telling it. */
 export type EngineWord = {
   /** What it is word of: the engine lit, a step that would not take, the emitters off, or on again. */
-  what: 'lit' | 'stuck' | 'off' | 'on';
+  what: 'lit' | 'stuck' | 'off' | 'on' | 'notoff' | 'noton';
   /** The line it is told in, word for word. */
   line: string;
   /** Server time it said the line and began waiting to hear that it was heard. */
@@ -651,6 +673,10 @@ export type EngineWork = {
   relighting: boolean;
   /** The emitters it has switched off, or on again, in the order it is about now. */
   switched: string[];
+  /** How many times each emitter has not switched, in the switching it is about now. After two it is given up on. */
+  switchTries?: Record<string, number>;
+  /** Why the first emitter it gave up on would not switch, in its own words, or null. */
+  wouldNot?: string | null;
   /** What it has yet to tell the Chief Engineer. */
   words: EngineWord[];
 };
@@ -679,6 +705,10 @@ export type ChiefWork = {
     /** TRUE once it has gone by PDA as well. */
     sent: boolean;
     walkedUp?: boolean;
+    /** Server time it began looking for its engineer where its staff work, the PDA having failed (ENG-09). */
+    lookedAt?: number;
+    /** How many times it has looked its time and tried the PDA again (ENG-09). */
+    looks?: number;
   } | null;
   /** TRUE once it has ordered the emitters off. Nothing is lit again unless the Captain says so. */
   shut: boolean;
@@ -686,8 +716,12 @@ export type ChiefWork = {
   shutGivenAt: number | null;
   /** TRUE once the engineer has said the emitters are off. */
   emittersOff: boolean;
+  /** Why the engineer said the emitters will not go off, or null. While it stands the order is given again only now and then. */
+  notOff?: string | null;
   /** Server time it last ordered the emitters on again, or 0. */
   relitAt: number;
+  /** The lowest energy read in the crystal since the emitters were said to be off (ENG-08), or null. */
+  energyAt?: number | null;
 };
 
 /** A PDA message cargo owes someone about their crates. */
@@ -781,6 +815,8 @@ export type Talk = {
   lastHeardAt: number;
   /** Server world time (deciseconds) the NPC last spoke in reply to this speaker, if it has. Kept when they go quiet. */
   repliedAt?: number;
+  /** Server world times (deciseconds) of its latest replies to this speaker, kept when they go quiet (BRAIN-01). */
+  replyTimes?: number[];
 };
 
 /**
@@ -854,6 +890,26 @@ export type Task = {
   unheard?: number;
   /** For word owed to its head face to face: TRUE once it has walked up to them to say it again. */
   walkedUp?: boolean;
+  /** Server time (deciseconds) of the last sync it was blocked at, or when open work began again (MEM-11). */
+  openSince?: number;
+  /** Server time (deciseconds) it was first seen blocked, since it was last open (MEM-11). */
+  blockedSince?: number;
+  /** For a crate to collect: the technician it last asked for it at the counter (CARGO-13). */
+  askedOf?: string;
+  /** For a crate to collect: how many times it has asked at the counter since it last told its head nothing came of it (CARGO-13). */
+  asks?: number;
+  /** For a crate to collect: TRUE while it has put the errand off because cargo did not bring the crate out when asked (CARGO-13). */
+  notBroughtOut?: boolean;
+  /** Server time (deciseconds) until which the task is kept, in place of the half hour from createdAt (JOBS-02). */
+  keepUntil?: number;
+  /** For a crate to collect: server time someone else last asked at the counter for a crate, after this one asked (TRA-03). */
+  otherAskedAt?: number;
+  /** For a freight step: how many times running it has failed (JOBS-04). */
+  fails?: number;
+  /** For a freight step put off after failing: what the body was told when it last failed (JOBS-04). */
+  failedOn?: string;
+  /** For a mess: TRUE once picking up a bucket for it has failed, so it sets off without one. */
+  noBucket?: boolean;
 };
 
 /** What cargo staff know of the freight: what the shuttle brought, and what is to go back on it. */
@@ -920,6 +976,8 @@ export type Plan = {
    * moment they are in sight: see orderToDrop in driver.ts.
    */
   dropsWalk?: boolean;
+  /** TRUE if this emergency step may break off another emergency under way (ARR-08): see orderToDrop. */
+  breaksIn?: boolean;
 };
 
 /** How an NPC feels about one person it has met. */
@@ -1100,25 +1158,14 @@ export type NpcBrain = {
   seeToUntil: number;
   /** For a technician: the crates it has told the Quartermaster would not come, by what each is called, and when (server time). It does not tell of the same one again for a while. */
   wontComeTold: Record<string, number>;
-  /** Who last asked, in its hearing, for a door to be opened, and when (server time). */
-  doorAsked: {
-    name: string;
-    at: number;
-    /** The room whose door they mean, if they said: by PDA they do. */
-    room?: string;
-    /** TRUE if they asked to be let out, FALSE if in. */
-    out?: boolean;
-    /** TRUE if they asked by PDA, so that the answer goes back the same way. */
-    byPda?: boolean;
-    /** TRUE once they have been told no. */
-    refused?: boolean;
-    /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
-    answered?: boolean;
-    /** Which of the room's doors they are at, by what it is called, if they said. */
-    door?: string;
-    /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
-    after?: number;
-  } | null;
+  /** Who last asked, in its hearing, for a door to be opened, and when (server time). The newest of `doorAsks`. */
+  doorAsked: DoorAsk | null;
+  /**
+   * For a technician: every ask for a door it has had and not yet dealt with, oldest first, one for
+   * each person. A second ask from someone else waits its turn; it no longer wipes the first.
+   * Made the first time it is wanted.
+   */
+  doorAsks?: DoorAsk[];
   /**
    * Someone it answers to has told it to leave the room it was in: who, which room, when (this
    * window's clock), and whether it has said it is going. It goes, whatever it was doing there.
@@ -1540,9 +1587,37 @@ export type NpcBrain = {
   /** When this NPC last had something to do, in this window's clock (milliseconds). */
   lastActiveAt: number;
   lastDecision?: Decision;
+  /** TRUE while the LLM is being asked only for a remark of the NPC's own accord (ASYNC-07). */
+  remarking?: boolean;
+  /** Server world time (deciseconds) each workmate was last seen on their feet and free (CARGO-12): one lying in view is not about to do their share. */
+  ableAt?: Record<string, number>;
+  /** An arrest (not a stop) the driver sent and then sent another step over before its answer came (ARR-08): its task, whom it was on (a handle), and when (server time, deciseconds). */
+  droppedArrest?: { task?: number; person: string; at: number } | null;
+  /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
+  floating?: boolean;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
+/** Someone's ask, in a technician's hearing or by PDA, for a door to be opened. */
+export type DoorAsk = {
+  name: string;
+  at: number;
+  /** The room whose door they mean, if they said: by PDA they do. */
+  room?: string;
+  /** TRUE if they asked to be let out, FALSE if in. */
+  out?: boolean;
+  /** TRUE if they asked by PDA, so that the answer goes back the same way. */
+  byPda?: boolean;
+  /** TRUE once they have been told no. */
+  refused?: boolean;
+  /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
+  answered?: boolean;
+  /** Which of the room's doors they are at, by what it is called, if they said. */
+  door?: string;
+  /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
+  after?: number;
+};
+
 export type LedgerOrder = {
   /** Its number in the book. */
   n: number;
@@ -1582,6 +1657,8 @@ export type LedgerOrder = {
   crates?: { number: number; kind?: string }[];
   /** TRUE once a crate of it has been lost and ordered again. That is done once. */
   reordered?: boolean;
+  /** Who called it off, if it was cancelled rather than refused by the Captain. */
+  cancelledBy?: string;
   /** TRUE if it is the Quartermaster's own order, for something it needs itself. It unpacks that one itself. */
   own?: boolean;
   /** For its own order: TRUE once it has opened the crate. */

@@ -12,6 +12,8 @@
 		/obj/structure/closet/body_bag,
 		/obj/structure/closet/cardboard,
 		/obj/structure/closet/crate/coffin,
+		// A large wooden crate does not open by hand: it is pried apart with a crowbar, which breaks it.
+		/obj/structure/closet/crate/large,
 		/obj/structure/closet/supplypod,
 	))
 	var/mob/living/carbon/human/body = pawn
@@ -72,8 +74,23 @@
 		if(QDELETED(container))
 			continue
 		set_blackboard_key(BB_CREW_NPC_STORAGE_TARGET, container)
+		storage_target_at = world.time
+		addtimer(CALLBACK(src, PROC_REF(storage_overdue), container, storage_target_at), CREW_NPC_ERRAND_LIMIT)
 		return
 	finish_search()
+
+/// world.time the body was last pointed at a container to look inside.
+/datum/ai_controller/crew_npc/var/storage_target_at = 0
+
+/// The backstop for a look in a container that never ended: the search is given up, and the brain told.
+/datum/ai_controller/crew_npc/proc/storage_overdue(obj/structure/closet/container, set_at)
+	if(QDELETED(src) || storage_target_at != set_at || blackboard[BB_CREW_NPC_STORAGE_TARGET] != container)
+		return
+	var/tool = search_tool
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) gave up its search: still not done with one container after [DisplayTimeText(CREW_NPC_ERRAND_LIMIT)].")
+	cancel_search()
+	if(tool)
+		action_result(tool, FALSE, "You could not finish looking through the storage.")
 
 /// Ends the search and tells the brain how it went.
 /datum/ai_controller/crew_npc/proc/finish_search()
@@ -101,16 +118,24 @@
 	if(QDELETED(container) || QDELETED(body) || !can_reach_target_now(container))
 		return list("state" = "unreached")
 	body.face_atom(container)
-	// Already standing open: whatever it held is lying about in plain view.
+	// Already standing open: whatever it held is lying about in plain view, in front of it. Seen as
+	// what it holds, as a person standing there would. Often a workmate has it open for a look, and
+	// shuts it again with all that inside.
 	if(container.opened)
-		return list("state" = "open", "contents" = list())
+		var/list/in_front = list()
+		for(var/obj/item/thing in container.drop_location())
+			in_front[format_text(thing.name)]++
+		return list("state" = "looked", "contents" = in_front)
+	// A large wooden crate is pried apart with a crowbar, not opened by hand.
+	if(istype(container, /obj/structure/closet/crate/large))
+		return list("state" = "locked")
 
 	// Opening a container tips what it holds out onto its tile, and a container that has never been
 	// opened does not even have its contents until then. So note what is lying there first, open it,
 	// and whatever is newly there is what was inside.
 	var/atom/spill = container.drop_location()
 	var/list/already_there = list()
-	for(var/obj/item/thing in spill)
+	for(var/atom/movable/thing in spill)
 		already_there[thing] = TRUE
 	if(!container.open(body))
 		return list("state" = "locked")
@@ -118,10 +143,30 @@
 	for(var/obj/item/thing in spill)
 		if(!already_there[thing])
 			inside[format_text(thing.name)]++
+	var/list/people = came_out_of(container, already_there)
 	sleep(CREW_NPC_LOOK_TIME)
-	if(!QDELETED(container) && container.opened)
+	// Shut again, unless someone has come to be on its tile meanwhile, the body included: they would be shut inside.
+	if(!QDELETED(container) && container.opened && !crew_npc_someone_on(get_turf(container)))
 		container.close(body)
-	return list("state" = "looked", "contents" = inside)
+	return list("state" = "looked", "contents" = inside, "people" = people)
+
+/**
+ * Who tumbled out of a container on opening it: anyone alive on its tile who was not there before
+ * (already_there holds what was). Each as the body sees them, "Joe Bloggs, out cold". Logged.
+ */
+/datum/ai_controller/crew_npc/proc/came_out_of(obj/structure/closet/container, list/already_there)
+	var/list/people = list()
+	for(var/mob/living/someone in container.drop_location())
+		if(someone == pawn || already_there[someone])
+			continue
+		var/state = ""
+		if(someone.stat >= HARD_CRIT)
+			state = ", out cold"
+		else if(someone.body_position == LYING_DOWN)
+			state = ", lying down"
+		people += "[someone.name][state]"
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found [key_name(someone)] inside the [format_text(container.name)] at [AREACOORD(container)].")
+	return people
 
 /// Called by the storage leaves when the body has finished with a container, whether or not it saw inside.
 /datum/ai_controller/crew_npc/proc/storage_done(obj/structure/closet/container, list/result)
@@ -130,13 +175,13 @@
 		storage_checked_at[REF(container)] = world.time
 		var/state = result?["state"] || "unreached"
 		if(state != "unreached")
-			report_storage(container, state, result["contents"])
+			report_storage(container, state, result["contents"], result["people"])
 		if(state == "looked")
 			search_count++
 	next_storage()
 
 /// Tells the brain what the body found on looking at a container.
-/datum/ai_controller/crew_npc/proc/report_storage(obj/structure/closet/container, state, list/inside)
+/datum/ai_controller/crew_npc/proc/report_storage(obj/structure/closet/container, state, list/inside, list/people)
 	var/container_name = format_text(container.name)
 	var/place = get_area_name(container, TRUE)
 	var/list/contents = list()
@@ -161,11 +206,15 @@
 			text = "The [container_name] in [place] is standing open with nothing left inside."
 		if("locked")
 			text = "The [container_name] in [place] is locked."
+	// Someone who tumbled out of it on opening is said first.
+	if(length(people))
+		text = "Inside the [container_name] in [place] you find [english_list(people)]! [text]"
 	emit_sense(CREW_SENSE_STORAGE_SEEN, text, list(
 		"place" = place,
 		"container" = container_name,
 		"state" = state,
 		"contents" = contents,
+		"people" = people || list(),
 	))
 
 /// Returns a spot in the room whose storage was looked through longest ago and is due a second look, or null.
@@ -198,6 +247,13 @@
 		started_at = world.time
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/perform(seconds_per_tick, datum/ai_controller/controller)
+	// An errand's run from before a stun is still at work: the walk does not pull the body against its
+	// steps, and the wait is not counted against the walk's time.
+	var/datum/ai_controller/crew_npc/crew_controller = controller
+	if(target_key == BB_CREW_NPC_ERRAND_TARGET && crew_controller.errand_in_flight)
+		controller.ai_movement.stop_moving_towards(controller)
+		started_at = world.time
+		return AI_BEHAVIOR_DELAY
 	if(world.time - started_at > time_limit)
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
 	return ..()
@@ -218,7 +274,14 @@
 /datum/bt_node/ai_behavior/crew_npc_look_inside/perform_async(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	var/obj/structure/closet/container = controller.blackboard[target_key]
-	var/list/result = crew_controller.look_inside(container)
+	var/list/result
+	// An error in the look must not leave the search stuck: it is logged, and the search moved on.
+	try
+		result = crew_controller.look_inside(container)
+	catch(var/exception/error)
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) look inside stopped on an error: [error.name] at [error.file]:[error.line].")
+		stack_trace("crew NPC look inside: [error.name] at [error.file]:[error.line]")
+		result = list("state" = "unreached")
 	if(!async_still_valid())
 		return
 	finish_async(AI_BEHAVIOR_SUCCEEDED)

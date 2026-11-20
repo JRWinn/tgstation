@@ -33,7 +33,9 @@ import {
   ARREST_WORDS,
   COULD_NOT_WORDS,
   couldNotLine,
+  hiddenLine,
   isHeadOfSecurity,
+  isNoName,
   isOfficer,
   isSecurity,
   MEETING_LINE_WORDS,
@@ -54,8 +56,13 @@ const DECLARE_AGAIN_DS = 6000;
 const COULD_NOT_KEPT_DS = 1200;
 /** How long (deciseconds) being told it is under arrest stands, if nothing comes of it. */
 const ARREST_STANDS_DS = 600;
-/** What the server says when a body could not get someone out of its room, as against having no right to. */
-const WOULD_NOT_GO = /\bcould not get\b|\bcannot get a hold\b/i;
+/**
+ * What the server says when someone would not be walked out of the body's room: the hold was broken, or no
+ * hold could be got. Not "You could not get to it." (the body never reached them) nor a reason that is the
+ * body's own trouble, such as the walk taking too long.
+ */
+const WOULD_NOT_GO =
+  /\bcould not get .+ out of .+: they got away from you\b|\bcannot get a hold of\b/i;
 
 /** What an NPC knows of who is wanted, before it has been told anything. */
 export function newWanted(): WantedKnown {
@@ -129,7 +136,9 @@ function declareTrespass(brain: NpcBrain, name: string, place: string): void {
   const known = brain.wanted;
   const desk = securityDesk(brain);
   const key = name.toLowerCase();
+  // "Unknown" is how anyone with their face hidden is seen: no name a warrant could be on.
   if (
+    isNoName(name) ||
     !desk ||
     !brain.hasPda ||
     known.entries.some((entry) => sameName(entry.name, name)) ||
@@ -276,8 +285,13 @@ export function syncWanted(brain: NpcBrain): void {
   ) {
     for (const person of brain.peopleInView) {
       const entry = known.entries.find((it) => sameName(it.name, person.name));
-      // Not itself, and not someone security already has in cuffs.
-      if (!entry || person.name === brain.name || person.cuffed) {
+      // Not itself, not someone security already has in cuffs, and not anyone seen as Unknown.
+      if (
+        !entry ||
+        person.name === brain.name ||
+        person.cuffed ||
+        isNoName(person.name)
+      ) {
         continue;
       }
       const place = person.place ?? brain.location;
@@ -309,12 +323,16 @@ export function syncWanted(brain: NpcBrain): void {
     if (!head) {
       continue;
     }
-    const line = couldNotLine(head, failed.name, failed.place);
+    // Someone seen as Unknown has no name to give: the head is told plainly, and declares nothing.
+    const hidden = isNoName(failed.name);
+    const line = hidden
+      ? hiddenLine(head, failed.place)
+      : couldNotLine(head, failed.name, failed.place);
     const here = brain.peopleInView.some((person) => person.name === head);
     brain.toTell.push({
       to: head,
       line,
-      why: `You tried to put ${failed.name} out of the ${failed.place} and could not. You are telling ${head}, who you answer to${here ? '' : ', by PDA'}.`,
+      why: `You tried to put ${hidden ? 'someone with their face hidden' : failed.name} out of the ${failed.place} and could not. You are telling ${head}, who you answer to${here ? '' : ', by PDA'}.`,
       byPda: !here,
       exact: true,
       at: Date.now(),
@@ -351,6 +369,13 @@ export function wantedAfterActing(
   const place = brain.post ?? brain.location;
   const known = brain.wanted;
   if (!name || !place || known.couldNot.some((it) => it.name === name)) {
+    return;
+  }
+  // Someone only being seen to the door when what they were sent for is done is no trespasser:
+  // a walk out that fails is the NPC's own, and they are seen out again, never reported. Put out
+  // on a superior's order, they are reported as before.
+  const stranger = brain.strangers[name];
+  if (stranger?.seenOut && !stranger.orderedBy) {
     return;
   }
   known.couldNot.push({ name, place, at: brain.now, done: false });

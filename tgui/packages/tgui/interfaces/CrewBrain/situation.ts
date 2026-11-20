@@ -47,7 +47,14 @@ export function describeView(brain: NpcBrain): string[] {
     // How the NPC feels about each of them goes right beside the name, where it will be read.
     const people = brain.peopleInView.map((person) => {
       const feeling = describeFeeling(brain, person.name);
-      return `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle}${feeling ? `; ${feeling}` : ''})`;
+      // What anyone could see of them at a glance: down and not getting up, or in cuffs.
+      const state = [
+        person.down ? 'lying still' : '',
+        person.cuffed ? 'in cuffs' : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return `${person.name}${person.job ? `, ${person.job}` : ''} (${person.handle}${feeling ? `; ${feeling}` : ''})${state ? ` (${state})` : ''}`;
     });
     lines.push(`People in view: ${people.join(', ')}.`);
   }
@@ -115,6 +122,10 @@ export function describeSituation(brain: NpcBrain): string[] {
   lines.push(...asideCues(brain));
   lines.push(...meetingCues(brain));
   lines.push(...wantedCues(brain));
+  // MAP-07: with the gravity off it cannot walk, so that it can say why it is not going anywhere.
+  if (brain.floating) {
+    lines.push('There is no gravity here: you float and cannot walk.');
+  }
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
   } else if (brain.wantsOut && brain.wayOutTo) {

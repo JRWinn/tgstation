@@ -39,7 +39,9 @@ import type {
 } from '../types';
 import {
   arrestAgain,
+  beatOf,
   dropWarrant,
+  forgetWarrant,
   giveWarrant,
   handBack,
   noteSeen,
@@ -50,7 +52,7 @@ import { captainName } from './head';
 import {
   addressOf,
   againLine,
-  CANCEL_WORDS,
+  cancelAsked,
   closeIn,
   mendWords,
   type Reading,
@@ -61,6 +63,7 @@ import {
   giveLine,
   HEARD_WORDS,
   heardLine,
+  isNoName,
   isOfficer,
   isSecurity,
   letGoLine,
@@ -72,19 +75,21 @@ import {
   noticeLines,
   noWarrantLine,
   outcomeLine,
-  PARDON_WORDS,
+  pardonAsked,
   pardonedLine,
   pardonNamed,
   pardonToldLine,
   REFUSALS,
   readGiven,
   readOutcome,
+  readPardon,
   readTerm,
   readWarrant,
   termLine,
   SIGHTING_WORDS,
   sameName,
   seenLine,
+  servedLine,
   sightedName,
   TRY_AGAIN_WORDS,
   takenLine,
@@ -356,7 +361,7 @@ export function deskTakes(
   const anyone = [...standing, ...Object.keys(desk.held)];
 
   // A warrant taken back by whoever declared it, or by the Captain.
-  if (CANCEL_WORDS.test(text)) {
+  if (cancelAsked(text)) {
     const name = nameIn(text, standing) ?? closeIn(text, standing);
     const warrant = desk.warrants.find((it) => it.name === name);
     if (!declarer) {
@@ -395,11 +400,21 @@ export function deskTakes(
     }
     return true;
   }
-  // A pardon. It names someone there is something against, or uses the word.
-  const pardoned = PARDON_WORDS.test(text)
-    ? (nameIn(text, anyone) ?? closeIn(text, anyone))
-    : undefined;
-  if (pardoned || /\bpardon\b/i.test(text)) {
+  // A pardon. It names someone there is something against, right by the pardon word, or uses
+  // the word "pardon". "Don't release Pun Pun" and "Pun Pun broke free" are no pardon. A warrant
+  // declared on the same person, with "free" or "release" in its reason, is the warrant.
+  const warrantToo = readWarrant(text, knownNames(brain));
+  const loose = readPardon(text, anyone);
+  const pardoned =
+    loose &&
+    !(
+      warrantToo &&
+      !pardonAsked(text) &&
+      (sameName(warrantToo.name, loose) || sameName(loose, warrantToo.name))
+    )
+      ? loose
+      : undefined;
+  if (pardoned || pardonAsked(text)) {
     if (!captain) {
       reply(
         brain,
@@ -462,12 +477,25 @@ export function deskTakes(
   // A warrant declared.
   const declared = readWarrant(text, knownNames(brain));
   if (declared) {
-    const theirJob =
-      jobOf(brain, declared.name) ||
-      jobOf(
+    // Settled on one person it knows of, by full name, here and now: the rules below are
+    // tested against that one, and the warrant is kept under that name. A name that fits two
+    // it knows of ("Dana", with Dana Reyes and Dana Smith aboard) is asked about, not guessed.
+    const fits = knownNames(brain).filter((it) => sameName(declared.name, it));
+    const owners = fits.includes(declared.name) ? [declared.name] : fits;
+    if (declarer && owners.length > 1) {
+      reply(
         brain,
-        knownNames(brain).find((it) => sameName(declared.name, it)) ?? '',
+        from,
+        REFUSALS.whichOne(to, owners),
+        aloud,
+        `${from} has declared a warrant on ${declared.name}, and more than one person aboard goes by that name. You are asking which one.`,
       );
+      return true;
+    }
+    if (owners.length === 1) {
+      declared.name = owners[0];
+    }
+    const theirJob = jobOf(brain, declared.name);
     const why = (rest: string) =>
       `${from} has declared a warrant on ${declared.name}. ${rest}`;
     if (!declarer) {
@@ -478,6 +506,18 @@ export function deskTakes(
         aloud,
         why(
           'They are neither the Captain nor a head of department, and you are telling them so.',
+        ),
+      );
+    } else if (isNoName(declared.name)) {
+      // "Unknown" is anyone with their face hidden and no ID on show: a warrant on it is on
+      // every one of them, and on nobody once the mask is off.
+      reply(
+        brain,
+        from,
+        REFUSALS.noName(to),
+        aloud,
+        why(
+          'That is how anyone with their face hidden is seen, not a name, and you are telling them so.',
         ),
       );
     } else if (/captain/i.test(theirJob)) {
@@ -508,9 +548,16 @@ export function deskTakes(
           'That is a head of department, and only the Captain can declare one on a head. You are telling them so.',
         ),
       );
-    } else if (desk.warrants.some((it) => sameName(declared.name, it.name))) {
-      const standingOne = desk.warrants.find((it) =>
-        sameName(declared.name, it.name),
+    } else if (
+      desk.warrants.some(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
+      )
+    ) {
+      // Either way round: "Pun Pun the monkey" is the Pun Pun already wanted.
+      const standingOne = desk.warrants.find(
+        (it) =>
+          sameName(declared.name, it.name) || sameName(it.name, declared.name),
       );
       // Declared again with a time on it: the time is what is new.
       if (
@@ -532,7 +579,7 @@ export function deskTakes(
         reply(
           brain,
           from,
-          REFUSALS.already(to, declared.name),
+          REFUSALS.already(to, standingOne?.name ?? declared.name),
           aloud,
           why('There is one on them already, and you are telling them so.'),
         );
@@ -596,7 +643,8 @@ export function deskTakes(
     return true;
   }
   // Word of where someone wanted is.
-  const seen = nameIn(text, standing);
+  // A first name alone, a misspelling or a name run together is taken, as for a pardon.
+  const seen = nameIn(text, standing) ?? closeIn(text, standing);
   const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
   if (seen && place && SIGHTING_WORDS.test(text)) {
     const warrant = desk.warrants.find((it) => it.name === seen);
@@ -773,6 +821,19 @@ export function deskOutcome(
         desk.warrants = desk.warrants.filter((it) => it !== warrant);
         desk.serial += 1;
       }
+      // The warrant is served, and the one who did not serve it gives up its copy: else it
+      // would arrest them again once the cell opens. Nobody is let go by this.
+      if (!own) {
+        forgetWarrant(brain, warrant?.name ?? outcome.name);
+      } else if (warrant && officerAboard(brain)) {
+        // Its officer may have it still: given it before it broke off hurt, or given it and
+        // then outrun to the arrest.
+        tellOfficer(
+          brain,
+          servedLine(officerAboard(brain) ?? '', warrant.name),
+          `${warrant.name} is in a cell, and you served the warrant yourself. You are telling your officer, who may still have it, that it is served.`,
+        );
+      }
       tellCaptain(
         brain,
         outcomeLine('Captain', outcome),
@@ -947,14 +1008,46 @@ export function syncDesk(brain: NpcBrain): void {
     }
   }
   const officer = serving(brain);
-  // With an officer to send, whoever keeps the list does not go after anyone itself.
+  // With an officer to send, whoever keeps the list does not go after anyone itself. It keeps only
+  // the warrant on whoever it has by the arm, and one whose arrest is under way (ARR-13).
   if (officer) {
     handBack(brain);
   }
+  const ownHands = (name: string) =>
+    beatOf(brain).warrants.some((it) => sameName(it.name, name));
+  // An officer to send who was not sending before (told to try again, or come aboard): every
+  // warrant is given to it, but those still in its own hands, which wait until it lets go of them.
+  if (officer && officer !== (desk.servedBy ?? null)) {
+    desk.keptBack = [];
+    for (const warrant of desk.warrants) {
+      if (ownHands(warrant.name)) {
+        desk.keptBack.push(warrant.name);
+      } else {
+        giveAgain(warrant);
+      }
+    }
+  } else if (officer && desk.keptBack?.length) {
+    // One it kept back and has let go of, the arrest failed or the person got away, goes to the
+    // officer then. One served in the meantime is off the list.
+    desk.keptBack = desk.keptBack.filter((name) => {
+      if (ownHands(name)) {
+        return true;
+      }
+      const warrant = desk.warrants.find((it) => it.name === name);
+      if (warrant) {
+        giveAgain(warrant);
+      }
+      return false;
+    });
+  }
+  if (!officer) {
+    desk.keptBack = undefined;
+  }
+  desk.servedBy = officer;
   for (const warrant of desk.warrants) {
     if (!officer) {
       // Nobody to send. It serves the warrant itself.
-      giveWarrant(brain, warrant);
+      giveWarrant(brain, { ...warrant, byCaptain: byCaptain(warrant) });
       warrant.given = 'taken';
     } else if (
       warrant.given === 'said' &&
@@ -1012,13 +1105,31 @@ export function syncDesk(brain: NpcBrain): void {
   }
 }
 
+/** TRUE if the Captain declared this warrant. Whoever serves it is told so: only then is it served on a head of staff. */
+function byCaptain(warrant: Warrant): boolean {
+  return /captain/i.test(warrant.byJob);
+}
+
+/** Sets a warrant to be given to its officer afresh. */
+function giveAgain(warrant: Warrant): void {
+  warrant.given = 'no';
+  warrant.gives = 0;
+  warrant.walkedUp = false;
+}
+
 /** What giving its officer a warrant comes down to right now: to its face if it is there, and by PDA if not. */
 function giveStep(brain: NpcBrain, warrant: Warrant): Plan {
   const officer = serving(brain);
   if (!officer) {
     return { ready: false, step: 'You have no officer to give it to.' };
   }
-  const line = giveLine(officer, warrant.name, warrant.reason, warrant.minutes);
+  const line = giveLine(
+    officer,
+    warrant.name,
+    warrant.reason,
+    warrant.minutes,
+    byCaptain(warrant),
+  );
   const why = `${warrant.by} has declared a warrant on ${warrant.name}${warrant.reason ? `, for ${warrant.reason}` : ''}.`;
   const seen = brain.peopleInView.find((person) => person.name === officer);
   if (seen) {

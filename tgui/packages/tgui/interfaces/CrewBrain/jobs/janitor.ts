@@ -48,6 +48,8 @@ const PROPER_SUPPLY = /soap|space cleaner|mop$/i;
 const WAIT_AT_COUNTER_DS = 600;
 /** How long (deciseconds) a PDA message saying supplies are waiting is acted on. */
 const SUPPLIES_WAIT_DS = 6000;
+/** The fixed words of the head's PDA line saying what was asked for has come (head.ts). */
+export const HAS_COME = 'what you asked for has come';
 /** How long (deciseconds) a janitor must be in a room it was told is messy before it can say it saw no mess. */
 const LOOK_ABOUT_DS = 50;
 
@@ -106,10 +108,11 @@ export const NEEDS_SCRUBBING = 'it needs scrubbing with soap or a rag';
 /** The words of a call that asks a janitor to come only if it has that. */
 const ONLY_IF_WORDS = /needs scrubbing with soap or a rag\b.*\bif you have one\b/is;
 /**
- * The kinds of mess that only scrubbing shifts. A mop washes the floor and a spray washes what
- * it is sprayed at: neither moves these, and they stay when the floor round them is washed.
+ * The kinds of mess that only scrubbing shifts. A mop does not reach these and a spray only washes
+ * what it is sprayed at: they stay when the floor round them is mopped. Decomposing garbage and a
+ * gooey grey mass are not among them: a wet mop scrubs the floor and takes those up (JAN-02).
  */
-const SCRUB_KINDS = /^(cobweb|rubble|decomposing garbage|gooey grey mass)$/i;
+const SCRUB_KINDS = /^(cobweb|rubble)$/i;
 
 /** Writes a short list the way it is said: "cobweb", "cobweb and rubble", "oil, ashes and dirt". */
 function listed(names: string[]): string {
@@ -216,9 +219,13 @@ const REFUSED_WORDS = /cannot let you in|can't let you in|nobody (here )?sent fo
 const NO_WAY_IN = 'you could not find a way in, and will try again later';
 /** What the LLM is given for the work a janitor takes on when told of it. */
 const A_MESS = 'a mess that needs cleaning';
-/** The words that mark what someone says or writes as telling of a mess. */
-const MESS_WORDS =
-  /\b(mess|messy|blood|bloody|vomit|threw up|thrown up|puke|spill|spilled|spilt|oil|dirt|dirty|filth|filthy|stain|grime|ash|ashes)\b/;
+/**
+ * The words that mark what someone says or writes as telling of a mess, or asking for cleaning.
+ * Tested on lower-case text. Stems that begin other words are matched whole: "mess" not
+ * "messages", "stain" not "stainless", "ash" not "ashley", "glass" not "glasses", "clean" not "cleaner".
+ */
+export const MESS_WORDS =
+  /\b(?:mess(?:y|es)?|clean(?:s|ing|ed)?|mop(?:s|ping|ped)?|wipe|scrub|tidy|sweep|stain(?:s|ed)?|ash(?:es)?|glass|threw up|thrown up|throwing up)\b|\b(?:vomit|puk|spill|spilt|blood|trash|garbage|litter|puddle|sticky|gross|filth|dirt|grime|oil)\w*/;
 
 /** What a janitor is told about its job, every time. The work itself needs no telling: the body does it. */
 const ABOUT =
@@ -229,10 +236,19 @@ function lacksTool(brain: NpcBrain): boolean {
   return !brain.cleaningTool || brain.poorTool;
 }
 
-/** The cleaning gear it knows the whereabouts of that would be worth going for: anything, or with a rag in hand, anything better. */
+/**
+ * The cleaning gear it knows the whereabouts of that would be worth going for: a proper tool if it
+ * knows of one, else, with nothing in hand, a rag. With a rag in hand, only something better.
+ * Taking the rag first would leave it short and send it back for the mop, so that one janitor held
+ * two of a crate's tools and the next had only the rag (TRA-01).
+ */
 function knownSupply(brain: NpcBrain): string | undefined {
-  const worthHaving = brain.poorTool ? PROPER_SUPPLY : CLEANING_SUPPLY;
-  return allKnownItems(brain).find((item) => worthHaving.test(item));
+  const known = allKnownItems(brain);
+  const proper = known.find((item) => PROPER_SUPPLY.test(item));
+  if (proper || brain.poorTool) {
+    return proper;
+  }
+  return known.find((item) => CLEANING_SUPPLY.test(item));
 }
 
 /**
@@ -259,6 +275,34 @@ function mustFindSupplies(brain: NpcBrain): boolean {
   return lacksTool(brain) && brain.hasLocator && !brain.locatorUsed;
 }
 
+/** How long (deciseconds) a room where the body found no water it could get to is not gone to for water. */
+const NO_WATER_DS = 3000;
+
+/**
+ * The rooms, by name, where each janitor stood with a dry mop and found no water it could get to,
+ * with the time. Kept beside the brain, not in it: it is the janitor's own short note, and dies
+ * with the brain.
+ */
+const noWaterNotes = new WeakMap<NpcBrain, Map<string, number>>();
+
+/** The rooms this janitor lately found no water to hand in. */
+function noWaterHere(brain: NpcBrain): Map<string, number> {
+  let notes = noWaterNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    noWaterNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/** TRUE if the body remembers a sink among the things of this room. */
+function remembersSinkIn(brain: NpcBrain, name: string): boolean {
+  const place = brain.places.get(name);
+  return (
+    !!place && [...place.things.keys()].some((thing) => /sink/i.test(thing))
+  );
+}
+
 /**
  * Works out the next step for a janitor with nothing to clean with. This is the whole of how a
  * janitor equips itself, in the order a person would try things: use what it knows of, look where
@@ -267,11 +311,20 @@ function mustFindSupplies(brain: NpcBrain): boolean {
 function supplyStep(brain: NpcBrain): Plan {
   // A dry mop is a tool once it is wet.
   if (brain.dryMop) {
-    const sinkRoom = [...brain.places.entries()].find(
-      ([name, place]) =>
+    // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
+    // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
+    // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
+    // it from elsewhere, to find again that it could not get to it.
+    const noWater = noWaterHere(brain);
+    if (remembersSinkIn(brain, brain.location)) {
+      noWater.set(brain.location, brain.now);
+    }
+    const sinkRoom = [...brain.places.keys()].find(
+      (name) =>
         name !== brain.location &&
-        [...place.things.keys()].some((thing) => /sink/i.test(thing)),
-    )?.[0];
+        remembersSinkIn(brain, name) &&
+        brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+    );
     return sinkRoom
       ? {
           ready: true,
@@ -286,6 +339,18 @@ function supplyStep(brain: NpcBrain): Plan {
   }
   const supply = knownSupply(brain);
   if (supply) {
+    // Two of the same thing in its hands, a rag in each most often: one goes down first, or no
+    // hand is free for what it is getting (LOGA-05).
+    const twice = brain.holding.find(
+      (item, i) => brain.holding.indexOf(item) !== i,
+    );
+    if (twice && brain.holding.length >= 2) {
+      return {
+        ready: true,
+        step: `${lack(brain)}, but you know where there is ${supply}. Your hands are full, with a ${twice} in each, so you are putting one ${twice} down here to have a hand for the ${supply}.`,
+        act: { tool: 'put_down', item: twice },
+      };
+    }
     return {
       ready: true,
       step: `${lack(brain)}, but you know where there is ${supply}, and you are going to get it.`,
@@ -430,6 +495,26 @@ function syncTasks(brain: NpcBrain): void {
   // A mess that what it holds will not shift cannot go on until it holds something else. The body
   // knows which those are: it remembers each mess, and what it has in its hands.
   const workable = new Set(brain.workablePlaces);
+  // What it did to be let in is for the call it did it for (DESK-02). Standing in the room, it has
+  // been let through that door; a call done with leaves nothing behind, so the next starts with a
+  // knock.
+  delete brain.letInAsks[brain.location];
+  const askingAt = new Set(
+    brain.tasks
+      .filter(
+        (task) =>
+          task.kind === CLEAN &&
+          task.state !== 'done' &&
+          !!task.via &&
+          !!task.place,
+      )
+      .map((task) => doorFor(brain, task.place ?? '')),
+  );
+  for (const door of Object.keys(brain.letInAsks)) {
+    if (!askingAt.has(door)) {
+      delete brain.letInAsks[door];
+    }
+  }
   for (const task of brain.tasks) {
     if (task.kind !== CLEAN || task.state === 'done' || !task.place) {
       continue;
@@ -579,7 +664,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
   // somewhere else: one in the room it stands in is cleaned first.
-  if (brain.wantsBucket && task.place !== brain.location) {
+  if (brain.wantsBucket && task.place !== brain.location && !task.noBucket) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
       return {
@@ -682,8 +767,10 @@ function letInStep(
       say: `${caller.name.split(' ')[0]}, I am at the ${which}door${within || which ? ` of the ${door}` : ''} about the mess in the ${place}. C${ASKING_IN.slice(1)}, please?`,
       needs: new RegExp(`\\b${caller.name.split(' ')[0]}\\b`, 'i'),
       // The words take a few seconds to find. If the door has been opened for it meanwhile, asking
-      // for it would only get it opened a second time.
-      sayIf: () => !brain.doorHeld,
+      // for it would only get it opened a second time. Only this door counts: one held to let it
+      // out of the room behind it, or the door of some other room, is no way in (BRAIN-03).
+      sayIf: () =>
+        !(brain.doorHeld && !brain.doorHeldOut && brain.doorHeldFor === door),
     };
   }
   if (brain.now - asks.at < LET_IN_WAIT_DS) {
@@ -790,8 +877,8 @@ export const JANITOR: Job = {
   takes: { [CLEAN]: A_MESS },
   soundsLike: { [CLEAN]: MESS_WORDS },
   // A message that names a mess and a room it knows is a call to come and clean: that goes on its
-  // list as something someone is waiting on. Any other message is, most likely, cargo saying the
-  // supplies are in.
+  // list as something someone is waiting on. Only its head's fixed line (HAS_COME) says the
+  // supplies are in; anything else changes nothing here.
   readsMessage: (brain, from, text, at, job) => {
     const heard = text.toLowerCase();
     // Word that a mess is beyond whoever sent it names a mess and a room, and is not a call.
@@ -878,9 +965,19 @@ export const JANITOR: Job = {
       }
       return;
     }
-    // Word that what it asked for has come, and where it is.
+    // Word that what it asked for has come, and where it is. Only its head's fixed line says so;
+    // any other message (a thank-you, a mess in a room it does not know) is no such word.
+    if (!heard.includes(HAS_COME)) {
+      return;
+    }
+    const where = heard
+      .split(HAS_COME)[1]
+      ?.match(/it is in (?:the )?(.+)/)?.[1];
     brain.suppliesSentAt = at;
-    brain.suppliesAt = placeNamedIn(brain, heard) ?? CARGO_LOBBY;
+    brain.suppliesAt =
+      (where ? placeNamedIn(brain, where) : undefined) ??
+      placeNamedIn(brain, heard) ??
+      CARGO_LOBBY;
     brain.toldHeadAt = null;
   },
   // Someone who works behind a door it is waiting at has turned up: the one reason to ask again.
@@ -907,6 +1004,16 @@ export const JANITOR: Job = {
     ) {
       task.wantsScrub = false;
       puttingBack.delete(task.id);
+    }
+    // A bucket it could not pick up, its hands full of what it needs most often: it sets off for
+    // the mess without one rather than try again before it goes (DESK-10).
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'pick_up' &&
+      !ok &&
+      /^bucket$/i.test(String(act.item ?? ''))
+    ) {
+      task.noBucket = true;
     }
     // Having cleaned something in a room, what it says of that room afterwards allows for it.
     if (act.tool === 'clean' && ok) {

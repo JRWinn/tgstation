@@ -41,7 +41,7 @@
 		known += office_place
 		sentences += "You are the station's Quartermaster, the head of the supply staff. Your office is the [office_place], and you know the way there."
 	// Its technicians work from wherever the department's supply console is. Stations name that room differently.
-	var/obj/machinery/computer/cargo/console = supply_console()
+	var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
 	var/area/staff_area = console ? get_area(console) : null
 	if(staff_area)
 		staff_post_place = learn_place(staff_area.type)
@@ -66,7 +66,7 @@
 		if(QDELETED(sheet))
 			book_sheets -= sheet_ref
 			continue
-		if(get_atom_on_turf(sheet) == pawn)
+		if(crew_npc_carries(sheet))
 			sheets += sheet
 	return sheets
 
@@ -83,12 +83,18 @@
 	var/mob/living/carbon/human/body = pawn
 	return locate(/obj/item/pen) in body.get_all_contents()
 
-/// Takes something the body has on it into a hand, if it is not in one already. Returns FALSE if it has no hand free for it.
+/**
+ * Takes something the body has on it into a hand, if it is not in one already. Returns FALSE if it
+ * has no hand free for it, and then the thing stays where it was: put_in_hands would drop it.
+ */
 /datum/ai_controller/crew_npc/proc/take_in_hand(obj/item/thing)
 	var/mob/living/carbon/human/body = pawn
 	if(body.is_holding(thing))
 		return TRUE
-	return body.put_in_hands(thing)
+	for(var/index in body.get_empty_held_indexes())
+		if(body.can_put_in_hand(thing, index) && body.put_in_hand(thing, index))
+			return TRUE
+	return FALSE
 
 /**
  * Gets the body ready to write on a sheet of its order book the way anyone would: the clipboard
@@ -101,6 +107,12 @@
 	if(!istype(board))
 		board = null
 	var/obj/item/held = board || sheet
+	var/mob/living/carbon/human/body = pawn
+	// A full sheet of the book still in a hand goes back in the bag, as anyone would put a full page away.
+	if(!board && !body.is_holding(sheet))
+		for(var/obj/item/paper/old_sheet in body.held_items)
+			if(old_sheet != sheet && (WEAKREF(old_sheet) in book_sheets))
+				body.equip_to_storage(old_sheet, ITEM_SLOT_BACK, indirect_action = TRUE)
 	if(!take_in_hand(held))
 		return "Your hands are full, so you cannot get your [held.name] out to write in it."
 	if(board?.pen)
@@ -116,8 +128,9 @@
 		board.update_appearance()
 	else if(!take_in_hand(pen))
 		return "Your hands are full, so you cannot hold a pen to write with."
-	if(istype(kept_in) && kept_in.inserted_item == pen)
+	if(istype(kept_in) && kept_in.inserted_item == pen && pen.loc != kept_in)
 		kept_in.inserted_item = null
+		kept_in.update_appearance()
 	return null
 
 /// Makes a sheet of paper the next sheet of the order book.
@@ -171,15 +184,67 @@
 	if(why_not)
 		action_result(CREW_TOOL_NOTE, FALSE, why_not, list("no_paper" = TRUE))
 		return
+	// Written as a player writes: by the paper's own window, with the pen in the hand that writes,
+	// and only where a player could (light to see by, the sheet to hand).
+	why_not = cannot_write_on(sheet)
+	if(why_not)
+		action_result(CREW_TOOL_NOTE, FALSE, why_not)
+		return
+	var/written = 0
 	for(var/line in to_write)
 		// Each line is its own paragraph: paper runs lines together otherwise.
-		sheet.add_raw_text("[line]\n\n")
+		if(!write_on_paper(sheet, "[line]\n\n"))
+			break
+		written++
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote in its order book: [line]")
-	sheet.update_appearance()
 	var/obj/item/clipboard/board = sheet.loc
 	if(istype(board))
 		board.update_appearance()
-	action_result(CREW_TOOL_NOTE, TRUE, "You write [length(to_write) == 1 ? "a line" : "[length(to_write)] lines"] in your order book.")
+	if(!written)
+		action_result(CREW_TOOL_NOTE, FALSE, cannot_write_on(sheet) || "Your pen would not write on your order book.")
+		return
+	if(written < length(to_write))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote only [written] of [length(to_write)] lines in its order book: the rest did not take.")
+	action_result(CREW_TOOL_NOTE, TRUE, "You write [written == 1 ? "a line" : "[written] lines"] in your order book.")
+
+/**
+ * Why the body cannot write on this sheet now, as a player would be told, or null if it can.
+ * The tests the paper's own window and `add_text` make: in reach, not blind, able to read it,
+ * a writing tool in the writing hand (or the clipboard's pen), able to write, light to see by.
+ * A loose sheet is held in one hand and the pen in the other, so the pen's hand is made the active one.
+ */
+/datum/ai_controller/crew_npc/proc/cannot_write_on(obj/item/paper/sheet)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/clipboard/board = sheet.loc
+	if(!istype(board))
+		board = null
+	if(!body.is_holding(board || sheet) || !in_range(body, sheet))
+		return "You do not have your order book in your hand."
+	if(body.is_blind())
+		return "You cannot see to write in your order book."
+	if(!body.has_light_nearby() && !body.has_nightvision())
+		return "It is too dark here to write in your order book."
+	if(!body.can_read(sheet, READING_CHECK_LITERACY, silent = TRUE))
+		return "You cannot read or write."
+	var/obj/item/holding = board?.pen
+	if(isnull(holding))
+		var/obj/item/pen/pen = pen_on_body()
+		if(isnull(pen) || !hand_to(pen))
+			return "You have nothing in your hand to write with."
+		holding = pen
+	if(!body.can_write(holding))
+		return "Your pen will not write here."
+	return null
+
+/// Writes a line on a sheet as the body, by the paper's own `add_text` click. Returns TRUE if it took.
+/datum/ai_controller/crew_npc/proc/write_on_paper(obj/item/paper/sheet, text)
+	var/mob/living/carbon/human/body = pawn
+	var/length_before = sheet.get_total_length()
+	// Never opened: it only stands for the window the body would be looking at.
+	var/datum/tgui/window = new(body, sheet, "CrewNpcHands")
+	world.push_usr(body, CALLBACK(sheet, TYPE_PROC_REF(/datum, ui_act), "add_text", list("text" = text), window, window.state))
+	qdel(window)
+	return !QDELETED(sheet) && sheet.get_total_length() > length_before
 
 /**
  * Returns the nearest paper bin that has what the body is short of, that it can walk to and has not
@@ -308,6 +373,10 @@
 /datum/ai_controller/crew_npc/proc/has_budget_program()
 	var/mob/living/carbon/human/body = pawn
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
+		// Read on the screen only: not on a broken PDA, nor by someone who cannot read. Asked on
+		// every update of the window, so the PDA is not switched on here.
+		if(crew_npc_pda_broken(computer) || !body.can_read(computer, READING_CHECK_LITERACY, silent = TRUE))
+			continue
 		if(locate(/datum/computer_file/program/budgetorders) in computer.stored_files)
 			return TRUE
 	return FALSE

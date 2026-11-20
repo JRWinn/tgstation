@@ -112,6 +112,8 @@ export type Job = {
     ok: boolean,
     looped?: boolean,
     details?: SenseEvent['details'],
+    /** What the body was told of how it went, word for word. */
+    text?: string,
   ) => void;
   /** Reads a PDA message the NPC has been sent, to note what it means for its work. No LLM is asked. */
   readsMessage?: (
@@ -137,6 +139,12 @@ export type Job = {
    * plain line its work called for, if the work called for one: what it said may be in other words.
    */
   afterSaying?: (brain: NpcBrain, called: string | null) => void;
+  /**
+   * Looks over a line the LLM wrote before it is said, for what this job must not say aloud.
+   * `to` is whoever the line is said to, if that is known. Gives back the line to say in its
+   * place, or null to say it as it is. Never called for the job's own fixed lines.
+   */
+  vetsSay?: (brain: NpcBrain, text: string, to: string | null) => string | null;
   /**
    * What keeps the NPC from a staff meeting its head has called, in a few words, or null if it can
    * go. It then sends its report by PDA and stays at its work: see jobs/meetings.ts.

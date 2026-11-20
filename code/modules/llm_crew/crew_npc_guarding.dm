@@ -18,38 +18,61 @@
 	return post_door_refs
 
 /**
- * TRUE if this person has a right to be in the body's post: a door into it opens for them. That
- * covers everyone who works there, and those whose rank lets them in anywhere.
+ * TRUE if this person has a right to be in the body's post: the job their card shows is let in by
+ * a door into it. That covers everyone who works there, and those whose rank lets them in anywhere.
+ * It goes by the job on the card, as a player reading it would, not by the card's own access list,
+ * which nobody can see: someone given extra access at the desk is asked their business all the same.
  */
 /datum/ai_controller/crew_npc/proc/belongs_in_post(mob/living/carbon/human/person)
 	// Someone shut in a brig cell on a running timer was put there. Security do not question their own prisoners.
 	if(!isnull(crew_npc_cell_holding(person)))
 		return TRUE
+	var/list/job_access = crew_npc_job_access(crew_npc_job_of(person))
 	var/any_door = FALSE
 	for(var/datum/weakref/door_ref as anything in post_doors())
 		var/obj/machinery/door/airlock/door = door_ref.resolve()
 		if(QDELETED(door))
 			continue
 		any_door = TRUE
-		if(door.allowed(person))
+		if(door.check_access_list(job_access))
 			return TRUE
 	// A room with no door to it is not locked to anyone.
 	return !any_door
 
-/// TRUE if this person is the Captain or a head of staff, going by the ID they carry.
-/proc/crew_npc_is_command(mob/living/carbon/human/person)
-	var/obj/item/card/id/card = person.get_idcard(FALSE)
-	return !isnull(card) && (ACCESS_COMMAND in card.GetAccess())
+/// Returns the access a job's card is printed with, or an empty list for no job.
+/proc/crew_npc_job_access(datum/job/job)
+	if(isnull(job))
+		return list()
+	var/datum/outfit/job/outfit = job.outfit
+	if(!ispath(outfit))
+		return list()
+	var/datum/id_trim/trim = SSid_access.trim_singletons_by_path[initial(outfit.id_trim)]
+	if(isnull(trim))
+		return list()
+	return trim.access | trim.wildcard_access
 
-/// Returns the job that goes with the ID this person carries, or null if it shows none.
+/// TRUE if this person is the Captain or a head of staff, going by the job on the ID they wear.
+/proc/crew_npc_is_command(mob/living/carbon/human/person)
+	var/datum/job/job = crew_npc_job_of(person)
+	return !isnull(job) && (istype(job, /datum/job/captain) || (job.job_flags & JOB_HEAD_OF_STAFF))
+
+/**
+ * Returns the job that goes with the ID this person wears, or null if it shows none. It goes by the
+ * title on the card, which is what examining them shows, not by the trim it was printed with. Only
+ * a title that is no job at all falls back to the trim, as before, until the owner says what such a
+ * card should count as.
+ */
 /proc/crew_npc_job_of(mob/living/carbon/human/person)
 	var/obj/item/card/id/card = person.get_idcard(FALSE)
 	if(isnull(card))
 		return null
+	var/datum/job/shown = SSjob.get_job(card.assignment)
+	if(!isnull(shown))
+		return shown
 	var/datum/id_trim/job/trim = card.trim
 	if(istype(trim) && istype(trim.job))
 		return trim.job
-	return SSjob.get_job(card.assignment)
+	return null
 
 /**
  * TRUE if the body answers to this person: the Captain is over everyone aboard, and a head of
@@ -81,7 +104,8 @@
 	var/turf/best
 	var/best_score = INFINITY
 	for(var/obj/machinery/door/airlock/door as anything in doors)
-		if(door.locked || door.welded || !door.allowed(body))
+		// A shut door with no power will not open, and no route goes through it. One left standing open is still a way out.
+		if(door.locked || door.welded || !door.allowed(body) || (door.density && !door.hasPower()))
 			continue
 		var/list/sides = doors[door]
 		var/turf/outside = sides[2]
@@ -138,6 +162,13 @@
 		return "[person.name] has every right to be in [post_place]."
 	if(crew_npc_is_command(person))
 		return "[person.name] outranks you. You do not lay a hand on them."
+	// Someone who cannot answer has not refused to go, and someone in another's hands is not the body's to take.
+	if(crew_npc_person_down(person))
+		return "[person.name] is down and cannot walk. Someone should see to them."
+	if(person.pulledby && person.pulledby != pawn)
+		return "[person.pulledby.name] already has hold of [person.name]."
+	if(person.handcuffed)
+		return "[person.name] is in cuffs. That is security's business."
 	return null
 
 /// Tool: take someone who has no business in the body's post by the arm and walk them out of it.
@@ -202,7 +233,11 @@
 		// Having seen them out, the body goes back to where it works.
 		addtimer(CALLBACK(src, PROC_REF(step_away_from_door)), 0.5 SECONDS)
 	else
-		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [reason || "they got away from you"].")
+		var/why = reason || "they got away from you"
+		// A hold lost because this body itself went down is its own trouble, not theirs: they did not get away.
+		if(why == "they got away from you" && (body.incapacitated || body.body_position == LYING_DOWN))
+			why = "you were knocked down"
+		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].")
 
 /// Someone has taken this body by the arm to walk it out of a room. It goes along with it.
 /datum/ai_controller/crew_npc/proc/taken_hold_of(mob/living/carbon/human/by, place)

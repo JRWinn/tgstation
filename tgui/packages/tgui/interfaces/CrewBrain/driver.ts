@@ -22,11 +22,6 @@ import {
 } from './choice';
 import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
-import {
-  describeShutIn,
-  SHUT_IN_KEY,
-  whoToAskForTheDoor,
-} from './situation';
 import { ASIDE_HOLD_MS, ASIDE_STEP_KEY, asideStep } from './jobs/aside';
 import { barred, leavingStep } from './jobs/guarding';
 import { doorCalled } from './jobs/janitor';
@@ -35,7 +30,8 @@ import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
 import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
-import { workInOrder, wordOwed } from './tasks';
+import { describeShutIn, SHUT_IN_KEY, whoToAskForTheDoor } from './situation';
+import { wordOwed, workInOrder } from './tasks';
 import type { Action, NpcBrain, SenseEvent, Task } from './types';
 
 /** How long after telling the body to do something before the driver looks again, in milliseconds. */
@@ -64,8 +60,13 @@ const AFTER_SAYING_MS = 2500;
 const IN_THE_WAY_MS = 30000;
 /** The steps record under which asking someone to step aside is kept. */
 const ASIDE_KEY = 'step-aside';
-/** What the body does without going anywhere. Everything else takes it off across the room, or out of it. */
+/**
+ * What the body does without going anywhere. Everything else takes it off across the room, or out of it.
+ * A step aside is a tile or three in the same room, and is done there and then: being asked for it
+ * is being spoken to, and holding it for the talk left it standing in the way six seconds more.
+ */
 const STAYS = new Set([
+  'step_aside',
   'clean',
   'message',
   'search',
@@ -74,6 +75,10 @@ const STAYS = new Set([
   'note',
   'word_passed',
 ]);
+/** TRUE if this tool takes the body off where it stands: anything that is not done on the spot. */
+export function isWalk(tool: string): boolean {
+  return !STAYS.has(tool);
+}
 /** How long the driver waits to hear how a step went before it takes it to have come to nothing. */
 const LOST_ACT_MS = 12000;
 /** How long the body waits for the LLM to say which job comes first before the code's own order is taken. */
@@ -104,19 +109,29 @@ const STEP_INSIDE_MAX = 2;
 /** How many times each NPC has stepped clear to wait, and in which room, by its id. */
 const stepInsideTries = new Map<string, { place: string; count: number }>();
 
-/**
- * TRUE if the NPC may step clear once more in the room it is in, and counts that it has. Stepping
- * clear and finding itself still by a door, a janitor did it eight times in three minutes at a
- * staff meeting: some rooms have a door by every tile it can stand on.
- */
-function mayStepInside(brain: NpcBrain): boolean {
+/** How many times the NPC has stepped clear in the room it is in now. */
+function stepInsideCount(brain: NpcBrain): number {
   const tries = stepInsideTries.get(brain.id);
-  const count = tries && tries.place === brain.location ? tries.count : 0;
-  if (count >= STEP_INSIDE_MAX) {
-    return false;
-  }
-  stepInsideTries.set(brain.id, { place: brain.location, count: count + 1 });
-  return true;
+  return tries && tries.place === brain.location ? tries.count : 0;
+}
+
+/**
+ * TRUE if the NPC may step clear once more in the room it is in. Stepping clear and finding itself
+ * still by a door, a janitor did it eight times in three minutes at a staff meeting: some rooms
+ * have a door by every tile it can stand on. Only reads: the try is counted when the step is sent
+ * (noteSteppedInside, from noteDone), since nextStep is asked on every update and most of those
+ * take no step.
+ */
+function canStepInside(brain: NpcBrain): boolean {
+  return stepInsideCount(brain) < STEP_INSIDE_MAX;
+}
+
+/** Counts a step clear that has just been sent. */
+function noteSteppedInside(brain: NpcBrain): void {
+  stepInsideTries.set(brain.id, {
+    place: brain.location,
+    count: stepInsideCount(brain) + 1,
+  });
 }
 /**
  * How many times running the same walk may be said to have got there before it is taken to be
@@ -163,7 +178,11 @@ export type Step = {
   choose?: Work[];
 };
 
-function keyOf(task: Task | null, act: Action | undefined, say?: string): string {
+function keyOf(
+  task: Task | null,
+  act: Action | undefined,
+  say?: string,
+): string {
   return `${task?.id ?? 'none'}:${act ? JSON.stringify(act) : `say:${say}`}`;
 }
 
@@ -176,32 +195,40 @@ function jobKey(taskId: string | number): string {
   return `job:${taskId}`;
 }
 
+/** How many walks to the door out may fail before a shut-in NPC sends word from where it stands. */
+const DOOR_TRIES_BEFORE_WORD = 2;
+
 /** How many walks out may fail with a door standing open before the door is taken to be no way out. */
 const OPEN_DOOR_TRIES = 2;
 
 /**
- * Who a shut-in NPC sends word to next, when it has knocked and sent word to whoever let it in
- * and nobody has come: someone else whose own ID opens the door, and after them its own head.
- * Null if it is not yet time, or there is nobody left it has not written to.
+ * Who a shut-in NPC sends word to next, when it has knocked (or cannot get to the door to knock)
+ * and sent word to whoever let it in, and nobody has come: someone else whose own ID opens the
+ * door, and after them its own head. Null if it is not yet time, or there is nobody left it has
+ * not written to.
  */
-function nextToWrite(brain: NpcBrain): { name: string; head: boolean } | null {
+function nextToWrite(
+  brain: NpcBrain,
+  cannotReachDoor: boolean,
+): { name: string; head: boolean } | null {
   const asks = brain.outAsks;
   if (
-    !asks?.knocked ||
+    !(asks?.knocked || asks?.messaged || cannotReachDoor) ||
     !brain.hasPda ||
     // Whoever let it in is written to first, where there is such a person.
-    (!!brain.letInBy && !asks.messaged) ||
-    Date.now() - asks.wroteAt < NOBODY_CAME_MS
+    (!!brain.letInBy && !asks?.messaged) ||
+    Date.now() - (asks?.wroteAt ?? 0) < NOBODY_CAME_MS
   ) {
     return null;
   }
+  const wrote = asks?.wrote ?? [];
   const written = (name: string) =>
-    name === brain.letInBy || asks.wrote.includes(name);
+    name === brain.letInBy || wrote.includes(name);
   const keepers = brain.doorKeepers.filter((name) => name !== brain.name);
   const keeper = keepers.find((name) => !written(name));
   if (
     keeper &&
-    keepers.filter((name) => asks.wrote.includes(name)).length < KEEPERS_WRITTEN_TO
+    keepers.filter((name) => wrote.includes(name)).length < KEEPERS_WRITTEN_TO
   ) {
     return { name: keeper, head: false };
   }
@@ -224,15 +251,22 @@ function wayOutOpen(brain: NpcBrain): boolean {
   );
 }
 
-/** TRUE if this step failed lately and is being left alone for now. */
-function inBackoff(brain: NpcBrain, key: string): boolean {
+/** The tools that take the body out of the room it is in, or may. */
+const WALKS = new Set(['go_to', 'go_to_door', 'explore']);
+
+/**
+ * TRUE if this step failed lately and is being left alone for now. `act` is what the step does,
+ * where it is known: null for a step that only says something.
+ */
+function inBackoff(brain: NpcBrain, key: string, act?: Action | null): boolean {
   // Shut in and seeing a door stand open, everything is worth trying again this instant.
   if (wayOutOpen(brain)) {
     return false;
   }
   // Likewise while someone is holding a door for it: that will not last, and a walk that failed
-  // a moment before the door opened says nothing about one made now.
-  if (brain.doorHeld) {
+  // a moment before the door opened says nothing about one made now. A clean that came to nothing
+  // in the room it stands in is no more worth trying for a door being opened across the room.
+  if (brain.doorHeld && (act === undefined || (!!act && WALKS.has(act.tool)))) {
     return false;
   }
   const failure = brain.failures.get(key);
@@ -291,7 +325,9 @@ export function nextStep(brain: NpcBrain): Step | null {
   // Someone is holding the door to let it out. It goes, now, back the way it came if it knows the
   // way: the door will not be held for long, and standing there finishing a thought wastes it.
   if (brain.doorHeldOut) {
-    const others = knownPlaces(brain).filter((place) => place !== brain.location);
+    const others = knownPlaces(brain).filter(
+      (place) => place !== brain.location,
+    );
     // Out through the door that is being held, to wherever it leads. The way it came in may
     // have been by another door, from another room it cannot get out of either.
     const out =
@@ -317,11 +353,7 @@ export function nextStep(brain: NpcBrain): Step | null {
   // wanted, and it is there to go through when it opens.
   // The door out, that is. Standing at some other door, one it had asked to be let in at, is not
   // standing at the way out: a knock there says "let me in" to whoever hears it.
-  if (
-    brain.shutIn &&
-    !wayOutOpen(brain) &&
-    brain.atDoorOf !== brain.location
-  ) {
+  if (brain.shutIn && !wayOutOpen(brain) && brain.atDoorOf !== brain.location) {
     const act = { tool: 'go_to_door' };
     const key = keyOf(null, act);
     if (!inBackoff(brain, key)) {
@@ -356,9 +388,19 @@ export function nextStep(brain: NpcBrain): Step | null {
     };
   }
   // Nobody in sight to ask, or nobody left it has not asked. A voice does not carry through a
-  // shut door, so it knocks, once, and sends word, once, to whoever let it in.
-  if (stuck && !helper && brain.atDoorOf === brain.location) {
-    if (!brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
+  // shut door, so it knocks, once, and sends word, once, to whoever let it in. A PDA needs no
+  // door: one it has failed to get to twice (bad air beyond every door, crates in the doorway)
+  // is no reason not to send word, worded for where it is.
+  const atDoor = brain.atDoorOf === brain.location;
+  const cannotReachDoor =
+    !atDoor &&
+    (brain.failures.get(keyOf(null, { tool: 'go_to_door' }))?.count ?? 0) >=
+      DOOR_TRIES_BEFORE_WORD;
+  const whereAt = atDoor
+    ? `am at the ${doorCalled(brain, brain.location)}door`
+    : 'cannot get to its door';
+  if (stuck && !helper && (atDoor || cannotReachDoor)) {
+    if (atDoor && !brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
       return {
         key: KNOCK_OUT_KEY,
         text: `You are shut in ${brain.location} with nobody in sight to ask. You are knocking at the door, for anyone on the other side of it.`,
@@ -366,25 +408,29 @@ export function nextStep(brain: NpcBrain): Step | null {
       };
     }
     if (
-      brain.outAsks?.knocked &&
-      !brain.outAsks.messaged &&
+      (brain.outAsks?.knocked || !atDoor) &&
+      !brain.outAsks?.messaged &&
       brain.letInBy &&
       brain.hasPda &&
       !inBackoff(brain, WORD_OUT_KEY)
     ) {
       return {
         key: WORD_OUT_KEY,
-        text: `Nobody has come to the door of ${brain.location}. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`,
+        text: atDoor
+          ? `Nobody has come to the door of ${brain.location}. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`
+          : `You are shut in ${brain.location} and cannot get to its door. You are sending ${brain.letInBy}, who let you in, a PDA message asking to be let out.`,
         act: {
           tool: 'message',
           person: brain.letInBy,
-          text: `I am done in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
+          text: atDoor
+            ? `I am done in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`
+            : `I am shut in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`,
         },
       };
     }
     // Still nobody. Word goes further afield, to one person at a time and once each, with a wait
     // between: someone else whose own ID opens the door, and after them its own head.
-    const next = nextToWrite(brain);
+    const next = nextToWrite(brain, cannotReachDoor);
     if (next && !inBackoff(brain, `${WRITE_OUT_KEY}:${next.name}`)) {
       return {
         key: `${WRITE_OUT_KEY}:${next.name}`,
@@ -394,7 +440,7 @@ export function nextStep(brain: NpcBrain): Step | null {
           person: next.name,
           text: next.head
             ? `I am shut in the ${brain.location} and nobody has come to the door. Could you send someone to let me out${outTo}, please?`
-            : `I am shut in the ${brain.location} and am at the ${doorCalled(brain, brain.location)}door. Could you let me out${outTo}, please?`,
+            : `I am shut in the ${brain.location} and ${whereAt}. Could you let me out${outTo}, please?`,
         },
         writes: next.name,
       };
@@ -441,45 +487,38 @@ export function nextStep(brain: NpcBrain): Step | null {
   brain.toTell = brain.toTell.filter(
     (tell) => Date.now() - tell.at < (tell.keepMs ?? TELL_KEPT_MS),
   );
-  const tell = brain.toTell.find((it) =>
-    it.byPda
-      ? brain.hasPda
-      : brain.peopleInView.some((person) => person.name === it.to),
+  // The first line it can give now: one held back does not hold up those behind it.
+  const tell = brain.toTell.find(
+    (it) =>
+      (it.byPda
+        ? brain.hasPda
+        : brain.peopleInView.some((person) => person.name === it.to)) &&
+      !inBackoff(brain, `tell:${it.to}:${it.line}`),
   );
   if (tell) {
     const key = `tell:${tell.to}:${tell.line}`;
-    if (!inBackoff(brain, key)) {
-      return tell.byPda
-        ? {
-            key,
-            text: tell.why,
-            act: { tool: 'message', person: tell.to, text: tell.line },
-            tells: tell.line,
-          }
-        : {
-            key,
-            text: tell.why,
-            say: tell.line,
-            needs: tell.needs,
-            exact: tell.exact,
-            tells: tell.line,
-          };
-    }
+    return tell.byPda
+      ? {
+          key,
+          text: tell.why,
+          act: { tool: 'message', person: tell.to, text: tell.line },
+          tells: tell.line,
+        }
+      : {
+          key,
+          text: tell.why,
+          say: tell.line,
+          needs: tell.needs,
+          exact: tell.exact,
+          tells: tell.line,
+        };
   }
 
   // Someone was standing where a crate could not get past them. They are asked to step aside.
-  const blocker =
-    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
-      ? brain.peopleInView.find(
-          (person) => person.handle === brain.inTheWay?.handle,
-        )
-      : undefined;
-  if (blocker && !inBackoff(brain, ASIDE_KEY)) {
-    return {
-      key: ASIDE_KEY,
-      text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. In "say", ask ${blocker.name} politely to step aside.`,
-      say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
-    };
+  // Most often this is asked while the body is still taking the crate up again: see "drive".
+  const askedAside = askAside(brain);
+  if (askedAside) {
+    return askedAside;
   }
 
   // Whoever asked for something is told when it is done, the next time they are in view.
@@ -519,7 +558,7 @@ export function nextStep(brain: NpcBrain): Step | null {
           brain.inDoorway &&
           !brain.shutIn &&
           !inBackoff(brain, STEP_INSIDE_KEY) &&
-          mayStepInside(brain)
+          canStepInside(brain)
         ) {
           return {
             key: STEP_INSIDE_KEY,
@@ -536,18 +575,43 @@ export function nextStep(brain: NpcBrain): Step | null {
       continue;
     }
     const key = keyOf(task, plan.act, plan.say);
-    if (inBackoff(brain, key) || inBackoff(brain, jobKey(task.id))) {
+    const act = plan.act ?? null;
+    if (inBackoff(brain, key, act) || inBackoff(brain, jobKey(task.id), act)) {
       heldBack = true;
       continue;
     }
     ready.push({ task, plan, key });
   }
-  // A door being held open for it will not stay open. Whatever it was let in for comes first.
+  // An emergency step that may break in on another comes before it too: an officer struck with
+  // nothing to stop them with gets out of reach before it serves the older warrant (ARR-08).
+  const breaking = ready.findIndex(
+    ({ task, plan }) => plan.breaksIn && task.urgency === 'emergency',
+  );
+  if (breaking > 0) {
+    ready.unshift(...ready.splice(breaking, 1));
+  }
+  // A door being held open for it will not stay open. Whatever it was let in for comes first:
+  // work in the room the door is the door of, or the walk through it to a room beyond. It is not
+  // put to the LLM as a choice, either: the door would shut while it made up its mind.
   const through = brain.doorHeld
-    ? ready.findIndex(({ task }) => task.place === brain.doorHeldFor)
+    ? ready.findIndex(
+        ({ task, plan }) =>
+          task.place === brain.doorHeldFor ||
+          (plan.act?.tool === 'go_to' && plan.act.place === brain.doorHeldFor),
+      )
     : -1;
-  if (through > 0) {
-    ready.unshift(...ready.splice(through, 1));
+  if (through >= 0) {
+    const { task, plan, key } = ready[through];
+    return {
+      key,
+      text: plan.step,
+      act: plan.act,
+      say: plan.say,
+      needs: plan.needs,
+      sayIf: plan.sayIf,
+      exact: plan.exact,
+      task: task.id,
+    };
   }
   if (ready.length > 0) {
     // What will not wait is done in the code's own order. Which of its routine work comes first
@@ -625,16 +689,60 @@ export function nextStep(brain: NpcBrain): Step | null {
 }
 
 /**
+ * Asking whoever a crate caught on to step aside, if someone did lately and is still in view, and
+ * it has not just asked. Said word for word: the other body moves on hearing the words, and a
+ * line of the LLM's own about something else asks nobody to move.
+ */
+function askAside(brain: NpcBrain): Step | null {
+  const blocker =
+    brain.inTheWay && Date.now() - brain.inTheWay.at < IN_THE_WAY_MS
+      ? brain.peopleInView.find(
+          (person) => person.handle === brain.inTheWay?.handle,
+        )
+      : undefined;
+  if (!blocker || inBackoff(brain, ASIDE_KEY)) {
+    return null;
+  }
+  return {
+    key: ASIDE_KEY,
+    text: `${blocker.name} is standing in the way, and you could not get past them with what you were hauling. You are asking ${blocker.name} to step aside.`,
+    say: `Excuse me, ${blocker.name.split(' ')[0]}, could you step aside, please? I need to get this past you.`,
+    exact: true,
+  };
+}
+
+/**
  * An order from someone the NPC answers to that it could be getting on with and is not: the one
  * thing it drops what it is doing for. Null if there is none, or it is already about it.
  */
 function orderToDrop(brain: NpcBrain): Task | null {
-  const order = workInOrder(brain).find(
+  const ready = workInOrder(brain).filter(
     ({ task, plan }) =>
       task.urgency === 'emergency' && plan.ready && !!plan.act,
   );
+  let order = ready[0];
   if (!order) {
     return null;
+  }
+  // In the middle of an emergency, it is not dropped for another, older or not, unless the other
+  // is one that has to break in: getting out of an attacker's reach breaks off an arrest (ARR-08).
+  // Its own next step may still break off a walk, below.
+  const last = brain.lastAct;
+  const doing = last
+    ? brain.tasks.find((task) => task.id === last.task)
+    : undefined;
+  if (doing && doing.urgency === 'emergency' && doing.state !== 'done') {
+    const breaker = ready.find(
+      (it) => it.plan.breaksIn && it.task.id !== doing.id,
+    );
+    const own = ready.find((it) => it.task.id === doing.id);
+    if (breaker) {
+      order = breaker;
+    } else if (own) {
+      order = own;
+    } else {
+      return null;
+    }
   }
   // Already about that job, as a rule, it carries on. The one case it does not: a walk somewhere
   // that is part of the job, when the job's next step is one worth breaking the walk off for. An
@@ -645,7 +753,9 @@ function orderToDrop(brain: NpcBrain): Task | null {
   ) {
     return null;
   }
-  return inBackoff(brain, keyOf(order.task, order.plan.act)) ? null : order.task;
+  return inBackoff(brain, keyOf(order.task, order.plan.act))
+    ? null
+    : order.task;
 }
 
 /**
@@ -716,10 +826,21 @@ export function drive(
         exact: quick.exact,
         tells: quick.line,
       };
-      fail(brain, key);
+      saidLine(brain, key);
       speak(quick.line, quick.needs, undefined, quick.exact);
       noteDone(brain, step);
       return step;
+    }
+  }
+  // Its crate caught on someone, and the body is already going back to take it up again: whoever
+  // it caught on is asked to step aside now, while there is still a haul to get past them.
+  if (brain.awake && brain.mustSay === null && !brain.sayingNow) {
+    const aside = askAside(brain);
+    if (aside?.say) {
+      fail(brain, aside.key);
+      speak(aside.say, undefined, undefined, true);
+      noteDone(brain, aside);
+      return aside;
     }
   }
   // In the middle of something, it carries on, unless someone it answers to has ordered otherwise.
@@ -730,7 +851,10 @@ export function drive(
   const leaving = brain.toldToLeave;
   const dropToLeave = busy && !!leaving && !leaving.dropped;
   // Likewise asked to step aside: scrubbing on at the spot it was asked to move from is no answer.
-  const dropToMove = busy && !!brain.asideAsked && !brain.asideAsked.done;
+  // Only when that step can be given: with it held back, the step the driver would send in its
+  // place is the body's own work, sent again over what it is already doing.
+  const asideNow = busy ? asideStep(brain) : null;
+  const dropToMove = !!asideNow && !inBackoff(brain, asideNow.key);
   if (
     !brain.awake ||
     (busy && !dropFor && !dropToLeave && !dropToMove) ||
@@ -788,10 +912,18 @@ export function drive(
   if (leaves && now - brain.lastSayAt < AFTER_SAYING_MS) {
     return null;
   }
+  // A remark of its own it may or may not make is no talk to stand still for (ASYNC-07): queued
+  // for one only (remarkOnly in brain.ts, written out here as brain.ts imports this file), or
+  // waiting on the model for one.
+  const remarkOnly =
+    brain.remarkDue &&
+    brain.pendingSpeakers.size === 0 &&
+    brain.mustSay === null;
   const talking =
     now - brain.lastSpokenToAt < TALK_PAUSE_MS ||
-    brain.wake ||
-    brain.status !== 'idle';
+    ((brain.wake || brain.status !== 'idle') &&
+      !remarkOnly &&
+      !brain.remarking);
   // A door someone is holding open for it will not stay open while the room finishes talking.
   const doorWaiting = brain.doorHeld || brain.doorHeldOut;
   if (leaves && talking && !doorWaiting) {
@@ -803,8 +935,13 @@ export function drive(
     brain.heldSince = 0;
   }
   if (step.say) {
-    // Asked once; if nothing comes of it, it is left a while before being asked again.
-    fail(brain, step.key);
+    // Asked once; if nothing comes of it, it is left a while before being asked again. A line
+    // from what it has to tell is taken off that list as it is said, so it is no failed step.
+    if (step.tells) {
+      saidLine(brain, step.key);
+    } else {
+      fail(brain, step.key);
+    }
     speak(step.say, step.needs, step.sayIf, step.exact);
     noteDone(brain, step);
     return step;
@@ -822,6 +959,20 @@ export function drive(
     return null;
   }
   noteDone(brain, step);
+  // An arrest sent over before its answer came will never be answered, though the cuffs may have
+  // gone on. Whose job it was is kept a while, so that the job can tell its own prisoner (ARR-08).
+  const over = brain.lastAct;
+  if (
+    over?.act.tool === 'arrest' &&
+    over.act.how !== 'stop' &&
+    over.task !== step.task
+  ) {
+    brain.droppedArrest = {
+      task: over.task,
+      person: String(over.act.person ?? ''),
+      at: brain.now,
+    };
+  }
   brain.lastAct = {
     key: step.key,
     tool: serverTool,
@@ -873,9 +1024,17 @@ function noteDone(brain: NpcBrain, step: Step): void {
   if (step.tells) {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== step.tells);
   }
+  // Once asked to step aside, they have been asked. A new lost grip on them notes them again;
+  // left standing, the note would be said again in the next haul, to someone in its way no more.
+  if (step.key === ASIDE_KEY) {
+    brain.inTheWay = null;
+  }
   // It steps aside once for one asking, whether or not it found anywhere to step to.
-  if (step.key === ASIDE_STEP_KEY && brain.asideAsked) {
+  if (step.key.startsWith(ASIDE_STEP_KEY) && brain.asideAsked) {
     brain.asideAsked.done = true;
+  }
+  if (step.key === STEP_INSIDE_KEY) {
+    noteSteppedInside(brain);
   }
 }
 
@@ -928,6 +1087,18 @@ function settleChoice(
 }
 
 /** Notes that a step came to nothing, so that it is left alone for a while. */
+/** How long (milliseconds) a line it has just said is not said again, should it be queued again at once. */
+const SAID_HOLD_MS = 5000;
+
+/**
+ * Notes a line from what it had to tell as said. That is no failure: the hold-back is a flat few
+ * seconds, so the same line queued twice in a breath is said once, and it does not grow each time
+ * the line is said. "Sam, I have that." grew till the technician gave up waiting for it.
+ */
+function saidLine(brain: NpcBrain, key: string): void {
+  brain.failures.set(key, { count: 0, until: Date.now() + SAID_HOLD_MS });
+}
+
 function fail(brain: NpcBrain, key: string): void {
   const count = (brain.failures.get(key)?.count ?? 0) + 1;
   brain.failures.set(key, {
@@ -942,7 +1113,11 @@ function fail(brain: NpcBrain, key: string): void {
  */
 export function noteResult(brain: NpcBrain, event: SenseEvent): void {
   const last = brain.lastAct;
-  if (!last || event.kind !== 'action_result' || event.details.tool !== last.tool) {
+  if (
+    !last ||
+    event.kind !== 'action_result' ||
+    event.details.tool !== last.tool
+  ) {
     return;
   }
   // A walk to a room that the server says got there, asked for again, and again: the body is
@@ -950,8 +1125,7 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
   // will not mend it. Whoever asked for the walk is told, and it is left alone a while.
   const now = Date.now();
   const again =
-    brain.repeats?.key === last.key &&
-    now - brain.repeats.at < LOOP_WINDOW_MS;
+    brain.repeats?.key === last.key && now - brain.repeats.at < LOOP_WINDOW_MS;
   brain.repeats =
     event.details.ok && LOOP_WATCHED.has(last.act.tool)
       ? {
@@ -968,6 +1142,7 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     !!event.details.ok,
     looped,
     event.details,
+    event.text,
   );
   wantedAfterActing(brain, last.act, !!event.details.ok, event.text);
   ordersAfterActing(

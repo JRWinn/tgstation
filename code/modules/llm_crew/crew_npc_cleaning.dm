@@ -102,10 +102,28 @@
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
 	return bucket && bucket.reagents.total_volume < bucket.reagents.maximum_volume / 2
 
+/// Water the body set off for and could not get to, keyed by REF, with the world.time it gave up on each.
+/datum/ai_controller/crew_npc/var/list/water_failed = list()
+
+/**
+ * TRUE if this sink, mop bucket or tank is water the body could get to: not one it lately set off
+ * for and could not reach, and not one in a room locked to it, other than the room it is in. A
+ * sink seen through the glass of a room it cannot enter is not water to hand: it walked at it
+ * again and again, and passed over one it could reach.
+ */
+/datum/ai_controller/crew_npc/proc/water_reachable(atom/source)
+	var/failed_at = water_failed[REF(source)]
+	if(failed_at && world.time - failed_at < CREW_NPC_BLOCKED_PLACE_TIME)
+		return FALSE
+	if(get_area(source) == get_area(pawn))
+		return TRUE
+	return !place_locked_to_body(get_area_name(source, TRUE))
+
 /**
  * Returns the nearest thing to hand that a mop can be wetted at, or null: the bucket in the body's
  * other hand if there is water in it, then a mop bucket or janitorial cart in sight with water in
- * it, then a sink in sight. Water it has carried with it comes before a walk to a sink.
+ * it, then a sink in sight. Water it has carried with it comes before a walk to a sink. Only water
+ * it could get to counts (water_reachable()).
  */
 /datum/ai_controller/crew_npc/proc/water_to_hand(list/in_sight)
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
@@ -114,29 +132,29 @@
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/mop_bucket/tub in in_sight)
-		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance)
+		if(tub.reagents?.total_volume >= 1 && get_dist(pawn, tub) < nearest_distance && water_reachable(tub))
 			nearest_distance = get_dist(pawn, tub)
 			nearest = tub
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest
 
-/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink.
+/// Returns the nearest thing in sight that a bucket can be filled at, or null: a water tank with water in it, or failing that a sink. Only water it could get to counts (water_reachable()).
 /datum/ai_controller/crew_npc/proc/water_for_bucket(list/in_sight)
 	var/atom/nearest
 	var/nearest_distance = INFINITY
 	for(var/obj/structure/reagent_dispensers/watertank/tank in in_sight)
-		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance)
+		if(tank.reagents?.total_volume >= 1 && get_dist(pawn, tank) < nearest_distance && water_reachable(tank))
 			nearest_distance = get_dist(pawn, tank)
 			nearest = tank
 	if(nearest)
 		return nearest
 	for(var/obj/structure/sink/sink in in_sight)
-		if(get_dist(pawn, sink) < nearest_distance)
+		if(get_dist(pawn, sink) < nearest_distance && water_reachable(sink))
 			nearest_distance = get_dist(pawn, sink)
 			nearest = sink
 	return nearest
@@ -188,8 +206,12 @@
 	var/washes_off = !!(mess.clean_type & CLEAN_WASH)
 	if(istype(tool, /obj/item/reagent_containers/spray))
 		return washes_off
+	// A mop does not wash: it scrubs the floor, at its cleaner's strength, and takes up whatever on
+	// that floor a mop reaches and that strength shifts (decomposing garbage among them).
 	if(istype(tool, /obj/item/mop))
-		return washes_off && mess.is_mopped
+		var/datum/component/cleaner/cleaner = tool.GetComponent(/datum/component/cleaner)
+		var/strength = cleaner ? cleaner.cleaning_strength : CLEAN_SCRUB
+		return mess.is_mopped && !!(mess.clean_type & strength)
 	return TRUE
 
 /// Returns the thing in the body's hands to use on this mess, or null if nothing it holds will shift it. A proper tool before a rag; a rag where only scrubbing will do.
@@ -239,12 +261,21 @@
  */
 /datum/ai_controller/crew_npc/proc/remember_messes(list/in_sight)
 	var/turf/here = get_turf(pawn)
+	// The tiles in sight, to look each remembered spot up in at once rather than search the whole view.
+	var/list/seen_turfs = list()
+	for(var/turf/seen in in_sight)
+		seen_turfs[seen] = TRUE
+	// Each entry: the mess, its room, its spot, and when it was last seen there.
 	for(var/obj/effect/decal/cleanable/mess in in_sight)
 		var/key = REF(mess)
-		if(remembered_messes[key] || length(remembered_messes) >= CREW_NPC_MESSES_REMEMBERED)
+		var/list/known = remembered_messes[key]
+		if(known)
+			known[4] = world.time
+			continue
+		if(length(remembered_messes) >= CREW_NPC_MESSES_REMEMBERED && !forget_oldest_mess())
 			continue
 		var/turf/spot = get_turf(mess)
-		remembered_messes[key] = list(WEAKREF(mess), get_area_name(spot, TRUE), spot)
+		remembered_messes[key] = list(WEAKREF(mess), get_area_name(spot, TRUE), spot, world.time)
 
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
@@ -253,8 +284,29 @@
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
 		if(!QDELETED(mess) && get_turf(mess) == spot)
 			continue
-		if(spot == here || (spot in in_sight))
+		if(spot == here || seen_turfs[spot])
 			remembered_messes -= key
+
+/**
+ * With its memory of messes full, forgets the one seen longest ago that is not in its own rooms, to
+ * make room for a new one. A mess in its own rooms is never pushed out by one in a tunnel. Returns
+ * FALSE if every one it remembers is in its own rooms.
+ */
+/datum/ai_controller/crew_npc/proc/forget_oldest_mess()
+	var/oldest_key
+	var/oldest_at = INFINITY
+	for(var/key in remembered_messes)
+		var/list/memory = remembered_messes[key]
+		if((memory[2] in work_area) || (memory[2] in look_in_rooms))
+			continue
+		if(memory[4] < oldest_at)
+			oldest_at = memory[4]
+			oldest_key = key
+	if(isnull(oldest_key))
+		return FALSE
+	remembered_messes -= oldest_key
+	stubborn_messes -= oldest_key
+	return TRUE
 
 /// Returns what the body could clean with: a proper tool that works now, or a mop that would once it is wet, or failing both a rag.
 /datum/ai_controller/crew_npc/proc/tool_in_hand()
@@ -510,18 +562,57 @@
 		body.swap_hand(tool_hand)
 	// A mop works on the floor under the mess; soap and spray work on the mess itself.
 	var/atom/target = istype(tool, /obj/item/mop) ? get_turf(mess) : mess
-	body.ClickOn(target)
+	// A spray sets a wait of most of a second before the next click is let through, and the next
+	// mess is often one step away. Clicked inside that wait, nothing was sprayed, and the mess was
+	// written off as one that would not come off. So the body waits, as a player's client makes
+	// them, and if a click still does nothing it is tried once more and then left, not written off.
+	var/serial = errand_serial
+	var/landed = FALSE
+	for(var/go in 1 to 2)
+		if(go > 1)
+			sleep(1 SECONDS)
+		if(!wait_to_click(TRUE) || errand_serial != serial)
+			return list(FALSE, "You could not get to it.")
+		if(QDELETED(mess))
+			return list(TRUE, "The [mess_name] is gone already.")
+		if(!body.is_holding(tool))
+			return list(FALSE, "You have nothing to clean with.")
+		tool_hand = body.get_held_index_of_item(tool)
+		if(tool_hand != body.active_hand_index)
+			body.swap_hand(tool_hand)
+		var/volume_before = tool.reagents?.total_volume
+		var/next_move_before = body.next_move
+		body.ClickOn(target)
+		// Something came of the click: the mess went, a scrub began, the spray was used, or the
+		// game set the wait that every use of a held thing sets.
+		if(QDELETED(mess) || length(body.do_afters) || tool.reagents?.total_volume != volume_before || body.next_move != next_move_before)
+			landed = TRUE
+			break
+	// Twice clicked and nothing came of it: left as a mess it could not get to is, this one alone and
+	// not tried again, but not counted against its kind in this room as one that would not come off.
+	if(!landed)
+		stubborn_messes[REF(mess)] = TRUE
+		return list(FALSE, "You could not get to it.")
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
 	// before it came off was reported as beyond the body, and then, seconds later, as cleaned up.
 	var/last_chance = deadline + CREW_NPC_CLEAN_TIME
+	var/turf/stood = get_turf(body)
 	while(!QDELETED(mess) && (world.time < deadline || (length(body.do_afters) && world.time < last_chance)))
 		sleep(0.5 SECONDS)
 		if(QDELETED(body))
 			return list(FALSE, "You could not get to it.")
+		// Sent to do something else: the scrub was broken off, not beaten.
+		if(errand_serial != serial)
+			return list(FALSE, "You stopped cleaning the [mess_name].")
 	if(QDELETED(mess))
 		return list(TRUE, "You clean up the [mess_name].")
+	// A scrub cut short, by being moved, knocked down or stunned, or the tool leaving its hand, says
+	// nothing about the mess. Only one that ran its course with the body there and fit writes it off.
+	var/cut_short = get_turf(body) != stood || body.body_position == LYING_DOWN || !body.is_holding(tool)
+	if(cut_short || INCAPACITATED_IGNORING(body, INCAPABLE_RESTRAINTS|INCAPABLE_STASIS|INCAPABLE_GRAB))
+		return list(FALSE, "You could not finish cleaning the [mess_name].")
 	// Some messes do not yield to scrubbing at all. Remember this one so the body stops trying it.
 	stubborn_messes[REF(mess)] = TRUE
 	// Twice beaten by the same kind of mess, it knows what it holds will not shift that kind, and
@@ -533,6 +624,7 @@
 	var/place = get_area_name(mess, TRUE)
 	var/kind_here = "[place]|[mess.type]"
 	stubborn_kinds[kind_here]++
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) wrote off the [mess_name] ([mess.type]) in [place] as beyond the [format_text(tool.name)] ([stubborn_kinds[kind_here]] of that kind there).")
 	if(stubborn_kinds[kind_here] >= 2)
 		for(var/key in remembered_messes)
 			var/list/memory = remembered_messes[key]
@@ -544,11 +636,20 @@
 
 /// TRUE if the body carries a PDA with the custodial locator, which shows where the station's cleaning gear is.
 /datum/ai_controller/crew_npc/proc/has_custodial_locator()
+	return !isnull(custodial_locator_pda())
+
+/**
+ * The PDA the body carries with a custodial locator on it that it could read: not broken, and the
+ * body able to read. Null if none. Asked on every update of the window, so nothing is switched on.
+ */
+/datum/ai_controller/crew_npc/proc/custodial_locator_pda()
 	var/mob/living/carbon/human/body = pawn
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
-		if(locate(/datum/computer_file/program/radar/custodial_locator) in computer.stored_files)
-			return TRUE
-	return FALSE
+		if(!(locate(/datum/computer_file/program/radar/custodial_locator) in computer.stored_files))
+			continue
+		if(pda_readable(computer))
+			return computer
+	return null
 
 /**
  * Tool: check the custodial locator on the body's PDA.
@@ -558,8 +659,13 @@
  */
 /datum/ai_controller/crew_npc/proc/tool_locate()
 	var/mob/living/carbon/human/body = pawn
-	if(!has_custodial_locator())
-		action_result(CREW_TOOL_LOCATE, FALSE, "You have no PDA with a custodial locator on it.")
+	var/obj/item/modular_computer/locator_pda = custodial_locator_pda()
+	if(isnull(locator_pda))
+		action_result(CREW_TOOL_LOCATE, FALSE, "You have no PDA with a custodial locator on it that you can read.")
+		return
+	// The locator is read on the screen: the PDA has to be switched on, which wants charge.
+	if(!pda_screen_usable(locator_pda))
+		action_result(CREW_TOOL_LOCATE, FALSE, "Your PDA will not turn on: it has no charge.")
 		return
 
 	// The locator shows every mop and cart on the station, strays in the tunnels included. What a
@@ -623,7 +729,11 @@
 /// Returns a cleaner grenade in the body's hands, or null.
 /datum/ai_controller/crew_npc/proc/held_grenade()
 	var/mob/living/carbon/human/body = pawn
-	return locate(/obj/item/grenade/chem_grenade/cleaner) in body.held_items
+	// A used casing stays after it goes off, and says so when looked at: it is not a grenade any more.
+	for(var/obj/item/grenade/chem_grenade/cleaner/grenade in body.held_items)
+		if(!(grenade.dud_flags & GRENADE_USED) && grenade.stage == GRENADE_READY)
+			return grenade
+	return null
 
 /**
  * Finds the spot in sight where a cleaner grenade would do the most good, if any is good enough.
@@ -679,11 +789,20 @@
 	if(isnull(grenade))
 		return list(FALSE, "You are not holding a cleaner grenade.")
 	var/turf/target = get_turf(mess)
-	var/grenade_hand = body.get_held_index_of_item(grenade)
-	if(grenade_hand && grenade_hand != body.active_hand_index)
-		body.swap_hand(grenade_hand)
+	if(!hand_to(grenade))
+		return list(FALSE, "You cannot get the cleaner grenade into your hand.")
 	body.face_atom(target)
-	grenade.arm_grenade(body)
+	// Primed as a player primes it: used in hand, with every check that brings (stuck to the hand, already live, a clumsy fumble).
+	if(!grenade.active)
+		sleep(1 SECONDS)
+		if(QDELETED(body) || QDELETED(grenade) || QDELETED(src) || body.get_active_held_item() != grenade)
+			return list(FALSE, "You no longer have the cleaner grenade in your hand.")
+		body.execute_mode()
+		if(QDELETED(grenade) || !grenade.active)
+			return list(FALSE, "The grenade will not prime.")
+		if(QDELETED(body) || body.get_active_held_item() != grenade)
+			return list(TRUE, "You prime the cleaner grenade, but it is no longer in your hand. Keep clear: the foam is slippery.")
+		body.face_atom(target)
 	if(!body.throw_item(target))
 		// Primed and still in hand: get rid of it where it will do least harm.
 		body.dropItemToGround(grenade)

@@ -16,6 +16,33 @@
  * The game and the tests both build their calls here, so what is tested is what is sent.
  */
 import { jobFor } from './jobs';
+import {
+  ENGINE_TAKEN_WORDS,
+  LIGHT_WORDS,
+  LIT_WORDS,
+  NOT_OFF_WORDS,
+  NOT_ON_WORDS,
+  OFF_WORDS,
+  ON_AGAIN_WORDS,
+  RELIGHT_WORDS,
+  SHUT_WORDS,
+  STUCK_WORDS,
+} from './jobs/engineering';
+import { ALOUD_CALL_WORDS, OVER_WORDS } from './jobs/meetings';
+import {
+  cancelAsked,
+  GIVE_WORDS,
+  LET_GO_WORDS,
+  PARDON_WORDS,
+  readWarrant,
+  SEEN_WORDS,
+} from './jobs/security';
+import {
+  DOCKED_WORDS,
+  GIVEN_WORDS,
+  LOST_TOLD_WORDS,
+  NOT_PLACED_WORDS,
+} from './jobs/supply';
 import { describeMemoryFor, notesFor } from './memory';
 import { availableOptions, describeOptions } from './options';
 import { MOMENTS } from './person';
@@ -54,7 +81,51 @@ export type Moment = {
    * remark of its own to follow it: see Plan.exact.
    */
   exact?: boolean;
+  /**
+   * Who each speaker was, by handle, as the body saw them when they spoke. They may have walked
+   * out of view since, and what they said is still theirs.
+   */
+  heardFrom?: Map<string, Speaker>;
+  /**
+   * The report lines that were said to it, by name or as the nearest of several. If given, only
+   * these are read for orders and for what was asked of it; the rest is only for the LLM to know.
+   */
+  forMe?: ReadonlySet<string>;
 };
+
+/** Someone who spoke to the NPC, as it saw them at the time. */
+export type Speaker = {
+  name: string;
+  /** TRUE if the NPC answers to them: the Captain, or the head of its own department. */
+  superior: boolean;
+};
+
+/**
+ * Who said a heard line, as far as the body knew when it heard it: from who is in view with it,
+ * and failing that from what the server put on the line itself ("superior", 1 or 0, from the same
+ * answers_to as the view). Someone who spoke from round a corner, never in view as they said it,
+ * is still known to be the Captain. Null when neither says, as before: nothing is taken from them.
+ */
+export function speakerHeard(
+  brain: NpcBrain,
+  details: { handle?: string; speaker?: string; [key: string]: unknown },
+): Speaker | null {
+  const handle = details.handle ?? details.speaker;
+  const seen = handle
+    ? brain.peopleInView.find((person) => person.handle === handle)
+    : undefined;
+  if (seen) {
+    return { name: seen.name, superior: !!seen.superior };
+  }
+  const told = details.superior;
+  if (told === undefined || told === null || !details.speaker) {
+    return null;
+  }
+  return {
+    name: String(details.speaker),
+    superior: told === true || Number(told) === 1,
+  };
+}
 
 /** One call, ready to send, and what the code needs to act on the answer. */
 export type TalkCall = {
@@ -72,6 +143,66 @@ export type TalkCall = {
   ordered: Task | null;
 };
 
+/**
+ * Words other crew act on when they hear them said: a head's order to its staff, a word of a
+ * crate, the engine, a meeting. These are the hearers' own patterns, not copies of them, so that
+ * the two cannot drift apart. A warrant, a pardon and a warrant taken back are tested apart, below.
+ */
+const ACTED_ON_WORDS: RegExp[] = [
+  GIVE_WORDS,
+  SEEN_WORDS,
+  LET_GO_WORDS,
+  GIVEN_WORDS,
+  DOCKED_WORDS,
+  NOT_PLACED_WORDS,
+  LOST_TOLD_WORDS,
+  ALOUD_CALL_WORDS,
+  OVER_WORDS,
+  LIGHT_WORDS,
+  ENGINE_TAKEN_WORDS,
+  LIT_WORDS,
+  STUCK_WORDS,
+  SHUT_WORDS,
+  OFF_WORDS,
+  RELIGHT_WORDS,
+  ON_AGAIN_WORDS,
+  NOT_OFF_WORDS,
+  NOT_ON_WORDS,
+];
+
+/**
+ * TRUE if a line would be taken by crew who hear it as something its speaker's code decides: a
+ * warrant, a pardon, an order given to staff, word of a crate or the engine, a meeting called.
+ * Such a line is said only when the body's own work calls for it, word for word. One the LLM made
+ * up is not said: crew who hear a head say "Ray, please arrest Bob Hale" make the arrest.
+ */
+export function soundsLikeOrder(text: string, brain: NpcBrain): boolean {
+  // Everyone it knows of by name, as a hearer would know them, so that a name is caught whole.
+  const known = [
+    ...new Set([
+      ...brain.peopleInView.map((person) => person.name),
+      ...brain.pdaPeople.map((person) => person.name),
+      ...brain.people.keys(),
+    ]),
+  ].filter((name) => name !== brain.name);
+  if (readWarrant(text, known)) {
+    return true;
+  }
+  // A pardon names whoever is let off. "Pardon?" alone, or "feel free", is nothing.
+  const lower = text.toLowerCase();
+  if (
+    PARDON_WORDS.test(text) &&
+    known.some((name) => lower.includes(name.toLowerCase()))
+  ) {
+    return true;
+  }
+  // A warrant taken back, as whoever keeps the list reads it: "Do not cancel it" is none.
+  if (cancelAsked(text)) {
+    return true;
+  }
+  return ACTED_ON_WORDS.some((words) => words.test(text));
+}
+
 /** How something that ends a conversation and needs no answer begins: thanks, agreement, goodbye. */
 const CLOSING_WORDS =
   /^\W*(thanks|thank you|cheers|ta|ok|okay|alright|all right|got it|will do|bye|goodbye|see you|see ya|later|never ?mind)\b/i;
@@ -88,9 +219,14 @@ function needsNoAnswer(said: string): boolean {
 }
 
 /** What people said in the NPC's hearing in a report, in their own words. */
-function wordsHeard(report: string[]): string[] {
+function wordsHeard(report: string[], forMe?: ReadonlySet<string>): string[] {
   return report
-    .filter((line) => line.includes(' says: ') && line.includes('(person '))
+    .filter(
+      (line) =>
+        line.includes(' says: ') &&
+        line.includes('(person ') &&
+        (!forMe || forMe.has(line)),
+    )
     .flatMap((line) => line.match(/"[^"]*"/g) ?? [])
     .map((quoted) => quoted.slice(1, -1));
 }
@@ -114,30 +250,49 @@ function describeTalk(brain: NpcBrain): string[] {
   ];
 }
 
+/**
+ * The lines of a report said to this NPC: to it by name, or failing any, to everyone there. A line
+ * said to someone else asks nothing of it.
+ */
+export function saidToMe(report: string[]): string[] {
+  const spoken = report.filter((line) => line.includes(' says: '));
+  const toMe = spoken.filter((line) => line.includes(', speaking to you)'));
+  return toMe.length > 0
+    ? toMe
+    : spoken.filter((line) => line.includes(', speaking to everyone there)'));
+}
+
 /** Builds the call for one moment. Takes on an order made out from what was said, as a side effect. */
 export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const { report, speakers, mustSay } = moment;
   const spokenTo = speakers.length > 0;
+  // Who spoke, as they were seen when they said it, and failing that as they are seen now. They
+  // may have walked on out of view in the seconds before this turn came.
+  const heardFrom = speakers.flatMap((handle) => {
+    const then = moment.heardFrom?.get(handle);
+    if (then) {
+      return [then];
+    }
+    const now = brain.peopleInView.find((seen) => seen.handle === handle);
+    return now ? [{ name: now.name, superior: !!now.superior }] : [];
+  });
   // Whoever has just spoken that it answers to, if anyone: the Captain, or the head of its department.
-  const superior =
-    brain.peopleInView.find(
-      (seen) => speakers.includes(seen.handle) && seen.superior,
-    )?.name ?? null;
+  const superior = heardFrom.find((seen) => seen.superior)?.name ?? null;
   // Whoever spoke is who told it of any work, and who will want to hear when it is done.
-  const toldBy =
-    superior ??
-    brain.peopleInView.find((seen) => speakers.includes(seen.handle))?.name;
+  const toldBy = superior ?? heardFrom[0]?.name;
   // An order from someone it answers to is made out by code before the LLM is asked anything.
   // Whether it goes is not for the LLM to decide, and what it says is said knowing it is going.
-  const ordered = superior ? workInWords(brain, report, toldBy, true) : null;
-  const heard = wordsHeard(report);
+  const ordered = superior
+    ? workInWords(brain, report, toldBy, true, moment.forMe)
+    : null;
+  const heard = wordsHeard(report, moment.forMe);
   const meeting = report.some((line) =>
     line.includes('you have not seen them before'),
   );
   const options = availableOptions(
     brain,
     spokenTo,
-    report.filter((line) => line.includes(' says: ')).join(' '),
+    saidToMe(report).join(' '),
     brain.peopleInView.filter((person) => speakers.includes(person.handle)),
   );
   // How it feels is asked about whoever has just spoken to it, and nobody else: someone merely
@@ -145,10 +300,10 @@ export function buildTalk(brain: NpcBrain, moment: Moment): TalkCall {
   const feelAbout = brain.peopleInView
     .map((person) => person.handle)
     .filter((handle) => speakers.includes(handle));
-  // Likewise it is asked whether it has been told of work only when someone has spoken to it,
-  // and not when the order has been made out already.
+  // Likewise it is asked whether it has been told of work only when someone it saw has spoken to
+  // it, whether or not they are still in view, and not when the order has been made out already.
   const told =
-    feelAbout.length > 0 && !ordered ? workTold(brain, !!superior) : null;
+    heardFrom.length > 0 && !ordered ? workTold(brain, !!superior) : null;
 
   // What this moment is, and what is said about it.
   const about: string[] = [];

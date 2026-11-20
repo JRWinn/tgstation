@@ -15,8 +15,9 @@
 	// Its own job is what its own ID says, whatever it looks like to anyone else. get_assignment()
 	// answers as a stranger would see it: with its face hidden, by a potted plant held up in front of
 	// it, say, that is no job at all, and a head with no job walks off from its own staff meeting.
-	var/obj/item/card/id/card = body.get_idcard(TRUE)
-	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "")
+	// The card it wears comes first: one it only holds (picked up to tidy, or handed to it) is not its job.
+	var/obj/item/card/id/card = crew_npc_own_card(body)
+	return card?.assignment || body.get_assignment(if_no_id = "", if_no_job = "", hand_first = FALSE)
 
 /// TRUE if the body's job is in cargo, which is what lets it order supplies.
 /datum/ai_controller/crew_npc/proc/works_in_cargo()
@@ -48,7 +49,7 @@
 		// A technician knocks at the Quartermaster's office door when it has word for it.
 		learn_head_office()
 		// The post is wherever the department's supply console is. Stations name that room differently.
-		var/obj/machinery/computer/cargo/console = supply_console()
+		var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
 		var/area/post_area = console ? get_area(console) : null
 		var/turf/spot = post_area ? find_post_turf(post_area, console) : null
 		if(spot)
@@ -144,10 +145,32 @@
 		var/list/beyond = list()
 		for(var/obj/machinery/door/airlock/door as anything in doors)
 			var/list/sides = doors[door]
-			beyond |= get_area_name(sides[2], TRUE)
+			var/area/far_side = get_area(sides[2])
+			var/far_name = get_area_name(sides[2], TRUE)
+			// A door its own ID does not open, onto another department's locked room, is not one it
+			// lets anybody in by: the Delivery Office's door to the security post. A door onto a
+			// hallway or maintenance always counts, as anyone may come to it.
+			if(!door.allowed(body) && !(far_name in closed_rooms) && !istype(far_side, /area/station/hallway) && !istype(far_side, /area/station/maintenance))
+				continue
+			beyond |= far_name
 		if(!length(beyond) || length(beyond - closed_rooms))
 			continue
 		reached_through[place_name] = (post_place in beyond) ? post_place : beyond[1]
+
+/**
+ * TRUE if nothing on this tile shuts a way: no airlock or windoor (which may only stand open for a
+ * moment, as someone walks through), and no plastic flaps that nobody on their feet gets through.
+ * Shutters that are up are left out: they are the open side of a counter.
+ */
+/proc/crew_npc_doorless(turf/spot)
+	for(var/obj/thing in spot)
+		if(istype(thing, /obj/machinery/door/airlock) || istype(thing, /obj/machinery/door/window))
+			return FALSE
+		if(istype(thing, /obj/structure/plasticflaps))
+			var/obj/structure/plasticflaps/flaps = thing
+			if(flaps.require_resting)
+				return FALSE
+	return TRUE
 
 /// TRUE if a room has doors and every one of them asks for access, so the crew at large cannot walk in.
 /proc/crew_npc_room_is_closed(area/room, z_level)
@@ -156,18 +179,48 @@
 		return FALSE
 	// An open way in from the next room, with no door on it, is open to anyone.
 	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(z_level))
-		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE))
+		if(!isopenturf(room_turf) || room_turf.is_blocked_turf(exclude_mobs = TRUE) || !crew_npc_doorless(room_turf))
 			continue
 		for(var/direction in GLOB.cardinals)
 			var/turf/next = get_step(room_turf, direction)
 			if(isnull(next) || get_area(next) == room || !isopenturf(next) || !istype(get_area(next), /area/station))
 				continue
-			if(!next.is_blocked_turf(exclude_mobs = TRUE))
+			if(!next.is_blocked_turf(exclude_mobs = TRUE) && crew_npc_doorless(next))
 				return FALSE
 	for(var/obj/machinery/door/airlock/door as anything in doors)
 		if(!length(door.req_access) && !length(door.req_one_access))
 			return FALSE
 	return TRUE
+
+/// The supply console the cargo post is at, chosen once for the station, as a weak reference: see crew_npc_cargo_post_console().
+GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
+
+/**
+ * Returns the supply console the station's cargo staff work from, the same one for every technician
+ * and for the Quartermaster, so that they all have the one post wherever each was made. It is one in
+ * the Cargo Bay if there is one, else the one in the cargo room with the most floor. Chosen once from
+ * the map, and again only if that console is gone. Null if the station has none in a cargo room.
+ */
+/proc/crew_npc_cargo_post_console()
+	var/obj/machinery/computer/cargo/chosen = GLOB.crew_npc_cargo_post_console?.resolve()
+	if(!QDELETED(chosen))
+		return chosen
+	var/obj/machinery/computer/cargo/best_console
+	var/best_score = -1
+	for(var/obj/machinery/computer/cargo/console as anything in SSmachines.get_machines_by_type(/obj/machinery/computer/cargo))
+		if(console.requestonly || console.is_express || !is_station_level(console.z))
+			continue
+		var/area/room = get_area(console)
+		if(!istype(room, /area/station/cargo))
+			continue
+		var/score = length(room.get_turfs_by_zlevel(console.z))
+		if(istype(room, /area/station/cargo/storage))
+			score += 100000
+		if(score > best_score)
+			best_score = score
+			best_console = console
+	GLOB.crew_npc_cargo_post_console = best_console ? WEAKREF(best_console) : null
+	return best_console
 
 /**
  * Returns the supply console cargo staff order at: the nearest one in the cargo department.
@@ -381,31 +434,48 @@
 	var/list/known = orderable_crates()
 	if(!length(order_items))
 		return list(FALSE, "You forget what you came to order.")
+	// A console with no power, or broken, shows no screen to order on (can_interact, as the game's
+	// window asks).
+	if(!console.can_interact(body))
+		return list(FALSE, "The supply console is dead: it has no power, or it is broken, and will take no order.")
 	// Each crate comes with a manifest that carries its order's number. Those numbers are how the
 	// crates are known from here on: when they dock, and when someone comes to collect them.
 	ordered_numbers = list()
 	ordered_kinds = list()
 	var/list/placed_items = list()
+	var/datum/supply_order/last_placed
+	var/ordered_as = body.get_authentification_name()
+	var/went_dead = FALSE
 	for(var/kind in order_items)
 		var/pack_type = known[kind]
 		if(isnull(pack_type))
 			continue
 		var/orders_before = length(SSshuttle.shopping_list)
+		// Each crate by the console's own "add", as its screen sends it, a click apart.
 		for(var/crate_number in 1 to order_items[kind])
-			console.add_item(body, pack_type)
+			if(!work_window(console, "add", list("id" = "[pack_type]")))
+				went_dead = TRUE
+				break
+		// Its own orders only: someone else at another console may order in the same moments.
 		for(var/index in orders_before + 1 to length(SSshuttle.shopping_list))
 			var/datum/supply_order/placed = SSshuttle.shopping_list[index]
+			if(placed.pack != SSshuttle.supply_packs[pack_type] || placed.orderer != ordered_as)
+				continue
 			ordered_numbers += placed.id
 			ordered_kinds["[placed.id]"] = kind
-		if(length(SSshuttle.shopping_list) > orders_before)
-			placed_items[kind] = length(SSshuttle.shopping_list) - orders_before
+			placed_items[kind] = (placed_items[kind] || 0) + 1
+			last_placed = placed
+		if(went_dead)
+			break
 	if(!length(ordered_numbers))
+		if(went_dead)
+			return list(FALSE, "The supply console is dead: it has no power, or it is broken, and will take no order.")
 		return list(FALSE, "The supply console will not take the order.")
 	order_items = placed_items
 	order_count = length(ordered_numbers)
 	ordered_words = order_in_words(placed_items)
 	// The last of them to be loaded is the one to watch for: when it is aboard, they all are.
-	pending_order = WEAKREF(SSshuttle.shopping_list[length(SSshuttle.shopping_list)])
+	pending_order = WEAKREF(last_placed)
 	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
 	supply_run_active = TRUE
@@ -482,12 +552,21 @@
 			continue
 		found[crate] = number
 		unmatched -= number
-	// A crate whose manifest has come off is known by what it is: its name starts with the name of
-	// the pack one of the numbers still unaccounted for was ordered as.
+	// A crate whose manifest has come off is known first by the number the shuttle writes on its name
+	// ("... - #12"), and with none there by what it is: its name starts with the name of the pack one
+	// of the numbers still unaccounted for was ordered as. A crate with its manifest on is someone
+	// else's order, as the first pass has said.
+	var/static/regex/name_number = regex(@"- #(\d+)")
 	for(var/obj/structure/closet/crate/crate as anything in aboard)
 		if(!length(unmatched))
 			break
-		if(found[crate] || crew_npc_held_entry(crate))
+		if(found[crate] || crew_npc_held_entry(crate) || !isnull(crew_npc_manifest_number(crate)))
+			continue
+		if(name_number.Find(crate.name))
+			var/named = text2num(name_number.group[1])
+			if(named in unmatched)
+				found[crate] = named
+				unmatched -= named
 			continue
 		for(var/number in unmatched)
 			var/datum/supply_pack/pack = SSshuttle.supply_packs[known[ordered_kinds["[number]"] || ordered_crate_name]]
@@ -496,6 +575,7 @@
 				unmatched -= number
 				break
 	ordered_numbers = list()
+	var/missing = length(unmatched) ? " [capitalize(crew_npc_numbers_written(unmatched))] did not come with it." : ""
 	if(!length(found))
 		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
 		return
@@ -522,7 +602,7 @@
 	var/word = ""
 	if(order_for)
 		word = order_via ? " Tell [order_via], face to face, that it has come in." : " Send [order_for] a PDA message with the number[several ? "s" : ""]."
-	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[word]", list("numbers" = numbers))
+	action_result(CREW_TOOL_ORDER, TRUE, "The supply shuttle has docked with what you ordered[order_for ? " for [order_for]" : ""] ([ordered_words]): [crew_npc_numbers_written(numbers)]. [several ? "They are" : "It is"] held in the bay until someone comes to the counter with the number.[missing][word]", list("numbers" = numbers))
 
 /// Returns a spot well inside a room, clear of its doors, to leave something at.
 /datum/ai_controller/crew_npc/proc/room_middle(area/station/place)
@@ -552,23 +632,27 @@
 	return best_turf
 
 /**
- * Tips out what a crate holds onto the floor round it, and returns the names of what came out.
- * What was collected is left where people can pick it up, and the crate goes back to cargo to be sent away.
+ * Opens a crate where it stands, as anyone opening it would: what it holds lies on its own tile,
+ * where people can pick it up, and the crate goes back to cargo to be sent away. Returns the names
+ * of what was in it, or null if it would not open (locked to the body, welded, or a wooden crate
+ * that wants a crowbar). When it is taken back it is shut where it is left, not here: shutting a
+ * crate takes back in whatever lies on its tile.
  */
 /datum/ai_controller/crew_npc/proc/tip_out(obj/structure/closet/crate/crate)
-	var/turf/here = get_turf(crate)
-	var/list/spots = list()
-	for(var/turf/open/spot in orange(1, here))
-		if(get_area(spot) == get_area(here) && crew_npc_safe_turf(spot) && !spot.is_blocked_turf(exclude_mobs = TRUE))
-			spots += spot
-	if(!length(spots))
-		spots += here
+	var/mob/living/carbon/human/body = pawn
+	// What was in it, read before it is opened: once open, the tile is read, with whatever was lying there already.
 	var/list/names = list()
-	var/index = 0
 	for(var/obj/item/thing as anything in crew_npc_crate_holds(crate))
-		index++
-		thing.forceMove(spots[((index - 1) % length(spots)) + 1])
 		names |= format_text(thing.name)
+	if(crate.opened)
+		return names
+	// A large wooden crate is pried apart with a crowbar, not opened by hand (HAND-12).
+	if(istype(crate, /obj/structure/closet/crate/large))
+		return null
+	// The open a click on it reaches, with its lock and weld checks.
+	if(!crate.open(body))
+		return null
+	crate.crew_npc_unpacked = TRUE
 	return names
 
 /// Tool: fetch the crate the body unpacked and haul it back to cargo, to go back on the shuttle.
@@ -613,6 +697,13 @@
 	var/atom/movable/hauled = body.pulling
 	body.stop_pulling()
 	var/place = get_area_name(body, TRUE)
+	// It goes back shut, as cargo takes no crate standing open. Shut here, where it is let go, and
+	// not where it was unpacked: shutting a crate takes in whatever lies on its tile.
+	if(succeeded && istype(hauled, /obj/structure/closet/crate))
+		var/obj/structure/closet/crate/emptied = hauled
+		emptied.crew_npc_unpacked = FALSE
+		if(emptied.opened && !crew_npc_someone_on(get_turf(emptied)))
+			emptied.close(body)
 	if(succeeded && hauled)
 		crate_to_return = null
 		action_result(CREW_TOOL_TAKE_BACK, TRUE, "You bring the empty crate back to [place]. It can go back on the supply shuttle.", list("place" = place))
@@ -688,6 +779,33 @@
 			return messenger
 	return null
 
+/// TRUE if a PDA is broken past working: it will not boot, as the power button finds.
+/proc/crew_npc_pda_broken(obj/item/modular_computer/computer)
+	return computer.atom_integrity <= computer.integrity_failure * computer.max_integrity
+
+/**
+ * Whether the body can send with its PDA just now, as a player could at its screen: the PDA whole,
+ * switched on (pressing the power button if it is off, which draws on its cell from then on),
+ * its screen read, and sending not turned off. Returns null if it can, else what is in the way,
+ * in words. The first of the returned list is the words, the second TRUE if it is worth keeping
+ * the message to send when the PDA works again (broken or flat, it may be mended or charged).
+ */
+/datum/ai_controller/crew_npc/proc/pda_unusable(datum/computer_file/program/messenger/own_messenger)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/item/modular_computer/computer = own_messenger?.computer
+	if(isnull(computer))
+		return list("You have no PDA to send a message with.", FALSE)
+	if(crew_npc_pda_broken(computer))
+		return list("Your PDA is broken: it will not boot up.", TRUE)
+	if(!computer.enabled && !computer.turn_on(body, open_ui = FALSE))
+		return list("Your PDA will not turn on: it has no charge.", TRUE)
+	// The screen closes on anyone who cannot read it (computer_ui.dm).
+	if(!body.can_read(computer, READING_CHECK_LITERACY, silent = TRUE))
+		return list("You cannot make out the words on your PDA's screen.", FALSE)
+	if(!own_messenger.sending_and_receiving)
+		return list("Your PDA has sending turned off.", FALSE)
+	return null
+
 /// Tool: send someone a PDA message.
 /datum/ai_controller/crew_npc/proc/tool_message(person_name, text)
 	var/mob/living/carbon/human/body = pawn
@@ -716,18 +834,30 @@
 		return
 	var/to_name = target.computer.saved_identification
 	var/unsent_key = "[LOWER_TEXT(to_name)]|[text]"
-	if(!own_messenger.send_message_signal(body, text, list(target)))
+	// What a player at the screen would find first: a PDA that is broken, off and flat, that they
+	// cannot read, or that has sending turned off. Only the first two are worth trying again.
+	var/list/unusable = pda_unusable(own_messenger)
+	if(unusable && !unusable[2])
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and could not: [unusable[1]] Not sent: [text]")
+		action_result(CREW_TOOL_MESSAGE, FALSE, unusable[1])
+		return
+	// The screen's send, which refuses someone who has receiving turned off, and cleans the text.
+	if(!unusable && !target.sending_and_receiving)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], who has receiving turned off. Not sent: [text]")
+		action_result(CREW_TOOL_MESSAGE, FALSE, "[to_name] has their PDA set not to receive messages.")
+		return
+	if(unusable || !own_messenger.send_message(body, text, list(target)))
 		// Kept, and tried again until it goes. In a communications blackout every message for five
 		// minutes was lost for good, and the log said each had been sent: the Captain got no
 		// reports, and nobody was called to a meeting.
 		var/already_kept = !isnull(unsent_messages[unsent_key])
 		if(!already_kept)
 			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time)
-			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it. Kept to send again: [text]")
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it[unusable ? " ([unusable[1]])" : ""]. Kept to send again: [text]")
 		if(!unsent_retry_due)
 			unsent_retry_due = TRUE
 			addtimer(CALLBACK(src, PROC_REF(resend_unsent)), CREW_NPC_UNSENT_RETRY)
-		action_result(CREW_TOOL_MESSAGE, FALSE, "Your PDA would not send the message. You will try it again when your PDA is working.")
+		action_result(CREW_TOOL_MESSAGE, FALSE, "[unusable ? unusable[1] : "Your PDA would not send the message."] You will try it again when your PDA is working.")
 		return
 	// The same words, kept from a try that failed, have now gone.
 	unsent_messages -= unsent_key
@@ -771,8 +901,9 @@
 			unsent_messages -= unsent_key
 			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) gave up on the PDA message to [to_name] that would not send: [text]")
 			continue
-		// Still not working: the rest will not go either.
-		if(!own_messenger.send_message_signal(body, text, list(target)))
+		// Still not working: the rest will not go either. Nor while the PDA cannot be used, or the
+		// one it is for has receiving turned off.
+		if(pda_unusable(own_messenger) || !target.sending_and_receiving || !own_messenger.send_message(body, text, list(target)))
 			break
 		unsent_messages -= unsent_key
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) sent [to_name] the PDA message that would not go before: [text]")
@@ -799,10 +930,21 @@
 			UnregisterSignal(computer, COMSIG_MODULAR_PDA_MESSAGE_RECEIVED)
 	watched_pdas = list()
 
+/**
+ * TRUE if the body has this on it: in a hand, a pocket or its bag, wherever the body itself is, a
+ * locker or the pipes among them. Something loose beside it in the same locker is not on it.
+ */
+/datum/ai_controller/crew_npc/proc/crew_npc_carries(atom/movable/thing)
+	return get_atom_on_turf(thing, /mob/living) == pawn
+
 /// The body's PDA has received a message. It reads it if the PDA is still on it.
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
-	if(!can_sense() || get_atom_on_turf(computer) != pawn)
+	if(!can_sense() || !crew_npc_carries(computer))
+		return
+	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
+	var/mob/living/carbon/human/body = pawn
+	if(!body.is_literate())
 		return
 	var/message = html_decode("[signal.data["message"]]")
 	var/sender = "[sender_name || "Someone"]"

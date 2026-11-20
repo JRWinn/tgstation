@@ -71,8 +71,12 @@ export const ORDERING = 'I need to order';
 export const NOTED = 'Noted, order';
 export const NOTED_WORDS = /^noted, order (\d+)\b/i;
 
-/** How the Quartermaster tells a head that the Captain has refused their order, or that it is not something cargo can get. */
-export const REFUSED_WORDS = /\bcaptain has said no to order (\d+)\b/i;
+/**
+ * How the Quartermaster tells a head that the Captain has refused their order, or called it off
+ * ("Cap Tain has cancelled order 3: ..."), or that it is not something cargo can get.
+ */
+export const REFUSED_WORDS =
+  /\b(?:captain has said no to|has cancelled) order (\d+)\b/i;
 export const CANNOT_ORDER = 'I cannot order that';
 export const CANNOT_ORDER_WORDS = /^i cannot order that\b/i;
 
@@ -230,6 +234,19 @@ export function seeToLine(first: string, what: string): string {
   return `${first}, ${what}. See to it, please.`;
 }
 export const SEE_TO_WORDS = /^(\S+), (.+?)\. See to it, please\./i;
+
+/**
+ * The Quartermaster sending a technician to let out a workmate who is shut in, to its face: "Sam,
+ * Cora is shut in the Warehouse. Could you let them out, please?" Whoever is told goes to that
+ * door as for a let-out ask from Cora. Not yet said or read: the technician's side (cargo.ts
+ * overhears) reads it first, and then the Quartermaster says it in place of seeToLine (QM-05).
+ */
+export function letOutLine(first: string, who: string, room: string): string {
+  return `${first}, ${who} is shut in the ${room}. Could you let them out, please?`;
+}
+/** Reads letOutLine back: whom it is said to, who is shut in, and where. */
+export const SEND_TO_LET_OUT_WORDS =
+  /^(\S+), (.+?) is shut in the (.+?)\. Could you let them out, please\?/i;
 
 /** The Quartermaster telling its only technician to have another go at a crate that would not come. */
 export function tryAgainLine(first: string, what: string): string {

@@ -25,12 +25,15 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	var/log_window_started = 0
 	/// Brain log records received in the current counting window.
 	var/log_records_in_window = 0
+	/// The mob whose close-all-windows key (Home) is caught so that it leaves this window open.
+	var/mob/watched_mob
 
 /datum/crew_brain_link/New(owner_ckey)
 	src.owner_ckey = owner_ckey
 	GLOB.crew_brain_links[owner_ckey] = src
 
 /datum/crew_brain_link/Destroy(force)
+	watch_close_all_key(null)
 	for(var/datum/ai_controller/crew_npc/npc as anything in npcs)
 		npc.brain_link = null
 	npcs.Cut()
@@ -60,12 +63,69 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(!ui)
 		ui = new(user, src, "CrewBrain", "Crew Brain")
 		ui.open()
+	if(user.ckey == owner_ckey)
+		watch_close_all_key(user)
+
+/**
+ * Opens the window for its owner. In the lobby it waits until they have a body or a ghost: a window
+ * opened on the lobby mob is closed the moment they join or observe, and every brain with it.
+ */
+/datum/crew_brain_link/proc/open_for(client/owner)
+	if(isnull(owner) || isnull(owner.mob))
+		return
+	if(!isnewplayer(owner.mob))
+		ui_interact(owner.mob)
+		return
+	RegisterSignal(owner, COMSIG_CLIENT_MOB_LOGIN, PROC_REF(on_owner_mob_login), override = TRUE)
+	to_chat(owner, span_notice("The Crew Brain window opens when you join or observe."))
+
+/// The owner took a new mob: once it is no lobby mob, the window is opened on it.
+/datum/crew_brain_link/proc/on_owner_mob_login(client/source, mob/new_mob)
+	SIGNAL_HANDLER
+	if(isnewplayer(new_mob))
+		return
+	UnregisterSignal(source, COMSIG_CLIENT_MOB_LOGIN)
+	INVOKE_ASYNC(src, PROC_REF(ui_interact), new_mob)
 
 /datum/crew_brain_link/ui_state(mob/user)
 	return GLOB.always_state
 
 /datum/crew_brain_link/ui_status(mob/user, datum/ui_state/state)
-	return user.ckey == owner_ckey ? UI_INTERACTIVE : UI_CLOSE
+	if(user.ckey != owner_ckey)
+		return UI_CLOSE
+	// The window moves with its owner when they ghost or change body, so the key is caught on whichever mob has it now.
+	if(user != watched_mob)
+		watch_close_all_key(user)
+	return UI_INTERACTIVE
+
+/datum/crew_brain_link/ui_close(mob/user)
+	. = ..()
+	watch_close_all_key(null)
+	log_game("Crew Brain window of [owner_ckey] closed: every crew brain's memory is wiped and the crew do nothing until it is opened again.")
+
+/// Catches the close-all-windows key on this mob (and lets go of the last one), so that Home closes every other window but this.
+/datum/crew_brain_link/proc/watch_close_all_key(mob/new_mob)
+	if(watched_mob)
+		UnregisterSignal(watched_mob, list(COMSIG_KB_CLIENT_CLOSEUI_DOWN, COMSIG_QDELETING))
+	watched_mob = new_mob
+	if(new_mob)
+		RegisterSignal(new_mob, COMSIG_KB_CLIENT_CLOSEUI_DOWN, PROC_REF(on_close_all_key))
+		RegisterSignal(new_mob, COMSIG_QDELETING, PROC_REF(on_watched_mob_deleted))
+
+/datum/crew_brain_link/proc/on_watched_mob_deleted(mob/source)
+	SIGNAL_HANDLER
+	watch_close_all_key(null)
+
+/// The owner pressed the close-all-windows key: close every window they have open but the Crew Brain, and stop the key's own handler.
+/datum/crew_brain_link/proc/on_close_all_key(mob/source)
+	SIGNAL_HANDLER
+	INVOKE_ASYNC(src, PROC_REF(close_other_windows), source)
+	return COMSIG_KB_ACTIVATED
+
+/datum/crew_brain_link/proc/close_other_windows(mob/source)
+	for(var/datum/tgui/ui in source.tgui_open_uis.Copy())
+		if(ui.src_object != src)
+			ui.close()
 
 /datum/crew_brain_link/ui_static_data(mob/user)
 	var/list/data = list()
@@ -86,7 +146,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		npc_list += list(list(
 			"id" = npc.npc_id,
 			"name" = body.real_name,
-			"job" = body.get_assignment(if_no_id = "", if_no_job = ""),
+			// Its own job as it reads it off its own card, the same one every job test on the server goes by.
+			"job" = npc.job_title(body),
 			// The colour of the department stripe on its own ID card, which the window shows its name and job in. Null with no card.
 			"card_color" = crew_npc_card_color(body),
 			"awake" = npc.can_sense(),
@@ -116,7 +177,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// and whether it holds a mop and no bucket to carry water for it.
 			"water_from" = npc.water_from,
 			"bucket_to_fill" = npc.bucket_to_fill,
-			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()),
+			// Only with a hand to carry it in, or one it would free for it (DESK-10).
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(body.get_empty_held_indexes()) || !isnull(npc.spare_held_item())),
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
 			"door_open" = npc.open_door_in_view,
@@ -143,7 +205,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"meeting_room" = npc.meeting_place,
 			"orderable" = npc.works_in_cargo() ? assoc_to_keys(npc.orderable_crates()) : list(),
 			"order_pending" = npc.supply_run_active,
-			"has_pda" = !isnull(npc.pda_messenger()),
+			// A PDA it could use at the screen: not broken, and readable. Asked on every update, so it is
+			// not switched on here: a PDA that is off with no charge shows up as soon as it is tried.
+			"has_pda" = npc.pda_readable(npc.pda_messenger()?.computer),
 			// PDA messages it owes about crates: an order that has come in, or crates still waiting to be collected.
 			"notices" = npc.notices_owed,
 			// The crates being held for collection that it knows of, and whether it is its moment to go and look them over.
@@ -169,6 +233,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"workmate_called" = npc.workmate_called_janitor(),
 			// Someone has it by the arm and is walking it out of a room.
 			"in_hand" = world.time < npc.in_hand_until,
+			// With the gravity off and nothing within a tile to push off from, it floats and cannot walk (MAP-07).
+			"floating" = crew_npc_floating(body),
 			// The room it is in is locked to it.
 			"out_of_bounds" = npc.out_of_bounds,
 			// Rooms it lately found no way into.
@@ -192,7 +258,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// On the way somewhere, on an errand, or working through a room's storage.
 			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.
 			// Nor is a body idle in the moment between a crate getting away from it and its setting off after it.
-			"walking" = (npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && npc.walk_tool != CREW_TOOL_RETURN) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET) || npc.seeing_to_crate,
+			// Nor while it is still testing routes for a walk (LIFE-03).
+			"walking" = (npc.blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && npc.walk_tool != CREW_TOOL_RETURN) || npc.blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET) || npc.blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET) || npc.seeing_to_crate || npc.choosing_where_to_explore || npc.finding_door || npc.finding_door_to_force,
 			"resting" = npc.resting,
 			// Exploring still has a use while there is storage to look back in on.
 			"explored_everything" = npc.nowhere_new_left && !length(npc.room_searched_at),

@@ -31,12 +31,14 @@ import {
   beatOf,
   describeBeat,
   dropWarrant,
+  forgetWarrant,
   giveWarrant,
   noteSeen,
   onLead,
   planBeat,
   syncBeat,
   takeOutcomes,
+  warrantTalk,
 } from './arrests';
 import {
   describeDesk,
@@ -55,7 +57,7 @@ import { describeRounds, planRounds, roundsInHand, syncRounds } from './rounds';
 import {
   AGAIN_WORDS,
   addressOf,
-  CANCEL_WORDS,
+  cancelAsked,
   firstName,
   HEARD_WORDS,
   isHeadOfSecurity,
@@ -67,6 +69,7 @@ import {
   readGiven,
   readWarrant,
   SEEN_WORDS,
+  SERVED_WORDS,
   saidTo,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
@@ -354,6 +357,12 @@ function takeWord(
     }
     return;
   }
+  // Someone else has served a warrant it holds: it gives its copy up, and lets nobody go.
+  const served = text.match(SERVED_WORDS);
+  if (served) {
+    forgetWarrant(brain, served[1]);
+    return;
+  }
   const letGo = text.match(LET_GO_WORDS);
   if (letGo) {
     dropWarrant(brain, letGo[1], /pardoned/i.test(text));
@@ -378,7 +387,7 @@ function sendOn(
     !isHead(fromJob) ||
     !(
       readWarrant(text, []) ||
-      CANCEL_WORDS.test(text) ||
+      cancelAsked(text) ||
       /\bpardon\b/i.test(text) ||
       (PARDON_WORDS.test(text) &&
         beatOf(brain).warrants.some((it) =>
@@ -487,6 +496,8 @@ export const OFFICER: Job = {
       word.toldAt = brain.now;
     }
   },
+  // A warrant is not talked about with people it meets (KNA-32).
+  vetsSay: (brain, text, to) => warrantTalk(brain, text, to),
   afterActing: (brain, act, task, ok, _looped, details) => {
     const beat = beatOf(brain);
     beatAfterActing(brain, act, task, ok, details);

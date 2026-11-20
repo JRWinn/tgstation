@@ -46,12 +46,15 @@ import {
   isEngineer,
   LIGHT_WORDS,
   litLine,
+  notOffLine,
+  notOnLine,
   offLine,
   onAgainLine,
   RELIGHT_WORDS,
   SHUT_WORDS,
   saidTo,
   stuckLine,
+  switchFailReason,
   UNKNOWN_ENGINE,
 } from './engineering';
 import {
@@ -102,6 +105,8 @@ function engineOf(brain: NpcBrain): EngineWork {
     shut: false,
     relighting: false,
     switched: [],
+    switchTries: {},
+    wouldNot: null,
     words: [],
   };
   return brain.engine;
@@ -194,12 +199,13 @@ function syncTasks(brain: NpcBrain): void {
   keep(brain, SHUT, engine.shutting, 'emergency');
   keep(brain, LIGHT, lighting(engine), 'asked');
   keep(brain, RELIGHT, engine.relighting && !engine.shutting, 'asked');
-  for (const what of ['lit', 'stuck', 'off', 'on']) {
+  for (const what of ['lit', 'stuck', 'off', 'on', 'notoff', 'noton']) {
     keep(
       brain,
       WORD,
       engine.words.some((word) => word.what === what),
-      'asked',
+      // The engine still firing with the crystal coming apart is word that cannot wait.
+      what === 'notoff' ? 'emergency' : 'asked',
       what,
     );
   }
@@ -357,6 +363,13 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     );
   }
   if (task.kind === RELIGHT) {
+    // The emitters are the last thing touched: never while the engine is still being lit.
+    if (lighting(engine)) {
+      return {
+        ready: false,
+        step: 'You are still lighting the engine. The emitters come last, in their turn.',
+      };
+    }
     const next = emitterSteps(brain.machines, 'switch_on').find(
       (action) => !engine.switched.includes(action.key),
     );
@@ -458,12 +471,21 @@ function takeWord(
     engine.shutting = true;
     engine.relighting = false;
     engine.switched = [];
+    engine.switchTries = {};
+    engine.wouldNot = null;
+    // Word owed from before that the engine is lit, or on again, is out of date now.
+    engine.words = engine.words.filter(
+      (word) => word.what !== 'lit' && word.what !== 'on',
+    );
     return;
   }
   if (RELIGHT_WORDS.test(text)) {
-    if (!engine.shutting && !engine.shut) {
+    // Only once the engine is lit: while it is still being lit the emitters come last, in their turn.
+    if (!engine.shutting && !engine.shut && engine.lit) {
       engine.relighting = true;
       engine.switched = [];
+      engine.switchTries = {};
+      engine.wouldNot = null;
     }
     return;
   }
@@ -547,7 +569,7 @@ export const ENGINEER: Job = {
       word.toldAt = brain.now;
     }
   },
-  afterActing: (brain, act, task, ok, _looped, details) => {
+  afterActing: (brain, act, task, ok, _looped, details, text) => {
     forcingAfterActing(brain, act, ok, details);
     const engine = engineOf(brain);
     const word =
@@ -593,8 +615,19 @@ export const ENGINEER: Job = {
       }
       return;
     }
-    if (!ok || (task?.kind !== SHUT && task?.kind !== RELIGHT)) {
+    if (task?.kind !== SHUT && task?.kind !== RELIGHT) {
       return;
+    }
+    if (!ok) {
+      // A switch that does not take is tried once more. After that the emitter is given up on and
+      // the next one tried, so one locked emitter does not keep the others firing.
+      const tries = engine.switchTries ?? {};
+      engine.switchTries = tries;
+      tries[key] = (tries[key] ?? 0) + 1;
+      if (tries[key] < STEP_TRIES) {
+        return;
+      }
+      engine.wouldNot ??= switchFailReason(text);
     }
     if (!engine.switched.includes(key)) {
       engine.switched.push(key);
@@ -605,6 +638,20 @@ export const ENGINEER: Job = {
       off ? 'switch_off' : 'switch_on',
     ).every((action) => engine.switched.includes(action.key));
     if (!all) {
+      return;
+    }
+    const wouldNot = engine.wouldNot;
+    if (wouldNot) {
+      // Every emitter has been tried, and some would not switch. The Chief Engineer is told why.
+      engine.wouldNot = null;
+      engine.switchTries = {};
+      if (off) {
+        engine.shutting = false;
+        owe(brain, engine, 'notoff', (to) => notOffLine(to, wouldNot));
+      } else {
+        engine.relighting = false;
+        owe(brain, engine, 'noton', (to) => notOnLine(to, wouldNot));
+      }
       return;
     }
     if (off) {

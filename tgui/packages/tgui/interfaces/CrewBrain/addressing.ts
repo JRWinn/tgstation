@@ -62,16 +62,51 @@ const OPENERS =
  * bar" does not call on Zim Fire. It has to be their first name, used the way a name is when
  * calling on someone: at the start of what was said, or set off from the rest by a comma.
  */
-function callsOn(heard: string, name: string): boolean {
+export function callsOn(heard: string, name: string, inView = true): boolean {
   const first = name.split(/[^A-Za-z]+/).find((part) => part.length > 2);
+  const lower = heard.toLowerCase();
   if (!first) {
+    return callsOnShortName(lower, name);
+  }
+  const word = first.toLowerCase();
+  // "Oh hey Arielle!" is how the model often opens a line to someone. A first name that is also
+  // a word is not one when "I", "me" or "the" follows it: "May I come in?", "Grant me access",
+  // "Mark the crate". And someone who is not there is called on only with a comma or a colon:
+  // "May, are you there?".
+  const atStart = new RegExp(
+    `^\\W*(?:oh\\W+)?(?:${OPENERS}\\W+)?${word}\\b(?!\\s+(?:i|me|the)\\b)`,
+  );
+  const byComma = new RegExp(`(,\\s*${word}\\b)|(\\b${word}\\s*[,:])`);
+  return (
+    (inView && atStart.test(lower)) ||
+    byComma.test(lower) ||
+    callsOnShortName(lower, name)
+  );
+}
+
+/** Two-letter words too common to be taken for a first name: "So, ...", "No, ...", "Ok, ...". */
+const SHORT_WORDS = new Set(
+  'am an as at be by do go he hi if in is it me my no of oh ok on or ox so to up us we ye yo'.split(
+    ' ',
+  ),
+);
+
+/**
+ * TRUE if a first name of two letters ("Al", "Mo") calls on its holder: set off as a name is, at
+ * the start of the line or between commas ("Al, take this", "Hey Mo: the door", "Thanks, Al.").
+ * Run on its own it is not enough to be a name, being so short, so it must be set off.
+ */
+function callsOnShortName(lower: string, name: string): boolean {
+  const word = name.split(/[^A-Za-z]+/)[0]?.toLowerCase() ?? '';
+  if (word.length !== 2 || SHORT_WORDS.has(word)) {
     return false;
   }
-  const lower = heard.toLowerCase();
-  const word = first.toLowerCase();
-  const atStart = new RegExp(`^\\W*(?:${OPENERS}\\W+)?${word}\\b`);
-  const byComma = new RegExp(`(,\\s*${word}\\b)|(\\b${word}\\s*[,:])`);
-  return atStart.test(lower) || byComma.test(lower);
+  const setOff = '\\s*(?:[,:!?.]|$)';
+  const atStart = new RegExp(
+    `^\\W*(?:oh\\W+)?(?:${OPENERS}\\W+)?${word}${setOff}`,
+  );
+  const betweenCommas = new RegExp(`,\\s*${word}${setOff}`);
+  return atStart.test(lower) || betweenCommas.test(lower);
 }
 
 /**
@@ -94,6 +129,7 @@ export function saidTo(
 
   if (
     usesName(lower, brain.name) ||
+    callsOnShortName(lower, brain.name) ||
     (!!brain.post && usesName(lower, brain.job))
   ) {
     return { to: 'me' };
@@ -103,8 +139,13 @@ export function saidTo(
     ...brain.people.keys(),
     ...others,
   ]);
+  const inView = new Set(brain.peopleInView.map((person) => person.name));
   for (const name of known) {
-    if (name !== brain.name && name !== speaker && callsOn(heard, name)) {
+    if (
+      name !== brain.name &&
+      name !== speaker &&
+      callsOn(heard, name, inView.has(name))
+    ) {
       return { to: 'other', name };
     }
   }

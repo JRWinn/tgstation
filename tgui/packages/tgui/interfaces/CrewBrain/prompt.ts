@@ -6,6 +6,7 @@
  * and its job (see jobs/).
  */
 import { jobFor } from './jobs';
+import { SAY_MAX_CHARS } from './limits';
 import { describePerson, type PersonCard, SPEAKING } from './person';
 import { WORK_NOTHING } from './tasks';
 import type { Action, Option } from './types';
@@ -183,14 +184,52 @@ const BODY_TALK: [RegExp, string][] = [
  * Puts something the LLM wants said into the words of one person. The reports it reads speak of
  * "your body", because that is how it is told what it is doing, and it sometimes says "my body"
  * back out loud. Nobody talks like that.
+ *
+ * Asterisks go the way the server takes them out before the line is said (tool_say, HAND-03), so
+ * that what the brain keeps as said is what was said: a *...* at the start or end of the line is
+ * an action and goes; any other asterisk goes and keeps its word ("Crate **12**").
  */
 export function inOwnVoice(text: string): string {
-  let said = text;
+  let said = text
+    .replace(/^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$/g, '')
+    .replace(/\*+/g, '')
+    .trim();
   for (const [pattern, plain] of BODY_TALK) {
     said = said.replace(pattern, plain);
   }
   // A sentence that now starts with "you" still starts with a capital.
   return said.replace(/(^|[.!?] )you\b/g, '$1You');
+}
+
+// The most a body says in one line, kept in limits.ts so that jobs/reports.ts can share it.
+export { SAY_MAX_CHARS };
+
+/** A line cut back to its last whole sentence keeps at least this much, or it is cut at a word. */
+const SENTENCE_KEEP_MIN = 60;
+
+/**
+ * Cuts a line the LLM worded to what the server will say, at the last whole sentence that fits,
+ * or failing one long enough, at the last whole word with a full stop. Without this the server
+ * cuts it mid-word, after the window has checked it holds the words a hearer needs.
+ */
+export function fitSay(text: string, max = SAY_MAX_CHARS): string {
+  if (text.length <= max) {
+    return text;
+  }
+  // A sentence ends where a stop is followed by a space; the space may be just past the limit.
+  const head = text.slice(0, max + 1);
+  const stop = Math.max(
+    head.lastIndexOf('. '),
+    head.lastIndexOf('! '),
+    head.lastIndexOf('? '),
+  );
+  if (stop + 1 >= SENTENCE_KEEP_MIN) {
+    return text.slice(0, stop + 1);
+  }
+  // No sentence ends in time: the last whole word, and a stop. The stop needs room of its own.
+  const words = head.slice(0, max - 1);
+  const space = words.lastIndexOf(' ');
+  return `${(space > 0 ? words.slice(0, space) : words).replace(/[\s,;:-]+$/, '')}.`;
 }
 
 /**
@@ -343,9 +382,11 @@ export function parseReply(reply: string): Action[] {
     );
   }
   const actions: Action[] = [];
-  // Silence comes as null. A line of nothing but dots or dashes is silence as well.
-  if (typeof body.say === 'string' && /[a-z0-9]/i.test(body.say)) {
-    actions.push({ tool: 'say', text: inOwnVoice(body.say.trim()) });
+  // Silence comes as null. A line of nothing but dots or dashes is silence as well, and so is one
+  // that is only an action ("*nods*"): the server would say nothing of it.
+  const said = typeof body.say === 'string' ? inOwnVoice(body.say.trim()) : '';
+  if (/[a-z0-9]/i.test(said)) {
+    actions.push({ tool: 'say', text: said });
   }
   const move = body.move as Action | null | undefined;
   if (move && typeof move.tool === 'string' && move.tool !== 'stay') {

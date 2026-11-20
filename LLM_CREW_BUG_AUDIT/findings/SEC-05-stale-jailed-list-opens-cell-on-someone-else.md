@@ -1,0 +1,107 @@
+---
+id: SEC-05
+title: Letting someone go by name can open a cell that now holds somebody else
+kind: bug
+severity: high
+effort: small
+confidence: sure
+status: fixed
+fixed_in: ef3e58dbdf0
+found_by: Fable 5.2
+checked_by: Opus 5.5
+area: security
+files: code/modules/llm_crew/crew_npc_security.dm:1289, code/modules/llm_crew/crew_npc_security.dm:1320, code/modules/llm_crew/crew_npc_security.dm:1214
+fix: At the timer, stop it only if someone of that name is standing in the cell, forget a jailed entry that is no longer true, and look for the person in sight before going by memory
+---
+
+## What is wrong
+
+See also: ARR-17 (the `findtext` name match, item 4 of the fix here, frees the person in hand). It is the second fault named here, written up with a case that bites today; it can be fixed alone. Note ARR-17 would leave the order of the checks in `tool_free` as it is, where step 1 here moves the sight checks first: whoever builds both should take this order.
+
+The server keeps `jailed`: the name of everyone this body has put in a cell, with the cell. An entry is added in `put_in_cell` and taken away only when this same body lets them out (`set_free`) or finds nothing holding them (`tool_free`'s last lines). It is not taken away when the cell's time runs out, or when anyone else stops the timer. So after a prisoner's time is up the entry stays for the rest of the round, pointing at a cell that is then given to the next prisoner.
+
+`tool_free` goes by that entry before it looks at who is in front of it, and `set_free` then stops the timer of that cell whoever is inside:
+
+- `tool_free`, cell loop: a cell whose timer is running and which has a `jailed` entry matching the name asked for is "theirs". It does not ask whether they are still in it.
+- `set_free`, at the timer: it looks for someone of that name among the occupants only to fill in the words. With nobody of that name there, `prisoner` is null and the timer is stopped all the same. The answer is "You stop the timer of Cell 1, and its door opens for Pun Pun", `ok`, and the window records "freed".
+
+One concrete case:
+
+1. The officer puts Pun Pun in Cell 1 for 2 minutes. `jailed["Pun Pun"] = Cell 1`. Pun Pun is not one of the crew, so it is left in cuffs (by design). The time runs out, the door opens, the monkey wanders off still in cuffs. `jailed` still says Cell 1.
+2. Later the officer puts Marisol Burris in a cell. `free_cell` gives the first empty one: Cell 1. Its timer is running again.
+3. The Captain declares on Pun Pun again and then withdraws it, or pardons it, while the monkey is in the officer's sight in its cuffs. In the window `dropWarrant` sees `had && cuffed` and queues `free` for "Pun Pun".
+4. `tool_free("Pun Pun")`: `arrested` is not the monkey. The cell loop reaches Cell 1: timer running, `jailed["Pun Pun"] == Cell 1`, the name matches. `jail_cell = Cell 1`, `start_errand(timer, CREW_TOOL_FREE, ...)`. The check further down, "standing about in cuffs, in sight", which is the true one, is never reached.
+5. `set_free`: nobody named Pun Pun in Cell 1. `work_timer(timer, "stop")`. Marisol Burris walks out. The monkey keeps its cuffs. The Head of Security's list says Pun Pun was freed and Marisol Burris is in Cell 1.
+
+The same happens with no monkey in sight if anyone else (the Head of Security, the player) let the first prisoner out early and the window still holds its own `beat.jailed` entry for them (it is kept until the time it worked out for itself, `until`).
+
+A second, smaller fault in the same lines: names are matched by `findtext`, so "an" lets out "Joanna" and "Dan". The window sends whole names today, so this only bites if that changes.
+
+## Where
+
+`code/modules/llm_crew/crew_npc_security.dm:1289`, in `tool_free`:
+
+    for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
+        var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+        if(isnull(timer) || !timer.timing)
+            continue
+        var/theirs = FALSE
+        for(var/name in jailed)
+            if(jailed[name] == cell && findtext(LOWER_TEXT(name), wanted))
+                theirs = TRUE
+        ...
+        if(theirs)
+            jail_cell = cell
+            start_errand(timer, CREW_TOOL_FREE, person_name)
+            return
+    // Standing about in cuffs, in sight.
+    for(var/mob/living/carbon/human/person in in_sight)
+
+`code/modules/llm_crew/crew_npc_security.dm:1320`, in `set_free`:
+
+    var/mob/living/carbon/human/prisoner
+    for(var/mob/living/carbon/human/person as anything in cell?.occupants())
+        if(is_named(person, wanted))
+            prisoner = person
+            freed = person.name
+            break
+    if(timer.timing && !work_timer(timer, "stop"))
+        return list(FALSE, ...)
+
+`code/modules/llm_crew/crew_npc_security.dm:1214`, the only place an entry is made:
+
+    arrested = null
+    jailed[prisoner_name] = cell
+
+The window's own list is cleared on time (`jobs/arrests.ts:439`, "Those whose time is up are no longer in a cell"); the server's is not.
+
+## How it was found
+
+Read from the code. Not seen in a round.
+
+## How to fix it
+
+1. In `tool_free`, move the two checks that go by sight ahead of the one that goes by memory: first `arrested`, then "in a cell it can see them in", then "standing about in cuffs, in sight", and only then a `jailed` entry.
+2. In `set_free`, at the timer, with the cell in front of it: if `prisoner` is null (nobody of that name is in the cell), do not touch the timer. Remove the stale entries for that name from `jailed` and return `list(TRUE, "[freed] is not in [cell.name] any more.", list("freed" = freed, "nothing" = TRUE))`. The window already treats `nothing` as "nobody to say is free". This keeps to the senses rule: the body learns the cell's state by walking up and looking, as `security_state` says it must.
+3. In `put_in_cell`, when an entry is made for a cell, drop any other name still listed against the same cell: one cell, one prisoner.
+4. Make the name test whole-name: compare `LOWER_TEXT(name) == wanted` first and fall back to `findtext` only if nothing matched exactly.
+
+What must keep working: letting out someone who is out of sight in a cell the body put them in (the walk to the timer is still made on memory), and letting go of someone by the arm.
+
+## How to test the fix
+
+- Server compile on a side copy.
+- `tools/llm_crew/sim.ts`: make the simulator's `free` handler answer `nothing` when the named person is not in the cell it remembers, and add a scenario: jail A, time runs out, jail B in the same cell, free A. B must still be in the cell.
+- In a round: the same four steps. Grep `game.log` for "stopped the timer of": it must not appear for the freed name while another prisoner is in that cell.
+
+## Check
+
+Checked by Opus 5.5. Read `put_in_cell`, `tool_free`, `set_free` and `is_named` in `crew_npc_security.dm` (1145-1365), `crew_npc_brig_cells` (190, the cell datums are made once and kept, so `jailed[name] == cell` does compare the same datum each time), and `dropWarrant`, the cell expiry in `syncBeat` and the `free` branch of `beatAfterActing` in `jobs/arrests.ts`. The quotes are what the code says today.
+
+The server's `jailed` is written only at line 1214 and cleared only at `tool_free`'s end (1311) and in `set_free` (1337). Nothing clears it when a timer runs out or is stopped by someone else, and `free_cell` hands the same cell to the next prisoner. `tool_free` tests the memory entry before the "in cuffs, in sight" check, and `set_free` stops the timer whether or not `prisoner` was found. So the case runs as written: the timer of Cell 1 is stopped and Marisol Burris walks out. No guard on either side prevents it. The window's `dropWarrant` needs `had && cuffed` (a fresh warrant then withdrawn) or its own unexpired `beat.jailed` entry; both can happen, so this is uncommon but real. Nothing in `LLM_CREW_CHANGELOG.md` or the plans names it.
+
+Severity raised to high: the result is the wrong person let out of a cell, and FORMAT puts "the wrong person is acted on" at high whatever the frequency. The fix is right and stays in one file. One thing to keep when building step 2: a prisoner whose visible name changed inside the cell (a mask put on) is then not found and not let out; answer `nothing` for that too rather than stopping the timer, since the officer cannot tell.
+
+## Fix note, second round (the simulator test)
+
+`tools/llm_crew/sim.ts`: the simulator's `free` handler now plays the server as fixed. Each of the security staff remembers who it put in which cell (`jailedBy`, not put right when a time runs out); told to let someone go, it lets out someone it can see in a cell from the Brig, or else goes to the cell it remembers and looks in: someone not in it is not let out, and it answers "X is not in Cell N any more." with `freed` and `nothing`, as `set_free` does. New scenario `recell` (in the `SECURITY` list): the Captain's warrant on the Head of Personnel, jailed in Cell 1, whose timer runs out early (30 s, as if set short); then a warrant on Pun Pun, jailed in the same cell; then the Captain pardons the Head of Personnel. Checks: the officer tries to let the Head of Personnel go after Pun Pun is in, finds nobody of that name in Cell 1 and opens nothing, and Pun Pun stays in. Passed 3 times of 3; `pardon` 3 of 3 with the changed handler. The simulator runs no server code, so this tests the window's side against a model of the fixed server, not `tool_free` itself.

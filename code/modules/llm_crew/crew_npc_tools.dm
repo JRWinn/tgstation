@@ -23,6 +23,12 @@
 		return
 	if(!islist(arguments))
 		arguments = list()
+	// A tool that sleeps before it acts (explore, force_door, go_to_door test routes) keeps the count it
+	// began with, and does nothing more if a newer call has come since: that is what the brain is
+	// waiting on. A second call of one still working it out is turned away, and is no newer call.
+	var/still_working = (tool == CREW_TOOL_EXPLORE && choosing_where_to_explore) || (tool == CREW_TOOL_TO_DOOR && finding_door) || (tool == CREW_TOOL_FORCE_DOOR && finding_door_to_force)
+	if(tool != CREW_TOOL_SAY && tool != CREW_TOOL_HOLD && !still_working)
+		tool_serial++
 
 	switch(tool)
 		if(CREW_TOOL_SAY)
@@ -146,7 +152,13 @@
 	var/static/regex/line_breaks = regex(@"[\r\n\t]+", "g")
 	// Plain speech only: these prefixes would turn it into a radio message, an emote, a whisper or a special say mode.
 	var/static/regex/say_prefixes = regex(@"^[\s;:.,*#%!^]+")
+	// An asterisk anywhere turns what comes before it into an emote (HAND-03). A *...* at the start
+	// or end of the line is an action, and goes; one in the middle is emphasis, and keeps its word.
+	var/static/regex/action_spans = regex(@"^\s*\*[^*]*\*\s*|\s*\*[^*]*\*\s*$", "g")
+	var/static/regex/asterisks = regex(@"\*+", "g")
 	text = line_breaks.Replace(text, " ")
+	text = action_spans.Replace(text, "")
+	text = asterisks.Replace(text, "")
 	text = say_prefixes.Replace(text, "")
 	text = trim(copytext_char(text, 1, CREW_NPC_SAY_MAX_LENGTH + 1))
 	if(!length(text))
@@ -264,11 +276,18 @@
 /// Tool: walk to a part of the station the body has not been in.
 /datum/ai_controller/crew_npc/proc/tool_explore()
 	if(choosing_where_to_explore)
+		action_result(CREW_TOOL_EXPLORE, FALSE, "You are still working out the way.")
 		return
 	choosing_where_to_explore = TRUE
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
 	var/turf/destination = pick_somewhere_new()
 	choosing_where_to_explore = FALSE
 	if(QDELETED(src) || QDELETED(pawn))
+		return
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) worked out where to explore, and had been given something else to do meanwhile.")
 		return
 	if(isnull(destination))
 		if(nowhere_new_left)
@@ -375,7 +394,7 @@
 	var/best_clear_distance = INFINITY
 	for(var/sample in 1 to min(length(place_turfs), 40))
 		var/turf/candidate = pick(place_turfs)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf())
+		if(!crew_npc_safe_turf(candidate, pawn) || candidate.is_blocked_turf())
 			continue
 		// Keep well clear of airlocks to space.
 		if(locate(/obj/machinery/door/airlock/external) in range(2, candidate))
@@ -395,6 +414,11 @@
 
 /// Sets the body walking to a person or a spot. The walk leaf reports back through walk_finished().
 /datum/ai_controller/crew_npc/proc/start_walk(atom/target, tool, goal, timeout)
+	// A walk under way to somewhere else is ended first, so the walk leaf is set up afresh for the new
+	// one. The base game's route finder only re-plans to the old spot when the target changes under it.
+	// The old walk reports nothing: walk_finished sees the key no longer holds its target.
+	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) && blackboard[BB_CREW_NPC_WALK_TARGET] != target)
+		clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	walk_tool = tool
 	walk_goal = goal
 	walk_timeout = timeout
@@ -481,8 +505,21 @@
 		blocked_tries -= arrived_in
 		action_result(tool, TRUE, "You arrive in [arrived_in].", list("place" = arrived_in))
 	else
+		// Fire doors shut across the way are not a locked room. It is not shut in, only held up, and
+		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
+		var/list/stop_details = list("place" = arrived_in)
+		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
+		// Each way to a room it knows that comes to nothing adds up to being shut in. A room that is
+		// locked to it does not count: failing to get into one says nothing about getting out of here.
+		var/area/goal_room = isturf(target) ? get_area(target) : null
+		var/getting_out = reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room))
+		if(getting_out)
+			note_way_out_failed()
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
-		if(tool == CREW_TOOL_GO_TO && goal)
+		// Only when the way was the trouble: a walk cut short by a fall, or by someone in the way, says
+		// nothing about the room (LIFE-01). Nor does a walk that failed because the body is shut in
+		// where it stands: the room it was going to was never the trouble (KNB-14).
+		if(tool == CREW_TOOL_GO_TO && goal && (reason == CREW_NPC_NO_WAY || reason == "it was taking too long") && !(getting_out && shut_in))
 			blocked_places[goal] = world.time
 			if(reason == CREW_NPC_NO_WAY)
 				blocked_tries[goal]++
@@ -496,15 +533,6 @@
 		// Somewhere new that turned out not to be reachable after all is not tried again.
 		if(tool == CREW_TOOL_EXPLORE && isturf(target))
 			unreachable_places[get_area_name(target, TRUE)] = TRUE
-		// Fire doors shut across the way are not a locked room. It is not shut in, only held up, and
-		// it is told so: a body that knows why it cannot get on can do something about it, or say so.
-		var/list/stop_details = list("place" = arrived_in)
-		var/fire_doors = reason == "there is no way through" ? fire_door_report(stop_details) : ""
-		// Each way to a room it knows that comes to nothing adds up to being shut in. A room that is
-		// locked to it does not count: failing to get into one says nothing about getting out of here.
-		var/area/goal_room = isturf(target) ? get_area(target) : null
-		if(reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room)))
-			note_way_out_failed()
 		action_result(tool, FALSE, "You stop on the way to [goal]: [why].[fire_doors] You are in [arrived_in].", stop_details)
 
 /**

@@ -146,7 +146,8 @@ export function closeName(raw: string, known: string[]): string | undefined {
       name,
       apart: Math.min(
         lettersApart(want, squash(name)),
-        want.length >= 4 ? lettersApart(want, squash(firstName(name))) : 99,
+        // A first name of three letters ("Bob") is taken only when spelt right: its slack is 0.
+        want.length >= 3 ? lettersApart(want, squash(firstName(name))) : 99,
       ),
     }))
     .filter((it) => it.apart <= slack(want.length))
@@ -170,6 +171,15 @@ const KEY_WORDS = [
   'detain',
   'apprehend',
 ];
+/** Words of their own that are a letter off one of those, and are left as they are: "Pun Pun is wasted", "detail". */
+const NOT_MISSPELT = [
+  'wasted',
+  'waited',
+  'wonted',
+  'wanter',
+  'detail',
+  'withdrawn',
+];
 
 /**
  * Puts right the spelling of the words an order turns on: "warrent", "arest", "pardn". A word
@@ -179,7 +189,11 @@ export function mendWords(text: string, known: string[] = []): string {
   const inNames = new Set(known.flatMap((name) => nameWords(name)));
   return text.replace(/[A-Za-z]{4,}/g, (word) => {
     const lower = word.toLowerCase();
-    if (KEY_WORDS.includes(lower) || inNames.has(lower)) {
+    if (
+      KEY_WORDS.includes(lower) ||
+      NOT_MISSPELT.includes(lower) ||
+      inNames.has(lower)
+    ) {
       return word;
     }
     const meant = KEY_WORDS.find(
@@ -256,18 +270,25 @@ export function tidyReason(raw: string): string {
 /** The words by which the Captain or a head declares a warrant: what follows them is who it is on. */
 const WARRANT_WORDS =
   /\b(?:warrant\s+(?:out\s+)?(?:for|on)|apb\s+(?:out\s+)?(?:on|for)|wanted:|arrest|bring\s+in|lock\s+up|jail|detain|apprehend|capture)\s+(.+)/is;
-/** With the name in the middle: "lock Pun Pun up for 10 minutes", "throw Dana Reyes in the brig". */
+/**
+ * With the name in the middle: "lock Pun Pun up for 10 minutes", "throw Dana Reyes in the brig".
+ * The verb is group 1, the name 2, the word after it 3 and what follows 4. Only "lock" takes
+ * "up": "put Dana up for the night shift" is no warrant (see readWarrant).
+ */
 const LOCK_AROUND =
-  /\b(?:lock|throw|put|toss|stick|chuck)\s+(.+?)\s+(?:up\b|in(?:to|side)?\s+(?:the\s+|a\s+)?(?:brig|cells?|jail|lock-?up)\b)(.*)$/is;
+  /\b(lock|throw|put|toss|stick|chuck)\s+(.+?)\s+(up\b|in(?:to|side)?\s+(?:the\s+|a\s+)?(?:brig|cells?|jail|lock-?up)\b)(.*)$/is;
 /** What follows a name when it says what is to be done with them, and gives no reason: "lock him up", "and put them in a cell". */
 const SENTENCE_WORDS =
   /^(?:and\s+|then\s+)?(?:lock|keep|hold|jail|detain|put|throw|leave|brig|arrest|cuff)\s+(?:him|her|them|it)\b/i;
 /** Words that say how soon or how politely, and are no part of anyone's name. */
 const FILLER =
-  /\b(?:right\s+now|right\s+away|at\s+once|on\s+site|on\s+sight|on\s+the\s+spot|thank\s+you|now|please|immediately|asap|quickly|thanks|today)\b/gi;
+  /\b(?:right\s+now|right\s+away|at\s+once|on\s+site|on\s+sight|on\s+the\s+spot|thank\s+you|now|please|pls|plz|pl0x|thx|immediately|asap|quickly|thanks|today)\b/gi;
 /** The other way round: "Pun Pun is wanted", "Joan, Dana Reyes is wanted for theft". Who it is on comes first. */
 const WANTED_AFTER =
   /^(?:[A-Za-z'-]+,\s*)?(.+?)\s+(?:is|are)\s+wanted\b[\s,]*(.*)$/is;
+/** What follows "is wanted" when it means needed somewhere: "Walker is wanted on the bridge", "wanted by the Captain". */
+const WANTED_ELSEWHERE =
+  /^(?:on|in|at|to|up|down|upstairs|downstairs|over|back|here|there|outside|inside|again)\b|^by\b(?!\s+security\b)/i;
 /** What follows those words when nobody was named. */
 const NOT_A_NAME =
   /^(?:him|her|them|that|this|it|the|a|an|any|anyone|someone|somebody|people|everyone|nobody|no|who|what|which|me|you|us|warrants?|is|are|was|were|went|has|have|had|will|would|should|can|could|did|do|does|to|in|on|at|of|and|or|but|for|with|my|your|his|their|our|not|up|down|out|some|more|all|when|if|before|after|while|until|then)\b/i;
@@ -287,17 +308,83 @@ const NUMBER_WORDS = [
   'thirteen',
   'fourteen',
   'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
 ];
-const MINUTES_SAID = new RegExp(
-  `\\b(\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min(?:ute)?s?\\b`,
-  'i',
-);
+const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty'];
+/** The number in a time: "10", "ten", "twenty-five", "thirty five". */
+const NUMBER_SAID = `\\d{1,3}|(?:${TENS.join('|')})(?:[\\s-](?:${NUMBER_WORDS.slice(0, 9).join('|')}))?|${NUMBER_WORDS.join('|')}`;
+/** A time said: "10 minutes", "twenty minutes", "half an hour", "an hour", "2 hours". Not "an hour ago". */
+const TIME_SAID = `(?:(${NUMBER_SAID})\\s*(min(?:ute)?s?|hours?|hrs?)|(an?|one|1)\\s+hour|(?:a\\s+)?(quarter)\\s+(?:of\\s+an\\s+)?hour|(half)\\s+(?:an\\s+)?hour)\\b(?!\\s+ago\\b)`;
+const MINUTES_SAID = new RegExp(`\\b${TIME_SAID}`, 'i');
+
+/** How many minutes the first time said in these words comes to, before any cap. Null if none is said. */
+function minutesIn(text: string): number | null {
+  const found = text.match(MINUTES_SAID);
+  if (!found) {
+    return null;
+  }
+  const [, number, unit, one, quarter] = found;
+  if (!number) {
+    return one ? 60 : quarter ? 15 : 30;
+  }
+  const [first, second] = number.toLowerCase().split(/[\s-]+/);
+  const count = /^\d/.test(first)
+    ? Number(first)
+    : TENS.includes(first)
+      ? (TENS.indexOf(first) + 2) * 10 +
+        (second ? NUMBER_WORDS.indexOf(second) + 1 : 0)
+      : NUMBER_WORDS.indexOf(first) + 1;
+  return /^h/i.test(unit) ? count * 60 : count;
+}
+
+/** A word that turns an order round: "do not arrest", "don't release", "no warrant for", "never". */
+const NEGATION = /\b(?:not|dont|never|no)\b|n't\b|\bhold\s+off\b/i;
+/** How a question begins: "Is there a warrant", "Why did you arrest", "Did your officer arrest". */
+const ASKING =
+  /^(?:is|are|was|were|did|does|has|have|had|why|who|when|where|how)\b/i;
+/** How an order is put politely as a question: "Could you arrest Pun Pun, please?" That is still an order. */
+const POLITE = /^(?:please\s+)?(?:can|could|would|will)\s+you\b/i;
+
+/**
+ * TRUE if the order words that begin at `at` in these words are not an order: a negation stands
+ * in the last few words before them in the same clause ("Joan, do not arrest Dana Reyes"), or
+ * the sentence they are in asks a question ("Is there a warrant for Dana Reyes?", "Why did you
+ * arrest Pun Pun?"). A polite "Could you arrest Pun Pun?" is an order. Only the clause they are
+ * in counts, so "Don't wait, arrest Pun Pun now" and "Don't worry, release Pun Pun" are orders.
+ */
+export function heldBack(text: string, at: number): boolean {
+  const before = text.slice(0, at);
+  const clause = before.slice(
+    Math.max(
+      ...[',', '.', ';', ':', '!', '?'].map((mark) => before.lastIndexOf(mark)),
+    ) + 1,
+  );
+  if (NEGATION.test(clause.trim().split(/\s+/).slice(-3).join(' '))) {
+    return true;
+  }
+  const start =
+    Math.max(...['.', '!', '?'].map((mark) => before.lastIndexOf(mark))) + 1;
+  const stop = text.slice(at).search(/[.!?]/);
+  const sentence = text
+    .slice(start, stop === -1 ? text.length : at + stop + 1)
+    .trim()
+    // Whoever it is said to, by name first: "Joan, is there a warrant ..."
+    .replace(/^[A-Za-z'-]+,\s*/, '');
+  if (POLITE.test(sentence)) {
+    return false;
+  }
+  return sentence.endsWith('?') || ASKING.test(sentence);
+}
 
 /**
  * Reads a warrant out of what was said or sent: who it is on, what for if that was said, and how
  * long in a cell if that was said. `known` is everyone the reader knows of by name, so that a
  * full name is taken whole and a first name alone finds its owner. Null if these words declare
- * no warrant.
+ * no warrant, and null if they say not to arrest someone or ask about a warrant: those are left
+ * to the LLM reader.
  */
 export function readWarrant(
   written: string,
@@ -305,9 +392,22 @@ export function readWarrant(
 ): { name: string; reason: string; minutes: number | null } | null {
   const text = mendWords(written, known);
   const found = text.match(WARRANT_WORDS);
-  const around = found ? null : text.match(LOCK_AROUND);
+  const locked = found ? null : text.match(LOCK_AROUND);
+  // "Put Dana up for the night shift": only "lock" takes "up".
+  const around =
+    locked && (!/^up$/i.test(locked[3]) || /^lock$/i.test(locked[1]))
+      ? locked
+      : null;
   const turned = found || around ? null : text.trim().match(WANTED_AFTER);
   if (!found && !around && !turned) {
+    return null;
+  }
+  // "Walker is wanted on the bridge" is wanted somewhere, not by security.
+  if (turned && WANTED_ELSEWHERE.test(turned[2].trim())) {
+    return null;
+  }
+  // "Do not arrest Pun Pun", "Is there a warrant for Dana Reyes?": no warrant.
+  if (heldBack(text, found?.index ?? around?.index ?? text.search(/\S/))) {
     return null;
   }
   // "Pun Pun is wanted for theft" is read as "Pun Pun, for theft", and "lock Pun Pun up for 10
@@ -316,7 +416,7 @@ export function readWarrant(
     found
       ? found[1]
       : around
-        ? `${around[1]}${around[2]}`
+        ? `${around[2]}${around[4]}`
         : `${turned?.[1] ?? ''}${turned?.[2] ? `, ${turned[2]}` : ''}`
   )
     .replace(FILLER, ' ')
@@ -326,12 +426,7 @@ export function readWarrant(
   if (NOT_A_NAME.test(rest)) {
     return null;
   }
-  const said = rest.match(MINUTES_SAID)?.[1].toLowerCase();
-  const number = said
-    ? /^\d/.test(said)
-      ? Number(said)
-      : NUMBER_WORDS.indexOf(said) + 1
-    : null;
+  const number = minutesIn(rest);
   const minutes =
     number === null ? null : Math.min(MINUTES_MOST, Math.max(1, number));
   // Someone it knows of, named in full, is taken whole.
@@ -343,10 +438,11 @@ export function readWarrant(
   if (name) {
     after = rest.slice(name.length);
   } else {
-    // Anyone else is named by the words up to where the reason or the time begins.
+    // Anyone else is named by the words up to where the reason or the time begins, or a word
+    // that is no part of a name: "Pun Pun in the bar", "Pun Pun who wrecked it", "Pun Pun - theft".
     const cut = rest.search(
       new RegExp(
-        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min`,
+        `[,.:;!?]|\\s+for\\s+|\\s+(?:and|then|but)\\s+|\\s+${TIME_SAID}|\\s+(?:who|which|that|whom|he|she|they|it|in|at|on|by|near|inside|is|was|are|has|had|because|since|as|after|before|again)\\b|\\s+[-–](?:\\s|$)`,
         'i',
       ),
     );
@@ -379,15 +475,7 @@ export function readWarrant(
   }
   const why = after.match(/^[\s,:]*(?:for\s+)?(.*)/is)?.[1] ?? '';
   const reason = tidyReason(
-    why
-      .split(/[.!?]/)[0]
-      .replace(
-        new RegExp(
-          `\\b(?:\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*min(?:ute)?s?\\b.*$`,
-          'i',
-        ),
-        '',
-      ),
+    why.split(/[.!?]/)[0].replace(new RegExp(`\\b${TIME_SAID}.*$`, 'i'), ''),
   )
     // What is left of "for 15 minutes" once the time is taken out of it.
     .replace(/(?:^|\s+)(?:for|for about|about)$/i, '');
@@ -399,23 +487,38 @@ export function readWarrant(
   };
 }
 
+/** The ways a time held is said of someone already named: "Keep him in jail for 10 minutes", "Give him 10 minutes", "Make it 10 minutes", "10 minutes for him". */
+const TERM_SHAPES = [
+  new RegExp(
+    `\\b(?:keep|hold|lock|jail|brig|give|put|leave)\\s+(?:him|her|them|that\\s+one)\\b(?:\\s+[\\w']+){0,4}?\\s+(?:for\\s+)?${TIME_SAID}`,
+    'i',
+  ),
+  new RegExp(`^(?:\\w+,\\s*)?make\\s+(?:it|that)\\s+${TIME_SAID}\\W*$`, 'i'),
+  new RegExp(
+    `\\b${TIME_SAID}\\s+(?:for|on)\\s+(?:him|her|them|that\\s+one)\\b`,
+    'i',
+  ),
+];
+
 /**
  * Reads how long someone is to be held out of words that name nobody: "Keep him in jail for 30
  * minutes", sent after the warrant. `asked` is what was said, `minutes` what a cell's timer
- * allows of it. Null if these words give no time, or do not speak of anyone.
+ * allows of it. Null if these words give no time held, or ask a question: "It's been 10 minutes,
+ * where is he?", "Give it ten minutes and then search the bar" and "Tell them the meeting is in 5
+ * minutes" are no term.
  */
 export function readTerm(
   written: string,
 ): { minutes: number; asked: number } | null {
-  const text = mendWords(written);
-  if (!/\b(?:him|her|them|it|that\s+one)\b/i.test(text)) {
+  const text = mendWords(written).trim();
+  if (text.endsWith('?')) {
     return null;
   }
-  const said = text.match(MINUTES_SAID)?.[1].toLowerCase();
-  if (!said) {
+  const found = TERM_SHAPES.map((shape) => text.match(shape)).find(Boolean);
+  const asked = found ? minutesIn(found[0]) : null;
+  if (asked === null) {
     return null;
   }
-  const asked = /^\d/.test(said) ? Number(said) : NUMBER_WORDS.indexOf(said) + 1;
   return { minutes: Math.min(MINUTES_MOST, Math.max(1, asked)), asked };
 }
 
@@ -466,11 +569,20 @@ export const REFUSALS = {
     `${to}, only the Captain can declare a warrant on a head of department.`,
   already: (to: string, name: string) =>
     `${to}, there is already a warrant on ${name}.`,
+  whichOne: (to: string, names: string[]) =>
+    `${to}, there are ${names.length === 2 ? 'two' : 'several'} by that name: ${listed(names.slice(0, 4))}. Which one?`,
   toDesk: (to: string, desk: string) =>
     `${to}, warrants go to ${desk}, the Head of Security.`,
   notPardoner: (to: string) => `${to}, a pardon is the Captain's to give.`,
   notYours: (to: string) => `${to}, that warrant is not yours to take back.`,
+  noName: (to: string) =>
+    `${to}, I cannot take a warrant on Unknown: that is anyone with their face hidden. Tell me who it is.`,
 };
+
+/** TRUE if a name is no name: "Unknown", as anyone with their face hidden and no ID on show is seen, or nothing at all. */
+export function isNoName(name: string): boolean {
+  return /^\s*(?:unknown(?:\s*\(.*\))?)?\s*$/i.test(name);
+}
 
 // ---- the notice to the heads
 
@@ -609,7 +721,7 @@ export function noWarrantLine(to: string, name: string): string {
 
 /** Security's answer to the Captain or a head whose message it could make nothing of. Nobody is left guessing at the words. */
 export function notFollowedLine(to: string): string {
-  return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name.`;
+  return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.`;
 }
 
 /** How a report begins that is sent by PDA by someone whose own work keeps them from a staff meeting. */
@@ -628,15 +740,23 @@ export function giveLine(
   name: string,
   reason: string,
   minutes: number,
+  byCaptain = false,
 ): string {
-  return `${firstName(to)}, warrant: ${onWhom(name, reason)}. Bring them in, ${minutes} minutes.`;
+  return `${firstName(to)}, warrant: ${onWhom(name, reason)}. Bring them in, ${minutes} minutes.${byCaptain ? ` ${BY_CAPTAIN}` : ''}`;
 }
 export const GIVE_WORDS = /\bwarrant: (.+?)\. Bring them in, (\d+) minutes\b/i;
+/** Said after a warrant given that the Captain declared. Only such a warrant is served on a head of staff. */
+const BY_CAPTAIN = 'The Captain declared it.';
+const BY_CAPTAIN_WORDS =
+  /\bBring them in, \d+ minutes\. The Captain declared it\b/i;
 
 /** Reads a warrant as the Head of Security gives it. Null if these words are not one. */
-export function readGiven(
-  text: string,
-): { name: string; reason: string; minutes: number } | null {
+export function readGiven(text: string): {
+  name: string;
+  reason: string;
+  minutes: number;
+  byCaptain: boolean;
+} | null {
   const found = text.match(GIVE_WORDS);
   if (!found) {
     return null;
@@ -646,6 +766,7 @@ export function readGiven(
     name: cut === -1 ? found[1] : found[1].slice(0, cut),
     reason: cut === -1 ? '' : found[1].slice(cut + 6),
     minutes: Number(found[2]),
+    byCaptain: BY_CAPTAIN_WORDS.test(text),
   };
 }
 
@@ -664,6 +785,17 @@ export function letGoLine(to: string, name: string, pardoned: boolean): string {
   return `${firstName(to)}, ${name} is to be let go: ${pardoned ? 'the Captain has pardoned them' : 'the warrant is withdrawn'}.`;
 }
 export const LET_GO_WORDS = /^\S+, (.+?) is to be let go\b/i;
+
+/**
+ * The Head of Security telling its officer that a warrant the officer may still hold has been
+ * served by someone else: the person is in a cell. The officer gives its copy up, and lets
+ * nobody go.
+ */
+export function servedLine(to: string, name: string): string {
+  return `${firstName(to)}, ${name} is in a cell: the warrant is served.`;
+}
+export const SERVED_WORDS =
+  /^\S+, (.+?) is in a cell: the warrant is served\b/i;
 
 /** The Head of Security telling its officer, who broke off hurt, to make arrests again. */
 export function againLine(to: string): string {
@@ -776,10 +908,91 @@ export const ARREST_WORDS = /\byou are under arrest\b/i;
 
 /** The words by which the Captain pardons someone, and a head takes back a warrant of its own. */
 export const PARDON_WORDS = /\b(?:pardon|release|let go|set free|free)\b/i;
+/**
+ * The words by which a warrant is taken back. The verb has to be bound to the warrant: two words
+ * at most between them ("Cancel the warrant on Pun Pun", "Drop Pun Pun's warrant", "Call off the
+ * arrest of Pun Pun"), or the warrant said to be withdrawn at the end of its clause ("The warrant
+ * on Pun Pun is withdrawn", "Pun Pun's warrant is cancelled"), or "Forget the warrant" first
+ * thing. "Drop everything, the warrant on Pun Pun comes first" and "Call off your patrol, I have
+ * a warrant for Dana Reyes" are no taking back. See cancelAsked for a negation or a question.
+ */
 export const CANCEL_WORDS =
-  /\b(?:cancel|withdraw|drop|call off|take back)\b.*\bwarrant\b/i;
+  /\b(?:cancel(?:l?ed)?|withdraw|drop|call(?:ed)?\s+off|take\s+back|lift)\s+(?:(?:[\w'-]+\s+){0,2}warrant|(?:the|that|this|my|your)\s+arrest)\b|\b(?:warrant|arrest)\b[^.!?;,]*?\b(?:is|be|was|been|are)\s+(?:cancel(?:l?ed)?|withdrawn?|dropped|lifted|called\s+off|void(?:ed)?)(?:\s+now)?\s*(?:[.!?,;]|$)|^\W*(?:[A-Za-z'-]+,\s*)?forget\s+(?:about\s+)?the\s+(?:warrant|arrest)\b/i;
+
+/**
+ * TRUE if these words take a warrant back: CANCEL_WORDS, and not said not to or asked about
+ * ("Don't cancel the warrant on Pun Pun", "Did you withdraw the warrant?").
+ */
+export function cancelAsked(text: string): boolean {
+  const found = text.match(CANCEL_WORDS);
+  return !!found && !heldBack(text, found.index ?? 0);
+}
 /** The words by which the Captain has security make arrests again after its staff were hurt. */
 export const TRY_AGAIN_WORDS = /\btry again\b/i;
+
+/** One of these names, if these words are that name, in full or a letter or two out. */
+function nameOf(words: string[], names: string[]): string | undefined {
+  const said = words.join(' ').toLowerCase();
+  if (!said) {
+    return undefined;
+  }
+  return (
+    names.find((name) => nameWords(name).join(' ') === said) ??
+    closeName(said, names)
+  );
+}
+
+/**
+ * Who of these names a pardon is for: the name has to come right after the word ("Pardon Pun
+ * Pun", "Release Dana", "Set free Pun Pun"), or between the words ("Let Pun Pun go", "Set Dana
+ * Reyes free"). Null if no pardon word has one of these names by it, or if the one it has is
+ * said not to be let go or asked about ("Don't release Pun Pun", "Did you free Pun Pun?"). "Pun
+ * Pun broke free of the cuffs" names nobody after "free", so it is no pardon.
+ */
+export function readPardon(text: string, names: string[]): string | null {
+  for (const verb of text.matchAll(
+    /\b(?:pardon|release|set\s+free|free|let|set)\b/gi,
+  )) {
+    const at = verb.index ?? 0;
+    if (heldBack(text, at)) {
+      continue;
+    }
+    // The words after it, up to the end of the clause.
+    const after = text.slice(at + verb[0].length);
+    const stop = after.search(/[,.;:!?]/);
+    const words = nameWords(stop === -1 ? after : after.slice(0, stop)).slice(
+      0,
+      6,
+    );
+    const word = verb[0].toLowerCase();
+    if (word === 'let' || word === 'set') {
+      // "Let Pun Pun go", "set Dana Reyes free": the name is what comes between.
+      const end = words.indexOf(word === 'let' ? 'go' : 'free');
+      const meant = end > 0 ? nameOf(words.slice(0, end), names) : undefined;
+      if (meant) {
+        return meant;
+      }
+      continue;
+    }
+    // "Pardon Pun Pun", "release the Pun Pun": the name, with one word at most before it.
+    for (let start = 0; start <= 1; start++) {
+      for (let size = Math.min(4, words.length - start); size > 0; size--) {
+        const meant = nameOf(words.slice(start, start + size), names);
+        if (meant) {
+          return meant;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** TRUE if these words use the word "pardon" as an ask, not to say no to one or to ask about one. */
+export function pardonAsked(text: string): boolean {
+  return [...text.matchAll(/\bpardon\b/gi)].some(
+    (word) => !heldBack(text, word.index ?? 0),
+  );
+}
 
 /** Who a pardon names when they are nobody security has anything against: the words after "pardon". */
 export function pardonNamed(text: string): string {
@@ -814,9 +1027,9 @@ export const LET_IN_WORDS = /\ba warrant for\b.*\bCould you let me in\b/i;
 
 // ---- an order that code could make nothing of, put to the LLM
 
-/** What the LLM made of an order: what it is, who it names as the order wrote them, and for how long. */
+/** What the LLM made of an order: what it is and who it names as the order wrote them, with the minutes code read from the order. */
 export type Reading = {
-  kind: 'warrant' | 'pardon' | 'neither';
+  kind: 'warrant' | 'pardon' | 'withdraw' | 'neither';
   name: string;
   minutes: number;
 };
@@ -839,19 +1052,20 @@ export function buildReading(text: string): {
       'You read one message sent to the security office of a space station and say what it asks for. Reply with one JSON object and nothing else.',
     user: [
       `Message: "${text.replace(/"/g, "'").slice(0, READING_MAX)}"`,
-      'Does it ask for someone to be arrested, locked up or put on the wanted list ("warrant")? Does it ask for someone to be let go, freed or forgiven ("pardon")? Or is it something else ("neither")?',
-      '"kind": warrant, pardon or neither.',
+      'Does it ask for someone to be arrested, locked up or put on the wanted list ("warrant")? Does it ask for someone to be let go, freed or forgiven ("pardon")? Does it take back a warrant, or call off an arrest, asked for before ("withdraw")? Or is it something else ("neither")?',
+      '"kind": warrant, pardon, withdraw or neither.',
       '"name": the name of that person, spelt as the message spells it. "" if it names nobody.',
-      '"minutes": how many minutes in a cell the message says. 0 if it does not say.',
     ].join('\n'),
     schema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['warrant', 'pardon', 'neither'] },
+        kind: {
+          type: 'string',
+          enum: ['warrant', 'pardon', 'withdraw', 'neither'],
+        },
         name: { type: 'string', maxLength: NAME_MAX },
-        minutes: { type: 'integer' },
       },
-      required: ['kind', 'name', 'minutes'],
+      required: ['kind', 'name'],
     },
   };
 }
@@ -862,13 +1076,17 @@ export function buildReading(text: string): {
  * and cannot make one up.
  */
 export function readReading(reply: string, text: string): Reading | null {
-  let body: { kind?: unknown; name?: unknown; minutes?: unknown };
+  let body: { kind?: unknown; name?: unknown };
   try {
     body = JSON.parse(reply);
   } catch {
     return null;
   }
-  if (body.kind !== 'warrant' && body.kind !== 'pardon') {
+  if (
+    body.kind !== 'warrant' &&
+    body.kind !== 'pardon' &&
+    body.kind !== 'withdraw'
+  ) {
     return null;
   }
   const name = tidyName(typeof body.name === 'string' ? body.name : '');
@@ -877,19 +1095,21 @@ export function readReading(reply: string, text: string): Reading | null {
   if (words.length === 0 || !words.every((word) => written.includes(word))) {
     return null;
   }
-  const minutes = Number(body.minutes);
+  // The minutes are read from the message by code, as readWarrant reads them, never taken from
+  // the LLM: 0 when the message gives no time, so the usual term applies (BRAIN-11).
+  const said = minutesIn(text);
   return {
     kind: body.kind,
     name,
-    minutes:
-      Number.isFinite(minutes) && minutes >= 1
-        ? Math.min(MINUTES_MOST, Math.round(minutes))
-        : 0,
+    minutes: said === null ? 0 : Math.min(MINUTES_MOST, Math.max(1, said)),
   };
 }
 
 /** A reading put into the words code reads, so that it is taken exactly as an order in those words would be. */
 export function readingAsOrder(reading: Reading): string {
+  if (reading.kind === 'withdraw') {
+    return `Cancel the warrant on ${reading.name}.`;
+  }
   return reading.kind === 'pardon'
     ? `Pardon ${reading.name}.`
     : `Warrant for ${reading.name}${reading.minutes ? `, ${reading.minutes} minutes` : ''}.`;
@@ -920,3 +1140,7 @@ export function couldNotLine(to: string, name: string, place: string): string {
   return `${firstName(to)}, I could not put ${name} out of the ${place}.`;
 }
 export const COULD_NOT_WORDS = /\bI could not put (.+?) out of the /i;
+/** The same, of someone whose face was hidden: there is no name to declare a warrant on, so the head is only told. */
+export function hiddenLine(to: string, place: string): string {
+  return `${firstName(to)}, someone with their face hidden would not leave the ${place}.`;
+}

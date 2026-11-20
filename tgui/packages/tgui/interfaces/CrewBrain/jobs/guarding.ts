@@ -49,6 +49,14 @@ const VOUCH_WORDS = /did you (ask|call|send|let|tell|invite)/;
 /** What a no and a yes sound like. A line with both in it is a no: "no, I did not". */
 const NO_WORDS = /\b(no|nope|not|never|didn'?t)\b/;
 const YES_WORDS = /\b(yes|yeah|yep|aye|i did|i have|correct)\b/;
+/** Set phrases with a no-word in them that mean nothing of the kind. */
+const SET_PHRASES =
+  /\bno (?:problem|worries|trouble|bother)\b|\bno need\b[^.!?]*|\bnot (?:yet|done|finished)\b|\bnot a problem\b/g;
+/** An answer that begins, after a name and a comma, with a no or a yes. */
+const BEGINS_NO =
+  /^\W*(?:\w+,\s*)?(?:no|nope|never|i did not|i didn'?t|not me)\b/;
+const BEGINS_YES =
+  /^\W*(?:\w+,\s*)?(?:yes|yeah|yep|aye|i did|i have|correct|sure|of course)\b/;
 /** What owning up to having no reason to be in a room sounds like. */
 const NO_REASON_WORDS =
   /nobody|no one|should not be|shouldn'?t be|no business|no reason|just looking|only looking|lost/;
@@ -69,12 +77,29 @@ const SENT_FOR_DS = 12000;
 const QUESTION_STANDS_DS = 600;
 /** How long (deciseconds) someone whose welcome is over is given to go before they are seen out. */
 const WELCOME_GRACE_DS = 600;
-/** The words by which someone the NPC answers to tells it to leave the room it is in. */
-const LEAVE_WORDS =
-  /\b(leave|get out|go away|clear off|clear out|out of here|out you go|off you go|not authori[sz]ed|unauthori[sz]ed)\b/;
-/** The words by which someone the NPC answers to tells it to put someone out of its post. */
-const PUT_OUT_WORDS =
-  /\b(toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b.*\bout\b|\bremove\b|\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
+/** How long (deciseconds), at most, security let in on a warrant are left to serve it (ARR-02). */
+const WARRANT_WELCOME_DS = 3000;
+/** Words taken off a clause before it is read as an order to leave: they do not change what is meant. */
+const LEAVE_FILLER =
+  /\b(please|right now|at once|now|immediately|just|ok|okay)\b/g;
+/** A clause that has a no in it is not an order to go: "don't leave the bar until it is clean". */
+const LEAVE_NOT = /\b(not|don'?t|do not|dont|never|no need to)\b/;
+/**
+ * The words by which someone the NPC answers to tells it to put someone out of its post: a verb
+ * and "out", with whom between them or just after ("get him out", "throw out the clown"), or
+ * "remove" and whom.
+ */
+const PUT_OUT_VERB =
+  /\b(?:toss|throw|kick|get|take|walk|haul|drag|escort|chuck|boot|see|put)\b([^.,!?;]*?)\bout\b([^.,!?;]*)/g;
+/** "Remove" and whatever it is done to, up to the next "from", "of" or the like: "remove the crates from the janitor's closet" removes crates. */
+const REMOVE_VERB =
+  /\bremove\b((?:(?!\b(?:from|of|to|in|on|onto|into|at|by|with|for)\b)[^.,!?;])*)/g;
+/** Words that say someone has no right to be there. They put nobody out unless the line says who. */
+const NO_RIGHT_WORDS =
+  /\b(not|un)\s?authori[sz]ed\b|\bno business\b|\btrespass/;
+/** Words that point at someone without naming them. They mean the one stranger in the post, if there is just one. */
+const POINTING_WORDS =
+  /\b(him|her|them|he|she|that one|this one|that person|this person|that guy|this guy)\b/;
 /** How long (milliseconds) it keeps out of a room it was told to leave, and does no work there. */
 const KEPT_OUT_MS = 600000;
 /** How long (milliseconds) being told to leave stands, if it cannot get out. */
@@ -115,6 +140,61 @@ export function has(...parts: (string | RegExp)[]): RegExp {
 }
 
 /**
+ * TRUE if these words, in lower case, tell the NPC to leave the room it is in. A clause of the
+ * line, with its name and "please" taken off, must be the order and nothing else: "Tolly, leave.",
+ * "Leave the bar, Tolly.", "Get out of here.", "Off you go.", "Tolly, you are not authorized in
+ * here." A word like "leave" or "out of here" anywhere else is not one: "don't leave the bar until
+ * it is clean", "leave the mop bucket by the door", "get that vomit out of here", "I have to leave
+ * now", "I cannot get out of here by myself".
+ */
+export function toldToLeaveHere(brain: NpcBrain, heard: string): boolean {
+  const names = brain.name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const room = (brain.location ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '.')
+    .trim();
+  const place = `(here|this room|this place|(this|the|my|our) (room|office)${room ? `|(the )?${room}` : ''})`;
+  const orders = [
+    // "Leave.", "Leave the bar.", "Leave us."
+    new RegExp(`^leave( ${place}| us| me)?$`),
+    // "Get out.", "Get out of here.", "Out.", "Off you go.", "Clear out of the bar."
+    new RegExp(
+      `^(get out|go away|clear off|clear out|off you go|out you go|out|go on out)( of ${place})?$`,
+    ),
+    // "You need to leave.", "You have to go now."
+    new RegExp(
+      `^you (need|have|ought|got|must|will have) (to )?(leave|go)( ${place})?$`,
+    ),
+  ];
+  // "You are not allowed in here." The one order with a "not" in it.
+  const notAllowed = new RegExp(
+    `^(you are not|you aren'?t|you'?re not) (allowed|authori[sz]ed|permitted|supposed to be)( to be)? (in )?${place}$`,
+  );
+  return heard
+    .replace(/[‘’]/g, "'")
+    .split(/[.,!?;:]+/)
+    .some((part) => {
+      let clause = ` ${part} `;
+      for (const name of names) {
+        clause = clause.replace(new RegExp(`\\b${name}\\b`, 'g'), ' ');
+      }
+      clause = clause.replace(LEAVE_FILLER, ' ').replace(/\s+/g, ' ').trim();
+      if (!clause) {
+        return false;
+      }
+      if (notAllowed.test(clause)) {
+        return true;
+      }
+      return (
+        !LEAVE_NOT.test(clause) && orders.some((order) => order.test(clause))
+      );
+    });
+}
+
+/**
  * A wait that is the same every time for one NPC and different from one NPC to the next, so that
  * two of them who see the same thing at the same moment do not both speak up about it at once.
  */
@@ -137,9 +217,64 @@ function recordOf(brain: NpcBrain, name: string): Stranger {
   return brain.strangers[name];
 }
 
-/** Notes that the NPC has sent for someone, or let them into its post. */
-export function noteSentFor(brain: NpcBrain, name: string): void {
+/**
+ * Why the NPC let someone in, when it was for more than a mess: security let in on a warrant, and
+ * on whom if they said. By post, for all who keep it to go by, as with whom the department let in
+ * (expected.ts): a workmate who did not open the door would otherwise see the officer out a minute
+ * later. Then by whom it let in. Kept here and not on the brain, since nothing but the welcome
+ * reads it.
+ */
+type LetInWhy = { warrant: true; on?: string; at: number };
+const letInWhy = new Map<string, Map<string, LetInWhy>>();
+const whyKey = (brain: NpcBrain) => brain.post ?? `npc:${brain.id}`;
+
+/**
+ * Notes that the NPC has sent for someone, or let them into its post. Security let in to serve a
+ * warrant say so at the door ("with a warrant for X"); `why.warrant` holds X, or TRUE if they named
+ * nobody. Their welcome then lasts while the warrant is being served (see warrantStands).
+ */
+export function noteSentFor(
+  brain: NpcBrain,
+  name: string,
+  why?: { warrant?: string | true },
+): void {
   brain.sentFor[name] = brain.now;
+  const mine = letInWhy.get(whyKey(brain)) ?? new Map<string, LetInWhy>();
+  letInWhy.set(whyKey(brain), mine);
+  if (why?.warrant) {
+    mine.set(name, {
+      warrant: true,
+      on: typeof why.warrant === 'string' ? why.warrant : undefined,
+      at: brain.now,
+    });
+  } else {
+    mine.delete(name);
+  }
+}
+
+/**
+ * TRUE while someone let in on a warrant is still serving it: for WARRANT_WELCOME_DS from being let
+ * in, unless the one the warrant is on is seen in cuffs, or seen gone from the post and its rooms.
+ * The keeper cannot know the officer's list; it knows only what it was told at the door and what it
+ * sees. A general rule for whoever keeps a locked room, not for cargo alone.
+ */
+function warrantStands(brain: NpcBrain, name: string): boolean {
+  const why = letInWhy.get(whyKey(brain))?.get(name);
+  if (!why || brain.now - why.at > WARRANT_WELCOME_DS) {
+    return false;
+  }
+  const on = why.on?.toLowerCase();
+  const target = on
+    ? brain.peopleInView.find((person) => person.name.toLowerCase() === on)
+    : undefined;
+  if (target?.cuffed) {
+    return false;
+  }
+  const gone =
+    !!target &&
+    !target.in_post &&
+    !(target.place !== undefined && brain.closedRooms.includes(target.place));
+  return !gone;
 }
 
 /** TRUE if the NPC sent for this person, or let them in, not long ago. */
@@ -167,6 +302,22 @@ function welcomeStands(brain: NpcBrain, name: string): boolean {
   );
 }
 
+/** How long (deciseconds) an ask to be let out counts as being on the way out: as long as the ask stands (LET_OUT_ASK_DS in cargo.ts). */
+const ASKED_OUT_DS = 3000;
+
+/**
+ * TRUE if this person has asked the NPC to be let out, lately: they are on their way. Any of their
+ * asks is looked at, not only the newest: a second janitor asking a few seconds later used to
+ * leave the first one to be walked out at the door it was waiting at (KNA-01).
+ */
+function askingOut(brain: NpcBrain, name: string): boolean {
+  const asks = brain.doorAsks ?? (brain.doorAsked ? [brain.doorAsked] : []);
+  return asks.some(
+    (ask) =>
+      ask.name === name && !!ask.out && brain.now - ask.at < ASKED_OUT_DS,
+  );
+}
+
 /** How someone the NPC answers to is spoken to: the Captain by rank, anyone else by first name. */
 function titleOf(brain: NpcBrain, name: string): string {
   const job = brain.peopleInView.find((seen) => seen.name === name)?.job ?? '';
@@ -174,12 +325,12 @@ function titleOf(brain: NpcBrain, name: string): string {
 }
 
 /**
- * Whoever in the post an order to put someone out means: someone named, failing that someone
- * spoken of by their job ("this janitor"), and failing that the only person in there who does not
- * belong. Null if it is not clear who is meant.
+ * Whoever in the post these words point at: someone named, failing that someone spoken of by their
+ * job ("this janitor"), and failing that, if the words say "him", "her" or "that one", the only
+ * person in there who does not belong. Null if they point at nobody: "the crates", "the mail".
  */
-function strangerMeant(brain: NpcBrain, heard: string): string | null {
-  const named = strangerNamedIn(brain, heard);
+function strangerMeant(brain: NpcBrain, words: string): string | null {
+  const named = strangerNamedIn(brain, words);
   if (named) {
     return named;
   }
@@ -190,12 +341,46 @@ function strangerMeant(brain: NpcBrain, heard: string): string | null {
     person.job
       .toLowerCase()
       .split(/[^a-z]+/)
-      .some((word) => word.length > 3 && new RegExp(`\\b${word}s?\\b`).test(heard)),
+      .some((word) => word.length > 3 && new RegExp(`\\b${word}s?\\b`).test(words)),
   );
   if (byJob.length === 1) {
     return byJob[0].name;
   }
-  return inPost.length === 1 ? inPost[0].name : null;
+  return inPost.length === 1 && POINTING_WORDS.test(words)
+    ? inPost[0].name
+    : null;
+}
+
+/**
+ * Whom these words, in lower case, order put out of the post, or null if they are no such order.
+ * The person must be what the verb is done to: "get him out", "put Tolly out", "throw out the
+ * clown", "remove him", or the one said to have no right there: "Tolly has no business here". A
+ * line about things ("take the crates out", "get the mail out") puts nobody out, and nor does a
+ * bare "get out of here", which is said to the stranger, who heard it.
+ */
+function putOutMeant(brain: NpcBrain, heard: string): string | null {
+  for (const match of heard.matchAll(PUT_OUT_VERB)) {
+    const between = match[1].trim();
+    const after = match[2].trim();
+    // Whom is between the verb and "out", or straight after "out" when nothing is between:
+    // "throw out the clown". Not after "out of" or "out to": "take the crates out to the janitor".
+    const words = between
+      ? between
+      : /^(of|to|from|on|onto|in|into|at|for|by|with)\b/.test(after)
+        ? ''
+        : after;
+    const target = words ? strangerMeant(brain, words) : null;
+    if (target) {
+      return target;
+    }
+  }
+  for (const match of heard.matchAll(REMOVE_VERB)) {
+    const target = match[1].trim() ? strangerMeant(brain, match[1]) : null;
+    if (target) {
+      return target;
+    }
+  }
+  return NO_RIGHT_WORDS.test(heard) ? strangerMeant(brain, heard) : null;
 }
 
 /** TRUE if this is a room the NPC has been told to leave, or is keeping out of since: it does no work there. */
@@ -296,21 +481,100 @@ function workmateNamedIn(
   heard: string,
   except: string[],
 ): string | null {
+  // The NPC's own name used to speak to it ("Donna, the QM sent me") names nobody (PARSE-07).
+  const line = unaddressed(heard, brain.name);
   const others = [...brain.workmates].filter(
     (name) => !except.includes(name) && name !== brain.name,
   );
+  // A job named ("the QM sent me") is the one workmate who holds it.
+  const byJob = (name: string) => {
+    const job = jobOf(brain, name);
+    return (
+      !!job &&
+      jobWords(job).test(line) &&
+      others.filter((other) => jobOf(brain, other) === job).length === 1
+    );
+  };
   return (
-    others.find((name) => namesPerson(heard, name)) ??
-    (namesPerson(heard, brain.name) ? brain.name : null)
+    others.find((name) => byName(line, name)) ??
+    others.find(byJob) ??
+    (byName(line, brain.name) ? brain.name : null)
   );
 }
 
+/** Openers before a name that is only speaking to someone: "hi Donna", "sorry Donna". */
+const ADDRESS_OPENERS = 'hi|hey|hello|sorry|ok|okay|oh|yes|yeah|well|look';
+
+/** These words, in lower case, with this person's first name taken out where it only speaks to them. */
+function unaddressed(heard: string, name: string): string {
+  const first = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .find((part) => part.length > 2);
+  if (!first) {
+    return heard;
+  }
+  return heard
+    .replace(new RegExp(`^\\W*(?:${ADDRESS_OPENERS})\\W+${first}\\b`), '')
+    .replace(new RegExp(`^\\W*${first}\\s*[,!:.]`), '')
+    .replace(new RegExp(`,\\s*${first}\\b(?=\\s*[,.!?]|\\s*$)`, 'g'), '');
+}
+
+/** TRUE if these words name this person: by first name, full name, or "Mr/Mrs/Ms" and surname. */
+function byName(heard: string, name: string): boolean {
+  const parts = name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((part) => part.length > 2);
+  const [first, last] = [parts[0], parts[parts.length - 1]];
+  return (
+    (!!first && new RegExp(`\\b${first}\\b`).test(heard)) ||
+    (!!last && new RegExp(`\\b(?:mr|mrs|ms|miss)\\.? ${last}\\b`).test(heard))
+  );
+}
+
+/** The job this NPC knows someone by, from seeing them or its PDA list, or ''. */
+function jobOf(brain: NpcBrain, name: string): string {
+  return (
+    brain.peopleInView.find((person) => person.name === name)?.job ??
+    brain.pdaPeople.find((person) => person.name === name)?.job ??
+    ''
+  );
+}
+
+/** Short names the crew use for jobs. */
+const JOB_SHORT: Record<string, string> = {
+  quartermaster: 'qm',
+  'head of personnel': 'hop',
+  'chief engineer': 'ce',
+  'head of security': 'hos',
+  'chief medical officer': 'cmo',
+  'research director': 'rd',
+  'cargo technician': 'cargo tech',
+};
+
+/** A job's title, or its short name, as a word. */
+function jobWords(job: string): RegExp {
+  const title = job.toLowerCase();
+  const short = JOB_SHORT[title];
+  return new RegExp(`\\b(?:${title}${short ? `|${short}` : ''})\\b`);
+}
+
 /** What a yes-or-no answer, in lower case, comes to, or null if it is neither. */
-function yesOrNo(heard: string): boolean | null {
-  if (NO_WORDS.test(heard)) {
+export function yesOrNo(heard: string): boolean | null {
+  // "No problem", "not done yet" and the like are no no (SECT-09).
+  const line = heard.replace(SET_PHRASES, ' ');
+  // How the answer begins settles it, the no first: "I did not" begins with "I did".
+  if (BEGINS_NO.test(line)) {
     return false;
   }
-  return YES_WORDS.test(heard) ? true : null;
+  if (BEGINS_YES.test(line)) {
+    return true;
+  }
+  if (NO_WORDS.test(line)) {
+    return false;
+  }
+  return YES_WORDS.test(line) ? true : null;
 }
 
 /** Makes sure there is a task of this kind about this person or thing, and none about any other. */
@@ -345,7 +609,13 @@ export function syncGuarding(brain: NpcBrain): void {
     for (const person of brain.peopleInView) {
       if (person.belongs) {
         brain.workmates.add(person.name);
-      } else if (person.in_post) {
+      } else if (
+        person.in_post &&
+        // Someone seen to belong earlier in the round is a workmate whose card no longer opens
+        // the door, not a stranger (MULTI-03). Unless a superior has ordered them out.
+        (!brain.workmates.has(person.name) ||
+          !!brain.strangers[person.name]?.orderedBy)
+      ) {
         recordOf(brain, person.name).lastSeenAt = brain.now;
       }
     }
@@ -353,8 +623,10 @@ export function syncGuarding(brain: NpcBrain): void {
   for (const [name, stranger] of Object.entries(brain.strangers)) {
     const seen = brain.peopleInView.find((person) => person.name === name);
     // Seen outside the room, or not seen for a good while: they are gone, and so is the matter.
+    // A workmate is no stranger, unless ordered out.
     if (
       (seen && (!seen.in_post || seen.belongs)) ||
+      (brain.workmates.has(name) && !stranger.orderedBy) ||
       brain.now - stranger.lastSeenAt > GONE_DS
     ) {
       delete brain.strangers[name];
@@ -367,12 +639,14 @@ export function syncGuarding(brain: NpcBrain): void {
     // Sent for, they may stay for as long as what they were sent for lasts. Once the mess is
     // gone, with nothing further in left for them, their welcome is over. They are given a
     // little while to go, and anyone who is already asking for the door is on their way.
+    // Security let in on a warrant are welcome while they serve it: an officer walked out by
+    // the arm a minute after being let in took the hold for an attack (ARR-02).
     if (stranger.verdict === 'stay' && stranger.sent) {
-      if (welcomeStands(brain, name)) {
+      if (welcomeStands(brain, name) || warrantStands(brain, name)) {
         stranger.overAt = undefined;
       } else {
         stranger.overAt ??= brain.now;
-        const leaving = brain.doorAsked?.name === name && !!brain.doorAsked.out;
+        const leaving = askingOut(brain, name);
         if (!leaving && brain.now - stranger.overAt > WELCOME_GRACE_DS) {
           stranger.seenOut = true;
           settle(brain, name, stranger, 'go');
@@ -398,8 +672,9 @@ export function syncGuarding(brain: NpcBrain): void {
       ) {
         stranger.verdict = 'stay';
       }
-    } else if (waitedOut(stranger.askedAt, stranger.asks)) {
-      // Asked twice, and not a word.
+    } else if (waitedOut(stranger.askedAt, stranger.asks) && !seen?.down) {
+      // Asked twice, and not a word. Someone lying down, out cold or worse, cannot answer: that is
+      // no refusal, and the matter waits while they are down (SENSE-01).
       settle(brain, name, stranger, 'go');
     }
   }
@@ -465,6 +740,15 @@ function explainStep(brain: NpcBrain): Plan {
     return { ready: false, step: 'Whoever asked has gone.' };
   }
   const why = reasonToBeHere(brain);
+  // Its own post is the one room it always has a reason to be in, card or no card (MULTI-03).
+  if (!why && brain.post && brain.location === brain.post) {
+    return {
+      ready: true,
+      step: `${by} has asked why you are in ${brain.location}. It is where you work. In "say", tell ${by} so, beginning with "I work here".`,
+      say: 'I work here.',
+      needs: has('work'),
+    };
+  }
   if (!why) {
     return {
       ready: true,
@@ -496,7 +780,8 @@ function vouchStep(brain: NpcBrain): Plan {
     say: did
       ? `Yes, ${firstName(asked.by)}, I asked ${firstName(asked.about)} to come in.`
       : `No, ${firstName(asked.by)}, I did not ask ${firstName(asked.about)} in here.`,
-    needs: has(answer),
+    // The answer comes first, so the one who asked reads it right (SECT-09).
+    needs: new RegExp(`^\\W*${answer}\\b`, 'i'),
   };
 }
 
@@ -578,6 +863,13 @@ export function planGuarding(brain: NpcBrain, task: Task): Plan | null {
       ready: false,
       wait: true,
       step: `You have asked ${name} why they are in ${room}, and are waiting for an answer.`,
+    };
+  }
+  // Someone lying down, out cold or worse, is not asked what they are doing in here (SENSE-01).
+  if (person.down) {
+    return {
+      ready: false,
+      step: `${name} is lying down in ${room} and cannot answer you.`,
     };
   }
   if (
@@ -686,7 +978,7 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   )?.superior;
   if (
     superior &&
-    LEAVE_WORDS.test(heard) &&
+    toldToLeaveHere(brain, heard) &&
     (event.details.said_to === 'me' || namesPerson(heard, brain.name)) &&
     brain.location !== brain.post
   ) {
@@ -707,12 +999,8 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   // Told by someone it answers to to put someone out of its post. That settles it, sent for or
   // not: the call that brought them is struck off. One of those at the post takes it, and the
   // rest stand back. Nobody lays a hand on the Captain or a head of staff, whoever orders it.
-  if (
-    superior &&
-    event.details.said_to !== 'other' &&
-    PUT_OUT_WORDS.test(heard)
-  ) {
-    const target = strangerMeant(brain, heard);
+  if (superior && event.details.said_to !== 'other') {
+    const target = putOutMeant(brain, heard);
     if (target) {
       const record = recordOf(brain, target);
       if (
@@ -765,7 +1053,12 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
     asked.askedAt !== undefined &&
     event.at >= asked.askedAt
   ) {
-    const voucher = workmateNamedIn(brain, heard, [speaker]);
+    // "You let me in", said to the NPC, names the NPC.
+    const voucher =
+      workmateNamedIn(brain, heard, [speaker]) ??
+      (/\byou (?:let me in|asked me|sent for me|sent me)\b/.test(heard)
+        ? brain.name
+        : null);
     if (voucher && voucher !== brain.name) {
       asked.voucher = voucher;
     } else if (voucher || NO_REASON_WORDS.test(heard)) {

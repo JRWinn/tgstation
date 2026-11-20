@@ -36,6 +36,10 @@
 /proc/crew_npc_free_surface(turf/spot)
 	if(!(locate(/obj/structure/table) in spot) && !(locate(/obj/structure/rack) in spot))
 		return FALSE
+	// Nothing can be set on a table on its side.
+	var/obj/structure/table/table = locate() in spot
+	if(table?.is_flipped && !(locate(/obj/structure/rack) in spot))
+		return FALSE
 	// The counter crew are served across is not a shelf.
 	if(locate(/obj/machinery/door/window) in spot)
 		return FALSE
@@ -48,8 +52,7 @@
 /datum/ai_controller/crew_npc/proc/wants_tidying(obj/item/thing)
 	if(!isturf(thing.loc) || thing.anchored || thing.pulledby || (thing.item_flags & ABSTRACT) || thing.w_class >= WEIGHT_CLASS_BULKY)
 		return FALSE
-	var/skipped_at = tidy_skipped[REF(thing)]
-	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
+	if(tidy_skipped_lately(thing))
 		return FALSE
 	// Broken glass cuts bare hands, and mail with a name on it is being kept for someone.
 	if(istype(thing, /obj/item/shard) || (istype(thing, /obj/item/mail) && crew_npc_mail_for(thing)))
@@ -64,14 +67,40 @@
 			return FALSE
 	return TRUE
 
+/**
+ * TRUE if someone is on this tile who would be shut inside a crate or locker shut there: anyone
+ * alive bigger than tiny (tiny ones the game takes in as things). The body itself counts: standing
+ * on an open locker's tile, it would shut itself in. A crate refuses a person standing, but not
+ * one lying down, and a locker takes anyone.
+ */
+/proc/crew_npc_someone_on(turf/spot)
+	if(!isturf(spot))
+		return FALSE
+	for(var/mob/living/someone in spot)
+		if(someone.mob_size > MOB_SIZE_TINY)
+			return TRUE
+	return FALSE
+
 /// TRUE if an open crate or locker has things lying spilled around it, and could be shut on them.
 /datum/ai_controller/crew_npc/proc/wants_shutting(obj/structure/closet/container)
 	if(!container.opened || !isturf(container.loc))
 		return FALSE
-	var/skipped_at = tidy_skipped[REF(container)]
-	if(skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP)
+	// Not on someone lying or standing in it.
+	if(crew_npc_someone_on(container.loc))
+		return FALSE
+	// A crate someone collected and unpacked where it stands: its things are there for the taking.
+	if(istype(container, /obj/structure/closet/crate))
+		var/obj/structure/closet/crate/crate = container
+		if(crate.crew_npc_unpacked)
+			return FALSE
+	if(tidy_skipped_lately(container))
 		return FALSE
 	return !isnull(locate(/obj/item) in container.loc)
+
+/// TRUE if this thing, or this place to put things, was given up on in the last few minutes: one it could not get to.
+/datum/ai_controller/crew_npc/proc/tidy_skipped_lately(atom/thing)
+	var/skipped_at = tidy_skipped[REF(thing)]
+	return skipped_at && world.time - skipped_at < CREW_NPC_TIDY_GIVE_UP
 
 /// Returns the nearest disposal bin in the body's work area, or null.
 /datum/ai_controller/crew_npc/proc/nearest_bin(atom/from)
@@ -79,6 +108,9 @@
 	var/nearest_distance = INFINITY
 	for(var/area/room as anything in tidy_rooms())
 		for(var/obj/machinery/disposal/bin/bin in room)
+			// One it could not get to is not carried things to again for a while.
+			if(tidy_skipped_lately(bin))
+				continue
 			var/distance = get_dist(from, bin)
 			if(distance < nearest_distance)
 				nearest_distance = distance
@@ -93,7 +125,7 @@
 	for(var/obj/structure/surface in room)
 		if(!istype(surface, /obj/structure/table) && !istype(surface, /obj/structure/rack))
 			continue
-		if(!crew_npc_free_surface(get_turf(surface)))
+		if(!crew_npc_free_surface(get_turf(surface)) || tidy_skipped_lately(surface))
 			continue
 		var/distance = get_dist(from, surface)
 		if(distance < nearest_distance)
@@ -150,7 +182,7 @@
 		var/has_bin = !isnull(nearest_bin(pawn))
 		var/has_surface = FALSE
 		for(var/obj/structure/surface in room)
-			if((istype(surface, /obj/structure/table) || istype(surface, /obj/structure/rack)) && crew_npc_free_surface(get_turf(surface)))
+			if((istype(surface, /obj/structure/table) || istype(surface, /obj/structure/rack)) && crew_npc_free_surface(get_turf(surface)) && !tidy_skipped_lately(surface))
 				has_surface = TRUE
 				break
 		if(!has_bin && !has_surface)
@@ -209,7 +241,14 @@
 	if(istype(target, /obj/structure/closet))
 		var/obj/structure/closet/container = target
 		var/container_name = format_text(container.name)
-		if(container.opened && !container.close(body))
+		// Looked at again now it is here: someone may have fallen or stepped there on the way.
+		if(container.opened && crew_npc_someone_on(get_turf(container)))
+			tidy_skipped[REF(container)] = world.time
+			tidy_changed()
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) left the [container_name] open in [place]: someone is on it.")
+			return list(FALSE, "Someone is in the way of the [container_name]: you leave it open.")
+		// Shut by an empty-handed click, as a player shuts one: a click with something in hand would put it inside.
+		if(container.opened && (!empty_clicking_hand() || !click_as_body(container) || container.opened))
 			tidy_skipped[REF(container)] = world.time
 			tidy_changed()
 			return list(FALSE, "The [container_name] will not shut.")
@@ -224,13 +263,16 @@
 		tidy_changed()
 		if(istype(target, /obj/machinery/disposal))
 			var/obj/machinery/disposal/bin = target
-			if(!bin.place_item_in_disposal(carried, body))
-				body.dropItemToGround(carried)
+			if(!hand_to(carried) || !click_as_body(bin) || carried.loc != bin)
+				if(carried.loc == body)
+					body.dropItemToGround(carried)
 				tidy_skipped[REF(carried)] = world.time
 				return list(FALSE, "You cannot get the [carried_name] into the bin.")
 			work_put_away++
 			return list(TRUE, "You put the [carried_name] in the disposal bin in [place].")
-		if(!body.transferItemToLoc(carried, get_turf(target)))
+		// Set down by a click on the table or rack with it in the hand that clicks.
+		var/turf/surface_spot = get_turf(target)
+		if(!hand_to(carried) || !click_as_body(target) || carried.loc != surface_spot)
 			tidy_skipped[REF(carried)] = world.time
 			return list(FALSE, "You cannot let go of the [carried_name].")
 		work_put_away++
@@ -241,7 +283,8 @@
 	var/atom/where = tidy_place?.resolve()
 	if(!istype(thing) || !isturf(thing.loc) || QDELETED(where))
 		return list(FALSE, "It is not where you saw it.")
-	if(!body.put_in_hands(thing))
+	// Picked up by a click with an empty hand.
+	if(!empty_clicking_hand() || !click_as_body(thing) || !body.is_holding(thing))
 		tidy_skipped[REF(thing)] = world.time
 		tidy_changed()
 		return list(FALSE, "You cannot pick up the [format_text(thing.name)].")

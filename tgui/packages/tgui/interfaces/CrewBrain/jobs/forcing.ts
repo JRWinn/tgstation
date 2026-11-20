@@ -41,6 +41,17 @@ const FORCE = 'force_door';
 
 /** How long (deciseconds) before engineering is asked about the same room again. */
 const ASK_AGAIN_DS = 6000;
+/**
+ * How long (deciseconds) the Chief Engineer waits on word from the engineer it sent before it
+ * tells whoever asked that the door has not been opened: a walk across the station, two goes at
+ * the door, and the word back. The order or the word back may never have gone, or the engineer
+ * may be dead or a player.
+ */
+const SENT_WAIT_DS = 3000;
+/** How long (deciseconds) one given up on is kept, so that a late word that it is open is still passed on. */
+const SENT_KEPT_DS = 9000;
+/** Why, as it is passed on to security and the Captain: no "I" in it (see whyNot). */
+const NO_WORD_BACK = 'nobody from engineering has said it is open';
 /** How many times an engineer goes at one door before it says it could not open it. */
 const FORCE_TRIES = 2;
 
@@ -212,8 +223,19 @@ export function forcingReads(
     const engineer = isChiefEngineer(brain.job)
       ? engineersAboard(brain)[0]
       : undefined;
+    // Already with an engineer and not yet given up on: it is not sent again, nor security told twice.
+    if (
+      forcing.sent.some((it) => it.room === room) &&
+      forcing.sentGivenUp?.[room] === undefined
+    ) {
+      return true;
+    }
     if (engineer) {
       // It is given to an engineer, and security is told who is coming.
+      forcing.sent = forcing.sent.filter((it) => it.room !== room);
+      if (forcing.sentGivenUp) {
+        delete forcing.sentGivenUp[room];
+      }
       forcing.sent.push({ room, to: engineer, askedBy: from, at: brain.now });
       send(
         brain,
@@ -257,7 +279,13 @@ export function forcingReads(
     // Passed on to whoever asked.
     const sent = forcing.sent.find((it) => it.room === room);
     forcing.sent = forcing.sent.filter((it) => it !== sent);
-    if (sent) {
+    // Security was told already that it had not been opened: only an open door is news now.
+    const toldNot =
+      !!sent && forcing.sentGivenUp?.[room] !== undefined && !done;
+    if (forcing.sentGivenUp) {
+      delete forcing.sentGivenUp[room];
+    }
+    if (sent && !toldNot) {
       send(
         brain,
         sent.askedBy,
@@ -312,9 +340,42 @@ function takeJob(brain: NpcBrain, room: string, by: string): void {
   }
 }
 
+/**
+ * For the Chief Engineer: a door sent to an engineer with no word back in five minutes. Whoever
+ * asked is told it has not been opened, once; the entry is kept a while longer, so that a late
+ * word that it is open is still passed on.
+ */
+function checkSent(brain: NpcBrain, forcing: ForcingWork): void {
+  for (const it of forcing.sent) {
+    if (
+      forcing.sentGivenUp?.[it.room] === undefined &&
+      brain.now - it.at >= SENT_WAIT_DS
+    ) {
+      forcing.sentGivenUp ??= {};
+      forcing.sentGivenUp[it.room] = brain.now;
+      send(
+        brain,
+        it.askedBy,
+        forceFailedLine(firstName(it.askedBy), it.room, NO_WORD_BACK),
+        `You sent ${it.to} to open the door of the ${it.room} and have heard nothing back. You are telling ${it.askedBy} of security, who asked.`,
+      );
+    }
+  }
+  forcing.sent = forcing.sent.filter((it) => {
+    const kept = brain.now - it.at < SENT_KEPT_DS;
+    if (!kept && forcing.sentGivenUp) {
+      delete forcing.sentGivenUp[it.room];
+    }
+    return kept;
+  });
+}
+
 /** Keeps a task open for each door it has been sent to force. Returns TRUE if it has one. */
 export function syncForcing(brain: NpcBrain): boolean {
   const forcing = forcingOf(brain);
+  if (isChiefEngineer(brain.job)) {
+    checkSent(brain, forcing);
+  }
   for (const task of brain.tasks) {
     if (
       task.kind === FORCE &&

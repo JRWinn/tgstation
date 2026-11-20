@@ -37,6 +37,8 @@
 
 /// How long the body leaves between one click and the next. A hand is no quicker, and the game counts clicks that come faster as one.
 #define CREW_NPC_CLICK_GAP (1 SECONDS)
+/// What click_as_body() gives back, having not clicked, when its still_wanted check said the click was no longer needed.
+#define CREW_NPC_CLICK_NOT_NEEDED 2
 /// What a battery is set to put out when it is set to charge. Its input goes to as much as it will take.
 #define CREW_NPC_BATTERY_OUTPUT (190 KILO WATTS)
 
@@ -255,17 +257,74 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
  *
  * Returns FALSE, without clicking, if the body is in no state to reach it. A click with a key
  * held that cannot reach its target falls through to code that needs a player.
+ *
+ * A plain click that comes before the last swing or use is ready again is waited out first
+ * (wait_to_click()), up to two seconds more: the game would throw it away unseen, and the caller
+ * would be told it was made.
+ *
+ * `still_wanted`, if given, is asked after every wait and just before the click. A click that toggles
+ * a machine is looked at then, so one somebody else set meanwhile is not set back. If it says no,
+ * nothing is clicked and CREW_NPC_CLICK_NOT_NEEDED is returned.
  */
-/datum/ai_controller/crew_npc/proc/click_as_body(atom/target, modifiers, gap = CREW_NPC_CLICK_GAP)
+/datum/ai_controller/crew_npc/proc/click_as_body(atom/target, modifiers, gap = CREW_NPC_CLICK_GAP, datum/callback/still_wanted)
 	var/mob/living/carbon/human/body = pawn
 	if(gap > 0)
 		sleep(gap)
 	if(QDELETED(body) || QDELETED(target) || QDELETED(src))
 		return FALSE
+	// The game holds back a plain or right click while the last swing or use is not ready again.
+	// A click with a key held is let through before that test, and need not wait for it.
+	var/list/held_keys = params2list(modifiers)
+	var/plain = !LAZYACCESS(held_keys, SHIFT_CLICK) && !LAZYACCESS(held_keys, CTRL_CLICK) && !LAZYACCESS(held_keys, ALT_CLICK) && !LAZYACCESS(held_keys, MIDDLE_CLICK)
+	if(!wait_to_click(plain) || QDELETED(target))
+		return FALSE
 	if(!body.can_perform_action(target, target.interaction_flags_click | SILENT_ADJACENCY))
 		return FALSE
+	// Nothing sleeps from here to the click, so what is seen now is what is clicked on.
+	if(still_wanted && !still_wanted.Invoke())
+		return CREW_NPC_CLICK_NOT_NEEDED
 	body.face_atom(target)
 	body.ClickOn(target, modifiers)
+	return TRUE
+
+/// TRUE while a pump or filter is not yet as wanted. Asked just before the click that toggles it.
+/datum/ai_controller/crew_npc/proc/machine_not_yet(obj/machinery/atmospherics/components/machine, on)
+	return !QDELETED(machine) && !!machine.on != on
+
+/// TRUE while an emitter is not yet as wanted. Asked just before the click that toggles it.
+/datum/ai_controller/crew_npc/proc/emitter_not_yet(obj/machinery/power/emitter/emitter, on)
+	return !QDELETED(emitter) && !!emitter.active != on
+
+/// TRUE while a canister is not on a connector. A wrench on a connected one takes it off.
+/datum/ai_controller/crew_npc/proc/canister_not_yet(obj/machinery/portable_atmospherics/canister/canister)
+	return !QDELETED(canister) && isnull(canister.connected_port)
+
+/**
+ * Waits, as a player's own client makes them, until the body may click again: until the game would
+ * not throw the click away for coming too soon. A swing, a spray or a try with the cuffs sets a
+ * wait of most of a second before the next plain click is let through, and a click made inside it
+ * does nothing at all.
+ *
+ * `plain` is TRUE for a plain or right click, the ones the game holds back while the last use is
+ * not ready. Every click waits for the one before it to be taken (`next_click`).
+ *
+ * Waits two seconds at most: a body in cuffs is held back again on every click. Returns FALSE if
+ * the body or this controller is gone, or if a plain click would still be thrown away or thrown.
+ */
+/datum/ai_controller/crew_npc/proc/wait_to_click(plain = TRUE)
+	var/mob/living/carbon/human/body = pawn
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	var/ready_at = body.next_click + 1
+	if(plain)
+		ready_at = max(ready_at, body.next_move)
+	var/wait = min(ready_at - world.time, 2 SECONDS)
+	if(wait > 0)
+		sleep(wait)
+	if(QDELETED(body) || QDELETED(src))
+		return FALSE
+	if(plain && (body.next_move > world.time || body.throw_mode))
+		return FALSE
 	return TRUE
 
 /**
@@ -310,7 +369,11 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	var/wanted = on ? "on" : "off"
 	if(!!machine.on == on)
 		return list(TRUE, "The [machine_name] is [wanted] already.", FALSE)
-	if(!click_as_body(machine, "ctrl=1") || QDELETED(machine))
+	// A ctrl-click flips it whatever it was: looked at again just before the click.
+	var/clicked = click_as_body(machine, "ctrl=1", still_wanted = CALLBACK(src, PROC_REF(machine_not_yet), machine, on))
+	if(clicked == CREW_NPC_CLICK_NOT_NEEDED)
+		return list(TRUE, "The [machine_name] is [wanted] already.", FALSE)
+	if(!clicked || QDELETED(machine))
 		return list(FALSE, "You cannot reach the [machine_name] to turn it [wanted].", FALSE)
 	if(!!machine.on != on)
 		return list(FALSE, "The [machine_name] will not turn [wanted]. It may have no power.", FALSE)
@@ -333,7 +396,11 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		return list(TRUE, "The emitter is [wanted] already.", FALSE)
 	if(!empty_clicking_hand())
 		return list(FALSE, "You have no free hand to switch the emitter [wanted] with.", FALSE)
-	if(!click_as_body(emitter) || QDELETED(emitter))
+	// A click flips it whatever it was: looked at again just before the click.
+	var/clicked = click_as_body(emitter, still_wanted = CALLBACK(src, PROC_REF(emitter_not_yet), emitter, on))
+	if(clicked == CREW_NPC_CLICK_NOT_NEEDED)
+		return list(TRUE, "The emitter is [wanted] already.", FALSE)
+	if(!clicked || QDELETED(emitter))
 		return list(FALSE, "You cannot reach the emitter to switch it [wanted].", FALSE)
 	if(!!emitter.active != on)
 		return list(FALSE, "The emitter will not switch [wanted]: [emitter.locked ? "its controls are locked" : (emitter.powernet ? "it does not answer" : "it is not on a wire")].", FALSE)
@@ -371,7 +438,8 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	// It is the hand that holds the wrench that clicks.
 	if(body.get_active_held_item() != wrench)
 		body.swap_hand(body.get_inactive_hand_index())
-	var/reached = body.get_active_held_item() == wrench && click_as_body(canister)
+	// A wrench on a connected canister takes it off: looked at again just before the click.
+	var/reached = body.get_active_held_item() == wrench && click_as_body(canister, still_wanted = CALLBACK(src, PROC_REF(canister_not_yet), canister))
 	var/connected = !QDELETED(canister) && !isnull(canister.connected_port)
 	// The wrench goes back where it came from, whether or not that worked.
 	if(kept_in && !QDELETED(kept_in) && !QDELETED(wrench) && body.get_active_held_item() == wrench)
@@ -380,6 +448,8 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 		return list(FALSE, "You cannot reach the [machine_name] with your wrench.", FALSE)
 	if(!connected)
 		return list(FALSE, "The [machine_name] will not connect.", FALSE)
+	if(reached == CREW_NPC_CLICK_NOT_NEEDED)
+		return list(TRUE, "The [machine_name] is connected already.", FALSE)
 	return list(TRUE, "You wrench the [machine_name] onto its connector.", TRUE)
 
 /// Sets a battery to charge: its input to as much as it will take, and its output to what the station runs on.
@@ -440,4 +510,5 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 #undef CREW_WORK_CHARGE
 #undef CREW_WORK_DRAW_ALL
 #undef CREW_NPC_CLICK_GAP
+#undef CREW_NPC_CLICK_NOT_NEEDED
 #undef CREW_NPC_BATTERY_OUTPUT
