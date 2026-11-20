@@ -1585,6 +1585,8 @@ export type NpcBrain = {
   remarking?: boolean;
   /** Server world time (deciseconds) each workmate was last seen on their feet and free (CARGO-12): one lying in view is not about to do their share. */
   ableAt?: Record<string, number>;
+  /** An arrest (not a stop) the driver sent and then sent another step over before its answer came (ARR-08): its task, whom it was on (a handle), and when (server time, deciseconds). */
+  droppedArrest?: { task?: number; person: string; at: number } | null;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */

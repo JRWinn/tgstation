@@ -90,6 +90,8 @@ const CAPTAIN_CARD =
 const REFUSED_DS = 3000;
 /** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
 const DROPPED_DS = 600;
+/** How long (deciseconds) after an arrest it sent another step over, someone seen in cuffs is taken as cuffed by that arrest. */
+const OWN_CUFFS_DS = 100;
 /** How long (deciseconds) a sighting is worth walking to. */
 const SIGHTING_STALE_DS = 3000;
 /** How long (deciseconds) it looks about a room for someone who was seen there. */
@@ -370,6 +372,33 @@ function heldByAnother(brain: NpcBrain, person: PersonInView): boolean {
 }
 
 /**
+ * TRUE if it has just made an arrest of this warrant's person itself: one still under way, or one
+ * the driver sent another step over in the last few seconds (brain.droppedArrest), for this
+ * warrant's serve task or on this person.
+ */
+function ownArrestOf(
+  brain: NpcBrain,
+  warrant: BeatWarrant,
+  seen: PersonInView,
+): boolean {
+  const serve = findTask(brain, SERVE, { item: warrant.name });
+  const last = brain.lastAct;
+  if (
+    last?.act.tool === 'arrest' &&
+    last.act.how !== 'stop' &&
+    ((serve && last.task === serve.id) || last.act.person === seen.handle)
+  ) {
+    return true;
+  }
+  const dropped = brain.droppedArrest;
+  return (
+    !!dropped &&
+    brain.now - dropped.at < OWN_CUFFS_DS &&
+    ((!!serve && dropped.task === serve.id) || dropped.person === seen.handle)
+  );
+}
+
+/**
  * TRUE if whoever the warrant is on, in view, is a head of staff by their ID, and the Captain did
  * not declare it. Only the Captain may have a head arrested: such a warrant is not served on them.
  */
@@ -470,6 +499,18 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     if (seen) {
       warrant.ownSeenAt = brain.now;
       warrant.lastSeen = { place: seen.place ?? brain.location, at: brain.now };
+    }
+    // Seen in cuffs nobody else holds them by, just after its own arrest of them: the cuffs are
+    // its own, though the answer never came (ARR-08: another step was sent over the arrest).
+    if (
+      seen?.cuffed &&
+      !warrant.cuffedByMe &&
+      !heldByAnother(brain, seen) &&
+      ownArrestOf(brain, warrant, seen)
+    ) {
+      warrant.cuffedByMe = true;
+      warrant.shutOut = undefined;
+      beat.outcomes.push({ what: 'cuffed', name: warrant.name });
     }
   }
   // What stops it serving a warrant is word for whoever keeps the list, once for each reason:
