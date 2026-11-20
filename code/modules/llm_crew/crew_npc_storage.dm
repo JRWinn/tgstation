@@ -197,6 +197,16 @@
 		for(var/item_name in inside)
 			item_names += item_name
 		storage_memory[REF(container)] = list("container" = WEAKREF(container), "items" = item_names)
+	else
+		// Found shut to it: what it held last time is still remembered, and still true as far as the body
+		// knows, but it is not gone to for that for a while. Each pick up walked back to a welded or locked
+		// locker and was told so again, and a janitor that had lost its mop never asked for another (HAND-05).
+		var/list/known = storage_memory[REF(container)]
+		var/datum/weakref/known_ref = known?["container"]
+		if(known && known_ref?.resolve() == container)
+			known["shut_at"] = world.time
+		else
+			storage_memory[REF(container)] = list("container" = WEAKREF(container), "items" = list(), "shut_at" = world.time)
 
 	var/text
 	switch(state)

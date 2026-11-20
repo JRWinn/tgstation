@@ -66,8 +66,11 @@
 		// A large wooden crate is not opened by hand, whatever is remembered of it.
 		if(QDELETED(container) || container.z != body.z || istype(container, /obj/structure/closet/crate/large))
 			continue
-		// One it lately could not get to is passed over for a while (HAND-04).
+		// One it lately could not get to is passed over for a while (HAND-04), and so is one it lately
+		// found locked or welded shut (HAND-05). The next nearest that holds one is gone to instead.
 		if(pickup_given_up(container))
+			continue
+		if(memory["shut_at"] && world.time - memory["shut_at"] < CREW_NPC_STORAGE_RECHECK)
 			continue
 		var/holds_one = FALSE
 		for(var/held_name in memory["items"])
