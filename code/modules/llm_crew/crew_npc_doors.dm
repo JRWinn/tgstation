@@ -879,7 +879,7 @@
  * 7). The details name the room and whom it was held for.
  */
 /datum/ai_controller/crew_npc/proc/door_hold_over(datum/weakref/person_ref, area/room)
-	if(QDELETED(src) || QDELETED(pawn) || !can_sense())
+	if(QDELETED(src) || QDELETED(pawn) || !can_perceive())
 		return
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	var/room_name = room ? format_text(room.name) : ""
@@ -921,7 +921,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		if(listener == body)
 			continue
 		var/datum/ai_controller/crew_npc/their_controller = listener.ai_controller
-		if(istype(their_controller) && their_controller.can_sense())
+		if(istype(their_controller) && their_controller.can_perceive())
 			their_controller.emit_sense(CREW_SENSE_KNOWLEDGE, "Someone is knocking at the [wanted_door_label ? "[wanted_door_label] " : ""]door of [place], from [wanted_door_leaving ? "inside" : "outside"].", list("knock_door" = wanted_door_label,"knock" = place, "knock_from_inside" = wanted_door_leaving))
 	action_result(CREW_TOOL_KNOCK, TRUE, "You knock at the door [wanted_door_leaving ? "out of" : "into"] [place].")
 

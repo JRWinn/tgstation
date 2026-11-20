@@ -135,7 +135,7 @@
 /datum/ai_controller/crew_npc/proc/action_result(tool, succeeded, text, list/extra_details)
 	// The brain decides what to do next the moment it hears how this went. It has to decide on what
 	// the body sees now, not on its last look, which may be from before it walked into the room.
-	if(can_sense())
+	if(can_perceive())
 		look_around()
 	var/list/details = list("tool" = tool, "ok" = succeeded)
 	if(extra_details)
