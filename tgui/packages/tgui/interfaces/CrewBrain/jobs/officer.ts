@@ -22,7 +22,14 @@
  */
 import { isHead } from '../hierarchy';
 import { addTask, findTask, finishTask, placeNamedIn } from '../tasks';
-import type { BeatWord, NpcBrain, Plan, SenseEvent, Task } from '../types';
+import type {
+  BeatWord,
+  NpcBrain,
+  Plan,
+  SecurityOutcome,
+  SenseEvent,
+  Task,
+} from '../types';
 import {
   arrestAgain,
   beatAfterActing,
@@ -70,6 +77,7 @@ import {
   readWarrant,
   SEEN_WORDS,
   SERVED_WORDS,
+  sameName,
   saidTo,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
@@ -88,6 +96,20 @@ const TELL_TRIES = 2;
 const TELL_DISTANCE = 2;
 /** How long (deciseconds) it waits at its post for the Head of Security to come into sight before it sends word by PDA. */
 const SOUGHT_DS = 200;
+
+/**
+ * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
+ * attacked or robbed of its baton stays true whatever comes after.
+ */
+const STALE_AFTER: Partial<
+  Record<SecurityOutcome['what'], SecurityOutcome['what'][]>
+> = {
+  jailed: ['cuffed', 'cannot', 'lost'],
+  freed: ['cuffed', 'cannot', 'lost'],
+  lost: ['cuffed', 'cannot'],
+  cuffed: ['cannot', 'lost'],
+  cannot: ['cannot'],
+};
 
 /** The Head of Security aboard, as far as it can tell: one in view, or one its PDA lists. Null if there is none. */
 function headAboard(brain: NpcBrain): { name: string; job: string } | null {
@@ -132,6 +154,14 @@ function syncTasks(brain: NpcBrain): void {
   if (head) {
     // How its warrants have gone is word for the Head of Security.
     for (const outcome of takeOutcomes(brain)) {
+      // A word not yet sent that this one makes untrue is not sent (PLAY-02): "cannot get them
+      // into a cell" after they are in one, or "I have them in cuffs" after they got away.
+      const untrue = STALE_AFTER[outcome.what] ?? [];
+      beat.words = beat.words.filter(
+        (word) =>
+          !untrue.includes(word.outcome.what) ||
+          !sameName(word.outcome.name, outcome.name),
+      );
       beat.words.push({
         outcome,
         line: outcomeLine(firstName(head.name), outcome),
@@ -156,7 +186,14 @@ function syncTasks(brain: NpcBrain): void {
   for (const word of beat.words) {
     // That it is hurt, or has been attacked, or has lost its baton, is said at once and by PDA
     // unless the Head of Security is standing there: it may not be on its feet much longer.
-    const urgent = ['hurt', 'attacked', 'baton'].includes(word.outcome.what);
+    // So is why it cannot get someone it has by the arm into a cell: else it waits in the brig
+    // behind the arrest, and goes out after they are in one (PLAY-02).
+    const holding = brain.security?.holding;
+    const urgent =
+      ['hurt', 'attacked', 'baton'].includes(word.outcome.what) ||
+      (word.outcome.what === 'cannot' &&
+        !!holding &&
+        sameName(word.outcome.name, holding));
     if (
       urgent &&
       !brain.peopleInView.some((person) => person.name === head?.name)

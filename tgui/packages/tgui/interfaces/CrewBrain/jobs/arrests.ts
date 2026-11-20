@@ -572,7 +572,8 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     }
     // In cuffs and by the arm, and every cell has refused them.
     if (holds(brain, warrant) && (warrant.cellTries ?? 0) >= cells) {
-      cannot(warrant.name, 'I cannot get them into a cell');
+      // In words the Head of Security can pass on as they are (PLAY-02).
+      cannot(warrant.name, 'no cell would take them');
     }
     // The one it has found is a head of staff, going by their ID, and the Captain did not declare
     // the warrant. Only the Captain may have a head arrested, whatever went wrong with the name.

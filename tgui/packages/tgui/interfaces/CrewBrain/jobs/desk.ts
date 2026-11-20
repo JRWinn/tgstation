@@ -903,6 +903,10 @@ export function deskOutcome(
       return;
     }
     default:
+      // Word come late, of someone in a cell already: no longer true, and not passed on (PLAY-02).
+      if (Object.keys(desk.held).some((it) => sameName(outcome.name, it))) {
+        return;
+      }
       tellCaptain(
         brain,
         `Captain, ${own ? 'I' : firstName(from)} cannot bring in ${outcome.name}: ${outcome.why}.`,
