@@ -156,46 +156,21 @@
 	return nearest
 
 /**
- * Returns the names of those on the body's PDA whose own ID opens the door it came in by: who it
+ * Returns the names of those on the body's PDA whose job opens the door it came in by: who it
  * can send word to when nobody comes to let it out. Empty unless it is shut in and knows the door.
  */
 /datum/ai_controller/crew_npc/proc/door_keepers()
 	var/list/names = list()
-	var/list/heads = list()
-	var/list/captains = list()
 	if(!shut_in)
 		return names
 	var/obj/machinery/door/airlock/door = trail_door()
 	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
 	if(isnull(door) || isnull(own_messenger))
 		return names
-	for(var/messenger_ref in GLOB.pda_messengers)
-		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
-		if(candidate == own_messenger || isnull(candidate.computer) || !candidate.computer.saved_identification)
-			continue
-		var/turf/where = get_turf(candidate.computer)
-		if(isnull(where) || !is_station_level(where.z))
-			continue
-		// The card in the PDA, or failing that the one its holder wears: most of the crew wear
-		// theirs. Going only by a card in the PDA, nobody was ever found to write to, and a janitor
-		// shut in a cargo room wrote to its own head and to no technician.
-		var/obj/item/card/id/card = candidate.computer.stored_id
-		if(isnull(card))
-			var/mob/living/holder = get(candidate.computer, /mob/living)
-			card = holder?.get_idcard(TRUE)
-		if(!card || !door.check_access(card))
-			continue
-		// Whoever works behind that door before a head, and a head before the Captain, whose card
-		// opens every door on the station: a janitor shut in a cargo room wrote to the Captain,
-		// with two cargo technicians a room away.
-		var/datum/job/their_job = SSjob.get_job(candidate.computer.saved_job)
-		if(istype(their_job, /datum/job/captain))
-			captains += candidate.computer.saved_identification
-		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
-			heads += candidate.computer.saved_identification
-		else
-			names += candidate.computer.saved_identification
-	return names + heads + captains
+	// Read off the messenger list by job title, as a player would read it, not off anyone's ID
+	// card or where on the station their PDA is (CHEAT-02): whoever works behind that door first,
+	// then a head, then the Captain.
+	return crew_npc_contacts_who_open(list(door), own_messenger)
 
 /// Returns the name of whoever let the body into the room it is in, or null if nobody did.
 /datum/ai_controller/crew_npc/proc/who_let_in()
