@@ -616,4 +616,11 @@
 		if(in_way)
 			first_shut = "[in_way.name] at ([on_line.x],[on_line.y])"
 			break
-	log_game("Crew NPC [key_name(body)] found no route to [goal] from [AREACOORD(from)]. The game's other pathfinder [length(other_way) ? "finds one of [length(other_way)] steps" : "finds none either"]. Doors of [goal_room ? goal_room.name : "that place"]: [length(door_lines) ? door_lines.Join("; ") : "none found"]. On the straight line there, the first thing in the way is [first_shut].")
+	// A square in a part of the room no door that opens for it leads to, nor any open floor: a sealed
+	// corner, or a part behind an inner door (KNA-28). Said, so the log names the case at once.
+	var/sealed_part = ""
+	if(goal_room && goal_room != get_area(from))
+		var/list/open_part = open_part_of(goal_room)
+		if(!open_part[heading_for])
+			sealed_part = " That square is in a part of [goal_room.name] it cannot get into from any door that opens for it[length(open_part) ? " ([length(open_part)] squares of it can be got into)" : ""]."
+	log_game("Crew NPC [key_name(body)] found no route to [goal] from [AREACOORD(from)]. The game's other pathfinder [length(other_way) ? "finds one of [length(other_way)] steps" : "finds none either"]. Doors of [goal_room ? goal_room.name : "that place"]: [length(door_lines) ? door_lines.Join("; ") : "none found"]. On the straight line there, the first thing in the way is [first_shut].[sealed_part]")
