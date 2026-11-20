@@ -2298,15 +2298,43 @@ const NUMBER_WORDS: Record<string, number> = {
   two: 2,
   three: 3,
   four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  both: 2,
+  couple: 2,
+  pair: 2,
+  few: 3,
 };
+/** The most crates of one kind the console takes in one order (the server's CREW_NPC_ORDER_MAX). */
+const ORDER_MAX = 4;
+/**
+ * Numbers in an order that are not how many: a crate's manifest number ("#12", "crate 12"), an
+ * order's number ("order 3:", "order #3"), and anything of three digits or more.
+ */
+const NOT_A_COUNT =
+  /#\s*\d+|\b(crate|number|no\.?|num)\s*#?\s*\d+|\border\s*(#|no\.?|number)\s*\d+|\border \d+\s*:|\b\d{3,}\b/g;
+/** How many is said: "x2" or "2x", else the first number in the clause, or "a" or "an" just before "crate". */
+const COUNT_WORDS =
+  /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|both|couple|pair|few|an?(?= crates?\b))\b/;
 
-/** How many crates were asked for: "two crates", "3 crates", "a crate". One, if no number was given. */
-function cratesAskedFor(said: string): number {
-  const asked = said.match(/\b(\d+|one|two|three|four|an?)\s+crates?\b/);
+/**
+ * How many crates a clause of an order asks for, or null if it gives no number: "two crates",
+ * "2 janitorial crates", "three lots of", "a couple of", "x2" (CARGO-05). No more than the console
+ * takes of one kind at once.
+ */
+function countIn(said: string): number | null {
+  const words = said.replace(NOT_A_COUNT, ' ');
+  const times = words.match(/\bx\s?(\d{1,2})\b|\b(\d{1,2})\s?x\b/);
+  const asked = times ? (times[1] ?? times[2]) : words.match(COUNT_WORDS)?.[1];
   if (!asked) {
-    return 1;
+    return null;
   }
-  return NUMBER_WORDS[asked[1]] ?? Math.max(1, Number(asked[1]) || 1);
+  const count = NUMBER_WORDS[asked] ?? Number(asked);
+  return count > 0 ? Math.min(ORDER_MAX, count) : null;
 }
 
 /** TRUE if these words ask for this kind of crate, by the words it goes by or by its own name. */
@@ -2348,17 +2376,24 @@ export function itemsAskedFor(
     );
   }
   const items: { crate: string; count: number }[] = [];
+  // "Two crates each of soap and lights": the count said with "each" goes with the kinds after it
+  // that have none of their own.
+  let each: number | null = null;
   for (const part of words.split(
     /[,;.?!]|\band\b|\bplus\b|\balso\b|\bas well as\b/,
   )) {
-    const numbered = /\b(\d+|one|two|three|four|an?)\s+crates?\b/.test(part);
+    const said = countIn(part);
+    if (said !== null) {
+      each = /\beach\b/.test(part) ? said : null;
+    }
+    const count = said ?? each;
     // Every kind the clause names, not only the first on the list.
     for (const crate of orderable.filter((kind) => asksFor(kind, part))) {
       const item = items.find((it) => it.crate === crate);
       if (!item) {
-        items.push({ crate, count: cratesAskedFor(part) });
-      } else if (numbered) {
-        item.count += cratesAskedFor(part);
+        items.push({ crate, count: count ?? 1 });
+      } else if (said !== null) {
+        item.count = Math.min(ORDER_MAX, item.count + said);
       }
     }
   }
@@ -2704,7 +2739,7 @@ export const CARGO: Job = {
       action.crate = items[0].crate;
       action.count = items[0].count;
     } else {
-      action.count = cratesAskedFor(said);
+      action.count = countIn(said) ?? 1;
     }
   },
   // Anyone asking for a door in its hearing is noted. Whether they get it is decided from who

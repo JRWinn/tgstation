@@ -96,3 +96,11 @@ Checked by Opus 5.5. The quotes are what the code says today: `NUMBER_WORDS` and
 Ran a throwaway bun script in the scratchpad that imports `driver.ts` first (importing `jobs/cargo.ts` alone fails on a circular import, "Cannot access 'CARGO' before initialization") and then calls `itemsAskedFor` with `['Janitorial Supplies Crate', 'Replacement Lights', 'Bureaucracy Crate']`. Every row of the table printed as written, and "i need to order 2 janitorial supplies crates" printed one crate. The Quartermaster's fixed form ("order 3: i need to order 2 crates of janitorial supplies and a crate of replacement lights, for hop kins.") reads 2 and 1, so that leg is right, as the write-up says. The server caps at four (`CREW_NPC_ORDER_MAX`, `crew_npc_cargo.dm:307`). Nothing in the change log or plans names `cratesAskedFor` or this fault.
 
 Severity medium stands: the wrong number of crates comes, silently, but the order goes through. Effort raised to medium: a helper with a number table, "x2", digits with exclusions and the "each" carry, plus a new table of cases, is more than twenty lines. Added to step 1 that "order N" must be skipped as well as manifest numbers.
+
+## Fix so far
+
+Done on branch `m-cargo` (window only; new table `tools/llm_crew/cargo-counts.ts`, 23 cases; `book.ts`, `cargo-orders.ts`, `reports.ts` pass; simulator qm, qmbig, qmpoor, mixed passed; not played):
+
+- Steps 1 to 4: `countIn` in `jobs/cargo.ts` replaces `cratesAskedFor` in `itemsAskedFor` and `fills`. It reads "x2"/"2x", else the first number in the clause: digits of one or two figures, one to ten, both, couple, pair, few, or "a"/"an" just before "crate". It first takes out numbers that are not counts (`NOT_A_COUNT`: "#12", "crate 12", "number 12", "order #3", "order 3:", three figures or more). A count said with "each" goes with the clauses after it that give none. Each kind is capped at four (`ORDER_MAX`, the server's `CREW_NPC_ORDER_MAX`), also when a kind named twice is added up.
+
+Not done: the owner's question on saying "four is the most I can order at once" when more is asked. Today four is quietly ordered, and what is read back says four.
