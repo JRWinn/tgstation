@@ -569,6 +569,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.crateToReturn = !!npc.crate_to_return;
     brain.workmateCalled = !!npc.workmate_called;
     brain.inHand = !!npc.in_hand;
+    brain.floating = !!npc.floating;
     brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
     // What a Quartermaster has written in its order book, and the money every order is paid from.

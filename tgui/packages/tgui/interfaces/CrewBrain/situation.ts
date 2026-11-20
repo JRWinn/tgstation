@@ -122,6 +122,10 @@ export function describeSituation(brain: NpcBrain): string[] {
   lines.push(...asideCues(brain));
   lines.push(...meetingCues(brain));
   lines.push(...wantedCues(brain));
+  // MAP-07: with the gravity off it cannot walk, so that it can say why it is not going anywhere.
+  if (brain.floating) {
+    lines.push('There is no gravity here: you float and cannot walk.');
+  }
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));
   } else if (brain.wantsOut && brain.wayOutTo) {

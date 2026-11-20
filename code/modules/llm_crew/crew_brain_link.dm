@@ -233,6 +233,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"workmate_called" = npc.workmate_called_janitor(),
 			// Someone has it by the arm and is walking it out of a room.
 			"in_hand" = world.time < npc.in_hand_until,
+			// With the gravity off and nothing within a tile to push off from, it floats and cannot walk (MAP-07).
+			"floating" = crew_npc_floating(body),
 			// The room it is in is locked to it.
 			"out_of_bounds" = npc.out_of_bounds,
 			// Rooms it lately found no way into.

@@ -292,6 +292,8 @@ export type Npc = {
   workmate_called?: BooleanLike;
   /** TRUE while someone has it by the arm and is walking it out of a room. */
   in_hand?: BooleanLike;
+  /** TRUE while it floats with the gravity off and nothing within a tile to push off from (MAP-07). */
+  floating?: BooleanLike;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
@@ -1591,6 +1593,8 @@ export type NpcBrain = {
   ableAt?: Record<string, number>;
   /** An arrest (not a stop) the driver sent and then sent another step over before its answer came (ARR-08): its task, whom it was on (a handle), and when (server time, deciseconds). */
   droppedArrest?: { task?: number; person: string; at: number } | null;
+  /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
+  floating?: boolean;
 };
 
 /** One order in the Quartermaster's book. Times are server time. */
