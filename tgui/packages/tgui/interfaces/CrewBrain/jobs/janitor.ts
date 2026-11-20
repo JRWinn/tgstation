@@ -378,6 +378,58 @@ function remembersSinkIn(brain: NpcBrain, name: string): boolean {
 }
 
 /**
+ * What each janitor put down to have a hand for soap or a rag, and in which room: its mop and its
+ * bucket, put down where the gear is kept. Kept beside the brain, as the water notes are. A mop on
+ * the floor of a room it is not in is neither in view nor in storage it has looked in, so once the
+ * scrubbing was done it asked its head for something better than a rag, with its own mop lying in
+ * the closet (DESK-09).
+ */
+const putDownNotes = new WeakMap<NpcBrain, { item: string; place: string }[]>();
+
+/** What this janitor put down to scrub, and where. */
+function putDown(brain: NpcBrain): { item: string; place: string }[] {
+  let notes = putDownNotes.get(brain);
+  if (!notes) {
+    notes = [];
+    putDownNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/** The proper tool it put down to scrub and has not yet gone back for, with where, or undefined. */
+function putDownTool(brain: NpcBrain): { item: string; place: string } | undefined {
+  return putDownNotes
+    .get(brain)
+    ?.find((note) => PROPER_SUPPLY.test(note.item));
+}
+
+/**
+ * Forgets what it put down once it holds it again, or has stood a few seconds in that room
+ * without seeing it: someone has taken it.
+ */
+function mindPutDown(brain: NpcBrain): void {
+  const notes = putDownNotes.get(brain);
+  if (!notes?.length) {
+    return;
+  }
+  const kept = notes.filter((note) => {
+    if (brain.holding.includes(note.item)) {
+      return false;
+    }
+    if (
+      brain.location === note.place &&
+      brain.now - brain.inPlaceSince >= LOOK_ABOUT_DS
+    ) {
+      return brain.thingsInView.some(
+        (thing) => thing.kind === 'item' && thing.name === note.item,
+      );
+    }
+    return true;
+  });
+  putDownNotes.set(brain, kept);
+}
+
+/**
  * Works out the next step for a janitor with nothing to clean with. This is the whole of how a
  * janitor equips itself, in the order a person would try things: use what it knows of, look where
  * the gear is kept, and only then go and ask cargo.
@@ -429,6 +481,15 @@ function supplyStep(brain: NpcBrain): Plan {
       ready: true,
       step: `${lack(brain)}, but you know where there is ${supply}, and you are going to get it.`,
       act: { tool: 'pick_up', item: supply },
+    };
+  }
+  // Its own mop, put down where the gear is kept to scrub with a rag: it goes back for it.
+  const left = putDownTool(brain);
+  if (left && brain.location !== left.place && knowsPlace(brain, left.place)) {
+    return {
+      ready: true,
+      step: `${lack(brain)}. You put your ${left.item} down in the ${left.place} to scrub with soap or a rag. You are going back for it.`,
+      act: { tool: 'go_to', place: left.place },
     };
   }
   // Told by PDA that supplies are waiting, that is where to go, and the crate is what to look in.
@@ -704,6 +765,7 @@ function syncTasks(brain: NpcBrain): void {
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
   }
 
+  mindPutDown(brain);
   // Getting something to clean with is on its list for as long as it is short of it. With only a
   // rag it still cleans what a rag will shift, and gets something better when it can.
   const supplies = findTask(brain, SUPPLIES);
@@ -727,7 +789,7 @@ function syncTasks(brain: NpcBrain): void {
   task.urgency =
     brain.poorTool &&
     !scrubbing &&
-    (!!knownSupply(brain) || suppliesWaiting(brain))
+    (!!knownSupply(brain) || !!putDownTool(brain) || suppliesWaiting(brain))
       ? 'asked'
       : 'routine';
   blockTask(
@@ -1105,7 +1167,10 @@ export const JANITOR: Job = {
   // With nothing to clean with, or nothing but a rag, and nowhere it knows of to get better,
   // that is what it is short of. Not once what it asked for has come and is only waiting for it.
   needs: (brain) =>
-    lacksTool(brain) && !knownSupply(brain) && !suppliesWaiting(brain)
+    lacksTool(brain) &&
+    !knownSupply(brain) &&
+    !putDownTool(brain) &&
+    !suppliesWaiting(brain)
       ? brain.poorTool
         ? NEED_BETTER
         : NEED
@@ -1258,6 +1323,17 @@ export const JANITOR: Job = {
   },
   // What it has done to be let into a locked room, each thing once.
   afterActing: (brain, act, task, ok, _looped, details) => {
+    // Its mop or bucket put down to have a hand for soap or a rag: where, so as to go back for it.
+    if (
+      task?.kind === CLEAN &&
+      task.wantsScrub &&
+      act.tool === 'put_down' &&
+      ok &&
+      typeof act.item === 'string' &&
+      act.item
+    ) {
+      putDown(brain).push({ item: act.item, place: brain.location });
+    }
     // Back from the walk into the middle of a room it was told of a mess in, got there or not.
     if (
       task?.kind === CLEAN &&
