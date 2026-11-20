@@ -335,6 +335,16 @@ function atDoorOpen(brain: NpcBrain): boolean {
   return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
 }
 
+/**
+ * How many of the body's hands can hold anything: what it feels of its own arms. The server sends
+ * it as working_hands (HOLE-18); read through a cast so that this file compiles whether or not
+ * types.ts has it yet. Until it comes, two, so nothing changes.
+ */
+function workingHands(brain: NpcBrain): number {
+  const hands = (brain as NpcBrain & { workingHands?: number }).workingHands;
+  return typeof hands === 'number' ? hands : 2;
+}
+
 /** How long (deciseconds) a call it turned down for want of soap or a rag stays turned down. */
 const DECLINED_DS = 3000;
 
@@ -872,8 +882,14 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
-  // somewhere else: one in the room it stands in is cleaned first.
-  if (brain.wantsBucket && task.place !== brain.location && !task.noBucket) {
+  // somewhere else: one in the room it stands in is cleaned first. A mop and a bucket take two
+  // hands: with an arm hurt or gone it does not go for one it could not carry (HOLE-18).
+  if (
+    brain.wantsBucket &&
+    workingHands(brain) >= 2 &&
+    task.place !== brain.location &&
+    !task.noBucket
+  ) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
       return {
