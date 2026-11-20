@@ -893,8 +893,24 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		return list("Your PDA has sending turned off.", FALSE)
 	return null
 
-/// Tool: send someone a PDA message.
-/datum/ai_controller/crew_npc/proc/tool_message(person_name, text)
+/**
+ * Returns the room a message is a janitor call to, or null if it is not one. The window says so with
+ * call_for, and only a room of the body's own post counts (MULTI-06): a mail notice or a lost-crate
+ * notice to a janitor is no call, and used to hold the workmates back from calling one for ten minutes.
+ */
+/datum/ai_controller/crew_npc/proc/janitor_call_room(call_for)
+	if(!istext(call_for) || !length(call_for) || isnull(post_place))
+		return null
+	if(call_for == post_place || (call_for in look_in_rooms))
+		return call_for
+	return null
+
+/**
+ * Tool: send someone a PDA message.
+ *
+ * call_for, when the window sends one, is the room the message calls a janitor to (MULTI-06).
+ */
+/datum/ai_controller/crew_npc/proc/tool_message(person_name, text, call_for)
 	var/mob/living/carbon/human/body = pawn
 	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
 	if(isnull(own_messenger))
@@ -939,7 +955,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		// reports, and nobody was called to a meeting.
 		var/already_kept = !isnull(unsent_messages[unsent_key])
 		if(!already_kept)
-			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time)
+			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time, "call_for" = janitor_call_room(call_for))
 			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it[unusable ? " ([unusable[1]])" : ""]. Kept to send again: [text]")
 		if(!unsent_retry_due)
 			unsent_retry_due = TRUE
@@ -949,9 +965,11 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// The same words, kept from a try that failed, have now gone.
 	unsent_messages -= unsent_key
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name]: [text]")
-	// A message to a janitor from a post is that post's call for one: the others there need not send their own.
-	if(findtext(target.computer.saved_job, "janitor"))
-		note_janitor_called()
+	// A call to a janitor from a post, to one of its rooms, is that post's call for one there: the others
+	// there need not send their own. Any other message to a janitor is not a call.
+	var/call_room = janitor_call_room(call_for)
+	if(call_room && findtext(target.computer.saved_job, "janitor"))
+		note_janitor_called(call_room)
 	action_result(CREW_TOOL_MESSAGE, TRUE, "You send [to_name] a PDA message.")
 
 /// Returns the messenger of the PDA that goes by this name (lower case), other than the body's own, or null.
@@ -994,8 +1012,9 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 			break
 		unsent_messages -= unsent_key
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) sent [to_name] the PDA message that would not go before: [text]")
-		if(findtext(target.computer.saved_job, "janitor"))
-			note_janitor_called()
+		var/call_room = janitor_call_room(kept["call_for"])
+		if(call_room && findtext(target.computer.saved_job, "janitor"))
+			note_janitor_called(call_room)
 		// One at a time: the PDA will not send two in the same moment. The next follows shortly.
 		went = TRUE
 		break
