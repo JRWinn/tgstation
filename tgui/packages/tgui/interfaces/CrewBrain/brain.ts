@@ -15,6 +15,7 @@ import {
   meetingsAfterSaying,
   meetingsOverhear,
   readSummons,
+  withoutMeetingOrder,
 } from './jobs/meetings';
 import { ordersAfterSaying } from './jobs/orders';
 import {
@@ -62,6 +63,7 @@ import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
+  placeNamedIn,
   syncTasks,
   takeToldWork,
   workInOrder,
@@ -2181,12 +2183,15 @@ async function think(brain: NpcBrain): Promise<void> {
         continue;
       } else if (action.tool === 'work') {
         // A head told to find out how its staff are doing calls a meeting for it. It has not been
-        // sent to look at a room, whatever the LLM makes of "find out".
+        // sent to look at a room, whatever the LLM makes of "find out". Unless the rest of what
+        // was said names a room: "Call a meeting, and check the Bar first" sends it to the Bar
+        // as well (PARSE-15).
+        const joined = report
+          .filter((line) => line.includes(' says: '))
+          .join(' ');
         if (
-          isMeetingOrder(
-            brain,
-            report.filter((line) => line.includes(' says: ')).join(' '),
-          )
+          isMeetingOrder(brain, joined) &&
+          !placeNamedIn(brain, withoutMeetingOrder(brain, joined.toLowerCase()))
         ) {
           continue;
         }
