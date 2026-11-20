@@ -4,6 +4,9 @@
  * Each sense event is a short record that is kept on the controller and passed to the owner's brain window.
  */
 
+/// The most PDA messages kept to read that came while the body was out cold.
+#define CREW_NPC_MISSED_PDA_KEPT 10
+
 /// Starts watching and listening through the pawn. Called when the controller takes over a body.
 /datum/ai_controller/crew_npc/proc/start_senses(mob/living/carbon/human/body)
 	RegisterSignal(body, COMSIG_MOVABLE_PRE_HEAR, PROC_REF(on_pre_hear))
@@ -130,12 +133,56 @@
 		sense_events.Cut(1, 2)
 	brain_link?.on_sense_event(src)
 
-/// TRUE if the body is in a state to perceive anything at all.
+/**
+ * TRUE if the body is in a state to act: it can perceive, and the controller is running it. A body
+ * stunned or paralysed for a moment cannot act, but still sees and hears (can_perceive).
+ */
 /datum/ai_controller/crew_npc/proc/can_sense()
+	return can_perceive() && ai_status != AI_STATUS_OFF
+
+/**
+ * TRUE if the body is in a state to perceive anything at all: alive, awake, and with no player in
+ * it. This goes by the body, not by whether the controller is running: the controller is switched
+ * off while the body is stunned, paralysed or in stamina crit, and a person in that state still
+ * sees, hears and has their PDA buzz (CORE-02).
+ */
+/datum/ai_controller/crew_npc/proc/can_perceive()
 	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(body) || ai_status == AI_STATUS_OFF)
+	if(QDELETED(body) || forced_off || body.client || isnull(get_turf(body)))
 		return FALSE
 	return body.stat != DEAD && !IS_UNCONSCIOUS(body)
+
+/datum/ai_controller/crew_npc
+	/// PDA messages that came while the body was out cold, to be read when it comes to: each list(weakref to the PDA, sender, job, message).
+	var/list/missed_pda_messages
+
+/**
+ * Keeps a PDA message that came while the body could not perceive it. It sits on the PDA, and the
+ * body reads it when it comes to, as a player looks at their PDA on getting up. Ten at most.
+ */
+/datum/ai_controller/crew_npc/proc/keep_missed_pda(obj/item/modular_computer/computer, sender, job, message)
+	LAZYADD(missed_pda_messages, list(list(WEAKREF(computer), sender, job, message)))
+	if(length(missed_pda_messages) > CREW_NPC_MISSED_PDA_KEPT)
+		missed_pda_messages.Cut(1, 2)
+
+/// Reads the PDA messages that came while it was out, if the PDA they came to is still on it.
+/datum/ai_controller/crew_npc/proc/read_missed_pda()
+	var/list/missed = missed_pda_messages
+	missed_pda_messages = null
+	for(var/list/entry as anything in missed)
+		var/datum/weakref/computer_ref = entry[1]
+		var/obj/item/modular_computer/computer = computer_ref?.resolve()
+		if(QDELETED(computer) || !crew_npc_carries(computer))
+			continue
+		var/sender = entry[2]
+		var/job = entry[3]
+		var/message = entry[4]
+		emit_sense(CREW_SENSE_PDA_MESSAGE, "While you were out, your PDA got a message from [sender][job ? ", [job]" : ""]: \"[message]\"", list(
+			"speaker" = sender,
+			"job" = job,
+			"message" = message,
+			"missed" = TRUE,
+		))
 
 /// The key a person is remembered under. A new face on the same body counts as someone new.
 /datum/ai_controller/crew_npc/proc/person_key(mob/living/carbon/human/person)
@@ -159,7 +206,12 @@
 /// Checks who is in view and emits an event for each person who was not in view a moment ago.
 /datum/ai_controller/crew_npc/proc/look_around()
 	var/mob/living/carbon/human/body = pawn
-	if(!can_sense() || body.is_blind())
+	// A body stunned for a moment still looks about: only one that cannot perceive (CORE-02) or is blind sees nothing.
+	var/perceives = can_perceive()
+	// Come to, it reads what its PDA got while it was out.
+	if(perceives && length(missed_pda_messages))
+		read_missed_pda()
+	if(!perceives || body.is_blind())
 		people_in_view = list()
 		things_in_view = list()
 		storage_here = 0
@@ -189,7 +241,9 @@
 		current_place = null
 		forget_trail()
 
-	drop_disguise()
+	// Putting a thing down is doing, not looking: not while it is stunned.
+	if(can_sense())
+		drop_disguise()
 	note_place(body)
 	// In the dark it makes out only what a light falls on, and what is right beside it.
 	var/list/in_sight = crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body)
@@ -418,7 +472,8 @@
 	SIGNAL_HANDLER
 
 	var/atom/movable/speaker = hearing_args[HEARING_SPEAKER]
-	if(speaker == body || !can_sense() || HAS_TRAIT(body, TRAIT_DEAF))
+	// A stunned body still hears (CORE-02): only one that cannot perceive at all does not.
+	if(speaker == body || !can_perceive() || HAS_TRAIT(body, TRAIT_DEAF))
 		return
 	// Radio is a separate sense that comes later.
 	if(hearing_args[HEARING_RADIO_FREQ])
@@ -482,3 +537,5 @@
 		details["superior"] = answers_to(speaker) ? 1 : 0
 
 	emit_sense(CREW_SENSE_SPEECH_HEARD, "[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\"", details)
+
+#undef CREW_NPC_MISSED_PDA_KEPT
