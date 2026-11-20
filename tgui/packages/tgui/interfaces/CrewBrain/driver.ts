@@ -255,6 +255,47 @@ function wayOutOpen(brain: NpcBrain): boolean {
 const WALKS = new Set(['go_to', 'go_to_door', 'explore']);
 
 /**
+ * TRUE if a step of its work failed in this room lately and is still being left alone, so that a
+ * walk back to the room would come to nothing (DRV-12). Stale notes are dropped as it looks.
+ */
+function heldAt(brain: NpcBrain, place: string): boolean {
+  const now = Date.now();
+  brain.heldAt = (brain.heldAt ?? []).filter((held) => held.until > now);
+  return brain.heldAt.some((held) => held.place === place);
+}
+
+/** The most rooms it keeps a note of a failed step in (DRV-12). */
+const HELD_AT_KEPT = 4;
+
+/**
+ * Notes the room a failed step of its work was in, for as long as that step is left alone
+ * (DRV-12). Only a step that belongs to a task and is done where it stands: not a walk, a PDA
+ * message (which can fail anywhere) or a spoken line, and never one of an order from a head.
+ */
+function noteHeldAt(
+  brain: NpcBrain,
+  last: NonNullable<NpcBrain['lastAct']>,
+): void {
+  if (
+    last.task === undefined ||
+    WALKS.has(last.act.tool) ||
+    last.act.tool === 'message'
+  ) {
+    return;
+  }
+  const task = brain.tasks.find((it) => it.id === last.task);
+  const until = brain.failures.get(last.key)?.until ?? 0;
+  if (!task || task.urgency === 'emergency' || until <= Date.now()) {
+    return;
+  }
+  const kept = (brain.heldAt ?? []).filter(
+    (held) => held.place !== brain.location && held.until > Date.now(),
+  );
+  kept.push({ place: brain.location, until });
+  brain.heldAt = kept.slice(-HELD_AT_KEPT);
+}
+
+/**
  * TRUE if this step failed lately and is being left alone for now. `act` is what the step does,
  * where it is known: null for a step that only says something.
  */
@@ -577,6 +618,21 @@ export function nextStep(brain: NpcBrain): Step | null {
     const key = keyOf(task, plan.act, plan.say);
     const act = plan.act ?? null;
     if (inBackoff(brain, key, act) || inBackoff(brain, jobKey(task.id), act)) {
+      heldBack = true;
+      continue;
+    }
+    // Nor does it walk back to a room where a step of its work has just failed, for whichever
+    // task, until that step is let off: it would only find it still held back there, and walk
+    // off again (DRV-12). Not an order from someone it answers to, which it goes on with, nor
+    // through a door standing open or held for it, which will not wait.
+    if (
+      act?.tool === 'go_to' &&
+      typeof act.place === 'string' &&
+      task.urgency !== 'emergency' &&
+      !wayOutOpen(brain) &&
+      !brain.doorHeld &&
+      heldAt(brain, act.place)
+    ) {
       heldBack = true;
       continue;
     }
@@ -1259,7 +1315,16 @@ export function noteResult(brain: NpcBrain, event: SenseEvent): void {
     const cleaned = brain.tasks.find((task) => task.id === last.task);
     if (last.act.tool === 'clean' && cleaned?.place === brain.location) {
       fail(brain, jobKey(cleaned.id));
+      // The job is let off no sooner than the clean. With the clean failed more often (wetting
+      // the mop at a sink on the way fails the same key), the walk back was let off first, and it
+      // walked back to find the clean still held back, then out again (DRV-12).
+      const step = brain.failures.get(last.key);
+      const job = brain.failures.get(jobKey(cleaned.id));
+      if (step && job) {
+        job.until = Math.max(job.until, step.until);
+      }
     }
+    noteHeldAt(brain, last);
     // A knock that did not land, because the body was not at the door after all, is no knock.
     // It goes and stands at the door again, and knocks when it is there.
     if (last.act.tool === 'knock') {
