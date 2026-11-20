@@ -12,7 +12,10 @@
 	if(!length(wanted))
 		action_result(CREW_TOOL_PICK_UP, FALSE, "You did not decide what to pick up.")
 		return
-	if(!length(body.get_empty_held_indexes()) && !free_a_hand())
+	if(!note_working_hands())
+		action_result(CREW_TOOL_PICK_UP, FALSE, "You have no hand you can use.")
+		return
+	if(!length(free_hands()) && !free_a_hand())
 		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full of things you need. Put something down first.")
 		return
 
@@ -30,7 +33,7 @@
 		if(is_spent(stowed))
 			continue
 		var/stowed_name = format_text(stowed.name)
-		if(body.put_in_hands(stowed))
+		if(ready_free_hand() && body.put_in_active_hand(stowed))
 			action_result(CREW_TOOL_PICK_UP, TRUE, "You take the [stowed_name] out from where you had put it away.")
 			return
 
@@ -106,7 +109,64 @@
 	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
 		return FALSE
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
-	return !!length(body.get_empty_held_indexes())
+	return !!length(free_hands())
+
+/**
+ * The indexes of the body's hands that are empty and work. A hand whose arm is gone, broken past
+ * use or paralysed keeps its empty slot for good, and the game will put nothing in it: counted as
+ * free, a one-handed body walked to every thing it was sent for and failed to pick it up (HOLE-18).
+ */
+/datum/ai_controller/crew_npc/proc/free_hands()
+	var/mob/living/carbon/human/body = pawn
+	var/list/free = list()
+	for(var/index in body.get_empty_held_indexes())
+		if(body.has_hand_for_held_index(index))
+			free += index
+	return free
+
+/// How many of the body's hands work, held or empty.
+/datum/ai_controller/crew_npc/proc/working_hand_count()
+	var/mob/living/carbon/human/body = pawn
+	var/count = 0
+	for(var/index in 1 to length(body.held_items))
+		if(body.has_hand_for_held_index(index))
+			count++
+	return count
+
+/**
+ * Makes an empty hand that works the active one, as a player swaps hands before picking something
+ * up: the game tries the active hand, then only the first empty slot on the left, so a dead left
+ * hand that was active stopped all picking up with the right one free. TRUE if one is active now.
+ */
+/datum/ai_controller/crew_npc/proc/ready_free_hand()
+	var/mob/living/carbon/human/body = pawn
+	var/list/free = free_hands()
+	if(!length(free))
+		return FALSE
+	if(!(body.active_hand_index in free))
+		body.swap_hand(free[1])
+	return body.active_hand_index in free
+
+/// How many hands worked when they were last counted, or -1 before then.
+/datum/ai_controller/crew_npc/var/working_hands_known = -1
+
+/**
+ * Counts the hands that work, and when there are fewer than last time, the body feels it: the brain
+ * is told which hand will not hold anything. Returns the count.
+ */
+/datum/ai_controller/crew_npc/proc/note_working_hands()
+	var/mob/living/carbon/human/body = pawn
+	var/count = working_hand_count()
+	if(working_hands_known >= 0 && count < working_hands_known)
+		var/list/dead = list()
+		for(var/index in 1 to length(body.held_items))
+			if(!body.has_hand_for_held_index(index))
+				dead += body.get_held_index_name(index)
+		var/words = count ? "Your [english_list(dead)] will not hold anything: the arm is hurt, or gone." : "Neither of your hands will hold anything: your arms are hurt, or gone."
+		emit_sense(CREW_SENSE_KNOWLEDGE, words, list("working_hands" = count))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) has [count] working hand[count == 1 ? "" : "s"] now, [working_hands_known] before.")
+	working_hands_known = count
+	return count
 
 /**
  * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
@@ -318,7 +378,9 @@
 	var/item_name = format_text(item.name)
 	if(!isturf(item.loc))
 		return list(FALSE, "The [item_name] is not where you saw it.")
-	if(!body.put_in_hands(item))
+	// Into a hand that works, made the active one first. If even that will not take it, it stays
+	// where it lay: put_in_hands would have dropped it at the body's feet (HOLE-18).
+	if(!ready_free_hand() || !body.put_in_active_hand(item))
 		return list(FALSE, "You cannot pick up the [item_name].")
 	return list(TRUE, "You pick up the [item_name].")
 
@@ -355,7 +417,7 @@
 	if(QDELETED(body) || QDELETED(container))
 		return list(FALSE, "You could not get to it.")
 
-	var/taken = !QDELETED(found) && body.put_in_hands(found)
+	var/taken = !QDELETED(found) && ready_free_hand() && body.put_in_active_hand(found)
 	if(!taken && found)
 		inside[format_text(found.name)]++
 	// Shut again, unless someone (the body itself included) is on its tile: shutting it would take

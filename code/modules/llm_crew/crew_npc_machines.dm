@@ -351,18 +351,17 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 	qdel(window)
 	return TRUE
 
-/// Sees that the hand the body clicks with is empty. Returns FALSE if it could not be emptied.
+/**
+ * Sees that the hand the body clicks with is empty, and works. Returns FALSE if it could not be
+ * emptied. An empty hand that is gone or hurt past use clicks nothing: one that works is swapped to,
+ * and only if there is none is something put away to free one (HOLE-18).
+ */
 /datum/ai_controller/crew_npc/proc/empty_clicking_hand()
-	var/mob/living/carbon/human/body = pawn
-	if(isnull(body.get_active_held_item()))
-		return TRUE
-	body.swap_hand(body.get_inactive_hand_index())
-	if(isnull(body.get_active_held_item()))
+	note_working_hands()
+	if(ready_free_hand())
 		return TRUE
 	free_a_hand()
-	if(!isnull(body.get_active_held_item()))
-		body.swap_hand(body.get_inactive_hand_index())
-	return isnull(body.get_active_held_item())
+	return ready_free_hand()
 
 /// Turns a pump or a filter on or off, by the click that does that.
 /datum/ai_controller/crew_npc/proc/turn_machine(obj/machinery/atmospherics/components/machine, machine_name, on)
