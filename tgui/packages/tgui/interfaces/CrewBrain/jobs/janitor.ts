@@ -295,6 +295,55 @@ function noWaterHere(brain: NpcBrain): Map<string, number> {
   return notes;
 }
 
+/** How long (deciseconds) a call it turned down for want of soap or a rag stays turned down. */
+const DECLINED_DS = 3000;
+
+/**
+ * The rooms of the calls each janitor turned down for want of soap or a rag, with who called and
+ * when. Kept beside the brain, as the notes on water are. The code turns such a call down; the
+ * model, offered "work" for the same message, took it on all the same, and the janitor set off
+ * for a room it could not get into, to a mess it could not shift (LOGA-07).
+ */
+const declinedNotes = new WeakMap<
+  NpcBrain,
+  Map<string, { by: string; at: number }>
+>();
+
+/** The calls this janitor has turned down, by room. */
+function declinedCalls(brain: NpcBrain): Map<string, { by: string; at: number }> {
+  let notes = declinedNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    declinedNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/**
+ * TRUE if this is a mess task for a call the code has just turned down, taken on from the same
+ * caller some other way (the model's "work", or work read from the words of the line): the code's
+ * no stands while it still has nothing to scrub with. A task the message itself made sets
+ * wantsScrub, and one the body noticed for itself is not told.
+ */
+function declinedCall(brain: NpcBrain, task: Task): boolean {
+  if (
+    task.kind !== CLEAN ||
+    task.source !== 'told' ||
+    !task.place ||
+    task.wantsScrub !== undefined
+  ) {
+    return false;
+  }
+  const note = declinedCalls(brain).get(task.place.toLowerCase());
+  return (
+    !!note &&
+    note.by === task.askedBy &&
+    brain.now - note.at < DECLINED_DS &&
+    !canScrub(brain) &&
+    !scrubberToHand(brain)
+  );
+}
+
 /** TRUE if the body remembers a sink among the things of this room. */
 function remembersSinkIn(brain: NpcBrain, name: string): boolean {
   const place = brain.places.get(name);
@@ -461,6 +510,17 @@ function syncTasks(brain: NpcBrain): void {
       task.askedBy = undefined;
     }
   }
+  // A call it turned down stays turned down, however else it came back onto the list. Once it has
+  // soap or a rag to hand, the notes go: the next call is taken.
+  const declined = declinedCalls(brain);
+  if (declined.size > 0 && (canScrub(brain) || scrubberToHand(brain))) {
+    declined.clear();
+  }
+  for (const task of declined.size > 0 ? [...brain.tasks] : []) {
+    if (declinedCall(brain, task)) {
+      dropTask(brain, task);
+    }
+  }
   // The body keeps track of the messes it has seen and not yet seen gone. A room wants cleaning
   // for as long as it remembers one there: not seeing a mess from where it stands proves nothing.
   const messy = new Set(brain.messPlaces);
@@ -621,6 +681,13 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   }
   if (task.kind !== CLEAN) {
     return null;
+  }
+  // Taken on again since the last look at the list, from a call it has turned down: not gone to.
+  if (declinedCall(brain, task)) {
+    return {
+      ready: false,
+      step: `You have told ${task.askedBy} you cannot shift the mess in the ${task.place}: you have no soap or rag.`,
+    };
   }
   const toldBy = task.askedBy ? ` (${task.askedBy} told you of it)` : '';
   // Called to a mess that wants scrubbing, a cobweb say, with a mop and a bucket in its hands:
@@ -915,6 +982,7 @@ export const JANITOR: Job = {
           byPda: true,
           at: Date.now(),
         });
+        declinedCalls(brain).set(named.toLowerCase(), { by: from, at: brain.now });
         return;
       }
       if (named) {
