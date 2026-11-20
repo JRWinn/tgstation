@@ -719,7 +719,12 @@
 			if(isnull(through) || through == room_name)
 				break
 		mess_beyond = through == room_name && remembers_mess_in(inner)
-	if(!inside && !(findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor") && mess_beyond))
+	// Who they are is read off their shown job, as anyone at the door would read it. A janitor is
+	// let in to a mess; security is let in on asking, as staff let in an officer after a warrant
+	// (CARGO-04): the server refused it every time, and the technician walked to the door for nothing.
+	var/shown_job = person.get_assignment(if_no_id = "", if_no_job = "")
+	var/security = findtext(shown_job, "Security Officer") || findtext(shown_job, "Head of Security")
+	if(!inside && !security && !(findtext(shown_job, "janitor") && mess_beyond))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].")
 		return
 	if(isnull(door))
