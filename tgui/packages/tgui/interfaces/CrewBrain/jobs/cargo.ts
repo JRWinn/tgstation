@@ -61,12 +61,15 @@ import {
   syncRounds,
 } from './rounds';
 import {
+  calledIn,
+  calledMe,
   DOCKED,
   dutiesIn,
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
   NOT_PLACED,
+  nameCalled,
   orderWritten,
   QM_SILENT_WORDS,
   quartermasterAboard,
@@ -1439,6 +1442,28 @@ const SOMEONE_INSIDE = 'whoever is knocking';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
+}
+
+/** The other technicians this NPC knows of: in view, or on its PDA list. */
+function workmatesKnown(brain: NpcBrain): string[] {
+  return [
+    ...new Set(
+      [...brain.peopleInView, ...brain.pdaPeople]
+        .filter(
+          (person) => isTechnician(person.job) && person.name !== brain.name,
+        )
+        .map((person) => person.name),
+    ),
+  ];
+}
+
+/**
+ * Whether a line the Quartermaster said is said to this NPC by name: it begins with its whole
+ * name, or with its first name and no workmate it knows of shares that. "Sam Cole, order 3" is
+ * not Sam Bell's, though both are Sam (QM-03).
+ */
+function saidToMe(brain: NpcBrain, line: string): boolean {
+  return calledMe(calledIn(line), brain.name, workmatesKnown(brain));
 }
 
 /** The rooms whose doors are this NPC's to open: its post, and the rest of its department. */
@@ -2849,7 +2874,7 @@ export const CARGO: Job = {
     if (
       isQuartermaster(speakerJob) &&
       WORD_HEARD_WORDS.test(heard) &&
-      new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard)
+      saidToMe(brain, heard)
     ) {
       for (const task of brain.tasks) {
         if (task.telling && task.toldAt !== undefined && task.state !== 'done') {
@@ -2863,15 +2888,9 @@ export const CARGO: Job = {
     // yours this shift." Everyone there hears who has what, and goes by it.
     const duty = isQuartermaster(speakerJob) ? dutiesIn(heard) : null;
     if (duty) {
-      const first = duty.first.toLowerCase();
-      const name =
-        firstName(brain.name).toLowerCase() === first
-          ? brain.name
-          : [...brain.peopleInView, ...brain.pdaPeople].find(
-              (person) =>
-                isTechnician(person.job) &&
-                firstName(person.name).toLowerCase() === first,
-            )?.name;
+      const name = calledMe(duty.to, brain.name, workmatesKnown(brain))
+        ? brain.name
+        : nameCalled(duty.to, workmatesKnown(brain));
       if (name) {
         brain.duties[name] = duty.duties;
       }
@@ -2885,16 +2904,14 @@ export const CARGO: Job = {
       ? heard.trim().match(SEND_TO_LET_OUT_WORDS)
       : null;
     if (sendToLetOut) {
-      if (
-        sendToLetOut[1].toLowerCase() === firstName(brain.name).toLowerCase()
-      ) {
-        const first = sendToLetOut[2].trim().toLowerCase();
+      if (calledMe(sendToLetOut[1], brain.name, workmatesKnown(brain))) {
         const who =
-          [...brain.peopleInView, ...brain.pdaPeople].find(
-            (person) =>
-              person.name !== brain.name &&
-              firstName(person.name).toLowerCase() === first,
-          )?.name ?? sendToLetOut[2].trim();
+          nameCalled(
+            sendToLetOut[2],
+            [...brain.peopleInView, ...brain.pdaPeople]
+              .map((person) => person.name)
+              .filter((name) => name !== brain.name),
+          ) ?? sendToLetOut[2].trim();
         const said = sendToLetOut[3].trim();
         const room =
           ownRooms(brain).find(
@@ -2917,7 +2934,7 @@ export const CARGO: Job = {
       ? heard.trim().match(SEE_TO_WORDS)
       : null;
     if (seeTo) {
-      if (seeTo[1].toLowerCase() === firstName(brain.name).toLowerCase()) {
+      if (calledMe(seeTo[1], brain.name, workmatesKnown(brain))) {
         brain.seeToUntil = brain.now + SEE_TO_DS;
         // A held crate that would not come out to the lobby is not shuttle or rooms work: it is a
         // hand-over, and it is this one's to bring out now (CARGO-18).
@@ -2938,7 +2955,7 @@ export const CARGO: Job = {
       const number = tryAgain[2].match(/\bcrate #(\d+)\b/i)?.[1];
       if (
         number &&
-        tryAgain[1].toLowerCase() === firstName(brain.name).toLowerCase() &&
+        calledMe(tryAgain[1], brain.name, workmatesKnown(brain)) &&
         brain.heldCrates.some((held) => held.number === Number(number))
       ) {
         seeToCrates.set(brain.id, { number: Number(number), at: brain.now });
@@ -2952,7 +2969,7 @@ export const CARGO: Job = {
     if (
       given &&
       isQuartermaster(speakerJob) &&
-      new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(heard.trim())
+      saidToMe(brain, heard)
     ) {
       const n = Number(given[1]);
       const items = itemsAskedFor(given[2].toLowerCase(), brain.orderable);
