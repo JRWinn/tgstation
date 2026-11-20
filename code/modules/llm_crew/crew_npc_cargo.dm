@@ -355,6 +355,31 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		return place_name
 	return null
 
+/// What the orders already in the supply cart will take out of the cargo budget when the shuttle loads: those no one pays for out of pocket, and that are not a department's own.
+/proc/crew_npc_cart_owed_by_cargo()
+	var/owed = 0
+	for(var/datum/supply_order/waiting as anything in SSshuttle.shopping_list)
+		if(waiting.paying_account || waiting.department_destination || !waiting.charge_on_purchase)
+			continue
+		owed += waiting.get_final_cost()
+	return owed
+
+/// world.time the supply shuttle last loaded at the far dock, as heard by this body's order run. An order still in the cart after that was not bought.
+/datum/ai_controller/crew_npc/var/supply_bought_at = 0
+
+/// Notes that the supply shuttle is loading. Whether the order on the go was bought is decided when the shuttle is home.
+/datum/ai_controller/crew_npc/proc/supply_shuttle_bought(datum/source)
+	SIGNAL_HANDLER
+	if(!supply_run_active)
+		UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+		return
+	supply_bought_at = world.time
+
+/// TRUE if the shuttle has loaded since the order on the go was placed, and left it in the cart: there was not the money for it.
+/datum/ai_controller/crew_npc/proc/order_unbought()
+	var/datum/supply_order/order = pending_order?.resolve()
+	return !isnull(order) && (order in SSshuttle.shopping_list) && supply_bought_at > supply_run_started_at
+
 /// Reads how many crates were asked for from what the brain sent, which may be a number or text. At least one, and no more than cargo orders at once.
 /datum/ai_controller/crew_npc/proc/crates_wanted(count)
 	return clamp(round(isnum(count) ? count : text2num("[count]")), 1, CREW_NPC_ORDER_MAX)
@@ -398,7 +423,10 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		action_result(CREW_TOOL_ORDER, FALSE, "You already have an order on the go. See that one through first.")
 		return
 	// An order the budget cannot cover is never loaded, and the shuttle would come back without it.
-	var/cost = 0
+	// What is already in the cart is paid for first, out of the same budget, in the order it was
+	// placed. Two orders that each fit but not together both passed, and the second flew to and fro
+	// unbought until it was called held up (SUP-11). The console shows the cart beside the budget.
+	var/cost = crew_npc_cart_owed_by_cargo()
 	for(var/kind in wanted)
 		var/datum/supply_pack/pack = SSshuttle.supply_packs[known[kind]]
 		cost += pack.get_cost() * wanted[kind]
@@ -479,6 +507,8 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
 	supply_run_active = TRUE
+	// To know, when the shuttle is home with the order still in the cart, that it went and loaded without it.
+	RegisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY, PROC_REF(supply_shuttle_bought), override = TRUE)
 	addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 	return list(TRUE, "You order [ordered_words][order_for ? " for [order_for]" : ""] at the supply console and call the shuttle. It will be a few minutes. You will know when it docks.")
 
@@ -491,8 +521,13 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		supply_run_active = FALSE
 		return
 	if(world.time - supply_run_started_at > CREW_NPC_SUPPLY_TIMEOUT)
+		var/no_money = order_unbought()
 		supply_run_active = FALSE
 		pending_order = null
+		UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+		if(no_money)
+			action_result(CREW_TOOL_ORDER, FALSE, "What you ordered ([ordered_words]) has still not come: the supply shuttle came back without it, as there was not enough money in the cargo budget to pay for it. It is still in the supply cart.", list("no_money" = TRUE))
+			return
 		action_result(CREW_TOOL_ORDER, FALSE, "What you ordered ([ordered_words]) has still not come. Something is holding the supply shuttle up.")
 		return
 
@@ -501,15 +536,18 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// order that is gone is an order aboard, and once the shuttle is at the station it has been delivered.
 	var/datum/supply_order/order = pending_order?.resolve()
 	var/aboard = isnull(order) || !(order in SSshuttle.shopping_list)
+	// Loaded without it: the cargo budget could not pay. The shuttle coming home is the end of the
+	// run all the same, and it is not held up by anything (SUP-11).
+	var/came_home = aboard || order_unbought()
 	if(shuttle.mode == SHUTTLE_IDLE && !SSshuttle.supply_blocked)
 		var/docked_at = shuttle.getDockedId()
 		if(docked_at == "cargo_home")
 			// The body learns of it the way a person would: it is in the bay and sees the shuttle dock.
 			// Anywhere else, it finds out when it next gets back.
-			if(aboard && (isnull(post_turf) || get_area(pawn) == get_area(post_turf)))
+			if(came_home && (isnull(post_turf) || get_area(pawn) == get_area(post_turf)))
 				order_arrived()
 				return
-			if(aboard)
+			if(came_home)
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			// Something that came on it has yet to be hauled off. Sent now, it would go back with it.
@@ -535,7 +573,13 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /datum/ai_controller/crew_npc/proc/order_arrived()
 	supply_run_active = FALSE
 	pending_order = null
+	UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
 	var/list/known = orderable_crates()
+	// Those of its orders the shuttle loaded without, still in the cart: the budget could not pay for them (SUP-11).
+	var/list/unpaid = list()
+	for(var/datum/supply_order/waiting as anything in SSshuttle.shopping_list)
+		if(waiting.id in ordered_numbers)
+			unpaid += waiting.id
 	// The crates of the order are known by the numbers on their manifests. A workmate may have
 	// hauled one off the shuttle already, so the bay and the lobby are looked in as well.
 	var/list/aboard = crates_aboard()
@@ -575,9 +619,18 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 				unmatched -= number
 				break
 	ordered_numbers = list()
-	var/missing = length(unmatched) ? " [capitalize(crew_npc_numbers_written(unmatched))] did not come with it." : ""
+	var/list/not_come = unmatched - unpaid
+	var/missing = length(not_come) ? " [capitalize(crew_npc_numbers_written(not_come))] did not come with it." : ""
+	if(length(unpaid))
+		var/list/unpaid_written = list()
+		for(var/number in unpaid)
+			unpaid_written += "#[number]"
+		missing += " Order[length(unpaid) > 1 ? "s" : ""] [english_list(unpaid_written)] [length(unpaid) > 1 ? "are" : "is"] still in the supply cart: there was not enough money in the cargo budget to pay for [length(unpaid) > 1 ? "them" : "it"]."
 	if(!length(found))
-		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
+		if(length(unpaid) && !length(not_come))
+			action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle came back without [ordered_words]: there was not enough money in the cargo budget to pay for it.", list("no_money" = TRUE))
+			return
+		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.[missing]")
 		return
 	// From here they are held for collection, whoever hauls them off the shuttle.
 	var/list/numbers = list()
