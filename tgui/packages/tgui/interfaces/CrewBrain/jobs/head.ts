@@ -160,6 +160,13 @@ const LOST_WORDS = /^lost at cargo: (.+?) from your order\b/i;
 const REORDERED_WORDS = /\bordered again, as order \d+/i;
 /** What one of its staff sends when cargo says there is no such crate to collect: see pickups.ts. */
 const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
+/**
+ * How long (deciseconds) after its PDA would not send its order to the Quartermaster it takes the
+ * order to the counter instead. The server keeps an unsent message and sends it again by itself
+ * for CREW_NPC_UNSENT_KEPT (8 minutes, _defines.dm): keep the two together. Gone to the counter
+ * sooner, the kept copy reaches the Quartermaster later and the crate is bought twice (HEAD-05).
+ */
+const UNSENT_GIVEN_UP_DS = 5400;
 /** How long (deciseconds) an ask that was ordered for, and a crate sent for, stand with no word that it was unpacked. */
 const ASK_STANDS_DS = 12000;
 /** How many times it goes to the counter and finds nobody from cargo to take an order, before it puts the order by until after the next meeting. */
@@ -185,6 +192,8 @@ type AtCounter = {
   parkedAt: number | null;
   /** The head's nextMeetingAt when it was put by: once a meeting is over, that has moved on. */
   parkedNext: number;
+  /** When it first tried to send the order to the Quartermaster and its PDA would not send it, or null (HEAD-05). */
+  qmTriedAt: number | null;
 };
 const atCounter = new WeakMap<Requisition, AtCounter>();
 function counterOf(order: Requisition): AtCounter {
@@ -197,6 +206,7 @@ function counterOf(order: Requisition): AtCounter {
       said: 0,
       parkedAt: null,
       parkedNext: 0,
+      qmTriedAt: null,
     };
     atCounter.set(order, state);
   }
@@ -1113,7 +1123,20 @@ function requisitionStep(brain: NpcBrain): Plan {
   // counter the way it was before there was one.
   const quartermaster = quartermasterAboard(brain);
   if (quartermaster && !order.viaCounter && brain.hasPda) {
-    if (order.askedAt === null) {
+    // Its PDA would not send the order. The server keeps it and tries it again by itself: the
+    // same message is not offered again meanwhile. Once the server has given it up, the order
+    // goes to the counter. Offered again and again, it never went to the counter, and no
+    // meeting was held meanwhile (HEAD-05).
+    const triedAt = atCounter.get(order)?.qmTriedAt ?? null;
+    if (order.askedAt === null && triedAt !== null) {
+      if (brain.now - triedAt <= UNSENT_GIVEN_UP_DS) {
+        return {
+          ready: false,
+          step: `You have sent ${quartermaster.name}, the Quartermaster, your order for ${wanted}, and your PDA would not send it. Your PDA will keep trying; if no word comes, you will take it to the counter.`,
+        };
+      }
+      order.viaCounter = true;
+    } else if (order.askedAt === null) {
       return {
         ready: true,
         step: `Your staff need supplies (${people}). Every order goes through the Quartermaster, ${quartermaster.name}: you are sending them a PDA message to order ${wanted}.`,
@@ -1130,7 +1153,7 @@ function requisitionStep(brain: NpcBrain): Plan {
         step: `You have sent ${quartermaster.name}, the Quartermaster, your order for ${wanted}, and have word that it is noted. They will send the manifest numbers when it has come in.`,
       };
     }
-    if (brain.now - order.askedAt < NOTED_WAIT_DS) {
+    if (order.askedAt !== null && brain.now - order.askedAt < NOTED_WAIT_DS) {
       return {
         ready: false,
         step: `You have sent ${quartermaster.name}, the Quartermaster, your order for ${wanted}, and are waiting for word that it is noted.`,
@@ -1508,8 +1531,25 @@ export const HEAD_OF_PERSONNEL: Job = {
     // Word from the Quartermaster about its order: that it is noted, that the Captain has said
     // no to it, or that it is not something cargo can get.
     const sentOrder = brain.requisition;
-    if (isCargo(job) && sentOrder && sentOrder.askedAt !== null) {
+    // Also when its PDA would not send the order: the server sends the kept copy by itself, and
+    // the Quartermaster's word back to that is not to be dropped (HEAD-05).
+    const triedByPda =
+      !!sentOrder && (atCounter.get(sentOrder)?.qmTriedAt ?? null) !== null;
+    if (
+      isCargo(job) &&
+      sentOrder &&
+      (sentOrder.askedAt !== null || triedByPda)
+    ) {
       if (NOTED_WORDS.test(text)) {
+        if (sentOrder.askedAt === null) {
+          sentOrder.askedAt = at;
+          const people = orderedFor(sentOrder);
+          for (const ask of brain.asks) {
+            if (people.includes(ask.who)) {
+              ask.ordered = true;
+            }
+          }
+        }
         sentOrder.heardBack = true;
         return;
       }
@@ -1713,6 +1753,17 @@ export const HEAD_OF_PERSONNEL: Job = {
           ask.ordered = true;
         }
       }
+    }
+    // Its PDA would not send the order. The asks stay not ordered until it goes (HEAD-05).
+    if (
+      sent &&
+      sent.askedAt === null &&
+      !ok &&
+      !sent.viaCounter &&
+      act.tool === 'message' &&
+      String(act.text ?? '').startsWith(ORDERING)
+    ) {
+      counterOf(sent).qmTriedAt ??= brain.now;
     }
     meetingActed(brain, act, ok, looped);
   },

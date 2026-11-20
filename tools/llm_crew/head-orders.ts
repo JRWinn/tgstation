@@ -160,6 +160,36 @@ const ordered = (b: any) => { b.asks[0].ordered = true; b.requisition = null; b.
   add('ordered for and never told for twenty minutes: the ask and the crate are let go', [b.asks.length, b.pickups.length], [0, 0]);
 }
 
+// HEAD-05: its PDA will not send the order to the Quartermaster.
+{
+  const b = hop([CAPTAIN, JAN, QM]);
+  const sent = step(b);
+  add('with a Quartermaster aboard the order goes by PDA', [sent?.act?.tool, sent?.act?.person], ['message', QM.name]);
+  HEAD_OF_PERSONNEL.afterActing(b, sent.act, undefined, false);
+  b.now += 300;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('the PDA would not send it: the same message is not offered again', step(b)?.act ?? null, null);
+  add('and the asks are not marked ordered', b.asks[0].ordered, false);
+  b.nextMeetingAt = b.now;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('a meeting is called meanwhile', !!b.meeting, true);
+  b.meeting = null;
+  b.nextMeetingAt = 1e9;
+  b.now += 5500;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('once the server has given the kept copy up, it goes to the counter', step(b)?.act?.place, 'Cargo Lobby');
+}
+{
+  const b = hop([CAPTAIN, JAN, QM]);
+  HEAD_OF_PERSONNEL.afterActing(b, step(b).act, undefined, false);
+  b.now += 3000;
+  HEAD_OF_PERSONNEL.readsMessage(b, QM.name, 'Noted, order 3: 1 Janitorial Supplies Crate, for Hop Kins.', b.now, 'Quartermaster');
+  add('a Noted after the server sent the kept copy is taken', [b.requisition.heardBack, b.requisition.askedAt !== null, b.asks[0].ordered], [true, true, true]);
+  b.now += 4000;
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('and it never goes to the counter', step(b)?.act ?? null, null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
