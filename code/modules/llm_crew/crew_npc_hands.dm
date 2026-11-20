@@ -34,18 +34,24 @@
 			action_result(CREW_TOOL_PICK_UP, TRUE, "You take the [stowed_name] out from where you had put it away.")
 			return
 
-	// Something lying in plain view comes first.
+	// Something lying in plain view comes first. Not one it lately could not get to, nor one in a room
+	// locked to it, seen through the glass: it would walk at that every time, and never go to the
+	// closet it knows holds one (HAND-04).
 	var/obj/item/nearest_item
 	var/nearest_distance = INFINITY
+	var/area/here = get_area(body)
 	for(var/obj/item/candidate in oview(CREW_NPC_VISION_RANGE, body))
 		if(!isturf(candidate.loc) || candidate.anchored || (candidate.item_flags & ABSTRACT))
 			continue
 		if(!name_matches(candidate.name, wanted) || is_spent(candidate))
 			continue
 		var/distance = get_dist(body, candidate)
-		if(distance < nearest_distance)
-			nearest_distance = distance
-			nearest_item = candidate
+		if(distance >= nearest_distance || pickup_given_up(candidate))
+			continue
+		if(get_area(candidate) != here && place_locked_to_body(get_area_name(candidate, TRUE)))
+			continue
+		nearest_distance = distance
+		nearest_item = candidate
 	if(nearest_item)
 		start_errand(nearest_item, CREW_TOOL_PICK_UP, wanted)
 		return
@@ -59,6 +65,9 @@
 		var/obj/structure/closet/container = container_weakref?.resolve()
 		// A large wooden crate is not opened by hand, whatever is remembered of it.
 		if(QDELETED(container) || container.z != body.z || istype(container, /obj/structure/closet/crate/large))
+			continue
+		// One it lately could not get to is passed over for a while (HAND-04).
+		if(pickup_given_up(container))
 			continue
 		var/holds_one = FALSE
 		for(var/held_name in memory["items"])
@@ -232,6 +241,8 @@
 	if(errand_tool == CREW_TOOL_ARREST && !QDELETED(target) && !QDELETED(body))
 		return make_arrest(target)
 	if(QDELETED(target) || QDELETED(body) || !can_reach_target_now(target))
+		if(errand_tool == CREW_TOOL_PICK_UP && !QDELETED(target))
+			note_pickup_unreached(target)
 		return list(FALSE, "You could not get to it.")
 	// A held crate reached is one that can be got to: the times nobody could get to it start again.
 	if(istype(target, /obj/structure/closet/crate))
@@ -523,6 +534,9 @@
 	// A fire alarm it could not get to is on the far side of the fire doors. The next nearest is tried instead.
 	if(crew_controller.errand_tool == CREW_TOOL_RESET_ALARM && !QDELETED(target))
 		crew_controller.fire_alarms_failed[REF(target)] = world.time
+	// A thing to pick up, or the locker it is in, that it could not get to: the next nearest is gone to instead for a while (HAND-04).
+	if(crew_controller.errand_tool == CREW_TOOL_PICK_UP && !QDELETED(target))
+		crew_controller.note_pickup_unreached(target)
 	if(crew_controller.errand_tool == CREW_TOOL_TIDY && !QDELETED(target))
 		crew_controller.tidy_skipped[REF(target)] = world.time
 		crew_controller.tidy_changed()
@@ -607,6 +621,7 @@
  * from ways_reopened().
  */
 /datum/ai_controller/crew_npc/proc/forget_unreached()
+	pickup_unreached = list()
 	for(var/key in unreached_messes.Copy())
 		var/list/entry = unreached_messes[key]
 		if(entry[3] < 2)
@@ -615,6 +630,29 @@
 				stubborn_messes -= key
 
 #undef CREW_NPC_MESS_UNREACHED
+
+/**
+ * Things to pick up, and containers gone to for one, that the body lately could not get to, keyed
+ * by REF: a weak reference to the thing and the world.time it failed (HAND-04).
+ */
+/datum/ai_controller/crew_npc/var/list/pickup_unreached = list()
+
+/// Notes a thing to pick up, or the container it was in, that the body could not get to.
+/datum/ai_controller/crew_npc/proc/note_pickup_unreached(atom/thing)
+	pickup_unreached[REF(thing)] = list(WEAKREF(thing), world.time)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) could not get to the [format_text(thing.name)] at [AREACOORD(thing)] to pick up [errand_item || "something"]: passed over for a while.")
+
+/// TRUE if the body lately could not get to this to pick something up. Five minutes on, it may try again.
+/datum/ai_controller/crew_npc/proc/pickup_given_up(atom/thing)
+	var/key = REF(thing)
+	var/list/entry = pickup_unreached[key]
+	if(!entry)
+		return FALSE
+	var/datum/weakref/thing_ref = entry[1]
+	if(thing_ref.resolve() != thing || world.time - entry[2] >= CREW_NPC_TIDY_GIVE_UP)
+		pickup_unreached -= key
+		return FALSE
+	return TRUE
 
 /// TRUE if the body is close enough to touch this, with nothing solid in between. Standing beside it through a wall does not count.
 /datum/ai_controller/crew_npc/proc/can_reach_target_now(atom/target)
