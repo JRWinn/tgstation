@@ -54,7 +54,7 @@ import {
   isMeetingOrder,
   OVER_WORDS,
 } from './meetings';
-import { sendForLine, UNPACKED_WORDS } from './pickups';
+import { GAVE_UP_WORDS, sendForLine, UNPACKED_WORDS } from './pickups';
 import { addCounts, capital, listed, readReport, totalWords } from './reports';
 import {
   CANNOT_ORDER_WORDS,
@@ -300,11 +300,18 @@ function cratesIn(text: string): { number: number; kind?: string }[] {
  * is in it first, then the rest of those it is for, and round again. Sent for a crate a second
  * time, because it is still waiting, it goes to the next of them and not the one who did not come.
  */
-function sendFor(brain: NpcBrain, number: number, kind?: string): void {
+function sendFor(
+  brain: NpcBrain,
+  number: number,
+  kind?: string,
+  /** Whoever it sent, who has sent word that they gave up hauling it, and where it lies (PLAY-12). */
+  gaveUp?: { by: string; lies?: string },
+): void {
   const before = brain.pickups.find((pickup) => pickup.number === number);
   // Whoever it sent has had little time to get there: a walk across the station, and a meeting
-  // perhaps in between. A second person sent on top of them is two people after one crate.
-  if (before && brain.now - before.at < SENT_GRACE_DS) {
+  // perhaps in between. A second person sent on top of them is two people after one crate. Not
+  // when they have said they gave it up: nobody is on the way to it any more.
+  if (before && brain.now - before.at < SENT_GRACE_DS && !gaveUp) {
     return;
   }
   const order = brain.requisition;
@@ -342,9 +349,11 @@ function sendFor(brain: NpcBrain, number: number, kind?: string): void {
   brain.toTell.push({
     to,
     line: sendForLine(to, number, what, room),
-    why: before
-      ? `Cargo says crate #${number} of ${what} is still waiting: ${before.to} has not collected it. You are sending ${to} a PDA message to go and collect it instead.`
-      : `Cargo is holding crate #${number} of ${what} for you. You are sending ${to} a PDA message to go and collect it, take it to the ${room} and unpack it.`,
+    why: gaveUp
+      ? `${gaveUp.by} could not get crate #${number} of ${what} to the ${room}${gaveUp.lies ? `, and it is left in the ${gaveUp.lies}` : ''}. You are sending ${to} a PDA message to go and collect it instead.`
+      : before
+        ? `Cargo says crate #${number} of ${what} is still waiting: ${before.to} has not collected it. You are sending ${to} a PDA message to go and collect it instead.`
+        : `Cargo is holding crate #${number} of ${what} for you. You are sending ${to} a PDA message to go and collect it, take it to the ${room} and unpack it.`,
     byPda: true,
     at: Date.now(),
   });
@@ -1339,6 +1348,20 @@ export const HEAD_OF_PERSONNEL: Job = {
       // reached it. The order is done with: it is not asked for again as one that never came.
       if (sentOrder && sentOrder.askedAt !== null) {
         brain.requisition = null;
+      }
+      return;
+    }
+    // Whoever it sent for a crate has given up hauling it, and says where it lies. The next of its
+    // staff is sent for it at once, and not the one who gave up, if there is anyone else (PLAY-12).
+    const gaveUp = text.match(GAVE_UP_WORDS);
+    if (from && gaveUp) {
+      const number = Number(gaveUp[1]);
+      const pickup = brain.pickups.find((it) => it.number === number);
+      if (pickup && pickup.to === from) {
+        sendFor(brain, number, undefined, {
+          by: from,
+          lies: text.match(/\bIt is left in the ([^.,]+)/i)?.[1],
+        });
       }
       return;
     }

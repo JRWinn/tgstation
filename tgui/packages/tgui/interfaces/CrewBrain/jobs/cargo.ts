@@ -50,6 +50,7 @@ import {
 import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
+import { CALL } from './orders';
 import { comeForCrate, crateNumberIn } from './pickups';
 import { isSecurity } from './security';
 import {
@@ -259,11 +260,11 @@ function whenAsked(brain: NpcBrain, heard: string): string[] {
     quartermaster
       ? `Every order for supplies goes through the Quartermaster, ${quartermaster.name}, who is the head of your department. You take an order only from ${quartermaster.name}, face to face, and your body places it. Anyone else who asks you to order something, a head of department included, is told kindly to send their order to ${quartermaster.name} by PDA. When an order comes in, your body tells ${quartermaster.name} so, holds the crate in the bay, and brings it out to whoever comes to the counter with its number.`
       : 'You take orders for supplies only from the Captain and the heads of department. Anyone else who asks is told, kindly, to take it to the head of their own department: for the janitors and the rest of the service staff, that is the Head of Personnel. When a head does order, tell them you will see to it: your body places the order, holds the crate in the bay when it comes, and sends them a PDA message with its manifest number, for whoever they send to give at the counter. If they ask for something you cannot order, say so.',
-    'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors.',
+    'You do not clean, fetch things or show people around: that would take you from your post. Asked to, say it is not your job. Cleaning is for the janitors: if someone you answer to tells you to send for one, your body does.',
     // Only when what was said touches on it. It is a lot to read for "how is your day going?".
     ...(OWN_WORK_WORDS.test(heard)
       ? [
-          'The rest of your work your body does by itself: it unloads the supply shuttle and hands out the mail, puts away what is left lying about, and sends a janitor a PDA message when there is a mess. The door to your post stays locked to everyone but cargo. Your body opens it only for a janitor come to clean in there, or to let out someone who is inside, and anyone else found in there is asked why and walked out if they have no good reason. Never the Captain or a head of staff.',
+          'The rest of your work your body does by itself: it unloads the supply shuttle and hands out the mail, puts away what is left lying about, and, if you have the rooms this shift or nobody does, sends a janitor a PDA message when there is a mess. The door to your post stays locked to everyone but cargo. Your body opens it only for a janitor come to clean in there, or to let out someone who is inside, and anyone else found in there is asked why and walked out if they have no good reason. Never the Captain or a head of staff.',
         ]
       : []),
   ];
@@ -987,11 +988,15 @@ function syncTasks(brain: NpcBrain): void {
       });
     }
   }
+  // Not one whose door the body is on its way to open now: the server opens it whatever is said
+  // meanwhile, and only the result, finding the task, books the let-in, drops the ask and keeps
+  // it by the door (PLAY-05). The driver forgets a step that never comes back, so this ends.
   for (const task of brain.tasks) {
     if (
       task.kind === DOOR &&
       task.state !== 'done' &&
-      (task.item !== wants?.name || task.place !== wants?.room)
+      (task.item !== wants?.name || task.place !== wants?.room) &&
+      !(brain.lastAct?.task === task.id && brain.lastAct.tool === 'open_door')
     ) {
       finishTask(brain, task);
     }
@@ -1625,9 +1630,25 @@ function askFrom(brain: NpcBrain, name?: string): DoorAsk | undefined {
  * done in two rooms a few seconds apart are both let out. A second ask from the same person is
  * their newer word and takes the place of their first, keeping its turn; if it is for the same
  * door the same way, what they have been told already stands. Asks that have run out are dropped.
+ * A newer ask that names no room, the same way, while their first still stands, is the first said
+ * again ("open that door", from a janitor who had sent word of which room): it keeps the room,
+ * the door and how they asked, unless it names another door (PLAY-05).
  */
 function putAsk(brain: NpcBrain, ask: DoorAsk): void {
   const before = askFrom(brain, ask.name);
+  if (
+    before &&
+    ask.room === undefined &&
+    before.room !== undefined &&
+    !!before.out === !!ask.out &&
+    askLive(brain, before) &&
+    !(ask.door && before.door && ask.door !== before.door)
+  ) {
+    ask.room = before.room;
+    ask.door ??= before.door;
+    ask.byPda ||= before.byPda;
+    ask.after ??= before.after;
+  }
   if (before && before.room === ask.room && !!before.out === !!ask.out) {
     ask.answered ||= before.answered;
     ask.refused ||= before.refused;
@@ -1640,8 +1661,57 @@ function putAsk(brain: NpcBrain, ask: DoorAsk): void {
   brain.doorAsked = ask;
 }
 
+/** How long (deciseconds) before a door it could not get to, to let someone out, is tried again. */
+const DOOR_RETRY_DS = 100;
+/** How many times a door it could not get to is gone to, to let someone out, before they are told. */
+const DOOR_TRIES = 2;
+/** For each NPC and person (`id:name`), how many times a door to let them out could not be got to. */
+const letOutTries = new Map<string, number>();
+
+/**
+ * A door to let someone out of the department's rooms could not be opened. TRUE if their ask is
+ * kept for another try: the body could not get to the door, the first time, and they are still
+ * seen shut inside. Otherwise, if they are still inside, they are told why it did not open, by
+ * the way they asked, and FALSE: the ask goes, and they are seen out another way. A door that
+ * will not open is not gone back to (PLAY-06).
+ */
+function letOutFailed(
+  brain: NpcBrain,
+  name: string,
+  text: string | undefined,
+): boolean {
+  const ask = askFrom(brain, name);
+  const person = brain.peopleInView.find((seen) => seen.name === name);
+  if (!ask?.out || !person || !seenInside(brain, person)) {
+    return false;
+  }
+  const unreached = /could not get to it/i.test(text ?? '');
+  const key = `${brain.id}:${name}`;
+  const tries = (letOutTries.get(key) ?? 0) + 1;
+  if (unreached && tries < DOOR_TRIES) {
+    letOutTries.set(key, tries);
+    ask.after = brain.now + DOOR_RETRY_DS;
+    return true;
+  }
+  const why = /will not open/i.test(text ?? '')
+    ? 'that door will not open for me'
+    : unreached
+      ? 'I could not get to the door to let you out'
+      : null;
+  if (why) {
+    brain.toTell.push({
+      to: name,
+      line: `${firstName(name)}, ${why}.`,
+      why: `You could not open the door to let ${name} out. You are telling them why, to their face: they are in sight.`,
+      at: Date.now(),
+    });
+  }
+  return false;
+}
+
 /** Strikes out someone's ask: their door has been opened for them, or could not be. */
 function dropAsk(brain: NpcBrain, name: string): void {
+  letOutTries.delete(`${brain.id}:${name}`);
   brain.doorAsks = doorAsks(brain).filter((ask) => ask.name !== name);
   if (brain.doorAsked?.name === name) {
     brain.doorAsked = brain.doorAsks.at(-1) ?? null;
@@ -2336,9 +2406,11 @@ export const CARGO: Job = {
         brain.pickupAsked = null;
       }
     }
-    // The door has been opened for them, or could not be. Either way that request is dealt with.
+    // The door has been opened for them, or could not be. Either way that request is dealt with,
+    // apart from someone shut inside asking out, whose door it could not get to the first time:
+    // that is tried once more before they are told and left to be seen out another way (PLAY-06).
     if (task?.kind === DOOR) {
-      if (task.item) {
+      if (task.item && (ok || !letOutFailed(brain, task.item, text))) {
         dropAsk(brain, task.item);
       }
       if (brain.knockAt?.room === task.place) {
@@ -2428,6 +2500,36 @@ export const CARGO: Job = {
       const call = brain.post ? brain.janitorCalls[brain.post] : undefined;
       if (call && call.to === task.item) {
         call.letIn = true;
+      }
+    }
+    // A janitor sent for on an order (PLAY-10), to a mess it knows of in its department, is noted
+    // as a call of its own is, so that the janitor is let in and nobody else is sent on top of
+    // them. A mess it knows nothing of is left off the note: nothing would ever strike it out.
+    if (
+      ok &&
+      task?.kind === CALL &&
+      task.place &&
+      !task.found &&
+      act.tool === 'message' &&
+      brain.areaMesses[task.place]
+    ) {
+      const before = brain.janitorCalls[task.place];
+      brain.janitorCalls[task.place] = {
+        to: String(act.person),
+        at: brain.now,
+        count: (before?.count ?? 0) + 1,
+        declined: before?.declined,
+        declinedAt: before?.declinedAt,
+      };
+      noteSentFor(brain, String(act.person));
+      if (brain.post) {
+        expectSomeone(
+          brain.post,
+          String(act.person),
+          task.place,
+          brain.name,
+          brain.now,
+        );
       }
     }
     if (ok && task?.kind === TIDY && task.place && act.tool === 'message') {
