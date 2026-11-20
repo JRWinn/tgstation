@@ -380,6 +380,17 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/datum/supply_order/order = pending_order?.resolve()
 	return !isnull(order) && (order in SSshuttle.shopping_list) && supply_bought_at > supply_run_started_at
 
+/**
+ * world.time the supply shuttle docked at the station with the order on the go, or 0 until it has.
+ * From then the order has come, wherever the body was: the shuttle is not moved for it again and
+ * the run does not time out. It waits for the body to be back in the bay to see it. A workmate
+ * that unloaded the crates and sent the shuttle away was having it called straight back, and the
+ * order given up as held up with its crates in the bay (MULTI-02).
+ */
+/datum/ai_controller/crew_npc/var/supply_run_landed_at = 0
+/// Longest an order that has come waits for the body that placed it to be back in the bay to see it.
+#define CREW_NPC_SUPPLY_LANDED_WAIT (30 MINUTES)
+
 /// Reads how many crates were asked for from what the brain sent, which may be a number or text. At least one, and no more than cargo orders at once.
 /datum/ai_controller/crew_npc/proc/crates_wanted(count)
 	return clamp(round(isnum(count) ? count : text2num("[count]")), 1, CREW_NPC_ORDER_MAX)
@@ -506,6 +517,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	pending_order = WEAKREF(last_placed)
 	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
+	supply_run_landed_at = 0
 	supply_run_active = TRUE
 	// To know, when the shuttle is home with the order still in the cart, that it went and loaded without it.
 	RegisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY, PROC_REF(supply_shuttle_bought), override = TRUE)
@@ -519,6 +531,23 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /datum/ai_controller/crew_npc/proc/supply_run_step()
 	if(!supply_run_active || QDELETED(pawn))
 		supply_run_active = FALSE
+		return
+	var/in_bay = isnull(post_turf) || get_area(pawn) == get_area(post_turf)
+	// It has come. All that is left is for the body to be back in the bay to see it (MULTI-02).
+	if(supply_run_landed_at)
+		var/mob/living/body = pawn
+		if(in_bay && body.stat != DEAD)
+			order_arrived()
+			return
+		// Not for ever: a body that is dead, or has not been back in half an hour, is not coming back for it.
+		if(body.stat == DEAD || world.time - supply_run_landed_at > CREW_NPC_SUPPLY_LANDED_WAIT)
+			supply_run_active = FALSE
+			pending_order = null
+			UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+			if(body.stat != DEAD)
+				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle came in with what you ordered ([ordered_words]) a long while ago, while you were away from the bay, and you have not been back to see it since.")
+			return
+		addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 		return
 	if(world.time - supply_run_started_at > CREW_NPC_SUPPLY_TIMEOUT)
 		var/no_money = order_unbought()
@@ -544,10 +573,12 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		if(docked_at == "cargo_home")
 			// The body learns of it the way a person would: it is in the bay and sees the shuttle dock.
 			// Anywhere else, it finds out when it next gets back.
-			if(came_home && (isnull(post_turf) || get_area(pawn) == get_area(post_turf)))
+			if(came_home && in_bay)
 				order_arrived()
 				return
 			if(came_home)
+				// Whatever happens to the shuttle now, the order has come.
+				supply_run_landed_at = world.time
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			// Something that came on it has yet to be hauled off. Sent now, it would go back with it.
@@ -1006,3 +1037,5 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		"job" = "[sender_job]",
 		"message" = message,
 	))
+
+#undef CREW_NPC_SUPPLY_LANDED_WAIT
