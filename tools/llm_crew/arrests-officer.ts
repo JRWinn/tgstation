@@ -205,7 +205,7 @@ for (const [label, distance, resisted] of [['who fought back', 3, true], ['two t
   f.o.peopleInView[0] = { ...f.o.peopleInView[0], distance: 1, cuffed: 1 };
   add('TRB-01: until the server says who is pulling them, it leaves them as before', A.planBeat(f.o, f.task)?.ready, false);
   f.o.peopleInView[0].pulled_by = null;
-  add('TRB-01: in cuffs and nobody holding them: it takes them by the arm', A.planBeat(f.o, f.task)?.act, { tool: 'arrest', person: 'p9', how: 'quiet' });
+  add('TRB-01: in cuffs and nobody holding them: it takes them by the arm', A.planBeat(f.o, f.task)?.act, { tool: 'arrest', person: 'p9', how: 'quiet', attempt: 1 });
   f.o.peopleInView[0].pulled_by = 'Joan Hale';
   A.syncBeat(f.o);
   add('TRB-01: in the Head of Security\'s hold: it leaves them to her, and tells nobody', [A.planBeat(f.o, f.task)?.ready, A.takeOutcomes(f.o)], [false, []]);
