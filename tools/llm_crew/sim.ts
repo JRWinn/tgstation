@@ -804,7 +804,9 @@ function toolCall(body: Body, tool: string, args: any) {
       if (!inSight(body, them.room) && !inside && !atTheDoor) return result(body, 'open_door', false, 'You cannot see that person.');
       // A mess in the room, or in a locked room that can only be got into through it.
       const messBeyond = rooms[room].messes.length > 0 || LOCKED.some((inner) => inner !== room && doorsOut(inner).includes(room) && rooms[inner].messes.length > 0);
-      if (!inside && !(them.job === 'Janitor' && messBeyond)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
+      // Security staff outside are let in on asking, as the server lets them in by the job their ID shows (CARGO-04).
+      const security = /Security Officer|Head of Security/.test(them.job);
+      if (!inside && !security && !(them.job === 'Janitor' && messBeyond)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
       return busy(body, 3, 'going to open the door for someone', false, () => {
         doorState[room] = { from: clock, until: clock + 15000, for: them.name }; opened.push(`${inside ? 'out' : 'in'}:${them.name}${room === body.post ? '' : '@' + room}`);
         const their = bodies.find((other) => other.name === name);
