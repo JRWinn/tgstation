@@ -417,8 +417,31 @@
 /datum/ai_controller/crew_npc/proc/tool_rest()
 	resting = TRUE
 
+/**
+ * Ends a haul, or a walk out by the arm, that a new walk is about to replace (SUP-06): lets go of
+ * the crate where it is, or of the person, and tells the brain how it ended, as any haul that comes
+ * to nothing does. Without this the body dragged the crate wherever it was sent next, and a crate
+ * being collected stayed taken by it for good. The same haul carrying on is not broken off: taking
+ * the crate up again, or putting it clear of a door.
+ */
+/datum/ai_controller/crew_npc/proc/break_off_haul(new_tool)
+	var/tool = walk_tool
+	if(!blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) || !CREW_NPC_HAULS(tool))
+		return
+	if(new_tool == tool || new_tool == CREW_TOOL_PUT_CLEAR || tool == CREW_TOOL_PUT_CLEAR)
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) broke off [tool == CREW_TOOL_EVICT ? "walking someone out" : "a haul ([tool])"] at [AREACOORD(pawn)] to [new_tool].")
+	// Cleared first, so that the old walk, when the tree closes it, reports nothing more.
+	clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
+	if(tool == CREW_TOOL_EVICT)
+		put_out(FALSE, "you were called away")
+	else
+		finish_haul(tool, FALSE, "you were called away")
+
 /// Sets the body walking to a person or a spot. The walk leaf reports back through walk_finished().
 /datum/ai_controller/crew_npc/proc/start_walk(atom/target, tool, goal, timeout)
+	// Before walk_tool is set: it is the haul under way that is being broken off, if any (SUP-06).
+	break_off_haul(tool)
 	// A walk under way to somewhere else is ended first, so the walk leaf is set up afresh for the new
 	// one. The base game's route finder only re-plans to the old spot when the target changes under it.
 	// The old walk reports nothing: walk_finished sees the key no longer holds its target.
