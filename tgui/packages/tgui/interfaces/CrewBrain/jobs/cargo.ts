@@ -1660,8 +1660,57 @@ function putAsk(brain: NpcBrain, ask: DoorAsk): void {
   brain.doorAsked = ask;
 }
 
+/** How long (deciseconds) before a door it could not get to, to let someone out, is tried again. */
+const DOOR_RETRY_DS = 100;
+/** How many times a door it could not get to is gone to, to let someone out, before they are told. */
+const DOOR_TRIES = 2;
+/** For each NPC and person (`id:name`), how many times a door to let them out could not be got to. */
+const letOutTries = new Map<string, number>();
+
+/**
+ * A door to let someone out of the department's rooms could not be opened. TRUE if their ask is
+ * kept for another try: the body could not get to the door, the first time, and they are still
+ * seen shut inside. Otherwise, if they are still inside, they are told why it did not open, by
+ * the way they asked, and FALSE: the ask goes, and they are seen out another way. A door that
+ * will not open is not gone back to (PLAY-06).
+ */
+function letOutFailed(
+  brain: NpcBrain,
+  name: string,
+  text: string | undefined,
+): boolean {
+  const ask = askFrom(brain, name);
+  const person = brain.peopleInView.find((seen) => seen.name === name);
+  if (!ask?.out || !person || !seenInside(brain, person)) {
+    return false;
+  }
+  const unreached = /could not get to it/i.test(text ?? '');
+  const key = `${brain.id}:${name}`;
+  const tries = (letOutTries.get(key) ?? 0) + 1;
+  if (unreached && tries < DOOR_TRIES) {
+    letOutTries.set(key, tries);
+    ask.after = brain.now + DOOR_RETRY_DS;
+    return true;
+  }
+  const why = /will not open/i.test(text ?? '')
+    ? 'that door will not open for me'
+    : unreached
+      ? 'I could not get to the door to let you out'
+      : null;
+  if (why) {
+    brain.toTell.push({
+      to: name,
+      line: `${firstName(name)}, ${why}.`,
+      why: `You could not open the door to let ${name} out. You are telling them why, to their face: they are in sight.`,
+      at: Date.now(),
+    });
+  }
+  return false;
+}
+
 /** Strikes out someone's ask: their door has been opened for them, or could not be. */
 function dropAsk(brain: NpcBrain, name: string): void {
+  letOutTries.delete(`${brain.id}:${name}`);
   brain.doorAsks = doorAsks(brain).filter((ask) => ask.name !== name);
   if (brain.doorAsked?.name === name) {
     brain.doorAsked = brain.doorAsks.at(-1) ?? null;
@@ -2356,9 +2405,11 @@ export const CARGO: Job = {
         brain.pickupAsked = null;
       }
     }
-    // The door has been opened for them, or could not be. Either way that request is dealt with.
+    // The door has been opened for them, or could not be. Either way that request is dealt with,
+    // apart from someone shut inside asking out, whose door it could not get to the first time:
+    // that is tried once more before they are told and left to be seen out another way (PLAY-06).
     if (task?.kind === DOOR) {
-      if (task.item) {
+      if (task.item && (ok || !letOutFailed(brain, task.item, text))) {
         dropAsk(brain, task.item);
       }
       if (brain.knockAt?.room === task.place) {
