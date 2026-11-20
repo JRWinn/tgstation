@@ -278,6 +278,90 @@
 			doors[door] = list(inside, outside)
 	return doors
 
+/// Room name -> list(world.time, the squares of it the body can get into), for open_part_of(). Worked out afresh after a minute: crates move.
+/datum/ai_controller/crew_npc/var/list/open_part_cache = list()
+
+/**
+ * Returns the squares of a room the body can get into, as turf -> TRUE (KNA-19, KNA-28, KNB-01).
+ *
+ * A room counts as open to a body if any one of its doors opens for it (locked_out_of()), but a
+ * room may be in parts: an airlock chamber of the Research Division behind inner doors of science
+ * access, a sealed corner of a maintenance tunnel with no door at all, the four squares inside the
+ * Warehouse door with crates across the rest. So this works out the part it can walk into. It
+ * starts from every square of the room that can be stepped onto from a square of another station
+ * room that is not locked to it (through a door that opens for it, or across open floor, as the
+ * tunnels and hallways run into each other), and from the body's own square if it stands in the
+ * room. From there it spreads a square at a time, stopped by what stops a walk: the pathfinder's
+ * own test with the body's ID, and any airlock that does not open for it, even one that stands
+ * open this minute.
+ *
+ * This is the map and the body's own ID, which it may know. It calls no pathfinder and does not sleep.
+ */
+/datum/ai_controller/crew_npc/proc/open_part_of(area/room)
+	var/mob/living/carbon/human/body = pawn
+	var/turf/here = get_turf(body)
+	if(isnull(room) || isnull(here))
+		return list()
+	var/room_name = format_text(room.name)
+	var/standing_in = get_area(here) == room
+	var/list/cached = open_part_cache[room_name]
+	if(!standing_in && cached && world.time - cached[1] < 1 MINUTES)
+		return cached[2]
+	var/list/in_room = list()
+	for(var/turf/room_turf as anything in room.get_turfs_by_zlevel(here.z))
+		in_room[room_turf] = TRUE
+	var/datum/can_pass_info/pass_info = new(body, get_access())
+	var/list/reached = list()
+	var/list/to_spread = list()
+	if(standing_in && isturf(body.loc))
+		reached[here] = TRUE
+		to_spread += here
+	// Which rooms round it are open to the body, worked out once each.
+	var/list/neighbour_open = list()
+	for(var/turf/room_turf as anything in in_room)
+		if(reached[room_turf] || !crew_npc_open_to(body, room_turf))
+			continue
+		for(var/direction in GLOB.cardinals)
+			var/turf/next = get_step(room_turf, direction)
+			if(isnull(next) || in_room[next] || next.density)
+				continue
+			var/area/beyond = get_area(next)
+			if(!istype(beyond, /area/station))
+				continue
+			var/beyond_name = format_text(beyond.name)
+			if(isnull(neighbour_open[beyond_name]))
+				neighbour_open[beyond_name] = beyond == get_area(here) || !place_locked_to_body(beyond_name)
+			if(!neighbour_open[beyond_name] || !crew_npc_open_to(body, next) || next.LinkBlockedWithAccess(room_turf, pass_info))
+				continue
+			reached[room_turf] = TRUE
+			to_spread += room_turf
+			break
+	while(length(to_spread))
+		var/turf/from = to_spread[length(to_spread)]
+		to_spread.len--
+		for(var/direction in GLOB.cardinals)
+			var/turf/next = get_step(from, direction)
+			if(isnull(next) || !in_room[next] || reached[next] || next.density)
+				continue
+			if(!crew_npc_open_to(body, next) || from.LinkBlockedWithAccess(next, pass_info))
+				continue
+			reached[next] = TRUE
+			to_spread += next
+	if(!standing_in)
+		open_part_cache[room_name] = list(world.time, reached)
+	return reached
+
+/**
+ * FALSE if this square holds an airlock that does not open for the body: a way only while someone
+ * else holds it open (open_part_of()). One that stays open for good, forced or bolted open, is a
+ * way for anyone. Windoors are left to the pathfinder's own test: they bar one side of a square only.
+ */
+/proc/crew_npc_open_to(mob/living/body, turf/square)
+	for(var/obj/machinery/door/airlock/door in square)
+		if(!door.allowed(body) && !crew_npc_door_stays_open(door))
+			return FALSE
+	return TRUE
+
 /**
  * What a door of a room is called, to tell it from the room's other doors: the name on the door.
  * A door that only carries the name of the room it leads into is called by where it opens from:

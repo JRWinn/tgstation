@@ -41,6 +41,15 @@ GLOBAL_LIST_EMPTY(crew_npc_station_places)
 	var/area/station/room = crew_npc_station_places()[place]
 	if(isnull(room))
 		return null
+	// A room in parts is walked to in the part the body can get into: a spot behind an inner door
+	// locked to it, or in a corner sealed off, was set off for and never reached (KNA-19, KNA-28).
+	// With no part open to it at all, the whole room as before: the walk finds the way shut, and the
+	// brain goes by that.
+	var/list/open = open_part_of(room)
+	if(length(open))
+		var/turf/open_spot = safe_spot_in(room, get_turf(pawn), open)
+		if(open_spot)
+			return open_spot
 	return safe_spot_in(room, get_turf(pawn))
 
 /**

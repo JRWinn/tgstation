@@ -345,7 +345,9 @@
 				unreachable_places[format_text(nearest.name)] = TRUE
 				tries_left++
 				continue
-			var/turf/spot = safe_spot_in(nearest, here)
+			// In the part of it the body can get into, if it is in parts (KNA-19).
+			var/list/open = open_part_of(nearest)
+			var/turf/spot = (length(open) ? safe_spot_in(nearest, here, open) : null) || safe_spot_in(nearest, here)
 			var/list/route
 			if(spot)
 				route = get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
@@ -381,13 +383,15 @@
 
 /**
  * Returns a turf in this area that is safe to stand on, as near the given turf as a quick search finds, or null.
+ * `among`, if given, is the squares to pick from, as turf -> TRUE: the part of it the body can get into.
  *
  * The nearest part of a room is its doorway, and a body left standing there is walked into by
  * everyone who comes through. So a spot clear of the doors is taken if the search finds one, and
  * one beside a door only if it does not: a closet may have no other.
  */
-/datum/ai_controller/crew_npc/proc/safe_spot_in(area/station/place, turf/here)
-	var/list/place_turfs = place.get_turfs_by_zlevel(here.z)
+/datum/ai_controller/crew_npc/proc/safe_spot_in(area/station/place, turf/here, list/among)
+	// Given the squares of it the body can get into (open_part_of()), only those (KNA-19).
+	var/list/place_turfs = length(among) ? among : place.get_turfs_by_zlevel(here.z)
 	var/turf/best
 	var/best_distance = INFINITY
 	var/turf/best_clear
@@ -514,6 +518,11 @@
 		// locked to it does not count: failing to get into one says nothing about getting out of here.
 		var/area/goal_room = isturf(target) ? get_area(target) : null
 		var/getting_out = reason == "there is no way through" && !length(fire_doors) && !(tool == CREW_TOOL_EXPLORE && isturf(target)) && !(goal_room && locked_out_of(goal_room))
+		// Nor does a spot in a part of the room it cannot get into, behind an inner door or sealed off (KNA-19).
+		if(getting_out && goal_room && goal_room != get_area(pawn))
+			var/list/open_part = open_part_of(goal_room)
+			if(!open_part[target])
+				getting_out = FALSE
 		if(getting_out)
 			note_way_out_failed()
 		// A room it cannot find a way into is left alone for a while: a locked door does not open for asking twice.
