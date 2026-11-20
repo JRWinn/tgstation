@@ -1639,7 +1639,10 @@ if (tech) {
   // A crate that is lost is ordered again: two orders, one after the other.
   if (VARIANT === 'qmlost') check('two orders were placed: the one the head sent, and the same again when its crate was lost', orders === 2, `orders: ${orders}`);
   else check(ordered ? 'exactly one order was placed, by one technician' : 'no order was needed', ordered ? orders === 1 : orders === 0, `orders: ${orders}`);
-  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay'), techs.map((body) => `${body.name} in ${body.room}`).join('; '));
+  // A technician the clock stops on in the middle of its routine look in on a room of its department (an open look_in task
+  // for the very room it stands in, jobs/rounds.ts) is on its rounds, not lost. Nothing else away from the post passes.
+  const onRounds = (body: Body) => body.room !== 'Cargo Bay' && !!brainModule.getBrain(body.id)?.tasks.some((task: any) => task.kind === 'look_in' && task.state !== 'done' && task.place === body.room);
+  check(techs.length > 1 ? 'the cargo technicians end at the post' : 'the cargo technician ends at the post', techs.every((body) => body.room === 'Cargo Bay' || onRounds(body)), techs.map((body) => `${body.name} in ${body.room}${onRounds(body) ? ' (looking round it on its rounds)' : ''}`).join('; '));
   check('nobody is still owed a PDA message about their crates', techs.every((body) => body.notices.length === 0), techs.map((body) => `${body.name}: ${body.notices.length}`).join('; '));
   check('no technician carries a crate anywhere but out to the lobby', !techLog.some((line) => / collect_crate /.test(line)) && tippedOut.every((_, index) => !techs.some((body) => body.name === unpackedBy[index])));
 }
