@@ -171,6 +171,28 @@ const KEY_WORDS = [
   'detain',
   'apprehend',
 ];
+/** Words an order to security turns on, besides KEY_WORDS: what is done to someone, and where. */
+const ORDER_WORDS =
+  /\b(?:lock|locked|jail|jailed|brig|cells?|free|let (?:go|off|out)|cuffs?|handcuff|nab|custody|prison|sentence)\b/i;
+
+/**
+ * TRUE if a message could be an order to security: it is no question, and has a word in it an
+ * order turns on, spelt right or a letter off (SECT-10). Thanks, talk and questions are not, and
+ * are not answered "I did not follow that". "I wanted to say" is no "is wanted".
+ */
+export function looksLikeOrder(text: string): boolean {
+  if (/\?\s*$/.test(text.trim())) {
+    return false;
+  }
+  const mended = mendWords(text, [])
+    .toLowerCase()
+    .replace(/\b(?:i|we|you|they|he|she|just) wanted\b/g, '');
+  return (
+    KEY_WORDS.some((word) => new RegExp(`\\b${word}`).test(mended)) ||
+    ORDER_WORDS.test(mended)
+  );
+}
+
 /** Words of their own that are a letter off one of those, and are left as they are: "Pun Pun is wasted", "detail". */
 const NOT_MISSPELT = [
   'wasted',
@@ -1071,9 +1093,9 @@ export function buildReading(text: string): {
 }
 
 /**
- * Reads the LLM's answer. Null if it is no answer, says "neither", or names someone the message
- * does not: every word of the name has to be in the message, so that the LLM can pick a name out
- * and cannot make one up.
+ * Reads the LLM's answer. Null if it is no answer, or names someone the message does not: every
+ * word of the name has to be in the message, so that the LLM can pick a name out and cannot make
+ * one up. A plain "neither" is kept as such: the LLM saying the message is no order (SECT-10).
  */
 export function readReading(reply: string, text: string): Reading | null {
   let body: { kind?: unknown; name?: unknown };
@@ -1081,6 +1103,9 @@ export function readReading(reply: string, text: string): Reading | null {
     body = JSON.parse(reply);
   } catch {
     return null;
+  }
+  if (body?.kind === 'neither') {
+    return { kind: 'neither', name: '', minutes: 0 };
   }
   if (
     body.kind !== 'warrant' &&

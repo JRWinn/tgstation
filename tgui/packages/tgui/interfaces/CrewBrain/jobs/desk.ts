@@ -66,6 +66,7 @@ import {
   isNoName,
   isOfficer,
   isSecurity,
+  looksLikeOrder,
   letGoLine,
   MINUTES_USUAL,
   NOTICE_ACK_WORDS,
@@ -845,7 +846,8 @@ export function deskUnread(
     desk.unread.length >= UNREAD_MOST ||
     Date.now() - (desk.readingAt ?? 0) < READING_EVERY_MS
   ) {
-    return deskNotFollowed(brain, from, fromJob);
+    // Too many to read just now. Only what could be an order is answered so (SECT-10).
+    return looksLikeOrder(text) ? deskNotFollowed(brain, from, fromJob) : true;
   }
   desk.readingAt = Date.now();
   desk.unread.push({ from, fromJob, text, at: Date.now() });
@@ -856,8 +858,10 @@ export function deskUnread(
  * Takes what the LLM made of an order code could not read. A warrant or a pardon is put into the
  * words code reads and taken exactly as an order in those words would be: the name is matched to
  * who is aboard, every rule about who may declare what still holds, and the sender gets the same
- * word back, so that a wrong reading is seen at once. Anything else, and no answer at all, gets
- * "I did not follow that". Returns what came of it, for the log.
+ * word back, so that a wrong reading is seen at once. The LLM saying it is no order, or no
+ * answer to a message with no order words in it or that asks a question, gets nothing back: thanks
+ * and talk are not answered "I did not follow that" (SECT-10). Anything else gets that line.
+ * Returns what came of it, for the log.
  */
 export function deskRead(
   brain: NpcBrain,
@@ -866,12 +870,17 @@ export function deskRead(
 ): string {
   const desk = deskOf(brain);
   desk.unread = (desk.unread ?? []).filter((it) => it !== asked);
-  if (reading) {
+  if (reading && reading.kind !== 'neither') {
     const order = readingAsOrder(reading);
     if (deskTakes(brain, asked.from, asked.fromJob, order, false)) {
       return `Read as: "${order}" The body answers ${asked.from} in the fixed words.`;
     }
+  } else if (reading) {
+    return `Read as no order. Nothing is sent to ${asked.from}.`;
+  } else if (!looksLikeOrder(asked.text)) {
+    return `No answer to go by, and no order in the words. Nothing is sent to ${asked.from}.`;
   }
+  // An order it could not read: said so at once, whenever it last said so.
   desk.notFollowedAt = 0;
   deskNotFollowed(brain, asked.from, asked.fromJob);
   return `Not read. ${asked.from} is told it was not followed.`;
