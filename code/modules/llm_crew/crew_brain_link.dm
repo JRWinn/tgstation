@@ -27,6 +27,11 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	var/log_records_in_window = 0
 	/// The mob whose close-all-windows key (Home) is caught so that it leaves this window open.
 	var/mob/watched_mob
+	/// TRUE while an update of the window has been asked for and not yet sent: see request_update.
+	var/update_due = FALSE
+	/// TRUE once the window has said it wants each body's events past what it has acked, and not all
+	/// of the last thirty (PERF-02). Off until the window asks, so a window that does not ask gets all.
+	var/only_new_events = FALSE
 
 /datum/crew_brain_link/New(owner_ckey)
 	src.owner_ckey = owner_ckey
@@ -54,8 +59,24 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	npc.brain_link = null
 	SStgui.update_uis(src)
 
-/// Called by an owned NPC when it has a new sense event, so the window hears about it straight away.
+/// Called by an owned NPC when it has a new sense event, so the window hears about it at the end of the tick.
 /datum/crew_brain_link/proc/on_sense_event(datum/ai_controller/crew_npc/npc)
+	request_update()
+
+/**
+ * Asks for one update of the window at the next tick, however many events come before then (PERF-02).
+ * A line heard by seven crew, or ten bodies seeing the Captain walk in, is then one rebuild and one
+ * send, not one each, and none of it is paid inside the speaker's own say. Nothing is lost by it:
+ * every event is kept on its body until the window has it.
+ */
+/datum/crew_brain_link/proc/request_update()
+	if(update_due)
+		return
+	update_due = TRUE
+	addtimer(CALLBACK(src, PROC_REF(send_due_update)), world.tick_lag)
+
+/datum/crew_brain_link/proc/send_due_update()
+	update_due = FALSE
 	SStgui.update_uis(src)
 
 /datum/crew_brain_link/ui_interact(mob/user, datum/tgui/ui)
@@ -293,7 +314,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"explored_everything" = npc.nowhere_new_left && !length(npc.room_searched_at),
 			"storage_here" = npc.storage_here,
 			"acked_seq" = npc.acked_seq,
-			"events" = npc.sense_events,
+			// All of the last thirty, or once the window has asked for it, only those it has not acked:
+			// it acks only what it has taken in, so nothing it has not had is left out.
+			"events" = only_new_events ? npc.events_after(npc.acked_seq) : npc.sense_events,
 		))
 	data["npcs"] = npc_list
 	// The rooms locked to the crew at large that some of these NPCs are allowed into, and who. Null while that is being worked out.
@@ -306,24 +329,45 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(.)
 		return
 	// Everything in params comes from the owner's client and is untrusted.
+	// The window says once whether it wants only the events it has not acked (PERF-02). It is for the
+	// whole window, not one body.
+	if(action == "events_mode")
+		only_new_events = !!params["only_new"]
+		request_update()
+		return FALSE
 	var/datum/ai_controller/crew_npc/npc = find_npc(params["npc"])
 	if(isnull(npc))
 		return FALSE
 	switch(action)
 		if("tool_call")
 			npc.handle_tool_call(params["tool"], params["args"])
-			return TRUE
+			// What the tool did is sent with the next tick's update, along with any other (PERF-02,
+			// CORE-05): every tool that does anything ends in an event, which asks for one too.
+			request_update()
+			return FALSE
 		if("ack")
 			var/seq = params["seq"]
 			if(!isnum(seq))
 				return FALSE
 			npc.acked_seq = clamp(round(seq), npc.acked_seq, npc.next_event_seq - 1)
-			return TRUE
+			// The window has these already: nothing it is shown has changed, and an update for it
+			// only made it ack again (CORE-05).
+			return FALSE
 		if("brain_log")
 			write_brain_log(npc, params)
 			// Nothing the window shows has changed.
 			return FALSE
 	return FALSE
+
+/// The body's kept events newer than this seq, oldest first.
+/datum/ai_controller/crew_npc/proc/events_after(seq)
+	var/first = length(sense_events) + 1
+	while(first > 1)
+		var/list/event = sense_events[first - 1]
+		if(event["seq"] <= seq)
+			break
+		first--
+	return sense_events.Copy(first)
 
 /// Returns the owned NPC with this id, or null.
 /datum/crew_brain_link/proc/find_npc(npc_id)
