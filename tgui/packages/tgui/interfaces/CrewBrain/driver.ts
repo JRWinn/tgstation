@@ -1399,6 +1399,8 @@ function settleResult(
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
+    event.details,
+    event.text,
   );
   if (event.details.ok && looped) {
     fail(brain, last.key);
