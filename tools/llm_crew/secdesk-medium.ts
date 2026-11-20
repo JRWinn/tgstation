@@ -201,6 +201,59 @@ const twoOfficers = () => {
   add('MULTI-01: one officer: given, taken, and the sighting passed by PDA as before', [D.deskOf(h).warrants[0].given, said(h)], ['taken', ['PDA to Hale Stone: Hale, Dana Reyes was seen in the Bar.']]);
 }
 
+// ---- TRB-06: someone out of their cell before their time
+const cellView = (running: number | null, occupants: string[] | null) => [{ name: 'Cell 1', running, left: running ? 200 : null, occupants, room: 'Brig', dist: 3 }];
+const DANA = { name: 'Dana Reyes', job: 'Assistant' };
+const jailedBy = () => {
+  const h = head();
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for theft.', false);
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, Dana Reyes is in Cell 1 for 15 minutes.', false);
+  h.toTell = [];
+  return h;
+};
+{
+  const h = jailedBy();
+  at(h, 3050, 'Brig', [seeing(DANA, 3, 'Brig')]);
+  h.security.cells = cellView(1, ['Dana Reyes']);
+  D.syncDesk(h);
+  add('TRB-06: seen inside a running cell: still held', [D.inTheCells(h), said(h)], ['In the cells: Dana Reyes in Cell 1.', []]);
+  at(h, 3500, 'Brig', [seeing(DANA, 3, 'Brig')]);
+  h.security.cells = cellView(1, ['Dana Reyes']);
+  D.syncDesk(h);
+  add('TRB-06: and a while later, still', D.inTheCells(h), 'In the cells: Dana Reyes in Cell 1.');
+  at(h, 4000, 'Central Primary Hallway', [seeing(DANA, 3, 'Central Primary Hallway')]);
+  h.security.cells = cellView(null, null);
+  D.syncDesk(h);
+  add('TRB-06: seen in a hallway before their time: off the cells, and the Captain told', [D.inTheCells(h), said(h)], ['', ['PDA to Zim Fire: Captain, Dana Reyes is out of Cell 1 before their time.']]);
+}
+{
+  const h = jailedBy();
+  at(h, 3010, 'Brig', [seeing(DANA, 3, 'Brig')]);
+  D.syncDesk(h);
+  add('TRB-06: the moment after the jailing, a cell not yet seen running is not taken as out', D.inTheCells(h), 'In the cells: Dana Reyes in Cell 1.');
+}
+{
+  const h = jailedBy();
+  at(h, 3500, 'Security Office');
+  D.syncDesk(h);
+  add('TRB-06: out of sight: still held', D.inTheCells(h), 'In the cells: Dana Reyes in Cell 1.');
+}
+{
+  const h = jailedBy();
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', S.outcomeLine('Joan', { what: 'freed', name: 'Dana Reyes', cell: 'Cell 1', why: S.EARLY }), false);
+  add('TRB-06: the officer saying they are out early: the desk drops them and tells the Captain', [D.inTheCells(h), said(h)], ['', ['PDA to Zim Fire: Captain, Dana Reyes is out of Cell 1 before their time.']]);
+  add('TRB-06: the line reads back', S.readOutcome('Joan, Dana Reyes is out of Cell 1 before their time.'), { what: 'freed', name: 'Dana Reyes', cell: 'Cell 1', why: S.EARLY });
+  add('TRB-06: and "is free" is as it was', S.readOutcome('Joan, Dana Reyes is free.'), { what: 'freed', name: 'Dana Reyes' });
+}
+{
+  // Out early, a new warrant, and cuffed again: the cuffs are news.
+  const h = jailedBy();
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Warrant for Dana Reyes, for breaking out.', false);
+  h.toTell = [];
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, I have Dana Reyes in cuffs.', false);
+  add('TRB-06: a new warrant on someone still on the cells list: "in cuffs" is passed on', said(h), ['PDA to Zim Fire: Captain, Hale has Dana Reyes in cuffs.']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

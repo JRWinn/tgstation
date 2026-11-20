@@ -834,6 +834,9 @@ export const HEARD_WORDS = /\bI have that\b/i;
 // ---- the officer to the Head of Security
 
 /** How an officer tells the Head of Security how a warrant went. `to` is who is told, as they are spoken to. */
+/** The why of a "freed" that security did not do: out of their cell before their time (TRB-06). */
+export const EARLY = 'out before their time';
+
 export function outcomeLine(to: string, outcome: SecurityOutcome): string {
   const { name } = outcome;
   switch (outcome.what) {
@@ -854,7 +857,10 @@ export function outcomeLine(to: string, outcome: SecurityOutcome): string {
         ? `${to}, ${name} attacked me while I was arresting ${outcome.other}.`
         : `${to}, ${name} attacked me.`;
     case 'freed':
-      return `${to}, ${name} is free.`;
+      // Out of their cell before their time, not let out by security (TRB-06).
+      return outcome.why === EARLY
+        ? `${to}, ${name} is out of ${outcome.cell ?? 'their cell'} before their time.`
+        : `${to}, ${name} is free.`;
     default:
       return `${to}, I cannot bring in ${name}: ${outcome.why}.`;
   }
@@ -906,6 +912,10 @@ export function readOutcome(text: string): SecurityOutcome | null {
   const attacked = line.match(/^\S+, (.+?) attacked me\./i);
   if (attacked) {
     return { what: 'attacked', name: attacked[1] };
+  }
+  const early = line.match(/^\S+, (.+?) is out of (.+?) before their time\./i);
+  if (early) {
+    return { what: 'freed', name: early[1], cell: early[2], why: EARLY };
   }
   const freed = line.match(/^\S+, (.+?) is free\./i);
   if (freed) {

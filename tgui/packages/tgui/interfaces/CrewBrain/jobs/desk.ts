@@ -65,6 +65,7 @@ import {
   heardLine,
   isNoName,
   isOfficer,
+  EARLY,
   isSecurity,
   looksLikeOrder,
   letGoLine,
@@ -140,8 +141,30 @@ function moreOf(brain: NpcBrain): DeskMore {
 
 /** A warrant, with the officer it was given to (MULTI-01). */
 type WarrantMore = Warrant & { officer?: string };
-/** Someone in a cell, with the officer who put them there (MULTI-01). */
-type HeldMore = DeskWork['held'][string] & { by?: string };
+/** Someone in a cell, with the officer who put them there (MULTI-01) and when (TRB-06). */
+type HeldMore = DeskWork['held'][string] & { by?: string; at?: number };
+
+/** How long (deciseconds) after someone is put in a cell before seeing them out of one counts: what it sees of the cells may be a moment behind. */
+const SEEN_OUT_AFTER_DS = 150;
+
+/**
+ * TRUE if someone it has in a cell is in view, and in no cell it can see running with them in it
+ * (TRB-06). Someone in view inside a cell puts that cell in sight, so a cell it cannot see is no
+ * cell they are in.
+ */
+function seenOut(brain: NpcBrain, name: string, held: HeldMore): boolean {
+  if (held.at !== undefined && brain.now - held.at < SEEN_OUT_AFTER_DS) {
+    return false;
+  }
+  if (!brain.peopleInView.some((person) => sameName(name, person.name))) {
+    return false;
+  }
+  return !(brain.security?.cells ?? []).some(
+    (cell) =>
+      !!cell.running &&
+      (cell.occupants ?? []).some((inside) => sameName(name, inside)),
+  );
+}
 
 /** TRUE if this officer is still aboard as far as it can tell: in view, or on its PDA. */
 function officerKnown(brain: NpcBrain, name: string): boolean {
@@ -939,8 +962,11 @@ export function deskOutcome(
   switch (outcome.what) {
     case 'cuffed':
       // Word come late, of someone in a cell already: they were in cuffs, and the Captain has
-      // been told they are in a cell (ARR-05).
-      if (Object.keys(desk.held).some((it) => sameName(outcome.name, it))) {
+      // been told they are in a cell (ARR-05). With a new warrant on them, out early, it is news.
+      if (
+        !warrant &&
+        Object.keys(desk.held).some((it) => sameName(outcome.name, it))
+      ) {
         return;
       }
       desk.cuffed ??= {};
@@ -957,6 +983,7 @@ export function deskOutcome(
         cell: outcome.cell ?? 'a cell',
         until: brain.now + minutes * 600,
         by: from,
+        at: brain.now,
       };
       desk.held[outcome.name] = entry;
       desk.arrests += 1;
@@ -1046,6 +1073,14 @@ export function deskOutcome(
       );
       if (held) {
         delete desk.held[held];
+      }
+      // Out before their time, and not by security's hand: the Captain is told (TRB-06).
+      if (outcome.why === EARLY && held) {
+        tellCaptain(
+          brain,
+          outcomeLine('Captain', outcome),
+          `${outcome.name} is out of their cell before their time. You are telling the Captain by PDA.`,
+        );
       }
       return;
     }
@@ -1159,6 +1194,19 @@ export function syncDesk(brain: NpcBrain): void {
   for (const [name, held] of Object.entries(desk.held)) {
     if (brain.now > held.until) {
       delete desk.held[name];
+    } else if (seenOut(brain, name, held as HeldMore)) {
+      // Seen out of the cells before their time: let out by someone, or broken out (TRB-06).
+      delete desk.held[name];
+      tellCaptain(
+        brain,
+        outcomeLine('Captain', {
+          what: 'freed',
+          name,
+          cell: held.cell,
+          why: EARLY,
+        }),
+        `${name} is out of their cell before their time. You are telling the Captain by PDA.`,
+      );
     }
   }
   const officer = serving(brain);
