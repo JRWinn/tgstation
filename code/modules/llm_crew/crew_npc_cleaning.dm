@@ -173,6 +173,30 @@
 	var/obj/item/reagent_containers/cup/bucket/bucket = held_bucket()
 	return bucket && bucket.reagents.total_volume < bucket.reagents.maximum_volume / 2
 
+/// Tiles the body has just mopped, keyed by REF of the turf, with the world.time it mopped each (KNB-06).
+/datum/ai_controller/crew_npc/var/list/mopped_tiles = list()
+
+/**
+ * Notes a tile the body has just mopped. A mop leaves the floor wet and slippery for up to a
+ * minute; the one who mopped it knows that, though nothing lies there to see. Only its own mopping
+ * is noted: a floor someone else wetted it still does not know of (mind_its_step).
+ */
+/datum/ai_controller/crew_npc/proc/note_mopped(turf/spot)
+	if(!isturf(spot))
+		return
+	mopped_tiles[REF(spot)] = world.time
+	// Kept short: what is over a minute old is forgotten.
+	for(var/key in mopped_tiles)
+		if(world.time - mopped_tiles[key] > 1 MINUTES)
+			mopped_tiles -= key
+
+/// TRUE if the body mopped this tile itself in the last minute, so knows it is still wet. Walking keeps it on its feet on a mopped floor.
+/datum/ai_controller/crew_npc/proc/knows_mopped(turf/spot)
+	if(!isturf(spot))
+		return FALSE
+	var/mopped_at = mopped_tiles[REF(spot)]
+	return !isnull(mopped_at) && world.time - mopped_at <= 1 MINUTES
+
 /// Water the body set off for and could not get to, keyed by REF, with the world.time it gave up on each.
 /datum/ai_controller/crew_npc/var/list/water_failed = list()
 
@@ -802,6 +826,10 @@
 	if(!landed)
 		note_unreached_mess(mess)
 		return list(FALSE, "You could not get to it.")
+	// A mop leaves the floor it is used on wet: the janitor knows that tile is slippery (KNB-06).
+	var/mopping = istype(tool, /obj/item/mop) && isturf(target)
+	if(mopping)
+		note_mopped(target)
 
 	var/deadline = world.time + CREW_NPC_CLEAN_TIME
 	// Still scrubbing when the time is up, it is let finish, within reason. A mess given up a moment
@@ -815,6 +843,9 @@
 		// Sent to do something else: the scrub was broken off, not beaten.
 		if(errand_serial != serial)
 			return list(FALSE, "You stopped cleaning the [mess_name].")
+	// The floor is wetted when the mop's work ends, so the minute is counted from then.
+	if(mopping)
+		note_mopped(target)
 	if(QDELETED(mess))
 		return list(TRUE, "You clean up the [mess_name].")
 	// A scrub cut short, by being moved, knocked down or stunned, or the tool leaving its hand, says

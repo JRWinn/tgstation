@@ -66,6 +66,7 @@ const dry = () => {
 
 // DRV-12 step 4: wetting the mop, or filling the bucket, for a mess in another room is a clean
 // with a key of its own (wet), so its failing does not hold back the clean in the mess's room.
+// The sink is in sight there, as the server says it (sink_in_view): DESK-03 wets only then.
 {
   const { know } = await import('./fixtures');
   const wetFor = (place: string, set: (b: any) => void) => {
@@ -78,8 +79,8 @@ const dry = () => {
     b.tasks.push(task);
     return JANITOR.plan(b, task)?.act ?? null;
   };
-  add('a dry mop wetted here for a mess in the Bar: its own key', wetFor('Bar', (b) => { b.mopNeedsWater = true; }), { tool: 'clean', wet: true });
-  add('a dry mop wetted in the room of the mess itself: the clean itself', wetFor('Custodial Closet', (b) => { b.mopNeedsWater = true; }), { tool: 'clean' });
+  add('a dry mop wetted here for a mess in the Bar: its own key', wetFor('Bar', (b) => { b.mopNeedsWater = true; b.sinkInView = true; }), { tool: 'clean', wet: true });
+  add('a dry mop wetted in the room of the mess itself: the clean itself', wetFor('Custodial Closet', (b) => { b.mopNeedsWater = true; b.sinkInView = true; }), { tool: 'clean' });
   add('a bucket filled here: its own key', wetFor('Bar', (b) => { b.bucketToFill = true; }), { tool: 'clean', wet: true });
 }
 

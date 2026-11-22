@@ -15,7 +15,8 @@
 	if(!note_working_hands())
 		action_result(CREW_TOOL_PICK_UP, FALSE, "You have no hand you can use.")
 		return
-	if(!length(free_hands()) && !free_a_hand())
+	// A hand for a bucket may be had by putting soap away in the bag (DESK-10).
+	if(!length(free_hands()) && !free_a_hand(!!findtext(wanted, "bucket")))
 		action_result(CREW_TOOL_PICK_UP, FALSE, "Your hands are full of things you need. Put something down first.")
 		return
 
@@ -98,15 +99,20 @@
  * floor. A spray with nothing left in it goes the same way. A janitor with a bottle in one hand and
  * a spent spray in the other could otherwise never pick up a mop.
  *
+ * With for_bucket, soap held beside a mop is put away in the bag too, never on the floor: the hand
+ * is better used for a bucket of water, and the soap is taken out again for a cobweb (DESK-10).
+ *
  * Returns TRUE if a hand is now free. FALSE if both hands hold things it needs.
  */
-/datum/ai_controller/crew_npc/proc/free_a_hand()
+/datum/ai_controller/crew_npc/proc/free_a_hand(for_bucket = FALSE)
 	var/mob/living/carbon/human/body = pawn
-	var/obj/item/spare = spare_held_item()
+	var/obj/item/spare = spare_held_item(for_bucket)
 	if(isnull(spare))
 		return FALSE
 	var/spare_name = format_text(spare.name)
-	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && !body.dropItemToGround(spare))
+	// Soap it works with goes in the bag or stays in its hand: it is not left on the floor.
+	var/bag_only = istype(spare, /obj/item/soap) && is_trade_tool(spare, trade_tool_types())
+	if(!body.equip_to_storage(spare, ITEM_SLOT_BACK, indirect_action = TRUE) && (bag_only || !body.dropItemToGround(spare)))
 		return FALSE
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) put away its [spare_name] to free a hand.")
 	return !!length(free_hands())
@@ -172,8 +178,11 @@
  * What free_a_hand would give up, moving nothing: something held that is no tool of its trade, a
  * spent spray, a rag beside a mop, or one of two alike. Null if it needs everything it holds.
  * One rule in one place, so the window's wants_bucket and the freeing of a hand agree (DESK-10).
+ *
+ * With for_bucket, and nothing else spare, soap held beside a mop is spare if the bag will take it:
+ * it is put away to have a hand for a bucket, the owner's answer to DESK-10 step 3.
  */
-/datum/ai_controller/crew_npc/proc/spare_held_item()
+/datum/ai_controller/crew_npc/proc/spare_held_item(for_bucket = FALSE)
 	var/mob/living/carbon/human/body = pawn
 	var/list/trade_tools = trade_tool_types()
 	var/obj/item/spare
@@ -192,7 +201,13 @@
 		for(var/obj/item/other in body.held_items)
 			if(other != held && istype(other, held.type))
 				spare ||= held
-	return spare
+	if(spare || !for_bucket || !(locate(/obj/item/mop) in body.held_items))
+		return spare
+	var/obj/item/soap/soap = locate() in body.held_items
+	var/obj/item/bag = body.get_item_by_slot(ITEM_SLOT_BACK)
+	if(soap && bag?.atom_storage?.can_insert(soap, body, messages = FALSE, force = STORAGE_SOFT_LOCKED))
+		return soap
+	return null
 
 /// TRUE if a thing is used up and no good to anyone as it is: a spray bottle with nothing left in it.
 /datum/ai_controller/crew_npc/proc/is_spent(obj/item/thing)
