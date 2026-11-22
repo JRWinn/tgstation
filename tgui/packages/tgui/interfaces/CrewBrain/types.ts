@@ -478,6 +478,10 @@ export type DeskWork = {
   arrests: number;
   /** When it last said that it did not follow something (this window's clock). No more than once a minute. */
   notFollowedAt?: number;
+  /** The officer that broke off hurt, so that "try again" goes to that one. */
+  hurtOfficer?: string;
+  /** When each sender was last answered "noted" (this window's clock), so that it is said once a minute at most (SECT-10). */
+  notedAt?: Record<string, number>;
   /** Who is in cuffs and on the way to a cell, by name, and when the officer said so. */
   cuffed?: Record<string, number>;
   /**
@@ -557,6 +561,8 @@ export type BeatWarrant = {
   cuffedByMe?: boolean;
   /** When it last saw them with its own eyes. */
   ownSeenAt?: number;
+  /** When its person began to wait in the brig with no cell for them (ARR-04). */
+  brigSince?: number;
   /** How many times running it could not get them into a cell, and when it last could not. */
   cellTries?: number;
   cellFailedAt?: number;
@@ -642,8 +648,17 @@ export type BeatWork = {
   struckAt?: number;
   /** Who it has put in a cell: which, when their time is up, and whether they still wear its cuffs. */
   jailed: Record<string, { cell: string; until: number; cuffsLeft: boolean }>;
-  /** Who it has been told to let go. */
-  toFree: { name: string; pardoned: boolean; tries: number }[];
+  /**
+   * Who it has been told to let go: pardoned, or their time served waiting in the brig with no
+   * cell (ARR-04), or stuck in cuffs that nobody of security has them in (SEC-07).
+   */
+  toFree: {
+    name: string;
+    pardoned: boolean;
+    tries: number;
+    served?: boolean;
+    stuck?: boolean;
+  }[];
   /** How its warrants have gone, for whoever keeps the list, until they are taken up. */
   outcomes: SecurityOutcome[];
   /** For an officer with a Head of Security over it: what it has yet to tell them. */
@@ -658,6 +673,8 @@ export type BeatWork = {
   againAt?: number;
   /** Warrants pardoned or taken back lately, by name, and when: an arrest still under way for one lets them go. */
   dropped?: { name: string; pardoned: boolean; at: number }[];
+  /** Who has asked it to take their cuffs off, by name, and when (SEC-07). */
+  cuffAsks?: Record<string, number>;
 };
 
 /**
@@ -1825,6 +1842,31 @@ export type Ledger = {
     at: number;
     walkedUp?: boolean;
   } | null;
+  /**
+   * A technician it is going to let out of a room itself, with nobody else to send (QM-05 A): who,
+   * the room, when it was told (server time), and how many times the door has not opened.
+   */
+  letOut?: LedgerLetOut | null;
+  /** The Captain's yes or no it is holding until they say which order it is to (QM-08 B). */
+  which?: LedgerWhich | null;
+};
+
+/** A technician the Quartermaster is going to let out itself (QM-05 A). */
+export type LedgerLetOut = {
+  who: string;
+  room: string;
+  at: number;
+  tries: number;
+};
+
+/** The Captain's yes or no to one of several orders, held until they say which (QM-08 B). */
+export type LedgerWhich = {
+  answer: 'yes' | 'no';
+  /** The orders it named in the question, by number. */
+  orders: number[];
+  /** Server time it last asked, and how many times in a row. */
+  at: number;
+  asks: number;
 };
 
 /** One thing an NPC can do right now, as offered to the LLM. */

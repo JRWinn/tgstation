@@ -115,15 +115,6 @@ const LET_OUT = 'qm_let_out';
 const LET_OUT_STANDS_DS = 3000;
 /** How many times it tries the door before telling them it could not let them out. */
 const LET_OUT_TRIES = 2;
-/**
- * A technician it is going to let out itself: who, the room, when it was told (server time), and
- * how many times the door has not opened. Kept on the ledger, reached through `letOutOf`:
- * `types.ts`'s Ledger has no field for it yet.
- */
-type LetOut = { who: string; room: string; at: number; tries: number };
-function letOutOf(ledger: Ledger): { letOut?: LetOut | null } {
-  return ledger as Ledger & { letOut?: LetOut | null };
-}
 /** Coming out of its office to a knock at the door. */
 const KNOCK = 'qm_knock';
 /** Going back to its office when there is nothing to see to. */
@@ -617,7 +608,7 @@ function readAnswer(
   // the order they name now (QM-08 B).
   const chosen = whichChosen(brain, ledger, text);
   if (chosen) {
-    whichOf(ledger).which = null;
+    ledger.which = null;
     actOnAnswer(brain, chosen.order, chosen.answer);
     return true;
   }
@@ -673,7 +664,7 @@ function readAnswer(
     askWhichOrder(brain, captain, answer, aloud);
     return true;
   }
-  whichOf(ledger).which = null;
+  ledger.which = null;
   actOnAnswer(brain, answering, answer);
   return true;
 }
@@ -685,21 +676,6 @@ function waitingOnCaptain(ledger: Ledger): LedgerOrder[] {
     .sort((one, other) => (other.askedAt ?? -1) - (one.askedAt ?? -1));
 }
 
-/**
- * The Captain's yes or no it is holding until they say which order it is to. Kept on the ledger,
- * reached through `whichOf`: `types.ts`'s Ledger has no field for it yet.
- */
-type WhichAsked = {
-  answer: 'yes' | 'no';
-  /** The orders it named in the question, by number. */
-  orders: number[];
-  /** Server time it last asked, and how many times in a row. */
-  at: number;
-  asks: number;
-};
-function whichOf(ledger: Ledger): { which?: WhichAsked | null } {
-  return ledger as Ledger & { which?: WhichAsked | null };
-}
 /** How long a yes or no is held for the Captain to say which order it was to. */
 const WHICH_MS = 10 * 60 * 1000;
 
@@ -717,7 +693,7 @@ function askWhichOrder(
 ): void {
   const ledger = ledgerOf(brain);
   const waiting = waitingOnCaptain(ledger);
-  const held = whichOf(ledger);
+  const held = ledger;
   const asks =
     held.which && brain.now - held.which.at < WHICH_MS ? held.which.asks : 0;
   held.which = {
@@ -760,7 +736,7 @@ function whichChosen(
   ledger: Ledger,
   text: string,
 ): { order: LedgerOrder; answer: 'yes' | 'no' } | null {
-  const held = whichOf(ledger).which;
+  const held = ledger.which;
   if (
     !held ||
     brain.now - held.at >= WHICH_MS ||
@@ -1520,7 +1496,7 @@ function syncTasks(brain: NpcBrain): void {
   }
 
   // A technician shut in, with nobody else to send: it goes to the door itself (QM-05 A).
-  const held = letOutOf(ledger);
+  const held = ledger;
   const lettingOut = brain.tasks.find(
     (task) => task.kind === LET_OUT && task.state !== 'done',
   );
@@ -1825,7 +1801,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     return sendStep(brain);
   }
   if (task.kind === LET_OUT) {
-    const out = letOutOf(ledger).letOut;
+    const out = ledger.letOut;
     return out
       ? {
           ready: true,
@@ -2307,7 +2283,7 @@ export const QUARTERMASTER: Job = {
       } else {
         // With no other technician about, it goes to the door and lets them out itself (QM-05 A).
         // Whether the room's door is its to open is the server's to say.
-        letOutOf(ledgerOf(brain)).letOut = {
+        ledgerOf(brain).letOut = {
           who: from,
           room: shutIn[1].trim(),
           at: brain.now,
@@ -2491,13 +2467,13 @@ export const QUARTERMASTER: Job = {
     }
     // The door of the room its technician is shut in (QM-05 A). Opened, or they are not inside
     // after all, it is done. Not opened twice, it tells them so by PDA.
-    const out = letOutOf(ledger).letOut;
+    const out = ledger.letOut;
     if (task?.kind === LET_OUT && act.tool === 'open_door' && out) {
       out.tries++;
       if (ok || details?.not_inside) {
-        letOutOf(ledger).letOut = null;
+        ledger.letOut = null;
       } else if (out.tries >= LET_OUT_TRIES) {
-        letOutOf(ledger).letOut = null;
+        ledger.letOut = null;
         sendWord(
           brain,
           out.who,

@@ -133,21 +133,6 @@ const SAID_MAX = 200;
 /** How long (deciseconds) the same word from its staff on how a warrant went is taken once only (ARR-05). */
 const SAME_WORD_DS = 6000;
 
-/**
- * What the desk keeps beyond DeskWork in types.ts: the officer that broke off hurt, so that "try
- * again" goes to that one. It belongs on DeskWork there.
- */
-type DeskMore = DeskWork & {
-  hurtOfficer?: string;
-  /** When each sender was last answered "noted" (SECT-10), so that it is said once a minute at most. */
-  notedAt?: Record<string, number>;
-};
-
-/** The desk with what it keeps beyond DeskWork. */
-function moreOf(brain: NpcBrain): DeskMore {
-  return deskOf(brain) as DeskMore;
-}
-
 /** Someone in a cell, with the officer who put them there (MULTI-01) and when (TRB-06). */
 type HeldMore = DeskWork['held'][string];
 
@@ -201,7 +186,7 @@ function heardAlready(
   outcome: SecurityOutcome,
   from: string,
 ): boolean {
-  const desk = moreOf(brain);
+  const desk = deskOf(brain);
   const lately = Object.fromEntries(
     Object.entries(desk.lately ?? {}).filter(
       ([, at]) => brain.now - at < SAME_WORD_DS,
@@ -231,7 +216,7 @@ function forgetWords(
   brain: NpcBrain,
   which: (what: string, who: string) => boolean,
 ): void {
-  const desk = moreOf(brain);
+  const desk = deskOf(brain);
   desk.lately = Object.fromEntries(
     Object.entries(desk.lately ?? {}).filter(([key]) => {
       const [what, who] = key.split('|');
@@ -429,7 +414,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   }
   // Someone its officer put in a cell is let out by the officer. If no word comes that they are
   // free, it goes and does it itself (TRB-11). One it put there itself is in its own hands.
-  const more = moreOf(brain);
+  const more = deskOf(brain);
   more.toRelease = (more.toRelease ?? []).filter(
     (it) => !sameName(who, it.name),
   );
@@ -450,7 +435,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
 /** The officer who is letting someone out of a cell for it, if one is (TRB-11). */
 function releasedBy(brain: NpcBrain, name: string): string | null {
   return (
-    moreOf(brain).toRelease?.find((it) => sameName(name, it.name))?.officer ??
+    deskOf(brain).toRelease?.find((it) => sameName(name, it.name))?.officer ??
     null
   );
 }
@@ -646,7 +631,7 @@ export function deskTakes(
     forgetWords(brain, (what) => what === 'hurt');
     arrestAgain(brain);
     // The officer that broke off hurt is the one told, while it is still aboard; else any.
-    const more = moreOf(brain);
+    const more = deskOf(brain);
     const hurt = more.hurtOfficer;
     delete more.hurtOfficer;
     const officer =
@@ -900,7 +885,7 @@ export function deskNotFollowed(
  * the owner's answer C). Once a minute at most for each sender. Returns TRUE if it answered.
  */
 function deskNoted(brain: NpcBrain, from: string, fromJob: string): boolean {
-  const more = moreOf(brain);
+  const more = deskOf(brain);
   more.notedAt ??= {};
   if (
     !isHead(fromJob) ||
@@ -1127,7 +1112,7 @@ export function deskOutcome(
         );
       } else {
         desk.officerOut = 'hurt';
-        moreOf(brain).hurtOfficer = from;
+        deskOf(brain).hurtOfficer = from;
         for (const it of desk.warrants) {
           it.given = 'no';
         }
@@ -1171,7 +1156,7 @@ export function deskOutcome(
       }
       // Let out: nobody need go to the cell (TRB-11).
       {
-        const more = moreOf(brain);
+        const more = deskOf(brain);
         more.toRelease = more.toRelease?.filter(
           (it) => !sameName(outcome.name, it.name),
         );
@@ -1431,7 +1416,7 @@ export function syncDesk(brain: NpcBrain): void {
  * own legwork's to do: from the cells the cell is found by sight.
  */
 function syncRelease(brain: NpcBrain, officer: string | null): void {
-  const more = moreOf(brain);
+  const more = deskOf(brain);
   const brig = brigPlace(brain);
   more.toRelease = (more.toRelease ?? []).filter((release) => {
     // Their time is up: the cell has let them out.
@@ -1566,7 +1551,7 @@ export function planDesk(brain: NpcBrain, task: Task): Plan | null {
       : { ready: false, step: 'That warrant is off the list.' };
   }
   if (task.kind === RELEASE) {
-    const release = moreOf(brain).toRelease?.find(
+    const release = deskOf(brain).toRelease?.find(
       (it) => it.name === task.item,
     );
     const brig = brigPlace(brain);
