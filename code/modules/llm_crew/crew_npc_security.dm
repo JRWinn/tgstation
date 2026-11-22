@@ -935,20 +935,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 /**
  * The names on the crew manifest (GLOB.manifest.general, what the PDA's crew manifest shows), as a
- * list keyed by name. Crew NPCs are spawned outside the job system and get no record, so each one's
- * name stands in for the record it should have (they are crew aboard), until their spawn puts them
- * on the manifest itself (CHEAT-02, held for crew_npc_spawn.dm).
+ * list keyed by name. Crew NPCs are put on it at spawn (crew_npc_add_to_manifest), so the manifest
+ * alone decides (CHEAT-02).
  */
 /proc/crew_npc_manifest_names()
 	var/list/names = list()
 	for(var/datum/record/crew/record as anything in GLOB.manifest.general)
 		names[record.name] = TRUE
-	for(var/owner in GLOB.crew_brain_links)
-		var/datum/crew_brain_link/link = GLOB.crew_brain_links[owner]
-		for(var/datum/ai_controller/crew_npc/controller as anything in link?.npcs)
-			var/mob/living/carbon/human/crew_body = controller?.pawn
-			if(!QDELETED(crew_body))
-				names[crew_body.real_name] = TRUE
 	return names
 
 /**
