@@ -917,16 +917,39 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * where anyone is or what is on their card. A title that is no job (renamed, or one the Head of
  * Personnel made up) opens nothing, as someone reading it would take it. Someone far off or with
  * no card is written to all the same, and does not come; the wait then moves on to the next name.
+ * A name not on the crew manifest, which every PDA can show, is left out (CHEAT-02, the owner's
+ * answer A): PDAs in ruins and on other ships, and people who have left the station.
  */
 /proc/crew_npc_contacts_who_open(list/doors, datum/computer_file/program/messenger/own_messenger)
 	var/list/titles = list()
+	var/list/aboard = crew_npc_manifest_names()
 	for(var/messenger_ref in GLOB.pda_messengers)
 		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
 		// As the messenger's own list goes (get_messengers()): not itself, not hidden, with a computer.
 		if(candidate == own_messenger || candidate.invisible || isnull(candidate.computer) || !candidate.computer.saved_identification)
 			continue
+		if(!aboard[candidate.computer.saved_identification])
+			continue
 		titles[candidate.computer.saved_identification] = candidate.computer.saved_job
 	return crew_npc_keepers_by_title(doors, titles)
+
+/**
+ * The names on the crew manifest (GLOB.manifest.general, what the PDA's crew manifest shows), as a
+ * list keyed by name. Crew NPCs are spawned outside the job system and get no record, so each one's
+ * name stands in for the record it should have (they are crew aboard), until their spawn puts them
+ * on the manifest itself (CHEAT-02, held for crew_npc_spawn.dm).
+ */
+/proc/crew_npc_manifest_names()
+	var/list/names = list()
+	for(var/datum/record/crew/record as anything in GLOB.manifest.general)
+		names[record.name] = TRUE
+	for(var/owner in GLOB.crew_brain_links)
+		var/datum/crew_brain_link/link = GLOB.crew_brain_links[owner]
+		for(var/datum/ai_controller/crew_npc/controller as anything in link?.npcs)
+			var/mob/living/carbon/human/crew_body = controller?.pawn
+			if(!QDELETED(crew_body))
+				names[crew_body.real_name] = TRUE
+	return names
 
 /**
  * Of these people, by name with the job title each is known by, those whose job opens one of
