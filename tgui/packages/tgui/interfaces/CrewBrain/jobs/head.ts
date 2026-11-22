@@ -860,9 +860,15 @@ function meetingCallable(brain: NpcBrain): boolean {
 
 /** How the Head of Personnel holds its meeting: in a room all its staff can walk into, called by PDA. */
 const HOP_WAY: MeetingWay = {
-  // The server names a room all its staff can walk into. Failing that, the department's own, if
-  // it has one its staff can get into: the Service department has none (HEAD-10).
-  room: (brain) => brain.meetingRoom ?? departmentHeadedBy(brain.job)?.meetsIn,
+  // The server names a room all its staff can walk into, on the head's own deck. Failing that, the
+  // department's own, if it has one its staff can get into: the Service department has none.
+  // Failing that, its own office: crew keep to one deck, and with no meeting room on its deck the
+  // head meets its staff where it works (HEAD-10, the owner's answer of 2026-11-22).
+  room: (brain) =>
+    brain.meetingRoom ??
+    departmentHeadedBy(brain.job)?.meetsIn ??
+    brain.office ??
+    brain.post,
   aloud: false,
   firstAt: FIRST_MEETING_DS,
   closing: closingLine,
