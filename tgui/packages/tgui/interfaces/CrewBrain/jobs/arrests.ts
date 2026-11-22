@@ -767,11 +767,21 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     brain.hasPda &&
     (beat.outcomes.some((it) => it.what === 'hurt') ||
       beat.words.some((it) => it.outcome.what === 'hurt'));
+  // A head of staff who keeps hitting it, with no warrant on them, is not stopped with the baton
+  // (below); it gets out of their reach instead, as it does with no baton (ARR-03, the owner's
+  // answer B). Only while they are still at it: the last hit from them, within AWAY_DS.
+  const hitByHead =
+    !!beat.attacker &&
+    !beat.attacker.stopped &&
+    beat.struckBy === beat.attacker.name &&
+    !!brain.peopleInView.find(
+      (person) => person.name === beat.attacker?.name && person.command,
+    );
   const away =
     !!security &&
     beat.struckAt !== undefined &&
     brain.now - beat.struckAt < AWAY_DS &&
-    (!security.has_baton || beat.hurt) &&
+    (!security.has_baton || beat.hurt || hitByHead) &&
     !security.holding &&
     !sayingHurt;
   keep(brain, AWAY, away, 'emergency');
@@ -1471,7 +1481,7 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
     if (post && brain.location !== post) {
       return {
         ready: true,
-        step: `${by} is attacking you, and you cannot stop them${beat.hurt ? ': you are hurt' : ''}. You are getting out of their reach, back to the ${post}.`,
+        step: `${by} is attacking you, and you cannot stop them${beat.hurt ? ': you are hurt' : security?.has_baton ? ': they are a head of staff, and with no warrant you do not lay a hand on them' : ''}. You are getting out of their reach, back to the ${post}.`,
         act: { tool: 'go_to', place: post },
         breaksIn: true,
       };

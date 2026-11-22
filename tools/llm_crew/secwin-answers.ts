@@ -82,6 +82,29 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('ARR-08: struck mid-arrest with a baton: it stops the attacker', issued.map((act) => `${act.tool} ${act.person} ${act.how}`), ['arrest p3 stop']);
 }
 
+// ---- ARR-03 B: an officer gets away from a head of staff who keeps hitting it, baton or not
+{
+  const o = officer();
+  const QUIN = { handle: 'p4', name: 'Quin Mark', job: 'Quartermaster', place: 'Bar', distance: 1, command: 1 };
+  at(o, 5000, 'Bar', [QUIN]);
+  A.securityFeels(o, { details: { struck_name: 'Quin Mark', struck_by: 'p4', how: 'punch' } });
+  A.syncBeat(o);
+  add('ARR-03: hit by a head, baton in hand: no baton on them', !!open(o, 'stop_attacker'), false);
+  const away = open(o, 'get_away');
+  add('ARR-03: it gets out of their reach, back to its post', A.planBeat(o, away)?.act, { tool: 'go_to', place: 'Security Office' });
+  add('ARR-03: and whoever keeps the list is told, once', [A.takeOutcomes(o), (A.syncBeat(o), A.takeOutcomes(o))], [[{ what: 'attacked', name: 'Quin Mark' }], []]);
+  at(o, 5000 + 400, 'Security Office', []);
+  A.syncBeat(o);
+  add('ARR-03: once they have stopped, it stops keeping away', !!open(o, 'get_away'), false);
+}
+{
+  const o = officer();
+  at(o, 5000, 'Bar', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Bar', distance: 1 }]);
+  A.securityFeels(o, { details: { struck_name: 'Pun Pun', struck_by: 'p9' } });
+  A.syncBeat(o);
+  add('ARR-03: anyone else, baton in hand, is stopped, not run from', [!!open(o, 'stop_attacker'), !!open(o, 'get_away')], [true, false]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
