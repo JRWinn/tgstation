@@ -64,6 +64,25 @@ const dry = () => {
   add('the only sink it knows cannot be got to: it looks for another', goesTo(b), 'explore');
 }
 
+// DRV-12 step 4: wetting the mop, or filling the bucket, for a mess in another room is a clean
+// with a key of its own (wet), so its failing does not hold back the clean in the mess's room.
+{
+  const { know } = await import('./fixtures');
+  const wetFor = (place: string, set: (b: any) => void) => {
+    const b: any = janitor('mop');
+    b.stowed = [];
+    know(b, ['Bar', 'Custodial Closet']);
+    at(b, 2000, 'Custodial Closet', [], [{ name: 'sink', kind: 'thing' }]);
+    set(b);
+    const task = { id: 60, kind: 'clean', place, state: 'open', urgency: 'asked', source: 'told' } as any;
+    b.tasks.push(task);
+    return JANITOR.plan(b, task)?.act ?? null;
+  };
+  add('a dry mop wetted here for a mess in the Bar: its own key', wetFor('Bar', (b) => { b.mopNeedsWater = true; }), { tool: 'clean', wet: true });
+  add('a dry mop wetted in the room of the mess itself: the clean itself', wetFor('Custodial Closet', (b) => { b.mopNeedsWater = true; }), { tool: 'clean' });
+  add('a bucket filled here: its own key', wetFor('Bar', (b) => { b.bucketToFill = true; }), { tool: 'clean', wet: true });
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -34,6 +34,15 @@ function mopAndSoap() {
   JANITOR.afterActing(b, { tool: 'pick_up', item: 'soap' }, task, false);
   add('some other pick-up failing leaves the bucket step', JANITOR.plan(b, task)?.act, { tool: 'pick_up', item: 'bucket' });
 }
+{
+  // HOLE-18: one working hand. A mop and a bucket take two: it does not go for the bucket.
+  const { b, task } = mopAndSoap();
+  b.holding = ['mop'];
+  b.workingHands = 1;
+  add('one working hand: no walk for the bucket, it sets off for the mess', JANITOR.plan(b, task)?.act, { tool: 'go_to', place: 'Bar' });
+  b.workingHands = 2;
+  add('two working hands: the bucket as before', JANITOR.plan(b, task)?.act, { tool: 'pick_up', item: 'bucket' });
+}
 
 // ---- LOGA-05: a rag in each hand, a mop known: one rag goes down first
 function twoRags(holding: string[]) {

@@ -209,6 +209,40 @@ for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', false]]
   add('but after fifteen seconds empty, it is', hop.meeting, null);
 }
 
+// LOGB-02 step 2 and KNA-02 step 3: the staff side of a call while hauling, and while shut in.
+{
+  const { planMeetings } = await import(ROOT + 'jobs/meetings');
+  const called = (where: string) => {
+    const jan: any = makeBrain('Jan Itor', 'Janitor');
+    know(jan, ['Bar Lounge', 'Mining Office', 'Custodial Closet']);
+    jan.hasPda = true;
+    jan.location = where;
+    readSummons(jan, 'Hop Kins', 'Staff meeting in the Bar Lounge now, please.', 100, 'Head of Personnel');
+    return jan;
+  };
+  const meetingTask = { id: 'meeting', kind: 'meeting', place: 'Bar Lounge' } as any;
+  let jan = called('Custodial Closet');
+  jan.doing = 'hauling crate #7740 to the Custodial Closet';
+  let plan: any = planMeetings(jan, meetingTask);
+  add('hauling, not yet answered: the "On my way" waits for the crate to be set down', [plan?.ready, plan?.act ?? null], [false, null]);
+  jan.doing = null;
+  plan = planMeetings(jan, meetingTask);
+  add('the haul over: the "On my way" goes', [plan?.ready, plan?.act?.tool, plan?.act?.text], [true, 'message', 'On my way to the Bar Lounge.']);
+  jan.summons.answered = true;
+  jan.doing = 'hauling crate #7740 to the Custodial Closet';
+  plan = planMeetings(jan, meetingTask);
+  add('hauling, answered: the walk waits too', [plan?.ready, plan?.act ?? null], [false, null]);
+  jan = called('Mining Office');
+  jan.summons.answered = true;
+  jan.shutIn = true;
+  jan.doorOpen = false;
+  plan = planMeetings(jan, meetingTask);
+  add('shut in, no door open: no walk to the meeting, and it says why', [plan?.ready, plan?.act ?? null, plan?.step], [false, null, 'You are shut in the Mining Office and will go to the meeting when you are let out.']);
+  jan.doorOpen = true;
+  plan = planMeetings(jan, meetingTask);
+  add('shut in, a door standing open: the walk is tried', [plan?.ready, plan?.act?.tool, plan?.act?.place], [true, 'go_to', 'Bar Lounge']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

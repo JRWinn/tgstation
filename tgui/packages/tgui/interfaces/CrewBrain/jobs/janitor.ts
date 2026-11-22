@@ -320,6 +320,31 @@ function noWaterHere(brain: NpcBrain): Map<string, number> {
   return notes;
 }
 
+/** How many walks through a door found open after asking at it are tried before it waits again. */
+const OPEN_WALKS = 3;
+
+/** An asking at a door, with the count of walks through it found open that came to nothing. */
+type LetInAsk = NpcBrain['letInAsks'][string] & { openWalks?: number };
+
+/**
+ * TRUE if the door the body stands at, and wants through, stands open: what its eyes tell it. The
+ * server sends it as at_door_open, copied to brain.atDoorOpen (ARR-06); read through a cast so
+ * that this file compiles whether or not types.ts has it yet. Until it comes, always FALSE.
+ */
+function atDoorOpen(brain: NpcBrain): boolean {
+  return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
+}
+
+/**
+ * How many of the body's hands can hold anything: what it feels of its own arms. The server sends
+ * it as working_hands (HOLE-18); read through a cast so that this file compiles whether or not
+ * types.ts has it yet. Until it comes, two, so nothing changes.
+ */
+function workingHands(brain: NpcBrain): number {
+  const hands = (brain as NpcBrain & { workingHands?: number }).workingHands;
+  return typeof hands === 'number' ? hands : 2;
+}
+
 /** How long (deciseconds) a call it turned down for want of soap or a rag stays turned down. */
 const DECLINED_DS = 3000;
 
@@ -837,7 +862,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: true,
       step: `Your bucket is low and there is water here to fill it at. You are filling it before you set off for the mess in ${task.place}${toldBy}.`,
-      act: { tool: 'clean' },
+      // A key of its own (the server reads no "wet"): a fill that came to nothing is not a clean
+      // that did, and does not hold back the clean in the mess's room (DRV-12).
+      act: { tool: 'clean', wet: true },
     };
   }
   // A dry mop with water to hand: its own bucket, a mop bucket or cart with water in, or a sink.
@@ -852,13 +879,24 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
         task.place === brain.location
           ? `Your mop is dry and ${from}. You are wetting it, and then cleaning up the mess here in ${task.place}${toldBy}.`
           : `Your mop is dry and ${from}. You are wetting it before you set off for the mess in ${task.place}${toldBy}.`,
-      act: { tool: 'clean' },
+      // Wetting it here for a mess elsewhere has a key of its own, as the fill above. In the mess's
+      // room the same clean wets it and cleans, and is the clean (DRV-12).
+      act:
+        task.place === brain.location
+          ? { tool: 'clean' }
+          : { tool: 'clean', wet: true },
     };
   }
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
-  // somewhere else: one in the room it stands in is cleaned first.
-  if (brain.wantsBucket && task.place !== brain.location && !task.noBucket) {
+  // somewhere else: one in the room it stands in is cleaned first. A mop and a bucket take two
+  // hands: with an arm hurt or gone it does not go for one it could not carry (HOLE-18).
+  if (
+    brain.wantsBucket &&
+    workingHands(brain) >= 2 &&
+    task.place !== brain.location &&
+    !task.noBucket
+  ) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
       return {
@@ -951,6 +989,24 @@ function letInStep(
   // knocks, sends word to whoever called it, and says so to anyone it can see who works there:
   // each of those once.
   const asks = brain.letInAsks[door];
+  // The door it asked at stands open now, with no crew member holding it: someone let it in by
+  // hand, as the Captain does with their own ID (ARR-06, as the officer does). Only the door it is
+  // standing at, and only once it has asked (a knock is asking): a locked room's door someone else
+  // happens to open is no invitation. Numbered, so that a walk that just missed it shutting is not
+  // held back; three that came to nothing, and it waits as before.
+  const openWalks = (asks as LetInAsk | undefined)?.openWalks ?? 0;
+  if (
+    asks &&
+    (asks.knocked || asks.messaged || asks.said) &&
+    atDoorOpen(brain) &&
+    openWalks < OPEN_WALKS
+  ) {
+    return {
+      ready: true,
+      step: `The door into the ${door} has been opened for you, and you are going through${within ? ` on your way to the mess in the ${place}` : ' to clean up the mess there'}.`,
+      act: { tool: 'go_to', place: door, attempt: openWalks + 1 },
+    };
+  }
   // Which of the room's doors it is standing at, said in every asking. A room may have three, and
   // "the door of the Cargo Bay" had a technician open the tunnel door for a janitor in the lobby.
   const which = doorCalled(brain, door);
@@ -1248,6 +1304,8 @@ export const JANITOR: Job = {
         return;
       }
       if (named) {
+        // A later call to the room that it can see to stands over one it turned down there.
+        declinedCalls(brain).delete(named.toLowerCase());
         const task =
           known === named && !fromCargo
             ? takeToldWork(brain, A_MESS, named, from || undefined)
@@ -1333,6 +1391,18 @@ export const JANITOR: Job = {
       act.item
     ) {
       putDown(brain).push({ item: act.item, place: brain.location });
+    }
+    // A walk through the door it asked at, found open, is counted when it comes to nothing (ARR-06).
+    if (
+      task?.kind === CLEAN &&
+      act.tool === 'go_to' &&
+      act.attempt !== undefined &&
+      typeof act.place === 'string'
+    ) {
+      const asks = brain.letInAsks[act.place] as LetInAsk | undefined;
+      if (asks) {
+        asks.openWalks = ok ? 0 : (asks.openWalks ?? 0) + 1;
+      }
     }
     // Back from the walk into the middle of a room it was told of a mess in, got there or not.
     if (
@@ -1426,3 +1496,32 @@ export const JANITOR: Job = {
     }
   },
 };
+
+/**
+ * TRUE if a mess in this room, told of by this caller, is one the janitor's code has just turned
+ * down for want of soap or a rag, and it still has neither to hand nor knows where to get one. The
+ * model's "work" and the words of the line are then not taken on at all (LOGA-07), rather than put
+ * on the list and dropped at the next look at it. A call to the same room from anyone else is taken.
+ */
+function refusesWork(
+  brain: NpcBrain,
+  kind: string,
+  place: string,
+  toldBy?: string,
+): boolean {
+  if (kind !== CLEAN) {
+    return false;
+  }
+  const note = declinedCalls(brain).get(place.toLowerCase());
+  return (
+    !!note &&
+    note.by === toldBy &&
+    brain.now - note.at < DECLINED_DS &&
+    !canScrub(brain) &&
+    !scrubberToHand(brain)
+  );
+}
+
+// Set here rather than in the literal above, so this file compiles whether or not Job in
+// jobs/job.ts has the hook typed yet (tasks.ts calls it through a cast).
+Object.assign(JANITOR, { refusesWork });

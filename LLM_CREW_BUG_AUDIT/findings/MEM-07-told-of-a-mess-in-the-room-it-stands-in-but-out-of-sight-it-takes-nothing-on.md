@@ -80,3 +80,5 @@ The janitor's side (step 2) is built with DESK-08 on branch `m-janitor`: a told 
 Held, needs `tgui/packages/tgui/interfaces/CrewBrain/tasks.ts` (step 1): in `takeToldWork`, the early return
 `if (own && room === brain.location && !findTask(brain, kind, { place: room })) return null;`
 must go for the janitor. Safest: keep it for other jobs and skip it when the job cleans, i.e. add `!jobFor(brain.job).cleans &&` to its condition (other jobs have no look-round, and their own kinds in the room they stand in were not looked at). With that in, the head's order, the model's `work` and `workInWords` all give an open told task. Step 3 (a hint inside a big room, "by the Bridge") is the owner's question and not built.
+
+Round M2 (g-tasks): step 1 built in `tasks.ts` (`takeToldWork`): the early return for work in the room the NPC stands in no longer applies to a job that `cleans`, so the told task is made and DESK-08's look-round walks the room. Table: `tools/llm_crew/janitor-lookround.ts` (told by its head in the Central Primary Hallway: taken, still open 50 s on with nobody owed word, walk to the middle planned). Step 3 (a hint inside a big room) is still the owner's.
