@@ -181,6 +181,46 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('SENSE-08: which it reads back whole', S.readOutcome(line), { what: 'cannot', name: 'Zim Fire', why });
 }
 
+// ---- SEC-07 B: a crew member stuck in cuffs says so; only security takes them off
+{
+  const { jobFor } = await import(ROOT + 'jobs/index');
+  const OFFICER = jobFor('Security Officer');
+  const HOS = jobFor('Head of Security');
+  const ASK = 'I am in handcuffs and cannot get them off. Can someone take them off?';
+  const DANA = { handle: 'p5', name: 'Dana Reyes', job: 'Assistant', place: 'Bar', distance: 2, cuffed: 1 };
+  const o = officer();
+  at(o, 5000, 'Bar', [DANA]);
+  OFFICER.overhears(o, { seq: 1, time: '', at: 5000, kind: 'speech_heard', text: '', details: { speaker: 'Dana Reyes', message: ASK, source: 'person', said_to: 'group' } });
+  OFFICER.syncTasks(o);
+  const free = open(o, 'let_go');
+  const plan = free && A.planBeat(o, free);
+  add('SEC-07: an officer that hears it lets them go: the free step on that name', [plan?.act, /stuck in handcuffs/.test(plan?.step ?? '')], [{ tool: 'free', person: 'Dana Reyes' }, true]);
+  const w = officer();
+  A.giveWarrant(w, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  at(w, 5000, 'Bar', [DANA]);
+  OFFICER.readsMessage(w, 'Dana Reyes', ASK, 5000, 'Assistant');
+  add('SEC-07: not someone it has a warrant on', A.beatOf(w).toFree.length, 0);
+  const far = officer();
+  at(far, 5000, 'Security Office', []);
+  OFFICER.readsMessage(far, 'Dana Reyes', ASK, 5000, 'Assistant');
+  add('SEC-07: sent by PDA from out of sight: nothing yet', A.beatOf(far).toFree.length, 0);
+  at(far, 5600, 'Bar', [DANA]);
+  A.syncBeat(far);
+  add('SEC-07: and once they are seen, still in cuffs, it lets them go', A.beatOf(far).toFree.map((it: any) => it.name), ['Dana Reyes']);
+  const h: any = makeBrain('Joan Hale', 'Head of Security');
+  h.pdaPeople = [{ name: 'Zim Fire', job: 'Captain' }];
+  h.staffPost = 'Security Office';
+  h.office = 'Security Office';
+  know(h, ['Security Office', 'Bar', 'Brig']);
+  h.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+  at(h, 5000, 'Bar', [DANA]);
+  HOS.readsMessage(h, 'Dana Reyes', ASK, 5000, 'Assistant');
+  HOS.syncTasks(h);
+  const hfree = h.tasks.find((t: any) => t.kind === 'let_go' && t.state !== 'done');
+  add('SEC-07: the Head of Security does the same', hfree ? HOS.plan(h, hfree)?.act : null, { tool: 'free', person: 'Dana Reyes' });
+  add('SEC-07: "the cuffs are in the locker" is no ask', A.stuckInCuffsAsk(officer(), 'Dana Reyes', 'The cuffs are in the locker.'), false);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

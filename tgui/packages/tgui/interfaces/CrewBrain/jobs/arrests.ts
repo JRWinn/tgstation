@@ -522,7 +522,72 @@ export function waitingWith(brain: NpcBrain): string | null {
 type WaitingWarrant = BeatWarrant & { brigSince?: number };
 
 /** One to be let go, and whether it is because their time is served, waiting in the brig with no cell (ARR-04). */
-type FreeMore = BeatWork['toFree'][number] & { served?: boolean };
+type FreeMore = BeatWork['toFree'][number] & {
+  served?: boolean;
+  /** TRUE if they asked to have cuffs taken off that nobody of security has them in (SEC-07). */
+  stuck?: boolean;
+};
+
+/** The beat with who has asked it to take their cuffs off, by name, and when (SEC-07). It belongs on BeatWork in types.ts. */
+type BeatMore = BeatWork & { cuffAsks?: Record<string, number> };
+
+/** How long (deciseconds) an ask to take someone's cuffs off stands while they are out of its sight. */
+const CUFF_ASK_DS = 6000;
+
+/** A crew member saying they are stuck in handcuffs and cannot get them off (SEC-07). */
+const STUCK_IN_CUFFS =
+  /\b(?:hand)?cuffs\b[^.?!]*\b(?:cannot|can ?not|can'?t)\s+get\s+them\s+off\b|\bstuck\s+in\s+(?:hand)?cuffs\b/i;
+/**
+ * Takes in someone saying they are in handcuffs and cannot get them off, said to it or sent to it
+ * (SEC-07, the owner's answer B: only security takes the cuffs off a crew member stuck in them).
+ * Not someone it has a warrant on, or holds: they are its prisoner. Returns TRUE if it was that.
+ */
+export function stuckInCuffsAsk(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+): boolean {
+  if (!from || from === brain.name || !STUCK_IN_CUFFS.test(text)) {
+    return false;
+  }
+  const beat = beatOf(brain) as BeatMore;
+  const wanted = beat.warrants.some((it) => sameName(it.name, from));
+  const holding = brain.security?.holding;
+  const jailed = Object.keys(beat.jailed).some((it) => sameName(from, it));
+  if (wanted || jailed || (holding && sameName(from, holding))) {
+    return true;
+  }
+  beat.cuffAsks = { ...(beat.cuffAsks ?? {}), [from]: brain.now };
+  freeStuck(brain);
+  return true;
+}
+
+/**
+ * Those who asked to have their cuffs taken off, now in its sight and still in cuffs, are let go
+ * with the usual let-go step. Out of sight, the ask stands a while, until they are seen.
+ */
+function freeStuck(brain: NpcBrain): void {
+  const beat = beatOf(brain) as BeatMore;
+  const asks = beat.cuffAsks ?? {};
+  for (const [name, at] of Object.entries(asks)) {
+    const seen = brain.peopleInView.find((person) => person.name === name);
+    if (seen && !seen.cuffed) {
+      delete asks[name];
+      continue;
+    }
+    if (!seen) {
+      if (brain.now - at > CUFF_ASK_DS) {
+        delete asks[name];
+      }
+      continue;
+    }
+    delete asks[name];
+    if (!beat.toFree.some((it) => sameName(it.name, name))) {
+      const free: FreeMore = { name, pardoned: false, tries: 0, stuck: true };
+      beat.toFree.push(free);
+    }
+  }
+}
 
 /**
  * A prisoner it holds in the brig with no cell for them serves their time there (ARR-04, the
@@ -646,6 +711,7 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     beat.outcomes.push({ what: 'hurt', name: about?.name ?? '' });
   }
   serveTimeInBrig(brain);
+  freeStuck(brain);
   // Seeing someone it has a warrant on is a sighting like any other: where, and when. Left to
   // word from others alone, it saw the monkey across a hallway, walked on, and did not know
   // where to go back to.
@@ -1483,7 +1549,7 @@ function freeStep(brain: NpcBrain, name: string): Plan {
   }
   return {
     ready: true,
-    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : (free as FreeMore).served ? ': there was no cell for them, and they have served their time with you in the brig' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
+    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : (free as FreeMore).served ? ': there was no cell for them, and they have served their time with you in the brig' : (free as FreeMore).stuck ? ': they are stuck in handcuffs, and only security takes them off' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
     act: { tool: 'free', person: name },
   };
 }

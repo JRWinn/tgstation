@@ -114,3 +114,7 @@ Severity kept at medium: the body is useless for the rest of the round, but only
 ## Fix so far
 
 Group m-secsrv, commit cdaebf183ee (compile only; not played). Steps 1 and 3 in their simplest form: held while the cuffs are on, a try counted only when `execute_resist` left a `do_after` running, and no cap (`CREW_NPC_CUFF_TRIES` removed). Left: the "cannot get these handcuffs off" sense line and the window's ask for help (steps 3 and 4), which need the owner's word.
+
+## Fix so far (owner's answer B, security's window part)
+
+Built on branch `a-secwin` (the server's `stuck_in_cuffs` event is a-secsrv's; the crew member's own line is the job's/a-brain's). `stuckInCuffsAsk` in `jobs/arrests.ts`, called first from `readsMessage` and `overhears` in `jobs/officer.ts` and `jobs/headofsecurity.ts`: a crew member saying they are in handcuffs and cannot get them off ("I am in handcuffs and cannot get them off", or "stuck in cuffs") is taken as an ask to an officer or the Head of Security. Not when it has a warrant on them, holds them, or put them in a cell. In sight and still cuffed, they go on `toFree` (marked `stuck`) and the usual let-go step sends `free` on that name; sent from out of sight, the ask stands ten minutes (`CUFF_ASK_DS`) and is acted on once they are seen still in cuffs (`freeStuck`, run from `syncBeat`). The officer does not go looking for them. Table `tools/llm_crew/secwin-answers.ts`. Not played.
