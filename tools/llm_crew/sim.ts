@@ -830,7 +830,9 @@ function toolCall(body: Body, tool: string, args: any) {
       const messBeyond = rooms[room].messes.length > 0 || LOCKED.some((inner) => inner !== room && doorsOut(inner).includes(room) && rooms[inner].messes.length > 0);
       // Security staff outside are let in on asking, as the server lets them in by the job their ID shows (CARGO-04).
       const security = /Security Officer|Head of Security/.test(them.job);
-      if (!inside && !security && !(them.job === 'Janitor' && messBeyond)) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
+      // PLAY-10 3 (answer A): a janitor sent for on a superior's order is let in with no mess in sight, the act saying so (sent_on_order).
+      const onOrder = them.job === 'Janitor' && args.sent_on_order === true;
+      if (!inside && !security && !(them.job === 'Janitor' && messBeyond) && !onOrder) return result(body, 'open_door', false, `You have no call to let ${them.name} into ${room}.`);
       // PLAY-06: something stands between the technician and the door out of the bay, whenever it goes to let the janitor out.
       if (VARIANT === 'outfail' && inside && them.name === 'Jan Itor') return busy(body, 3, 'going to open the door for someone', false, () => { outTries.push(clock); result(body, 'open_door', false, 'You could not get to it.'); });
       return busy(body, 3, 'going to open the door for someone', false, () => {
@@ -1670,6 +1672,8 @@ if (VARIANT === 'callme') {
   // Sent for on the Captain's word, the janitor is not then turned away from the bay as one nobody sent for.
   const turnedAway = cora.log.filter((line) => / message /.test(line) && /nobody here sent for you to the Cargo Bay/.test(line));
   check('the janitor it sent for is not turned away from the bay as one nobody sent for', turnedAway.length === 0, turnedAway.join(' | '));
+  // PLAY-10 3 (answer A): with no mess anyone can see, it is let in all the same: the call was made on the Captain's order.
+  check('and it is let into the bay when it comes, though no mess is in sight', opened.includes('in:Jan Itor'), opened.join(', ') || 'the door was never opened');
   const twice = cora.said.filter((line, index) => cora.said.indexOf(line) !== index);
   check('it says no line twice', twice.length === 0, twice.join(' | '));
 }
@@ -2115,7 +2119,9 @@ if (ENGINE) {
     check('it gives its engineer the engine, to its face, word for word, once', saidBy('Ada Volt', /^Sam, the engine is yours\. Light it now, please\./).length === 1, saidBy('Ada Volt', /engine is yours/).length + ' time(s)');
     check('the engineer says that it has it', saidBy('Sam Rees', /^The engine, right away\./).length === 1);
     check('the Chief Engineer sets the three batteries itself', byChief.filter((work) => work.how === 'charge' && work.ok).length === 3 && batteriesSet === 3, batteriesSet + ' set');
-    check('and works nothing in the engine room', byChief.every((work) => work.kind === 'battery'), byChief.filter((work) => work.kind !== 'battery').map((work) => work.name).join(', '));
+    // ENG-01 (answer B): once its engineer says it cannot get the emitters off, the Chief Engineer goes and tries itself; that and nothing else.
+    if (VARIANT === 'enginelocked') check('and works nothing in the engine room but the emitters\' switches, once its engineer could not get them off', byChief.every((work) => work.kind === 'battery' || (work.kind === 'emitter' && work.how === 'switch_off')), byChief.filter((work) => work.kind !== 'battery').map((work) => `${work.name} ${work.how}`).join(', '));
+    else check('and works nothing in the engine room', byChief.every((work) => work.kind === 'battery'), byChief.filter((work) => work.kind !== 'battery').map((work) => work.name).join(', '));
     check('the Captain is told a meeting is being held, and sent the report of it', sentTo(ada, 'Cap Tain', /holding a staff meeting/).length >= 1 && sentTo(ada, 'Cap Tain', /Engineering staff meeting:/).length >= 1);
   }
   if (VARIANT !== 'enginestuck') {
@@ -2157,6 +2163,12 @@ if (ENGINE) {
     check('the locked one is not tried over and over', lockedTries >= 2 && lockedTries <= 6, lockedTries + ' tries');
     check('the engineer tells the Chief Engineer why', told(sam, 'Sam Rees', 'Ada Volt', /I cannot switch the emitters off: its controls are locked/) >= 1);
     check('the Captain is told once that the engine is still firing', sentTo(ada, 'Cap Tain', /"text":"The emitters will not go off: its controls are locked/).length === 1);
+    const chiefOffs = byChief.filter((work) => work.kind === 'emitter' && work.how === 'switch_off');
+    // When the engineer first said it, aloud or by PDA.
+    const pdaLine = sam.log.find((line) => / message /.test(line) && /I cannot switch the emitters off/.test(line));
+    const toldAt = Math.min(spoken.find((line) => line.who === 'Sam Rees' && /I cannot switch the emitters off/.test(line.text))?.at ?? Infinity, pdaLine ? Date.parse(`1970-01-01T${pdaLine.slice(0, 8)}Z`) : Infinity);
+    check('then the Chief Engineer goes to the engine room and tries the switches itself, after its engineer said it could not', chiefOffs.length >= 1 && chiefOffs.every((work) => work.at >= toldAt), chiefOffs.map((work) => `${work.name} ${work.ok ? 'ok' : 'would not'} ${seconds(work.at)}`).join(', ') || 'it never tried');
+    check('and the Captain is sent, once, that it went itself and could not', sentTo(ada, 'Cap Tain', /"text":"I went to switch the emitters off myself and could not: its controls are locked/).length === 1, sentTo(ada, 'Cap Tain', /./).map((line) => line.match(/"text":"([^"]*)"/)?.[1]).join(' | '));
   }
   if (VARIANT === 'engalone') {
     const first = byEngineer[0];
