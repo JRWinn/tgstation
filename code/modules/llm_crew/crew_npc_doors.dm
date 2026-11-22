@@ -156,46 +156,21 @@
 	return nearest
 
 /**
- * Returns the names of those on the body's PDA whose own ID opens the door it came in by: who it
+ * Returns the names of those on the body's PDA whose job opens the door it came in by: who it
  * can send word to when nobody comes to let it out. Empty unless it is shut in and knows the door.
  */
 /datum/ai_controller/crew_npc/proc/door_keepers()
 	var/list/names = list()
-	var/list/heads = list()
-	var/list/captains = list()
 	if(!shut_in)
 		return names
 	var/obj/machinery/door/airlock/door = trail_door()
 	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
 	if(isnull(door) || isnull(own_messenger))
 		return names
-	for(var/messenger_ref in GLOB.pda_messengers)
-		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
-		if(candidate == own_messenger || isnull(candidate.computer) || !candidate.computer.saved_identification)
-			continue
-		var/turf/where = get_turf(candidate.computer)
-		if(isnull(where) || !is_station_level(where.z))
-			continue
-		// The card in the PDA, or failing that the one its holder wears: most of the crew wear
-		// theirs. Going only by a card in the PDA, nobody was ever found to write to, and a janitor
-		// shut in a cargo room wrote to its own head and to no technician.
-		var/obj/item/card/id/card = candidate.computer.stored_id
-		if(isnull(card))
-			var/mob/living/holder = get(candidate.computer, /mob/living)
-			card = holder?.get_idcard(TRUE)
-		if(!card || !door.check_access(card))
-			continue
-		// Whoever works behind that door before a head, and a head before the Captain, whose card
-		// opens every door on the station: a janitor shut in a cargo room wrote to the Captain,
-		// with two cargo technicians a room away.
-		var/datum/job/their_job = SSjob.get_job(candidate.computer.saved_job)
-		if(istype(their_job, /datum/job/captain))
-			captains += candidate.computer.saved_identification
-		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
-			heads += candidate.computer.saved_identification
-		else
-			names += candidate.computer.saved_identification
-	return names + heads + captains
+	// Read off the messenger list by job title, as a player would read it, not off anyone's ID
+	// card or where on the station their PDA is (CHEAT-02): whoever works behind that door first,
+	// then a head, then the Captain.
+	return crew_npc_contacts_who_open(list(door), own_messenger)
 
 /// Returns the name of whoever let the body into the room it is in, or null if nobody did.
 /datum/ai_controller/crew_npc/proc/who_let_in()
@@ -412,6 +387,13 @@
 		return null
 	return wanted_door_place
 
+/// TRUE if the door the body is standing at, wanting through, stands open just now: it can see that from beside it.
+/datum/ai_controller/crew_npc/proc/wanted_door_open()
+	if(isnull(at_door_of()))
+		return FALSE
+	var/obj/machinery/door/airlock/door = wanted_door?.resolve()
+	return !QDELETED(door) && !door.density
+
 /// TRUE if this route goes through an airlock that does not open to the body's ID: one that is standing open just now.
 /datum/ai_controller/crew_npc/proc/route_by_open_door(list/route)
 	var/mob/living/carbon/human/body = pawn
@@ -536,11 +518,21 @@
 			outer_name ||= format_text(outer.name)
 			continue
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no way to [nearest] at [AREACOORD(nearest)], a door [leaving ? "out of" : "into"] [room_name], and looks for another.")
+	// No way to any door, and one of them opens from a room locked to it: that is put down to the
+	// room beyond only if the body could have walked out of the room it is in. A body shut in finds
+	// no way to anywhere, and blaming the room beyond taught a janitor shut in the Head of
+	// Personnel's Office that the Cargo Bay and the Cargo Lobby each open only from the other (LOGB-05).
+	var/cannot_leave = isnull(best) && outer_name && (is_shut_in() || !walks_out_of_room())
+	if(QDELETED(src) || QDELETED(body))
+		return
 	finding_door = FALSE
 	if(errand_serial != serial || tool_serial != calls || !can_sense())
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [goal], and had been given something else to do meanwhile.")
 		return
 	if(isnull(best))
+		if(cannot_leave)
+			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get out of here to get to [goal].", list("place" = current_place))
+			return
 		if(outer_name)
 			action_result(CREW_TOOL_TO_DOOR, FALSE, "You cannot get to [goal]: it opens from [outer_name], which is locked to you as well.", list("place" = current_place, "door_of" = room_name, "door_through" = outer_name))
 			return
@@ -555,6 +547,39 @@
 		action_result(CREW_TOOL_TO_DOOR, TRUE, "You are at [goal].", list("place" = current_place))
 		return
 	start_walk(best_spot, CREW_TOOL_TO_DOOR, goal, CREW_NPC_TRAVEL_TIMEOUT)
+
+/**
+ * TRUE if the body can walk out of the room it stands in: it is in a hallway or a maintenance
+ * tunnel, the room has no airlock, or there is a way to just outside one of its doors. Sleeps
+ * while routes are tested.
+ */
+/datum/ai_controller/crew_npc/proc/walks_out_of_room()
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	if(isnull(here) || place_kind() != "room")
+		return TRUE
+	var/list/doors = crew_npc_doors_of(here, body.z)
+	if(!length(doors))
+		return TRUE
+	// The nearest few doors, nearest first: a way out by any one of them will do.
+	var/list/by_distance = list()
+	for(var/obj/machinery/door/airlock/door as anything in doors)
+		by_distance[door] = get_dist(body, door)
+	var/tries_left = CREW_NPC_DOORS_TRIED
+	while(length(by_distance) && tries_left > 0)
+		tries_left--
+		var/obj/machinery/door/airlock/nearest
+		for(var/obj/machinery/door/airlock/door as anything in by_distance)
+			if(isnull(nearest) || by_distance[door] < by_distance[nearest])
+				nearest = door
+		by_distance -= nearest
+		var/list/sides = doors[nearest]
+		var/list/route = get_path_to(body, sides[2], max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+		if(QDELETED(src) || QDELETED(body))
+			return TRUE
+		if(length(route))
+			return TRUE
+	return FALSE
 
 /**
  * Returns the door of one of the body's rooms that this person wants opened, and that the body can
@@ -694,7 +719,12 @@
 			if(isnull(through) || through == room_name)
 				break
 		mess_beyond = through == room_name && remembers_mess_in(inner)
-	if(!inside && !(findtext(person.get_assignment(if_no_id = "", if_no_job = ""), "janitor") && mess_beyond))
+	// Who they are is read off their shown job, as anyone at the door would read it. A janitor is
+	// let in to a mess; security is let in on asking, as staff let in an officer after a warrant
+	// (CARGO-04): the server refused it every time, and the technician walked to the door for nothing.
+	var/shown_job = person.get_assignment(if_no_id = "", if_no_job = "")
+	var/security = findtext(shown_job, "Security Officer") || findtext(shown_job, "Head of Security")
+	if(!inside && !security && !(findtext(shown_job, "janitor") && mess_beyond))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].")
 		return
 	if(isnull(door))
@@ -849,7 +879,7 @@
  * 7). The details name the room and whom it was held for.
  */
 /datum/ai_controller/crew_npc/proc/door_hold_over(datum/weakref/person_ref, area/room)
-	if(QDELETED(src) || QDELETED(pawn) || !can_sense())
+	if(QDELETED(src) || QDELETED(pawn) || !can_perceive())
 		return
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	var/room_name = room ? format_text(room.name) : ""
@@ -891,7 +921,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		if(listener == body)
 			continue
 		var/datum/ai_controller/crew_npc/their_controller = listener.ai_controller
-		if(istype(their_controller) && their_controller.can_sense())
+		if(istype(their_controller) && their_controller.can_perceive())
 			their_controller.emit_sense(CREW_SENSE_KNOWLEDGE, "Someone is knocking at the [wanted_door_label ? "[wanted_door_label] " : ""]door of [place], from [wanted_door_leaving ? "inside" : "outside"].", list("knock_door" = wanted_door_label,"knock" = place, "knock_from_inside" = wanted_door_leaving))
 	action_result(CREW_TOOL_KNOCK, TRUE, "You knock at the door [wanted_door_leaving ? "out of" : "into"] [place].")
 
@@ -947,7 +977,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	var/mob/living/carbon/human/body = pawn
 	var/obj/machinery/door/firedoor/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/machinery/door/firedoor/door in view(CREW_NPC_FIRE_DOOR_RANGE, body))
+	for(var/obj/machinery/door/firedoor/door in crew_npc_visible(view(CREW_NPC_FIRE_DOOR_RANGE, body), body))
 		if(!door.density)
 			continue
 		var/distance = get_dist(body, door)
@@ -1119,7 +1149,9 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	else
 		// Once in, it is whoever let it in that it asks to be let out again.
 		let_into_place = place
-		let_in_by = opener.name
+		// Kept by the name they go by on the PDA list, which is who it writes to when it wants out
+		// again: the name they are seen by changes with a mask or a borrowed card (API-02).
+		let_in_by = crew_npc_pda_name_of(opener)
 		let_in_door = WEAKREF(door)
 		if(isnull(visited_places[place]))
 			visited_places[place] = list(spot.x, spot.y, spot.z)
@@ -1128,6 +1160,13 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		"door_held" = TRUE,
 		"out_to" = out_to,
 	))
+
+/// Returns the name someone goes by on the PDA list: that of a PDA they carry, else their own name.
+/proc/crew_npc_pda_name_of(mob/living/carbon/human/person)
+	for(var/obj/item/modular_computer/computer in person.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
+		if(computer.saved_identification)
+			return computer.saved_identification
+	return person.real_name
 
 /**
  * Returns someone standing where they block the way, or null: in a doorway close by, right beside

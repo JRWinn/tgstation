@@ -8,7 +8,7 @@
 
 /// Handles one tool call from the owner's brain window.
 /datum/ai_controller/crew_npc/proc/handle_tool_call(tool, list/arguments)
-	if(!tool_call_allowed())
+	if(!tool_call_allowed(tool))
 		return
 	if(!istext(tool) || !(tool in list(CREW_TOOL_SAY, CREW_TOOL_WALK_TO, CREW_TOOL_GO_TO, CREW_TOOL_EXPLORE, CREW_TOOL_REST, CREW_TOOL_SEARCH, CREW_TOOL_PICK_UP, CREW_TOOL_PUT_DOWN, CREW_TOOL_GIVE, CREW_TOOL_CLEAN, CREW_TOOL_LOCATE, CREW_TOOL_ORDER, CREW_TOOL_RELEASE, CREW_TOOL_COLLECT, CREW_TOOL_CHECK_HELD, CREW_TOOL_MESSAGE, CREW_TOOL_GRENADE, CREW_TOOL_UNLOAD, CREW_TOOL_MAIL, CREW_TOOL_HAND_MAIL, CREW_TOOL_RECYCLE, CREW_TOOL_SEND, CREW_TOOL_HOLD, CREW_TOOL_DOOR, CREW_TOOL_TIDY, CREW_TOOL_TO_DOOR, CREW_TOOL_EVICT, CREW_TOOL_KNOCK, CREW_TOOL_RESET_ALARM, CREW_TOOL_TAKE_BACK, CREW_TOOL_STOW, CREW_TOOL_STEP_ASIDE, CREW_TOOL_NOTE, CREW_TOOL_PAPER, CREW_TOOL_WORD_PASSED, CREW_TOOL_OPEN_CRATE, CREW_TOOL_MACHINE, CREW_TOOL_FORCE_DOOR, CREW_TOOL_GET_KIT, CREW_TOOL_ARREST, CREW_TOOL_JAIL, CREW_TOOL_FREE)))
 		action_result(null, FALSE, "Your body does not know how to do that.")
@@ -36,7 +36,7 @@
 		if(CREW_TOOL_WALK_TO)
 			tool_walk_to(arguments["person"])
 		if(CREW_TOOL_GO_TO)
-			tool_go_to(arguments["place"], arguments["middle"])
+			tool_go_to(arguments["place"], arguments["middle"], arguments["far"])
 		if(CREW_TOOL_EXPLORE)
 			// Choosing somewhere to explore means testing routes, which takes time.
 			INVOKE_ASYNC(src, PROC_REF(tool_explore))
@@ -119,13 +119,18 @@
 			tool_message(arguments["person"], arguments["text"])
 
 /// Counts this tool call against the rate limit. Returns FALSE if it should be dropped.
-/datum/ai_controller/crew_npc/proc/tool_call_allowed()
+/datum/ai_controller/crew_npc/proc/tool_call_allowed(tool)
 	if(world.time - tool_window_started > CREW_NPC_TOOL_WINDOW)
 		tool_window_started = world.time
 		tool_calls_in_window = 0
 	tool_calls_in_window++
 	if(tool_calls_in_window <= CREW_NPC_TOOL_CALL_LIMIT)
 		return TRUE
+	// A line dropped is told every time, as a say that was refused: the brain takes it back out of
+	// what it has said and says it again later, rather than counting it said (BRAIN-04).
+	if(tool == CREW_TOOL_SAY)
+		action_result(CREW_TOOL_SAY, FALSE, "You are trying to do too many things at once, and that went unsaid. Slow down.")
+		return FALSE
 	// Say so once per window, then drop the rest quietly so a runaway brain cannot flood its own senses.
 	if(tool_calls_in_window == CREW_NPC_TOOL_CALL_LIMIT + 1)
 		action_result(null, FALSE, "You are trying to do too many things at once. Slow down.")
@@ -135,7 +140,7 @@
 /datum/ai_controller/crew_npc/proc/action_result(tool, succeeded, text, list/extra_details)
 	// The brain decides what to do next the moment it hears how this went. It has to decide on what
 	// the body sees now, not on its last look, which may be from before it walked into the room.
-	if(can_sense())
+	if(can_perceive())
 		look_around()
 	var/list/details = list("tool" = tool, "ok" = succeeded)
 	if(extra_details)
@@ -209,7 +214,7 @@
  * office door and its staff at their counter, eight tiles apart and out of each other's sight,
  * and the meeting was reported as nobody there.
  */
-/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle)
+/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle, far)
 	var/known_place = istext(place) ? find_known_place(place) : null
 	if(isnull(known_place))
 		action_result(CREW_TOOL_GO_TO, FALSE, "You do not know of anywhere aboard by that name.")
@@ -217,6 +222,13 @@
 	// Where the body stands this instant, not the room it last noted being in: pushed out of a room
 	// since its last look, it is not in it, and telling it that it is sends it nowhere.
 	var/turf/here = get_turf(pawn)
+	// The far side of the room from the body, to look round all of it (KNA-23). Routes are tested,
+	// which takes a while; with none found it goes to the middle.
+	if(far)
+		var/area/station/far_room = crew_npc_station_places()[known_place]
+		if(far_room)
+			INVOKE_ASYNC(src, PROC_REF(go_to_far_side), known_place, far_room)
+			return
 	if(middle)
 		var/area/station/room = crew_npc_station_places()[known_place]
 		var/turf/spot = room ? middle_of(room.type) : null
@@ -245,6 +257,32 @@
 		action_result(CREW_TOOL_GO_TO, FALSE, "You cannot work out the way back to [known_place].")
 		return
 	start_walk(destination, CREW_TOOL_GO_TO, known_place, CREW_NPC_TRAVEL_TIMEOUT)
+
+/**
+ * Walks the body to the far side of a room from where it stands: the clear square of the part of
+ * the room it can get into that lies furthest from it, that it can find a way to. With none, the
+ * middle of the room, as `go_to` with `middle` does. Sleeps while routes are tested.
+ */
+/datum/ai_controller/crew_npc/proc/go_to_far_side(known_place, area/station/room)
+	var/mob/living/carbon/human/body = pawn
+	var/serial = errand_serial
+	var/calls = tool_serial
+	var/turf/spot = far_spot_in(room)
+	if(QDELETED(src) || QDELETED(body))
+		return
+	// Anything it was given to do meanwhile wins, as for go_to_door (LIFE-03, CORE-07).
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		return
+	var/turf/here = get_turf(body)
+	if(isnull(spot))
+		spot = middle_of(room.type)
+	if(isnull(spot))
+		action_result(CREW_TOOL_GO_TO, FALSE, "You cannot work out the way across [known_place].")
+		return
+	if(get_area(here) == room && get_dist(here, spot) <= 2)
+		action_result(CREW_TOOL_GO_TO, TRUE, "You are on the far side of [known_place].", list("place" = known_place))
+		return
+	start_walk(spot, CREW_TOOL_GO_TO, known_place, get_area(here) == room ? CREW_NPC_WALK_TIMEOUT : CREW_NPC_TRAVEL_TIMEOUT)
 
 /// Matches a place name from the brain against the station's rooms: those the body has been in first. Returns the room's real name, or null.
 /datum/ai_controller/crew_npc/proc/find_known_place(place)

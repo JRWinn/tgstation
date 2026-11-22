@@ -173,18 +173,21 @@
 	crew_controller.note_route_doors(path)
 	if(isnull(source.avoid))
 		return
-	var/mob/living/blocker = crew_controller.avoid_ref?.resolve()
+	var/atom/movable/blocker = crew_controller.avoid_ref?.resolve()
+	// Someone in the way will not move; a thing on the floor (a peel, soap: SENSE-06) is gone round
+	// rather than stepped on.
+	var/someone = isnull(blocker) || isliving(blocker)
 	// No way round what will not move: the next plan goes through it, and the body is stopped by it,
 	// knowing who by, as before.
 	if(!length(path))
 		crew_controller.avoid_gave_up = TRUE
 		crew_controller.avoid_ref = null
 		crew_controller.avoid_turf = null
-		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) found no way round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move.")
+		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) found no way round [blocker?.name || "something"] at [AREACOORD(source.avoid)], [someone ? "which will not move" : "lying on the floor"].")
 		return
 	if(!crew_controller.avoid_logged)
 		crew_controller.avoid_logged = TRUE
-		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) went round [blocker?.name || "something"] at [AREACOORD(source.avoid)], which will not move: [length(path)] steps.")
+		log_game("Crew NPC [key_name(source.moving)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) went round [blocker?.name || "something"] at [AREACOORD(source.avoid)], [someone ? "which will not move" : "lying on the floor, rather than step on it"]: [length(path)] steps.")
 
 /**
  * Looks along a route just planned for an airlock that is shut and will not open for the body:
