@@ -25,6 +25,7 @@ import {
   beatOf,
   describeBeat,
   planBeat,
+  stuckInCuffsAsk,
   syncBeat,
   warrantTalk,
 } from './arrests';
@@ -219,6 +220,10 @@ export const HEAD_OF_SECURITY: Job = {
     if (forcingReads(brain, from, job, text)) {
       return;
     }
+    // A crew member stuck in handcuffs: security takes them off (SEC-07).
+    if (stuckInCuffsAsk(brain, from, text)) {
+      return;
+    }
     // An officer's "On my way" to its meeting, or its report sent by PDA because it could not be
     // there (shut out of the room, or missed it), read as every head reads them (KNB-09).
     if (staffMeetingWord(brain, from, text, at)) {
@@ -255,6 +260,9 @@ export const HEAD_OF_SECURITY: Job = {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
     if (!speaker) {
+      return;
+    }
+    if (stuckInCuffsAsk(brain, speaker, heard)) {
       return;
     }
     // At its meeting, a report is a report, whoever's turn it is.

@@ -105,3 +105,7 @@ Commits: 7bf567c25fc, 3ee1db32f6f.
 Round two (branch crew-bug-fixes-medium): no more code was needed. Both parts above were in round one, each by a different group, so the finding is now whole, apart from any step that waits on the owner.
 
 Round three (branch crew-bug-fixes-medium): 111a7206845. This finishes the parts left above, apart from any step that waits on the owner.
+
+## Fix so far (step 5, owner's answer B)
+
+Built on branch `a-secwin`, `syncBeat` in `jobs/arrests.ts`: a head of staff with no warrant on them who is hitting the officer (the last hit was theirs, they are in sight, within `AWAY_DS`) now opens the get-away task even when the officer has its baton and is not hurt (`hitByHead`). It walks back to its post out of their reach, and whoever keeps the list is told once, as before. The baton is still never used on them (no STOP task, and the STOP step still refuses a head). Table `tools/llm_crew/secwin-answers.ts`. The `headhit` scenario's "the officer lays no baton on the head of staff who shoved it" should still hold; if it checks that the officer stands where it is, that check should now expect it to walk off to its post. Not played.

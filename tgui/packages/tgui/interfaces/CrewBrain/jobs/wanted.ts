@@ -57,12 +57,12 @@ const COULD_NOT_KEPT_DS = 1200;
 /** How long (deciseconds) being told it is under arrest stands, if nothing comes of it. */
 const ARREST_STANDS_DS = 600;
 /**
- * What the server says when someone would not be walked out of the body's room: the hold was broken, or no
- * hold could be got. Not "You could not get to it." (the body never reached them) nor a reason that is the
- * body's own trouble, such as the walk taking too long.
+ * What the server says when someone would not be walked out of the body's room: the hold was broken.
+ * Not "You could not get to it." (the body never reached them), nor "You cannot get a hold of X." (they
+ * may be buckled, anchored or too heavy, or the body unable to pull: none of it their refusing, the
+ * owner's answer B to API-01), nor a reason that is the body's own trouble, such as the walk taking too long.
  */
-const WOULD_NOT_GO =
-  /\bcould not get .+ out of .+: they got away from you\b|\bcannot get a hold of\b/i;
+const WOULD_NOT_GO = /\bcould not get .+ out of .+: they got away from you\b/i;
 
 /** What an NPC knows of who is wanted, before it has been told anything. */
 export function newWanted(): WantedKnown {
@@ -345,20 +345,23 @@ export function syncWanted(brain: NpcBrain): void {
 
 /**
  * Notes how putting someone out of its room went. One who would not go, as against one it had no
- * right to put out, is word for its head. `text` is what the body said of how it went.
+ * right to put out, is word for its head. `text` is what the body said of how it went, and
+ * `details` what the server said of it: `would_not_go` is TRUE only when the hold was broken by
+ * them, FALSE when the body itself went down or they were down, cuffed or strapped (MULTI-08). A
+ * server that does not say is read by its words.
  */
 export function wantedAfterActing(
   brain: NpcBrain,
   act: Action,
   ok: boolean,
   text: string,
+  details: Record<string, unknown> = {},
 ): void {
-  if (
-    act.tool !== 'throw_out' ||
-    ok ||
-    isSecurity(brain.job) ||
-    !WOULD_NOT_GO.test(text)
-  ) {
+  const wouldNotGo =
+    details.would_not_go === undefined || details.would_not_go === null
+      ? WOULD_NOT_GO.test(text)
+      : !!details.would_not_go;
+  if (act.tool !== 'throw_out' || ok || isSecurity(brain.job) || !wouldNotGo) {
     return;
   }
   const name =
@@ -376,6 +379,13 @@ export function wantedAfterActing(
   // on a superior's order, they are reported as before.
   const stranger = brain.strangers[name];
   if (stranger?.seenOut && !stranger.orderedBy) {
+    return;
+  }
+  // A trespass warrant takes all three (MULTI-08, the owner's answer B): they were told to leave
+  // (the NPC said its "out you go" line to them), they did not go of their own accord (they were
+  // still in the room to be taken by the arm), and they broke the hold (WOULD_NOT_GO, above). One
+  // never told, walked out with no word, is not reported however the walk ended.
+  if (stranger?.toldOutAt === undefined || stranger.toldOutAt > brain.now) {
     return;
   }
   known.couldNot.push({ name, place, at: brain.now, done: false });

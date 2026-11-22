@@ -71,6 +71,7 @@ import {
   mendWords,
   NOTICE_ACK_WORDS,
   nameIn,
+  notedLine,
   notFollowedLine,
   nothingAgainstLine,
   noticeLines,
@@ -122,6 +123,8 @@ const NEW_WARRANT_DS = 1200;
 const LEAD_FRESH_DS = 3000;
 /** How often (milliseconds), at most, it says that it did not follow something. */
 const NOT_FOLLOWED_EVERY_MS = 60000;
+/** How often (milliseconds), at most, it answers one sender "noted" (SECT-10). */
+const NOTED_EVERY_MS = 60000;
 /** How long (deciseconds) before a sighting in the same room is passed on again. */
 const PASS_AGAIN_DS = 1200;
 /** The most characters a body can say at once, or send in one PDA message. */
@@ -136,6 +139,8 @@ const SAME_WORD_DS = 6000;
  */
 type DeskMore = DeskWork & {
   hurtOfficer?: string;
+  /** When each sender was last answered "noted" (SECT-10), so that it is said once a minute at most. */
+  notedAt?: Record<string, number>;
 };
 
 /** The desk with what it keeps beyond DeskWork. */
@@ -279,9 +284,18 @@ export function officerAboard(brain: NpcBrain): string | null {
   );
 }
 
-/** The officer its warrants go to, or null if it serves them itself: there is none, or the one there is has broken off. */
+/**
+ * The officer whoever keeps the list works through: null for an officer that keeps the list itself,
+ * there being no Head of Security aboard. Each officer then serves the warrants declared to it, and
+ * hands nothing to another officer, who would not take it (DESK-05, the owner's answer A).
+ */
+function listOfficer(brain: NpcBrain): string | null {
+  return isOfficer(brain.job) ? null : officerAboard(brain);
+}
+
+/** The officer its warrants go to, or null if it serves them itself: there is none, the one there is has broken off, or it is an officer itself. */
 function serving(brain: NpcBrain): string | null {
-  return deskOf(brain).officerOut ? null : officerAboard(brain);
+  return deskOf(brain).officerOut ? null : listOfficer(brain);
 }
 
 /** Says or sends something to someone, in so many words: to their face if that is how they spoke, by PDA if not. */
@@ -328,7 +342,7 @@ function tellOfficer(
   why: string,
   to?: string | null,
 ): void {
-  const officer = to ?? officerAboard(brain);
+  const officer = to ?? listOfficer(brain);
   if (!officer) {
     return;
   }
@@ -404,7 +418,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   // the cell, if it is still aboard (MULTI-01), else any officer aboard; and itself.
   const theirs = warrant?.officer ?? heldBy?.by;
   const officer =
-    theirs && officerKnown(brain, theirs) ? theirs : officerAboard(brain);
+    theirs && officerKnown(brain, theirs) ? theirs : listOfficer(brain);
   if (officer && (held || (warrant && warrant.given !== 'no'))) {
     tellOfficer(
       brain,
@@ -636,7 +650,7 @@ export function deskTakes(
     const hurt = more.hurtOfficer;
     delete more.hurtOfficer;
     const officer =
-      hurt && officerKnown(brain, hurt) ? hurt : officerAboard(brain);
+      hurt && officerKnown(brain, hurt) ? hurt : listOfficer(brain);
     if (officer) {
       tellOfficer(
         brain,
@@ -880,6 +894,32 @@ export function deskNotFollowed(
   return true;
 }
 
+/**
+ * Answers a PDA message from the Captain or a head that no reader took and that is no order (thanks,
+ * talk, a question) in fixed words, "Captain, noted.", so that the sender knows it arrived (SECT-10,
+ * the owner's answer C). Once a minute at most for each sender. Returns TRUE if it answered.
+ */
+function deskNoted(brain: NpcBrain, from: string, fromJob: string): boolean {
+  const more = moreOf(brain);
+  more.notedAt ??= {};
+  if (
+    !isHead(fromJob) ||
+    isSecurity(fromJob) ||
+    Date.now() - (more.notedAt[from] ?? 0) < NOTED_EVERY_MS
+  ) {
+    return false;
+  }
+  more.notedAt[from] = Date.now();
+  reply(
+    brain,
+    from,
+    notedLine(addressOf(from, fromJob)),
+    false,
+    `${from} has sent you a PDA message that is no order. You are saying it has reached you.`,
+  );
+  return true;
+}
+
 /** How many orders may wait on the LLM to read them, and how often (ms) one is put to it. Past either, the sender is told it was not followed. */
 const UNREAD_MOST = 2;
 const READING_EVERY_MS = 5000;
@@ -904,8 +944,13 @@ export function deskUnread(
     desk.unread.length >= UNREAD_MOST ||
     Date.now() - (desk.readingAt ?? 0) < READING_EVERY_MS
   ) {
-    // Too many to read just now. Only what could be an order is answered so (SECT-10).
-    return looksLikeOrder(text) ? deskNotFollowed(brain, from, fromJob) : true;
+    // Too many to read just now. Only what could be an order is answered so; anything else is
+    // noted (SECT-10).
+    if (looksLikeOrder(text)) {
+      return deskNotFollowed(brain, from, fromJob);
+    }
+    deskNoted(brain, from, fromJob);
+    return true;
   }
   desk.readingAt = Date.now();
   desk.unread.push({ from, fromJob, text, at: Date.now() });
@@ -934,9 +979,13 @@ export function deskRead(
       return `Read as: "${order}" The body answers ${asked.from} in the fixed words.`;
     }
   } else if (reading) {
-    return `Read as no order. Nothing is sent to ${asked.from}.`;
+    return deskNoted(brain, asked.from, asked.fromJob)
+      ? `Read as no order. ${asked.from} is told it was noted.`
+      : `Read as no order. Nothing is sent to ${asked.from}: told it was noted within the minute.`;
   } else if (!looksLikeOrder(asked.text)) {
-    return `No answer to go by, and no order in the words. Nothing is sent to ${asked.from}.`;
+    return deskNoted(brain, asked.from, asked.fromJob)
+      ? `No answer to go by, and no order in the words. ${asked.from} is told it was noted.`
+      : `No answer to go by, and no order in the words. Nothing is sent to ${asked.from}: told it was noted within the minute.`;
   }
   // An order it could not read: said so at once, whenever it last said so.
   desk.notFollowedAt = 0;
@@ -1030,12 +1079,12 @@ export function deskOutcome(
       // would arrest them again once the cell opens. Nobody is let go by this.
       if (!own) {
         forgetWarrant(brain, warrant?.name ?? outcome.name);
-      } else if (warrant && officerAboard(brain)) {
+      } else if (warrant && listOfficer(brain)) {
         // Its officer may have it still: given it before it broke off hurt, or given it and
         // then outrun to the arrest. The one it was given to, if it knows which (MULTI-01).
         const to = warrant.officer;
         const officer =
-          to && officerKnown(brain, to) ? to : (officerAboard(brain) ?? '');
+          to && officerKnown(brain, to) ? to : (listOfficer(brain) ?? '');
         tellOfficer(
           brain,
           servedLine(officer, warrant.name),
@@ -1109,6 +1158,16 @@ export function deskOutcome(
       );
       if (held) {
         delete desk.held[held];
+      }
+      // Free with a warrant still on the list: held in the brig with no cell, they have served
+      // their time there and been let go (ARR-04). The warrant is served, as a cell that has run
+      // out is: struck off, and nobody is sent after them again.
+      if (warrant && outcome.why !== EARLY) {
+        desk.warrants = desk.warrants.filter((it) => it !== warrant);
+        desk.serial += 1;
+        if (!own) {
+          forgetWarrant(brain, warrant.name);
+        }
       }
       // Let out: nobody need go to the cell (TRB-11).
       {

@@ -107,3 +107,7 @@ Checked by Opus 5.5, read from the code and one throwaway script; not seen in a 
 - Ran the narrowed pattern of fix A against the six server lines: it matches only the got-away line and the cannot-get-a-hold line.
 - Nothing in `LLM_CREW_CHANGELOG.md` or the plans chose this on purpose; the trespass entry says a warrant is for someone the body "tries to put out ... and cannot".
 - Mended: the write-up's case of a visitor who walks out on the way does not set it off (the reach follows a moving target and `take_hold_of` then answers TRUE); the real cases are someone the body cannot path beside. Fix rewritten with a one-line window fix first. Severity kept at high: it puts a warrant, and then an arrest, on someone who never refused, which is the wrong person acted on, though it needs a visitor the body cannot reach.
+
+## Fix so far
+
+Owner's answer B (2026-11-22), built on branch `a-secwin`: "You cannot get a hold of X." no longer counts as refusing to go. `WOULD_NOT_GO` in `jobs/wanted.ts` now matches only the broken hold ("You could not get X out of Y: they got away from you."). Tables `security.ts` and `guarding-wanted.ts` changed to match. Not played.

@@ -121,3 +121,7 @@ Commits: a5bc3977401.
 Round two (branch crew-bug-fixes-medium): fa7a7954086. Still not finished: see the change log entry for what is left.
 
 Round three (branch crew-bug-fixes-medium): 336149712a6. This finishes the parts left above, apart from any step that waits on the owner.
+
+## Fix so far (step 4, owner's answer A)
+
+Built on branch `a-secwin`: the STOP step in `planBeat` (`jobs/arrests.ts`) sets `breaksIn`, so stopping an attacker with no warrant breaks in on an arrest under way, as the get-away walk does. `driver.ts` needs no change: `orderToDrop` already lets any ready emergency step with `breaksIn` break in on another emergency. Table `tools/llm_crew/secwin-answers.ts` (fails on the old code: nothing is sent; passes now: the stop arrest is sent). Not played.
