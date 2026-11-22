@@ -77,6 +77,26 @@ const told = (b: any) => b.toTell.map((t: any) => `${t.to}${t.byPda ? ' (PDA)' :
   add('collect refused, taken away already: the errand is over', task.state, 'done');
 }
 
+// The server's taken_away, through ingest (CrewBrain/brain.ts): mapped as takenAway, and unset when not sent.
+{
+  const B = await import(ROOT + 'brain');
+  const crate = (more: any) => ({ number: 20, for: 'Hop Kins', what: 'Replacement Lights', place: 'Bar', out: 0, taken_by: 'Jan Mopp', waited: 100, ...more });
+  const body = (id: string, held: any[]) => ({
+    id, name: 'Sam Tech', job: 'Cargo Technician', awake: 1, location: 'Cargo Bay', people_in_view: [], things_in_view: [], holding: [], place_kind: 'room',
+    walking: 0, resting: 0, explored_everything: 0, storage_here: 0, cleaning_tool: null, has_locator: 0, cleanable_messes: [], mess_places: [],
+    workable_mess_places: [], mop_needs_water: 0, sink_in_view: 0, shut_in: 0, door_open: 0, door_held: 0, door_held_out: 0, let_in_by: null,
+    at_door_of: null, grenade_messes: 0, doing: null, dry_mop: 0, post: 'Cargo Bay', orderable: [], order_pending: 0, has_pda: 1, notices: [],
+    held_crates: held, acked_seq: 0, events: [],
+  });
+  const ingested = (id: string, more: any) => {
+    B.ingest([body(id, [crate(more)]) as any], 100);
+    return (B.getBrain(id) as any).heldCrates[0].takenAway;
+  };
+  add('ingest: taken_away 1 is takenAway true', ingested('taken-i1', { taken_away: 1 }), true);
+  add('ingest: taken_away 0 is takenAway false', ingested('taken-i2', { taken_away: 0 }), false);
+  add('ingest: no taken_away: unset, so the guess is made', ingested('taken-i3', {}) === undefined, true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

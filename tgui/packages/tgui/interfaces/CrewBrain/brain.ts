@@ -609,6 +609,11 @@ export function ingest(npcs: Npc[], now: number): void {
       place: crate.place,
       out: !!crate.out,
       takenBy: crate.taken_by ?? null,
+      // Unset when not sent, so that the window's own guess is used in its place (SUP-17).
+      takenAway:
+        crate.taken_away === undefined || crate.taken_away === null
+          ? undefined
+          : !!crate.taken_away,
       waited: crate.waited ?? 0,
     }));
     brain.heldCheckDue = !!npc.held_check_due;

@@ -256,6 +256,8 @@ export type Npc = {
         place: string;
         out: BooleanLike;
         taken_by: string | null;
+        /** TRUE if it was taken out of cargo's rooms by someone who is not a crew NPC collecting it (SUP-17). */
+        taken_away?: BooleanLike;
         waited: number;
       }[]
     | null;
@@ -813,6 +815,11 @@ export type HeldCrate = {
   out: boolean;
   /** Who is hauling it away, if anyone is. */
   takenBy: string | null;
+  /**
+   * TRUE if it was taken out of cargo's rooms by someone who is not a crew NPC collecting it, as the
+   * server says (SUP-17). Unset when the server does not say (the simulator's stand-in).
+   */
+  takenAway?: boolean;
   /** How long (deciseconds) it has been off the shuttle. */
   waited: number;
 };

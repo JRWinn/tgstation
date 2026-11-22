@@ -714,13 +714,13 @@ const takenTold = new Set<string>();
 
 /**
  * TRUE if this held crate has been taken out of cargo by someone who did not come for it at the
- * counter. The server says so (`taken_away`); until the window maps that field, a crate with a
- * taker that is no longer in any of the department's rooms or the lobby is taken (SUP-17).
+ * counter. The server says so (`taken_away`). Only where it does not say (the simulator's
+ * stand-in), a crate with a taker that is no longer in any of the department's rooms or the lobby
+ * is taken (SUP-17).
  */
 function takenAway(brain: NpcBrain, crate: HeldCrate): boolean {
-  const flag = (crate as HeldCrate & { takenAway?: boolean }).takenAway;
-  if (flag !== undefined) {
-    return flag && !!crate.takenBy;
+  if (crate.takenAway !== undefined) {
+    return crate.takenAway && !!crate.takenBy;
   }
   return (
     !!crate.takenBy &&
