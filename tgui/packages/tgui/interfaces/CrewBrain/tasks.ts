@@ -19,6 +19,7 @@ import {
   syncGuarding,
 } from './jobs/guarding';
 import {
+  CALL,
   describeOrders,
   noteOrdered,
   orderIn,
@@ -159,13 +160,65 @@ export function syncTasks(brain: NpcBrain): void {
     }
     const kept = keepsGoing(brain, task);
     if (!kept && task.askedBy) {
-      // Work someone asked for and never got: at least the window shows it was given up on.
+      // Work someone asked for and never got: the window shows it was given up on, and whoever
+      // asked is sent word, once (MEM-11, JOBS-02, CARGO-13: the owner's answer A).
       brain.lastJob = {
         time: new Date().toLocaleTimeString(),
         what: `Gave up on, not done: ${describeTask(brain, task)}`,
       };
+      tellGivenUp(brain, task);
     }
     return kept;
+  });
+}
+
+/**
+ * What it could not do, as it tells whoever asked for it: "get to the mess in the Bar". Worded
+ * for the kinds of work people ask for, and any other plainly by its room.
+ */
+function givenUpWhat(task: Task): string {
+  const room = task.place ? ` in the ${task.place}` : '';
+  switch (task.kind) {
+    case 'clean':
+      return `get to the mess${room}`;
+    case 'collect':
+      return `collect crate #${task.item} from cargo`;
+    case 'handover':
+      return `bring crate #${task.item} out to the lobby`;
+    case 'force_door':
+      return `get the door of the ${task.item} open`;
+    case 'look':
+      return `get to the ${task.place} to look at it`;
+    case CALL:
+      return `send for a janitor to the ${task.place}`;
+    default:
+      return task.place
+        ? `get to the work in the ${task.place}`
+        : 'get to what you asked of me';
+  }
+}
+
+/**
+ * Sends word to whoever asked for a piece of work that it has been given up on, not done: said
+ * face to face if they are in view, else by PDA (if it has none, said when they are next seen).
+ */
+function tellGivenUp(brain: NpcBrain, task: Task): void {
+  const to = task.askedBy;
+  if (!to || to === brain.name) {
+    return;
+  }
+  const line = `${to.split(' ')[0]}, I could not ${givenUpWhat(task)}.`;
+  if (brain.toTell.some((tell) => tell.to === to && tell.line === line)) {
+    return;
+  }
+  const here = brain.peopleInView.some((person) => person.name === to);
+  brain.toTell.push({
+    to,
+    line,
+    why: `You have given up on what ${to} ${task.source === 'told' ? 'told you of' : 'asked for'} (${describeTask(brain, task)}): it could not be done for too long. You are telling ${to} so.`,
+    byPda: !here && brain.hasPda,
+    exact: true,
+    at: Date.now(),
   });
 }
 
