@@ -74,16 +74,35 @@ const FIRE_DOORS_TOLD_MS = 120000;
 export const SHUT_IN_KEY = 'shut-in';
 
 /**
- * Who a shut-in NPC asks for the door next: someone in view it has not asked yet, one at a time.
- * Each person is asked once. Asked again and again, they would be right to call it nagging, so it
- * asks again only when someone new turns up. Null if there is nobody left to ask. Never anyone
- * it holds a warrant on: a shut-in officer does not ask the person it is after to open the door.
+ * How long (milliseconds) a shut-in NPC leaves it, with nobody come, before it asks the same
+ * person for the door again, or knocks again (DRV-07, the owner's answer A: two minutes).
+ */
+export const ASK_AGAIN_MS = 120000;
+
+/**
+ * TRUE if a shut-in NPC asked this person for the door less than ASK_AGAIN_MS ago. One asked with
+ * no time noted counts as just asked.
+ */
+export function askedLately(brain: NpcBrain, name: string): boolean {
+  const asks = brain.outAsks;
+  if (!asks?.asked.includes(name)) {
+    return false;
+  }
+  const at = asks.askedAt?.[name];
+  return at === undefined || Date.now() - at < ASK_AGAIN_MS;
+}
+
+/**
+ * Who a shut-in NPC asks for the door next: someone in view it has not asked lately, one at a
+ * time. Asked again and again, they would be right to call it nagging, so each person is asked
+ * again only once ASK_AGAIN_MS has gone by with nobody come (DRV-07). Null if there is nobody to
+ * ask. Never anyone it holds a warrant on: a shut-in officer does not ask the person it is after
+ * to open the door.
  */
 export function whoToAskForTheDoor(brain: NpcBrain): string | null {
-  const asked = brain.outAsks?.asked ?? [];
   const people = brain.peopleInView.filter(
     (person) =>
-      !asked.includes(person.name) && !isWarrantOn(brain, person.name),
+      !askedLately(brain, person.name) && !isWarrantOn(brain, person.name),
   );
   if (people.length === 0) {
     return null;

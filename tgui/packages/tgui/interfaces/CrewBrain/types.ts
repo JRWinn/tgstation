@@ -15,7 +15,9 @@ export type SenseEvent = {
     | 'action_result'
     | 'storage_seen'
     | 'pda_message'
-    | 'knowledge';
+    | 'knowledge'
+    /** A security body walked out of a room by its keeper: details.by, details.put_out_of (ARR-02). */
+    | 'walked_out';
   text: string;
   details: {
     handle?: string;
@@ -1285,9 +1287,10 @@ export type NpcBrain = {
   mustSayExact: boolean;
   /**
    * What it has done about being shut in the room it is in: who it has asked, and whether it has
-   * knocked and sent word. It asks each person once, and again only when someone new turns up.
-   * If nobody comes, it sends word further afield, once each: to someone else whose ID opens the
-   * door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
+   * knocked and sent word. It asks each person, and knocks, again only once ASK_AGAIN_MS has gone
+   * by with nobody come (DRV-07): `askedAt` is when each was asked, `knockedAt` when it last
+   * knocked. If nobody comes, it sends word further afield, once each: to someone else whose ID
+   * opens the door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
    */
   outAsks: {
     room: string;
@@ -1296,6 +1299,8 @@ export type NpcBrain = {
     messaged: boolean;
     wrote: string[];
     wroteAt: number;
+    askedAt?: Record<string, number>;
+    knockedAt?: number;
   } | null;
   /** Fire doors that stopped it: the room whose alarm shut them, whether that alarm was only pulled, and when (this window's clock). */
   fireDoors: { place: string; pulled: boolean; at: number } | null;
@@ -1694,6 +1699,14 @@ export type NpcBrain = {
   heldAt?: { place: string; until: number }[];
   /** A PDA message (or the like) sent while a longer step was still waited on, kept beside it so that the longer step's result is still heard (LOGB-02). */
   sideAct?: NpcBrain['lastAct'];
+  /**
+   * Janitors it has sent for on an order from someone it answers to (planCall in jobs/orders.ts):
+   * the room, the janitor, and when the PDA message went (server time, deciseconds). One per room,
+   * the latest. Its department reads it to let that janitor in (PLAY-10 3, the owner's answer A).
+   */
+  calledOnOrder: { room: string; janitor: string; at: number }[];
+  /** When it last told its head it is stuck in handcuffs (this window's clock): said once a stay in them (SEC-07). */
+  cuffsToldAt?: number;
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */

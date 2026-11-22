@@ -63,6 +63,7 @@ import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
+  noteStuckInCuffs,
   placeNamedIn,
   syncTasks,
   takeToldWork,
@@ -385,6 +386,7 @@ export function ingest(npcs: Npc[], now: number): void {
         handles: {},
         inTalkWith: null,
         toTell: [],
+        calledOnOrder: [],
         outAsks: null,
         fireDoors: null,
         alarmResets: {},
@@ -822,6 +824,8 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.keptOut[event.details.put_out_of] = Date.now() + PUT_OUT_KEEPS_MS;
         brain.toldToLeave = null;
       }
+      // Stuck in handcuffs it cannot get off: its head is told, once (SEC-07).
+      noteStuckInCuffs(brain, event);
       if (event.details.in_the_way) {
         brain.inTheWay = {
           handle: String(event.details.in_the_way),
@@ -1425,6 +1429,7 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
         )
       );
     case 'knowledge':
+    case 'walked_out':
       // Being walked out of a room by the arm is something to have a word about.
       return !!event.details.put_out_of && brain.peopleInView.length > 0;
     case 'speech_heard':
@@ -2254,12 +2259,25 @@ async function think(brain: NpcBrain): Promise<void> {
         ) {
           continue;
         }
+        // What whoever told it said to it, lately: an order to send for a janitor has to be in
+        // the imperative or name it (PLAY-10 2), whatever the model made of it.
+        const toldWords = report
+          .filter(
+            (line) =>
+              line.includes(' says: ') &&
+              forMe.has(line) &&
+              (!toldBy || line.includes(`] ${toldBy} says: `)),
+          )
+          .slice(-2)
+          .map((line) => (line.match(/"[^"]*"/g) ?? []).join(' '))
+          .join(' ');
         const task = takeToldWork(
           brain,
           action.what,
           action.where,
           toldBy,
           !!superior,
+          toldWords,
         );
         // Work that is not this job's, or is not in any room aboard, is not taken on.
         if (task) {
