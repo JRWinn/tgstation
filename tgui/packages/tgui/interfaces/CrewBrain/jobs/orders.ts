@@ -399,13 +399,38 @@ export function ordersAfterSaying(brain: NpcBrain, called: string | null): void 
   }
 }
 
+/** How long (deciseconds) a call made on an order is kept in calledOnOrder: an hour. */
+const CALLED_KEPT_DS = 36000;
+
+/**
+ * Notes a janitor it has sent for on an order, in brain.calledOnOrder: one entry per room, the
+ * latest. Its department's door keepers read it to let that janitor in, though no technician has
+ * seen the mess (PLAY-10 3, the owner's answer A; read in jobs/cargo.ts).
+ */
+function noteCalledOnOrder(brain: NpcBrain, room: string, janitor: string): void {
+  if (!room || !janitor) {
+    return;
+  }
+  brain.calledOnOrder = [
+    ...(brain.calledOnOrder ?? []).filter(
+      (call) => call.room !== room && brain.now - call.at < CALLED_KEPT_DS,
+    ),
+    { room, janitor, at: brain.now },
+  ];
+}
+
 /** Notes how sending a report by PDA went. */
 export function ordersAfterActing(
   act: Action,
   task: Task | undefined,
   ok: boolean,
+  /** The NPC, so that a janitor sent for on an order is noted for its department (PLAY-10 3). */
+  brain?: NpcBrain,
 ): void {
   if (task?.kind === CALL && act.tool === 'message' && !task.found) {
+    if (ok && brain) {
+      noteCalledOnOrder(brain, task.place ?? '', String(act.person ?? ''));
+    }
     // The message to the janitor: what whoever gave the order is told is how it went.
     task.found = ok
       ? `I have sent ${act.person}, a janitor, a PDA message to come and clean it.`

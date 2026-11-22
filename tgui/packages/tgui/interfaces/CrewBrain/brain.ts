@@ -385,6 +385,7 @@ export function ingest(npcs: Npc[], now: number): void {
         handles: {},
         inTalkWith: null,
         toTell: [],
+        calledOnOrder: [],
         outAsks: null,
         fireDoors: null,
         alarmResets: {},

@@ -1432,6 +1432,7 @@ function settleResult(
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
+    brain,
   );
   meetingsAfterActing(brain, last.act, !!event.details.ok, looped);
   pickupsAfterActing(

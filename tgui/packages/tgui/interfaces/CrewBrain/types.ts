@@ -1697,6 +1697,12 @@ export type NpcBrain = {
   heldAt?: { place: string; until: number }[];
   /** A PDA message (or the like) sent while a longer step was still waited on, kept beside it so that the longer step's result is still heard (LOGB-02). */
   sideAct?: NpcBrain['lastAct'];
+  /**
+   * Janitors it has sent for on an order from someone it answers to (planCall in jobs/orders.ts):
+   * the room, the janitor, and when the PDA message went (server time, deciseconds). One per room,
+   * the latest. Its department reads it to let that janitor in (PLAY-10 3, the owner's answer A).
+   */
+  calledOnOrder: { room: string; janitor: string; at: number }[];
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
