@@ -1108,6 +1108,8 @@ GLOBAL_DATUM(crew_npc_cargo_post_room, /area/station/cargo)
 		if(!QDELETED(body) && body.stat != DEAD && !body.client)
 			keep_missed_pda(computer, sender, "[sender_job]", message)
 		return
+	// A door asked for by PDA "with a warrant for X" counts as heard, as the same words said aloud do (ARR-02).
+	note_warrant_word(sender, "[sender_job]", message)
 	emit_sense(CREW_SENSE_PDA_MESSAGE, "Your PDA buzzes with a message from [sender][sender_job ? ", [sender_job]" : ""]: \"[message]\"", list(
 		"speaker" = sender,
 		"job" = "[sender_job]",

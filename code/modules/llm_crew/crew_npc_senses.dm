@@ -228,6 +228,7 @@
 		var/sender = entry[2]
 		var/job = entry[3]
 		var/message = entry[4]
+		note_warrant_word(sender, job, message)
 		emit_sense(CREW_SENSE_PDA_MESSAGE, "While you were out, your PDA got a message from [sender][job ? ", [job]" : ""]: \"[message]\"", list(
 			"speaker" = sender,
 			"job" = job,
