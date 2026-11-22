@@ -100,7 +100,7 @@
 		if(CREW_TOOL_HOLD)
 			tool_hold(arguments["person"])
 		if(CREW_TOOL_DOOR)
-			tool_open_door(arguments["person"], arguments["place"], arguments["name"], arguments["door"])
+			tool_open_door(arguments["person"], arguments["place"], arguments["name"], arguments["door"], arguments["sent_on_order"] ? TRUE : FALSE)
 		if(CREW_TOOL_TIDY)
 			tool_tidy()
 		if(CREW_TOOL_TO_DOOR)
