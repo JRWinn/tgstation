@@ -48,9 +48,10 @@
 	else if(works_in_cargo())
 		// A technician knocks at the Quartermaster's office door when it has word for it.
 		learn_head_office()
-		// The post is wherever the department's supply console is. Stations name that room differently.
+		// The post is the room with the counter window to the lobby, whatever console stands there
+		// (MAP-06). Stations name that room differently.
+		var/area/post_area = crew_npc_cargo_post_room()
 		var/obj/machinery/computer/cargo/console = crew_npc_cargo_post_console()
-		var/area/post_area = console ? get_area(console) : null
 		var/turf/spot = post_area ? find_post_turf(post_area, console) : null
 		if(spot)
 			post_place = format_text(post_area.name)
@@ -59,7 +60,11 @@
 			known += post_place
 			work_area += post_place
 			learn_department(post_area)
-			sentences += "You are the station's [job_title()]. Your post is the [post_place], at the counter, and you know the way there. The supply console you order at is in the same room."
+			var/console_words = "The supply console you order at is in the same room."
+			if(isnull(console))
+				var/obj/machinery/computer/cargo/nearest = supply_console()
+				console_words = nearest ? "There is no supply console in it: you order at the one in the [get_area_name(nearest, TRUE)]." : "There is no supply console in it."
+			sentences += "You are the station's [job_title()]. Your post is the [post_place], at the counter, and you know the way there. [console_words]"
 	// Engineering staff know Engineering and the engine room, and the Chief Engineer its office.
 	else if(works_in_engineering())
 		sentences += learn_engineering_places(known)
@@ -192,35 +197,74 @@
 			return FALSE
 	return TRUE
 
-/// The supply console the cargo post is at, chosen once for the station, as a weak reference: see crew_npc_cargo_post_console().
-GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
+/// The room the cargo post is in, chosen once for the station: see crew_npc_cargo_post_room().
+GLOBAL_DATUM(crew_npc_cargo_post_room, /area/station/cargo)
 
 /**
- * Returns the supply console the station's cargo staff work from, the same one for every technician
- * and for the Quartermaster, so that they all have the one post wherever each was made. It is one in
- * the Cargo Bay if there is one, else the one in the cargo room with the most floor. Chosen once from
- * the map, and again only if that console is gone. Null if the station has none in a cargo room.
+ * Returns the room the station's cargo staff work from, the same one for every technician and for
+ * the Quartermaster, so that they all have the one post wherever each was made (MAP-06).
+ *
+ * It is the cargo room with the counter window to the Cargo Lobby, whatever console stands there:
+ * the room with the most windows (windoors) onto the lobby. A tie goes to a room with a supply
+ * console in it, then to the Cargo Bay, then to the bigger room. A station with no lobby, or no
+ * window onto it, falls back to a supply console's room: the Cargo Bay's if there is one, else the
+ * cargo room with the most floor. Chosen once from the map. Null if there is none.
  */
-/proc/crew_npc_cargo_post_console()
-	var/obj/machinery/computer/cargo/chosen = GLOB.crew_npc_cargo_post_console?.resolve()
-	if(!QDELETED(chosen))
-		return chosen
-	var/obj/machinery/computer/cargo/best_console
-	var/best_score = -1
+/proc/crew_npc_cargo_post_room()
+	if(GLOB.crew_npc_cargo_post_room)
+		return GLOB.crew_npc_cargo_post_room
+	// The rooms with a supply console in them.
+	var/list/console_rooms = list()
 	for(var/obj/machinery/computer/cargo/console as anything in SSmachines.get_machines_by_type(/obj/machinery/computer/cargo))
 		if(console.requestonly || console.is_express || !is_station_level(console.z))
 			continue
 		var/area/room = get_area(console)
-		if(!istype(room, /area/station/cargo))
-			continue
-		var/score = length(room.get_turfs_by_zlevel(console.z))
+		if(istype(room, /area/station/cargo) && !istype(room, /area/station/cargo/lobby))
+			console_rooms[room] = TRUE
+	// The windows onto the lobby, counted for the room on the other side of each.
+	var/list/windows_of = list()
+	for(var/area/station/cargo/lobby/lobby in GLOB.areas)
+		for(var/z_level in SSmapping.levels_by_trait(ZTRAIT_STATION))
+			for(var/turf/lobby_turf as anything in lobby.get_turfs_by_zlevel(z_level))
+				for(var/direction in GLOB.cardinals)
+					var/turf/beyond = get_step(lobby_turf, direction)
+					var/area/room = beyond ? get_area(beyond) : null
+					if(!istype(room, /area/station/cargo) || istype(room, /area/station/cargo/lobby))
+						continue
+					// The window may stand on either side of the line between the two rooms.
+					for(var/obj/machinery/door/window/window in lobby_turf.contents + beyond.contents)
+						var/list/windows = windows_of[room]
+						if(isnull(windows))
+							windows = list()
+							windows_of[room] = windows
+						windows |= window
+	var/area/station/cargo/best_room
+	var/best_score = -1
+	var/list/candidates = length(windows_of) ? windows_of : console_rooms
+	for(var/area/station/cargo/room as anything in candidates)
+		var/score = length(room.get_turfs_from_all_zlevels())
 		if(istype(room, /area/station/cargo/storage))
+			score += 10000
+		if(console_rooms[room])
 			score += 100000
+		if(length(windows_of))
+			var/list/windows = windows_of[room]
+			score += length(windows) * 1000000
 		if(score > best_score)
 			best_score = score
-			best_console = console
-	GLOB.crew_npc_cargo_post_console = best_console ? WEAKREF(best_console) : null
-	return best_console
+			best_room = room
+	GLOB.crew_npc_cargo_post_room = best_room
+	return best_room
+
+/// Returns a supply console in the cargo post's room, or null if none stands there.
+/proc/crew_npc_cargo_post_console()
+	var/area/room = crew_npc_cargo_post_room()
+	if(isnull(room))
+		return null
+	for(var/obj/machinery/computer/cargo/console as anything in SSmachines.get_machines_by_type(/obj/machinery/computer/cargo))
+		if(!console.requestonly && !console.is_express && get_area(console) == room)
+			return console
+	return null
 
 /**
  * Returns the supply console cargo staff order at: the nearest one in the cargo department.
@@ -251,7 +295,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	for(var/area/station/cargo/lobby/lobby in GLOB.areas)
 		lobby_turfs += lobby.get_turfs_by_zlevel(here.z)
 	if(!length(lobby_turfs))
-		return safe_spot_in(post_area, get_turf(console))
+		return safe_spot_in(post_area, get_turf(console || pawn))
 
 	var/turf/best_turf
 	var/best_score = INFINITY
