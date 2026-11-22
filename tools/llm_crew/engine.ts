@@ -177,6 +177,61 @@ for (const [told, tries, stuck] of [
   add(`"${told}": tried ${tries} time(s), then stops with the true reason`, [failed, it.engine.stuck], [tries, stuck]);
 }
 
+// TRC-04 (answer B): a stop that is not the machine's fault is tried again by itself five minutes
+// on, at most twice; then it waits to be told. One that is the machine's is not.
+{
+  /** Fails every step it is sent to with these words, until it stops. Returns how many it tried. */
+  const failAll = (it: any, told: string) => {
+    let failed = 0;
+    for (let turn = 0; turn < 10; turn++) {
+      ENGINEER.syncTasks(it);
+      const task = open(it, 'light_engine');
+      const plan = task ? ENGINEER.plan(it, task) : null;
+      if (!task || !plan?.act) break;
+      failed++;
+      ENGINEER.afterActing(it, plan.act, task, false, false, {}, told);
+    }
+    return failed;
+  };
+  const it = engineer();
+  it.now = 100;
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  failAll(it, 'You could not get to it.');
+  const stoppedAt = it.now;
+  add('unreached: stopped, and word owed to the Chief Engineer', [it.engine.stuck, it.engine.words.some((w: any) => w.what === 'stuck')], ['I cannot get to the nitrogen canister', true]);
+  it.now = stoppedAt + 2900;
+  ENGINEER.syncTasks(it);
+  add('unreached: not tried again before five minutes', [it.engine.stuck, !!open(it, 'light_engine')], ['I cannot get to the nitrogen canister', false]);
+  it.now = stoppedAt + 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: five minutes on, it tries again by itself', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+  add('unreached: the stop not yet passed on is dropped', it.engine.words.some((w: any) => w.what === 'stuck'), false);
+  add('unreached: given five more tries', failAll(it, 'You could not get to it.'), 5);
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: stopped again, it tries again a second time', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+  failAll(it, 'You have no free hand to take your wrench out with.');
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: after two tries again it waits to be told', [it.engine.stuck, !!open(it, 'light_engine')], ['my hands are full and I cannot work the nitrogen canister', false]);
+  it.now += 30000;
+  ENGINEER.syncTasks(it);
+  add('unreached: and goes on waiting', !!open(it, 'light_engine'), false);
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  failAll(it, 'You could not get to it.');
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('given the engine afresh, it may try again by itself as before', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+}
+{
+  const it = engineer();
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  work(it, 'light_engine', (act) => act.how !== 'connect');
+  it.now += 30000;
+  ENGINEER.syncTasks(it);
+  add('a machine that will not take: never tried again by itself', [it.engine.stuck, !!open(it, 'light_engine')], ['the nitrogen canister will not connect', false]);
+}
+
 // Nobody gives it the engine.
 sam = engineer(false);
 sam.now = 1300;
