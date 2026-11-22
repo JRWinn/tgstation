@@ -2,8 +2,8 @@
 
 **This file is built by `build-index.mjs` from the files in `findings/`. Do not edit it by hand: change the finding and build it again.** Read `README.md` in this folder first.
 
-536 findings in all: 168 bugs and 93 gaps still open, 248 fixed, 1 refuted, 26 duplicates.
-Of the open ones, 73 were confirmed by a second reviewer, 0 could not be settled, and 188 have not been checked by anyone but their finder.
+536 findings in all: 167 bugs and 93 gaps still open, 249 fixed, 1 refuted, 26 duplicates.
+Of the open ones, 72 were confirmed by a second reviewer, 0 could not be settled, and 188 have not been checked by anyone but their finder.
 Found by: Fable 5.2 141, Opus 5.5 395. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.
 
 Within each group the easiest fix comes first. "found (sure)" means the finder was sure and nobody has checked it since.
@@ -12,7 +12,7 @@ Within each group the easiest fix comes first. "found (sure)" means the finder w
 | --- | --- | --- | --- |
 | critical | 0 | 0 | 0 |
 | high | 9 | 9 | 0 |
-| medium | 50 | 50 | 0 |
+| medium | 49 | 49 | 0 |
 | low | 109 | 7 | 102 |
 
 ## Bugs: critical (0)
@@ -33,7 +33,7 @@ None.
 | [TRUST-02](findings/TRUST-02-forged-pda-sender-taken-for-the-captain.md) | A PDA message with a made-up sender, from the message monitor or a virus disk, is taken as from the Captain or any head it names | Have on_pda_message say whether the message can be replied to, as the PDA itself shows, and have the window pass one that cannot to none of its readers | large | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_cargo.dm:803` |
 | [TRUST-05](findings/TRUST-05-any-security-pda-gets-any-door-forced-open.md) | Any PDA that shows a security job can have an engineer pry open any unplated door aboard, the Captain's Quarters and the Armory among them, and leave it standing open | Take a forcing request only from whoever keeps security's list, only for a warrant engineering can check and a room that is not a secure store, and have the Captain say yes to anything in command or security | large | confirmed | Opus 5.5, checked Opus 5.5 | `forcing.ts:209` |
 
-## Bugs: medium (50)
+## Bugs: medium (49)
 
 | Id | What is wrong | Proposed change | Effort | Status | Found by | Where |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -61,7 +61,6 @@ None.
 | [KNB-01](findings/KNB-01-warehouse-walled-off-by-its-own-crates.md) | In most rounds no technician can walk into the Warehouse - crates spawn across its floor just inside its only airlock, and no body can press the shutter button | Walk to a spot the body has a route to (just inside the door its ID opens) when the chosen spot has none, and give bodies a way to press a door button they can see | medium | confirmed | Fable 5.2, checked Opus 5.5 | `crew_npc_places.dm:32` |
 | [KNB-15](findings/KNB-15-crate-would-not-come-word-is-dropped-when-the-quartermaster-is-not-found.md) | Word that a crate would not come is dropped without a trace when the Quartermaster is not found, and a technician who cannot reach its office door holds it five minutes for nothing | When tellQuartermaster gives up on a would-not-come word, send the same line to the Quartermaster by PDA and have its readsMessage pass a technician's WONT_COME_WORDS to crateHeldUp | medium | confirmed | Opus 5.5, checked Opus 5.5 | `cargo.ts:652` |
 | [LOGB-02](findings/LOGB-02-meeting-call-mid-haul-loses-the-unpacked-crate.md) | A meeting called while a janitor hauls a collected crate makes its brain lose the haul, so it unpacks the crate, then tells its head the crate is lost | Do not let a step that stays put (a PDA reply) take the place of brain.lastAct while a walk or haul is still waiting on its result, keep it aside and match results to either | medium | confirmed | Opus 5.5, checked Opus 5.5 | `driver.ts:825` |
-| [LOGB-03](findings/LOGB-03-door-opened-for-another-janitor-is-booked-to-the-one-named.md) | A door the server opens for some other janitor is booked by the brain as opened for the one it named, who is then let out of a room they were never in for good | Send back who the door was opened for (and which way) in the open_door result details, carried through finish_errand, and have afterActing book that person, not task.item, leaving the named person's call untouched when the two differ | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_doors.dm:511` |
 | [LOGB-05](findings/LOGB-05-shut-in-janitor-learns-the-public-cargo-lobby-is-locked-and-keeps-it.md) | A janitor shut in a room learns that the Cargo Lobby and the Cargo Bay each open only from the other, keeps that for good, and makes for the door of the public lobby | Send door_through from go_to_door only when a route to the outer room's own door was found, never from a body that is shut in, and have the brain refuse an entry that makes a loop and forget entries after a while | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_doors.dm:388` |
 | [MULTI-07](findings/MULTI-07-crate-sent-to-a-second-collector-is-fought-over-by-both.md) | A crate the head sends a second collector for is gone after by both, and at the crate each pulls it out of the other's hands and wipes the other's claim on it | Refuse haul_collected, haul_released and haul_crate_back when someone else has the crate in hand, clear collected_by on failure only if it is still this body's, and have the window end a COLLECT task the server refuses for that | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_held.dm:397` |
 | [PERF-02](findings/PERF-02-each-sense-event-sends-the-whole-crew-at-once.md) | Each sense event sends the whole crew's state at once, one update per event even when many come in one tick, about 150 KB each at 11 crew and 600 KB at 40, 90 percent of it old events | Let on_sense_event ask for one update at the end of the tick instead of one at once, and send each body's events newer than its acked_seq only | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_brain_link.dm:55` |
@@ -300,7 +299,7 @@ None.
 | [MAP-10](findings/MAP-10-simulator-has-one-station-with-metastation-names.md) | The simulator has one station, with MetaStation's room names written in, so nothing that depends on the map is ever tested and every map fault passes | Make the station in sim.ts a table chosen by name, add a second one with other names (no Cargo Lobby, no room called Brig, hallways not called Primary Hallway), and run the cargo and security scenarios on both | low | medium | found (sure) | Opus 5.5 | `sim.ts:141` |
 | [GAP-25](findings/GAP-25-owner-design-direction-items-with-no-plan-and-no-code.md) | Six parts of the owner's design direction have no plan and no code, needs, how-to cards, a stocked work area, cover before a break, rooms handed out to janitors, and a raise | Put the six to the owner as one list, and write a short plan for whichever the owner wants next, starting with the head handing out rooms to its janitors, which is the cheapest and helps today | low | large | found (sure) | Opus 5.5 | `person.ts:1` |
 
-## Closed: fixed, refuted or duplicate (275)
+## Closed: fixed, refuted or duplicate (276)
 
 | Id | Title | Status | Found by |
 | --- | --- | --- | --- |
@@ -461,6 +460,7 @@ None.
 | [LOGA-05](findings/LOGA-05-janitor-holding-two-rags-can-never-take-up-the-mop-and-walks-to-and-fro-for-six-minutes.md) | A janitor holding two rags can never take up the mop its head ordered for it, and walks to and fro between the closet and elsewhere for six minutes | fixed | Opus 5.5, checked Opus 5.5 |
 | [LOGA-06](findings/LOGA-06-quartermaster-calls-its-meeting-from-the-lobby-and-closes-it-before-the-first-report.md) | The Quartermaster walks out of its meeting room to call a technician, begins the meeting from the lobby, walks off mid-turn and misses the first report, and tells the Captain 0 of 2 there | fixed | Opus 5.5, checked Opus 5.5 |
 | [LOGA-07](findings/LOGA-07-model-takes-on-a-call-the-janitor-code-has-just-turned-down.md) | A call the janitor's code has just turned down (needs soap or a rag, and it has neither) is taken on all the same when the model answers work, and the janitor sets off for a locked room it cannot get into | fixed | Opus 5.5, checked Opus 5.5 |
+| [LOGB-03](findings/LOGB-03-door-opened-for-another-janitor-is-booked-to-the-one-named.md) | A door the server opens for some other janitor is booked by the brain as opened for the one it named, who is then let out of a room they were never in for good | fixed | Opus 5.5, checked Opus 5.5 |
 | [LOGB-04](findings/LOGB-04-quartermaster-answers-one-knock-again-and-again-for-a-minute.md) | The Quartermaster answers one knock at its office door again and again for a minute, walking out and back each time | fixed | Opus 5.5, checked Opus 5.5 |
 | [LOGB-06](findings/LOGB-06-janitor-at-a-cargo-door-writes-only-to-the-caller-even-in-cuffs.md) | A janitor waiting at a cargo door writes only to the technician who called it, eight times in thirteen minutes while that technician was in cuffs, and never to the other one | fixed | Opus 5.5, checked Opus 5.5 |
 | [MAP-02](findings/MAP-02-department-security-officers-taken-for-cargo-technicians-and-engineers.md) | A security officer posted to Cargo or Engineering is taken for a cargo technician or an engineer, because job titles are matched by a bare word | duplicate of JOBS-01 | Opus 5.5 |

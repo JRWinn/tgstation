@@ -356,3 +356,14 @@ Cargo, Quartermaster, heads:
 - TRB-06: the officer sees someone it jailed out early and tells its head ("before their time").
 - ENG-03: a door to force goes to the engineer the Chief Engineer orders.
 - KNA-23: an officer told of a sighting in a big room walks to its far side to look.
+
+## From the night fixes, round M3
+
+- ARR-04 (follow-up): pda.log "I have <name> in cuffs." from the officer while it waits in the Brig with no cell, and the Head of Security's "Captain, <first> has <name> in cuffs."
+- PLAY-10 (follow-up): after a "call a janitor" spoken from another room, the janitor PDA names the speaker's room.
+- MULTI-06: a technician's workmate sends no second janitor PDA for the same room within the call window; a call for another room does not hold it back.
+- CARGO-09: crew_brain.log a door result with "not_inside":1 after one of the three refusals; that person is not let out by that door again every two minutes.
+- TRA-04: watch for a head asking the same order again after a technician agreed in other words without saying "I have put your order in".
+- LOGB-03: game.log for each "opened X to let Y into Z", the brain books Y; crew_brain.log door results carry "for":"<name>"; no run of "You do not know who that is" for someone never let in.
+- SUP-06 (seen in the merged code): a technician asked to step aside while it pulls a crate now lets go of it, "you were called away".
+- pardoncell (seen once in 9 simulator runs): after a pardon the officer ignores, the Head of Security holds its staff meeting and never goes to the Brig. In a round, after a pardon nobody acts on, look for "has not let ... out. I am going to do it" in pda.log, and whether a meeting fell in the two minutes after.

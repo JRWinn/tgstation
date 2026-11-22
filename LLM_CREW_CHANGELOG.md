@@ -75,7 +75,19 @@ That round (`data/logs/2026/11/19/round-15.44.36`) was played on 99f4d33dd0e, be
 - **TRA-04 and HEAD-02, finished:** the head reads cargo's set words from one shared place (`jobs/supply.ts`), and at the counter only "I have put your order in" counts as the order taken. **Risk:** a technician that agrees in other words and never says the placed line leaves the head asking again (HEAD-01 caps it).
 - A shut-in body does not ask the very person it holds a warrant on to open the door (`whoToAskForTheDoor`, `situation.ts`).
 - The casts left in round M1 for fields now in `types.ts` were dropped where it was a plain swap.
-- **LOGB-03** (missed in round M1 and done last): see the final checkpoint below.
+- **LOGB-03** (missed in round M1 and done last, 1720c6795fe): a door the server opens for someone other than the one the technician named is booked for whoever it was opened for. The open's result now says who and which way (`for`, `out`, from `hold_door_for` in `crew_npc_doors.dm`), and `afterActing` in `jobs/cargo.ts` books that person; the named one's call is left alone. Table `cargo-doorfor.ts`, 17 of 17 (10 fail on the old code). The simulator's `open_door` sends neither field, so no scenario exercises it.
+
+### Final checkpoint (2026-11-22)
+
+**Tested on the final code (61fad56152d):** server compile to a side copy, 0 errors, 0 warnings; type check clean; all 97 tables pass; lint of every changed window file and table no worse than on `master`. **The full simulator suite (67 scenarios) three times:** twice on the code before LOGB-03 (65 and 64 passed), once after it (64 passed). Every failure:
+- `callme`, 3 of 3: "the janitor it sent for is not turned away": PLAY-10's question 3. It fails until the owner answers it.
+- `qmwait`, 3 of 3 runs here and 3 in 8 counting reruns: "the cargo technician ends at the post", Cora seconds into her walk back from a routine look in on the Delivery Office when the clock stops. The look-and-walk-back case the check leaves failing on purpose; the round M2 timings land the end of `qmwait` on it more often than before tonight.
+- `nested`, 1 of 3: the same walk-back case.
+- `pardoncell`, 1 of 3, then 4 of 4 passed on reruns (about 1 in 9): the Head of Security never went to let the pardoned monkey out. In that run it held its staff meeting during the two-minute wait after the pardon. Not looked into: likely the meeting and `syncRelease` (TRB-11) do not wait for each other.
+
+**Not done tonight:** no round was played; no model tests; the normal build was not run. Every server change is compile-checked only.
+
+**Counts:** 77 findings were marked fixed over the session (11 in round P, 37 in M1, 25 in M2, 4 in M3 plus LOGB-03), counting each PLAY finding once. `SUMMARY.md` now lists 168 open bugs, down from 243 at the start.
 
 **Seen and left in rounds M2 and M3:** a body asked to step aside, or getting away, while it hauls a crate now lets go of it with "you were called away" (before SUP-06 the haul was lost the same way, without a word): watch for a technician that drops its crate when someone says "excuse me". `callme` fails its check that the janitor sent for is not turned away at the door: that is PLAY-10's question 3, waiting on the owner, and it will fail until it is answered. If the model names the NPC's own room while the speaker is plainly in another, the own room is still taken. CARGO-04 let officers into cargo on asking, though its finding left that to the owner: now a question.
 
