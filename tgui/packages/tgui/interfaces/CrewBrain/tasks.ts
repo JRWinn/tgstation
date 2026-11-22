@@ -211,6 +211,17 @@ export function workTold(
 }
 
 /**
+ * The room someone who has just spoken to the NPC stands in, if it can see them and knows the
+ * room; else the room the NPC stands in itself. For an order given with no room named (PLAY-10).
+ */
+export function speakerRoom(brain: NpcBrain, speaker: string | undefined): string {
+  const seen = speaker
+    ? brain.peopleInView.find((person) => person.name === speaker)?.place
+    : undefined;
+  return seen && knowsPlace(brain, seen) ? seen : brain.location;
+}
+
+/**
  * Takes on work the LLM says the NPC has just been told of. Returns the task, or null if it is not
  * a kind of work this job takes, or is not in a room aboard.
  */
@@ -229,8 +240,9 @@ export function takeToldWork(
     ? Object.keys(ORDERS).find((key) => ORDERS[key] === what)
     : undefined;
   const kind = own ?? order;
-  // An order that may be given with no room named is for the room it is standing in, where
-  // whoever gave it was: "Then ask for a janitor" (PLAY-10).
+  // An order that may be given with no room named is for the room whoever gave it is standing in,
+  // if it can see where that is, else the room it stands in itself: "Then ask for a janitor"
+  // (PLAY-10). Spoken across the counter from the Cargo Bay, it is for the Cargo Bay.
   const here =
     !own &&
     !!order &&
@@ -239,7 +251,7 @@ export function takeToldWork(
     (typeof where !== 'string' ||
       where === WORK_NOWHERE ||
       !knowsPlace(brain, where));
-  const room = here ? brain.location : where;
+  const room = here ? speakerRoom(brain, toldBy) : where;
   if (!kind || typeof room !== 'string' || !knowsPlace(brain, room)) {
     return null;
   }
@@ -346,7 +358,8 @@ export function workInWords(
       .pop() ?? lines.join(' '),
   );
   const place = placeNamedIn(brain, heard);
-  // An order that needs no room named, given with none, is for the room it stands in (PLAY-10).
+  // An order that needs no room named, given with none, is for the room the speaker stands in, if
+  // it can see that, else the one it stands in (PLAY-10).
   if (!place) {
     if (!fromSuperior || !brain.location) {
       return null;
@@ -354,7 +367,8 @@ export function workInWords(
     const asOrder = orderClauses(heard);
     for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
       if (orderTakesHere(kind) && words.test(asOrder)) {
-        return takeToldWork(brain, ORDERS[kind], brain.location, toldBy, true);
+        // No room named: takeToldWork takes the speaker's room, or its own.
+        return takeToldWork(brain, ORDERS[kind], WORK_NOWHERE, toldBy, true);
       }
     }
     return null;
