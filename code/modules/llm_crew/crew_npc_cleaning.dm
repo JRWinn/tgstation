@@ -412,9 +412,10 @@
 	var/obj/item/tool = tool_in_hand()
 	var/obj/effect/decal/cleanable/nearest
 	var/nearest_distance = INFINITY
+	var/list/parts = list()
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		if(memory[2] != place)
+		if(memory[2] != place || !mess_spot_open(memory, parts))
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
@@ -460,9 +461,10 @@
 	mind_what_it_holds()
 	var/obj/item/tool = tool_in_hand()
 	var/list/places = list()
+	var/list/parts = list()
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
-		if((memory[2] in places) || is_blocked_place(memory[2]))
+		if((memory[2] in places) || is_blocked_place(memory[2]) || !mess_spot_open(memory, parts))
 			continue
 		var/datum/weakref/mess_ref = memory[1]
 		var/obj/effect/decal/cleanable/mess = mess_ref.resolve()
@@ -508,7 +510,7 @@
 /datum/ai_controller/crew_npc/proc/look_at_mess_spot(key)
 	var/mob/living/carbon/human/body = pawn
 	looked_for_messes -= key
-	remember_messes(view(CREW_NPC_VISION_RANGE, body))
+	remember_messes(crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 	var/list/memory = remembered_messes[key]
 	if(memory)
 		var/datum/weakref/mess_ref = memory[1]
@@ -543,6 +545,7 @@
 /datum/ai_controller/crew_npc/proc/mess_places()
 	var/list/places = list()
 	var/list/passed_over = list()
+	var/list/parts = list()
 	for(var/key in remembered_messes)
 		var/list/memory = remembered_messes[key]
 		var/place = memory[2]
@@ -551,8 +554,31 @@
 		if(place != current_place && place_locked_to_body(place))
 			passed_over += place
 			continue
+		if(!mess_spot_open(memory, parts))
+			continue
 		places += place
 	return places
+
+/**
+ * TRUE if the square a mess was remembered on (`memory`, an entry of remembered_messes) is in the
+ * part of its room the body can get into (open_part_of()). A mess in an inner part behind a door
+ * that does not open for it is passed over, as a room locked to it is (KNA-19): it goes there when
+ * someone who works there sends for it and lets it in. The room it stands in, and a room whose
+ * open part cannot be worked out, count whole. `parts` keeps each room's answer for one pass.
+ */
+/datum/ai_controller/crew_npc/proc/mess_spot_open(list/memory, list/parts)
+	var/turf/spot = memory[3]
+	if(!isturf(spot))
+		return TRUE
+	var/area/room = get_area(spot)
+	if(isnull(room) || room == get_area(pawn))
+		return TRUE
+	var/list/open = parts?[room]
+	if(isnull(open))
+		open = open_part_of(room)
+		if(parts)
+			parts[room] = open
+	return !length(open) || open[spot]
 
 /// Returns the messes in sight that are in the body's room and that the tool it holds can shift, nearest first.
 /datum/ai_controller/crew_npc/proc/messes_to_clean(list/in_sight)
@@ -590,7 +616,7 @@
 	if(errand_tool == CREW_TOOL_CLEAN && blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
 		return
 	var/obj/item/tool = cleaning_tool()
-	var/list/around = view(CREW_NPC_VISION_RANGE, body)
+	var/list/around = crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body)
 	// Water first. A bucket that is running low is filled while there is a tank or a sink in sight:
 	// that is the water it carries to where there is none.
 	if(bucket_wants_filling())
@@ -678,7 +704,7 @@
 /datum/ai_controller/crew_npc/proc/more_to_clean()
 	if(cleaned_count >= CREW_NPC_MESSES_PER_CLEAN || clean_failed_count >= CREW_NPC_MESSES_FAILED_PER_CLEAN)
 		return FALSE
-	var/list/messes = messes_to_clean(view(CREW_NPC_VISION_RANGE, pawn))
+	var/list/messes = messes_to_clean(crew_npc_visible(view(CREW_NPC_VISION_RANGE, pawn), pawn))
 	if(!length(messes))
 		var/obj/effect/decal/cleanable/remembered = remembered_mess_in(get_area_name(pawn, TRUE))
 		if(remembered)
@@ -989,7 +1015,7 @@
 	if(isnull(held_grenade()))
 		action_result(CREW_TOOL_GRENADE, FALSE, "You are not holding a cleaner grenade.")
 		return
-	var/list/spot = best_grenade_spot(view(CREW_NPC_VISION_RANGE, body))
+	var/list/spot = best_grenade_spot(crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
 	if(isnull(spot))
 		action_result(CREW_TOOL_GRENADE, FALSE, "There is not enough mess close together here to be worth a grenade, or someone is standing in it. Keep it for a worse mess.")
 		return

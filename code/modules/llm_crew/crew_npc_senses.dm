@@ -56,6 +56,15 @@
 			seen += thing
 	return seen
 
+/// TRUE if the viewer can make this one thing out, by the same rule as crew_npc_visible(): in line of sight within `range`, and lit or right beside it.
+/proc/crew_npc_sees(atom/thing, mob/living/viewer, range = CREW_NPC_VISION_RANGE)
+	if(QDELETED(thing) || QDELETED(viewer) || !(thing in view(range, viewer)))
+		return FALSE
+	if(viewer.has_nightvision())
+		return TRUE
+	var/turf/spot = get_turf(thing)
+	return isnull(spot) || get_dist(spot, get_turf(viewer)) <= 1 || spot.check_lumcount_above(LIGHTING_TILE_IS_DARK)
+
 /// TRUE if this thing lying on the floor would slip a runner, and can be seen for what it is: oil, a peel, soap, foam.
 /proc/crew_npc_slippery_thing(atom/movable/thing)
 	return isturf(thing.loc) && !thing.invisibility && thing.alpha > 0 && !isnull(thing.GetComponent(/datum/component/slippery))
@@ -286,6 +295,8 @@
 	// Putting a thing down is doing, not looking: not while it is stunned.
 	if(can_sense())
 		drop_disguise()
+	// A hand that stops working is felt when it happens, not the next time it reaches for something (HOLE-18).
+	note_working_hands()
 	note_place(body)
 	// In the dark it makes out only what a light falls on, and what is right beside it.
 	var/list/in_sight = crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body)
@@ -475,6 +486,7 @@
 
 	var/list/counts = list()
 	var/list/kinds = list()
+	var/here = get_area_name(pawn, TRUE)
 	for(var/obj/thing in in_sight)
 		var/kind
 		if(iseffect(thing))
@@ -484,6 +496,13 @@
 		else if(ignored_types[thing.type])
 			continue
 		else if(isitem(thing))
+			// A thing it could not get to lately, or one behind the glass of a room locked to it, is
+			// not one it could go and pick up, so it is not listed as one to hand (HAND-04).
+			if(pickup_given_up(thing))
+				continue
+			var/thing_place = get_area_name(thing, TRUE)
+			if(thing_place != here && place_locked_to_body(thing_place))
+				continue
 			kind = "item"
 		else if(isvehicle(thing))
 			kind = "vehicle"
@@ -541,13 +560,17 @@
 			message = stars(message)
 	message = html_decode(message)
 
+	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
+	// Told it is under arrest by someone from security: it goes along, on what it heard (CHEAT-04).
+	if(ishuman(living_speaker))
+		heard_arrest_line(living_speaker, message)
+
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
 	var/whispered = !!message_mods[WHISPER_MODE]
 	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
 	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
 	// the parrot's "CRYSTAL DELAMINATION IMMINENT" twenty-nine times in half an hour.
-	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
-	var/someone = living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
+	var/someone =living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
 	if(someone)
 		last_heard_speaker = speaker_name
 	var/list/details = list(

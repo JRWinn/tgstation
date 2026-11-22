@@ -113,3 +113,4 @@ Left (held):
 - For the event to come at the moment of the injury, `note_working_hands()` could be called from the sense tick (`crew_npc_senses.dm`), not only from hand use.
 
 Round M2, group g-srv-b (2026-11-20), compile only, not played: `take_in_hand` (`crew_npc_quartermaster.dm`) takes the clipboard, pen or paper into one of `free_hands()` only, not any empty held slot.
+Round M2 (g-srv-c, compile only): `see_around` (`crew_npc_senses.dm`, the look on each sense tick) calls `note_working_hands()`, so "Your right hand will not hold anything..." comes on the first look after the injury. Not while the body is blind, out cold or off the floor (in a locker or the pipes): then it comes at the next look or hand use, as before. Cost: two `has_hand_for_held_index` calls a look.

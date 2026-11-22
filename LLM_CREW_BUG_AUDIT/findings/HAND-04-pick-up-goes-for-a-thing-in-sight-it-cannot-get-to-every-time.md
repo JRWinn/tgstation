@@ -107,3 +107,5 @@ Left (held):
 
 - `crew_npc_cleaning.dm`: `ways_reopened()` should call `forget_unreached()` (the same line HAND-02 needs).
 - Step 8, `crew_npc_senses.dm`: in `notable_things(in_sight)` / `things_in_view`, leave out (or mark `"unreached" = TRUE`) any item for which `pickup_given_up(item)` is TRUE, or that lies in a room other than the body's whose `place_locked_to_body(get_area_name(item, TRUE))` is TRUE. Then `allKnownItems` (`memory.ts`) stops offering it, so `knownSupply` and `scrubberToHand` in `jobs/janitor.ts` stop naming it and the janitor tells its head it needs supplies. If done in the window instead: `memory.ts` `allKnownItems` skips names whose `pick_up` failed in the last 5 minutes.
+
+Round M2 (g-srv-c, compile only): step 8 built on the server. `notable_things` (`crew_npc_senses.dm`, which makes `things_in_view`) leaves out an item for which `pickup_given_up` is TRUE, and an item lying in another room that `place_locked_to_body` says is locked to the body. Messes, machines and structures are listed as before. The `ways_reopened()` line was already in (`forget_unreached()`, `crew_npc_cleaning.dm`). Nothing left.

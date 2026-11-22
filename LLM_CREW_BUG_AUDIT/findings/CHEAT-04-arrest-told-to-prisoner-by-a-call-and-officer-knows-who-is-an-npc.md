@@ -91,3 +91,5 @@ Checked by Opus 5.5, from the code; nothing run.
 ## Fix so far
 
 Group m-secsrv, commit c136092e8fc (compile only; not played). `make_arrest` calls `being_arrested` only when the prisoner `could_hear` the officer (senses, not deaf, within 7 tiles); `heard_arrest_line(speaker, message)` is written for `on_pre_hear` to call. `put_in_custody` names the minutes only with the timer in view. `set_free` no longer calls `let_out_of_custody`. Left: the one-line call from `on_pre_hear` (`crew_npc_senses.dm`), after which the `make_arrest` call can go; step 4 waits on the owner's question.
+
+Round M2 (g-srv-c, compile only): `on_pre_hear` (`crew_npc_senses.dm`) calls `heard_arrest_line(speaker, message)` for every line a human says that the body hears (after the deafness, language and distance rules, so a starred or untranslated line does not count). `make_arrest`'s `could_hear` call and the `could_hear` proc are gone. Left: step 4 (the owner's question).

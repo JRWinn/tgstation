@@ -95,3 +95,4 @@ Held (other files):
 Compile only; not played.
 
 Round M2, group g-srv-b (2026-11-20), compile only, not played: the `crew_npc_cargo.dm` part built. `on_pda_message` returns only when the PDA is not on the body; after the literacy test, a body that cannot perceive keeps the message with `keep_missed_pda` (not when dead or a player has the body) and returns. The `can_sense()` test is gone, so a stunned body gets its messages at once.
+Round M2 (g-srv-c, compile only): the looks in `crew_npc_security.dm` (`can_look` in `free_cell` and `security_state`, the keepers by ID when the body has no PDA, a prisoner's look at its cell's timer in `put_in_custody`) and in `crew_npc_engineering.dm` (`engineering_state`) now use `can_perceive()`, so a stunned officer or engineer still sees the cells, its baton and the machines. The doing callers in those files stay on `can_sense()`.
