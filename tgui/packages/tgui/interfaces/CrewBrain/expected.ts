@@ -24,6 +24,11 @@ export type Expected = {
   at: number;
   /** TRUE once they have been let into the room, until they are let out of it. */
   inside?: boolean;
+  /**
+   * TRUE if they were sent for on an order from someone the caller answers to, not to a mess the
+   * department saw: the order is the permission, mess seen or not (PLAY-10 3 A).
+   */
+  onOrder?: boolean;
 };
 
 /** How long (deciseconds) a call stands as a reason to let someone in. */
@@ -60,16 +65,18 @@ export function expectSomeone(
   room: string,
   by: string,
   now: number,
+  onOrder = false,
 ): void {
   const entry = current(now).find(
     (it) => it.post === post && it.name === name && it.room === room,
   );
   if (entry) {
-    entry.at = now;
+    entry.at = Math.max(entry.at, now);
     entry.by = by;
+    entry.onOrder ||= onOrder;
     return;
   }
-  list.push({ post, name, room, by, at: now });
+  list.push({ post, name, room, by, at: now, ...(onOrder ? { onOrder } : {}) });
 }
 
 /** The call that has this person expected by this department, in this room if one is given, or undefined. */

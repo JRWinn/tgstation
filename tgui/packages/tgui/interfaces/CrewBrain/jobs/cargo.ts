@@ -1119,12 +1119,39 @@ function describeHeld(task: Task): string | null {
     : null;
 }
 
+/** Calls made on an order already put on the department's list, by `id:room:janitor:at`, so each is put there once. */
+const onOrderListed = new Set<string>();
+
+/**
+ * Puts a janitor it sent for on an order (planCall in jobs/orders.ts, kept in
+ * brain.calledOnOrder) on the department's list, as a call it made to a mess is: the order is the
+ * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A). Read
+ * through a cast, so that this works with or without the field in types.ts.
+ */
+function listCallsOnOrder(brain: NpcBrain): void {
+  const calls =
+    (brain as { calledOnOrder?: { room: string; janitor: string; at: number }[] })
+      .calledOnOrder ?? [];
+  if (!brain.post) {
+    return;
+  }
+  for (const call of calls) {
+    const key = `${brain.id}:${call.room}:${call.janitor}:${call.at}`;
+    if (onOrderListed.has(key) || !call.room || !call.janitor) {
+      continue;
+    }
+    onOrderListed.add(key);
+    expectSomeone(brain.post, call.janitor, call.room, brain.name, call.at, true);
+  }
+}
+
 /**
  * Keeps the tasks true to where the server says things stand. The server is what knows: it placed
  * the order, watches the shuttle, and remembers who is owed a message.
  */
 function syncTasks(brain: NpcBrain): void {
   noteAble(brain);
+  listCallsOnOrder(brain);
   const order = findTask(brain, ORDER);
   if (orderInHand(brain)) {
     const task =
@@ -1431,6 +1458,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
             name: wants.name,
             place: wants.room,
             ...(which ? { door: which } : {}),
+            ...(wants.onOrder ? { sent_on_order: true } : {}),
           },
         }
       : { ready: false, step: `${task.item} has gone.` };
@@ -1542,6 +1570,8 @@ type DoorWant = {
    * not asked. Nobody is at the door, so it does not stop an order being taken (CARGO-09).
    */
   unasked?: boolean;
+  /** TRUE for a janitor sent for on an order, mess seen or not (PLAY-10 3 A). The server is told so. */
+  onOrder?: boolean;
 };
 /**
  * What the body is told when a door is opened to let out someone who is not in that room: not in
@@ -1773,6 +1803,11 @@ function mayPass(
   }
   if (out || there) {
     return null;
+  }
+  // Sent for on an order from someone the caller answers to: the order is the permission, whether
+  // or not anyone here has seen a mess in there (PLAY-10 3 A).
+  if (expectedCall(post, name, brain.now, wanted)?.onOrder) {
+    return { name, room: wanted, out: false, onOrder: true };
   }
   // Sent for to a room further in, which has no way to it but through this one.
   const beyond = boundBeyond(brain, name, wanted);
@@ -2278,6 +2313,8 @@ function doorCue(want: DoorWant): string {
     ? `${want.name} is inside the ${want.room} and cannot get out by themselves: the door is locked to them.`
     : want.security
       ? `${want.name} is security, at the door of the ${want.room} about a warrant, and the door is locked to them.`
+      : want.onOrder
+      ? `${want.name} was sent for, on an order, to clean the ${want.room}, and the door is locked to them.`
       : want.beyond
       ? `${want.name} was sent for to clean up the mess in the ${want.beyond}, which is reached through the ${want.room}, and the door is locked to them.`
       : `${want.name} was sent for to clean up the mess in the ${want.room}, and the door is locked to them.`;
