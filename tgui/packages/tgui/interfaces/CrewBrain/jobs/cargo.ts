@@ -47,7 +47,7 @@ import {
   planFreight,
   syncFreight,
 } from './freight';
-import { guardReadsMessage, noteSentFor, stagger } from './guarding';
+import { noteSentFor, stagger } from './guarding';
 import { beyondRoom, doorNamed, isJanitor, NEEDS_SCRUBBING } from './janitor';
 import type { Job } from './job';
 import { CALL } from './orders';
@@ -714,13 +714,13 @@ const takenTold = new Set<string>();
 
 /**
  * TRUE if this held crate has been taken out of cargo by someone who did not come for it at the
- * counter. The server says so (`taken_away`); until the window maps that field, a crate with a
- * taker that is no longer in any of the department's rooms or the lobby is taken (SUP-17).
+ * counter. The server says so (`taken_away`). Only where it does not say (the simulator's
+ * stand-in), a crate with a taker that is no longer in any of the department's rooms or the lobby
+ * is taken (SUP-17).
  */
 function takenAway(brain: NpcBrain, crate: HeldCrate): boolean {
-  const flag = (crate as HeldCrate & { takenAway?: boolean }).takenAway;
-  if (flag !== undefined) {
-    return flag && !!crate.takenBy;
+  if (crate.takenAway !== undefined) {
+    return crate.takenAway && !!crate.takenBy;
   }
   return (
     !!crate.takenBy &&
@@ -1183,13 +1183,10 @@ const onOrderListed = new Set<string>();
 /**
  * Puts a janitor it sent for on an order (planCall in jobs/orders.ts, kept in
  * brain.calledOnOrder) on the department's list, as a call it made to a mess is: the order is the
- * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A). Read
- * through a cast, so that this works with or without the field in types.ts.
+ * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A).
  */
 function listCallsOnOrder(brain: NpcBrain): void {
-  const calls =
-    (brain as { calledOnOrder?: { room: string; janitor: string; at: number }[] })
-      .calledOnOrder ?? [];
+  const calls = brain.calledOnOrder ?? [];
   if (!brain.post) {
     return;
   }
@@ -3709,10 +3706,8 @@ export const CARGO: Job = {
   },
   // Someone a door hides sends word that they are at it. The room is the one they name.
   readsMessage: (brain, from, text, at, job) => {
-    // The Captain or a head answering whether they sent a stranger into its post (SECT-08 B).
-    if (guardReadsMessage(brain, from, text)) {
-      return;
-    }
+    // The Captain's or a head's answer about a stranger in its post is read for every job in
+    // brain.ts, before this (SECT-08 B).
     // A janitor it called sends word that what they have will not shift the mess, or has shifted
     // some of it and not the rest. That call is done with, and someone else can be sent for.
     const beyond = beyondRoom(text);

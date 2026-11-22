@@ -7,6 +7,8 @@
 const { ROOT, makeBrain, know } = await import('./fixtures');
 const { HEAD_OF_PERSONNEL, SENT_ASK_WORDS } = await import(ROOT + 'jobs/head');
 const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
+const { QUARTERMASTER } = await import(ROOT + 'jobs/quartermaster');
+const { HEAD_OF_SECURITY } = await import(ROOT + 'jobs/headofsecurity');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -23,7 +25,9 @@ function head(job = 'Head of Personnel', name = 'Hop Kins'): any {
   b.now = 3000;
   return b;
 }
-const jobFor = (b: any) => (/Chief Engineer/.test(b.job) ? CHIEF_ENGINEER : HEAD_OF_PERSONNEL);
+const jobFor = (b: any) =>
+  /Chief Engineer/.test(b.job) ? CHIEF_ENGINEER : /Quartermaster/.test(b.job) ? QUARTERMASTER : /Head of Security/.test(b.job) ? HEAD_OF_SECURITY : HEAD_OF_PERSONNEL;
+const NAMES: Record<string, string> = { 'Head of Personnel': 'Hop Kins', 'Chief Engineer': 'Ada Volt', Quartermaster: 'Quinn Master', 'Head of Security': 'Hal Shield' };
 const sends = (b: any, to: string, text: string, ok = true) => jobFor(b).afterActing(b, { tool: 'message', person: to, text }, undefined, ok);
 const pdaAsk = (b: any, text: string) => jobFor(b).readsMessage(b, TECH.name, text, b.now, TECH.job);
 const askAloud = (b: any, text: string, saidTo = 'me') => jobFor(b).overhears(b, { details: { message: text, speaker: TECH.name, said_to: saidTo } });
@@ -31,8 +35,8 @@ const answers = (b: any) => b.toTell.filter((t: any) => t.to === TECH.name).map(
 
 add('the keeper\'s words are read', SENT_ASK_WORDS.test('Hop, did you send Jan Itor to the Cargo Bay?'), true);
 
-for (const job of ['Head of Personnel', 'Chief Engineer']) {
-  const who = job === 'Chief Engineer' ? 'Ada Volt' : 'Hop Kins';
+for (const job of ['Head of Personnel', 'Chief Engineer', 'Quartermaster', 'Head of Security']) {
+  const who = NAMES[job];
   {
     const b = head(job, who);
     sends(b, JAN.name, 'Jan, please go to the Cargo Bay and clean the floor by the door.');
@@ -90,6 +94,28 @@ for (const job of ['Head of Personnel', 'Chief Engineer']) {
     pdaAsk(b, 'Did you send Jan Itor to the Cargo Bay?');
     add(`${job}: sent over an hour ago: no longer`, answers(b), [['No, I did not send Jan Itor.', true]]);
   }
+}
+
+// The Head of Security's desk answers PDA word from the Captain or a head it cannot read with
+// "<title>, noted." (SECT-10 C). Asked by a head whether it sent someone, it answers yes or no.
+{
+  const b = head('Head of Security', 'Hal Shield');
+  b.pdaPeople.push({ name: 'Hop Kins', job: 'Head of Personnel' });
+  HEAD_OF_SECURITY.readsMessage(b, 'Hop Kins', 'Did you send Jan Itor to the Bar?', b.now, 'Head of Personnel');
+  add('Head of Security asked by a head: no, never "noted"', b.toTell.map((t: any) => t.line), ['No, I did not send Jan Itor.']);
+}
+{
+  const b = head('Head of Security', 'Hal Shield');
+  b.pdaPeople.push({ name: 'Hop Kins', job: 'Head of Personnel' });
+  HEAD_OF_SECURITY.afterActing(b, { tool: 'message', person: JAN.name, text: 'Jan, go to the Bar and wait there for me.' }, undefined, true);
+  HEAD_OF_SECURITY.readsMessage(b, 'Hop Kins', 'Did you send Jan Itor to the Bar?', b.now, 'Head of Personnel');
+  add('Head of Security asked by a head, having sent them: yes', b.toTell.map((t: any) => t.line), ['Yes, I sent Jan Itor.']);
+}
+{
+  const b = head('Quartermaster', 'Quinn Master');
+  b.peopleInView = [JAN, TECH];
+  QUARTERMASTER.overhears(b, { details: { message: 'Quartermaster, did you send Jan Itor to the Cargo Bay?', speaker: TECH.name, said_to: 'me' } });
+  add('Quartermaster asked aloud by its own technician: answered, not read as cargo word', answers(b), [['No, I did not send Jan Itor.', false]]);
 }
 
 let failed = 0;

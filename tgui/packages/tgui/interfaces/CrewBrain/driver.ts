@@ -1427,7 +1427,13 @@ function settleResult(
     event.details,
     event.text,
   );
-  wantedAfterActing(brain, last.act, !!event.details.ok, event.text);
+  wantedAfterActing(
+    brain,
+    last.act,
+    !!event.details.ok,
+    event.text,
+    event.details,
+  );
   ordersAfterActing(
     last.act,
     brain.tasks.find((task) => task.id === last.task),

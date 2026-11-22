@@ -518,18 +518,8 @@ export function waitingWith(brain: NpcBrain): string | null {
   );
 }
 
-/** A warrant with when its person began to wait in the brig for a cell (ARR-04). It belongs on BeatWarrant in types.ts. */
-type WaitingWarrant = BeatWarrant & { brigSince?: number };
-
-/** One to be let go, and whether it is because their time is served, waiting in the brig with no cell (ARR-04). */
-type FreeMore = BeatWork['toFree'][number] & {
-  served?: boolean;
-  /** TRUE if they asked to have cuffs taken off that nobody of security has them in (SEC-07). */
-  stuck?: boolean;
-};
-
-/** The beat with who has asked it to take their cuffs off, by name, and when (SEC-07). It belongs on BeatWork in types.ts. */
-type BeatMore = BeatWork & { cuffAsks?: Record<string, number> };
+/** One to be let go: pardoned, their time served in the brig with no cell (ARR-04), or stuck in cuffs (SEC-07). */
+type FreeOne = BeatWork['toFree'][number];
 
 /** How long (deciseconds) an ask to take someone's cuffs off stands while they are out of its sight. */
 const CUFF_ASK_DS = 6000;
@@ -537,6 +527,9 @@ const CUFF_ASK_DS = 6000;
 /** A crew member saying they are stuck in handcuffs and cannot get them off (SEC-07). */
 const STUCK_IN_CUFFS =
   /\b(?:hand)?cuffs\b[^.?!]*\b(?:cannot|can ?not|can'?t)\s+get\s+them\s+off\b|\bstuck\s+in\s+(?:hand)?cuffs\b/i;
+/** The same word passed on by someone's head: "Jan Itor is in handcuffs and cannot get them off." */
+const STUCK_PASSED_ON =
+  /^\W*(?:[^,.!?]{2,40},\s*)?(.{2,60}?) is (?:in|stuck in) (?:hand)?cuffs\b/i;
 /**
  * Takes in someone saying they are in handcuffs and cannot get them off, said to it or sent to it
  * (SEC-07, the owner's answer B: only security takes the cuffs off a crew member stuck in them).
@@ -550,14 +543,21 @@ export function stuckInCuffsAsk(
   if (!from || from === brain.name || !STUCK_IN_CUFFS.test(text)) {
     return false;
   }
-  const beat = beatOf(brain) as BeatMore;
-  const wanted = beat.warrants.some((it) => sameName(it.name, from));
-  const holding = brain.security?.holding;
-  const jailed = Object.keys(beat.jailed).some((it) => sameName(from, it));
-  if (wanted || jailed || (holding && sameName(from, holding))) {
+  // Passed on by their head, "Jan Itor is in handcuffs and cannot get them off." (stuckPassedLine
+  // in jobs/head.ts): the one named is the one stuck, not whoever sent it.
+  const named = text.match(STUCK_PASSED_ON)?.[1]?.trim();
+  const who = named && !/^(?:i|he|she|they|it)$/i.test(named) ? named : from;
+  if (who === brain.name) {
     return true;
   }
-  beat.cuffAsks = { ...(beat.cuffAsks ?? {}), [from]: brain.now };
+  const beat = beatOf(brain);
+  const wanted = beat.warrants.some((it) => sameName(it.name, who));
+  const holding = brain.security?.holding;
+  const jailed = Object.keys(beat.jailed).some((it) => sameName(who, it));
+  if (wanted || jailed || (holding && sameName(who, holding))) {
+    return true;
+  }
+  beat.cuffAsks = { ...(beat.cuffAsks ?? {}), [who]: brain.now };
   freeStuck(brain);
   return true;
 }
@@ -567,7 +567,7 @@ export function stuckInCuffsAsk(
  * with the usual let-go step. Out of sight, the ask stands a while, until they are seen.
  */
 function freeStuck(brain: NpcBrain): void {
-  const beat = beatOf(brain) as BeatMore;
+  const beat = beatOf(brain);
   const asks = beat.cuffAsks ?? {};
   for (const [name, at] of Object.entries(asks)) {
     const seen = brain.peopleInView.find((person) => person.name === name);
@@ -583,7 +583,7 @@ function freeStuck(brain: NpcBrain): void {
     }
     delete asks[name];
     if (!beat.toFree.some((it) => sameName(it.name, name))) {
-      const free: FreeMore = { name, pardoned: false, tries: 0, stuck: true };
+      const free: FreeOne = { name, pardoned: false, tries: 0, stuck: true };
       beat.toFree.push(free);
     }
   }
@@ -599,7 +599,7 @@ function freeStuck(brain: NpcBrain): void {
 function serveTimeInBrig(brain: NpcBrain): void {
   const beat = beatOf(brain);
   const brig = brigPlace(brain);
-  for (const warrant of [...beat.warrants] as WaitingWarrant[]) {
+  for (const warrant of [...beat.warrants]) {
     if (!holds(brain, warrant)) {
       warrant.brigSince = undefined;
       continue;
@@ -620,7 +620,7 @@ function serveTimeInBrig(brain: NpcBrain): void {
     }
     beat.warrants = beat.warrants.filter((it) => it !== warrant);
     if (!beat.toFree.some((it) => sameName(it.name, warrant.name))) {
-      const free: FreeMore = {
+      const free: FreeOne = {
         name: warrant.name,
         pardoned: false,
         tries: 0,
@@ -1549,7 +1549,7 @@ function freeStep(brain: NpcBrain, name: string): Plan {
   }
   return {
     ready: true,
-    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : (free as FreeMore).served ? ': there was no cell for them, and they have served their time with you in the brig' : (free as FreeMore).stuck ? ': they are stuck in handcuffs, and only security takes them off' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
+    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : free.served ? ': there was no cell for them, and they have served their time with you in the brig' : free.stuck ? ': they are stuck in handcuffs, and only security takes them off' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
     act: { tool: 'free', person: name },
   };
 }

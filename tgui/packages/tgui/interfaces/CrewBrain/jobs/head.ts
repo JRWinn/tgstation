@@ -56,6 +56,7 @@ import {
 } from './meetings';
 import { GAVE_UP_WORDS, sendForLine, UNPACKED_WORDS } from './pickups';
 import { addCounts, capital, listed, readReport, totalWords } from './reports';
+import { isHeadOfSecurity, isOfficer } from './security';
 import {
   CANNOT_ORDER_WORDS,
   isQuartermaster,
@@ -1751,6 +1752,69 @@ export function answerSentAsk(
   return true;
 }
 
+/**
+ * One of its staff saying they are in handcuffs and cannot get them off: the words a crew member
+ * says to its head (STUCK_IN_CUFFS_LINE in tasks.ts), or near them (SEC-07).
+ */
+const STUCK_IN_CUFFS_WORDS =
+  /\b(?:hand)?cuffs\b[^.?!]*\b(?:cannot|can ?not|can'?t)\s+get\s+them\s+off\b|\bstuck\s+in\s+(?:hand)?cuffs\b/i;
+/** The line a head passes that word on to security in. Read by stuckInCuffsAsk in jobs/arrests.ts. */
+export function stuckPassedLine(name: string): string {
+  return `${name} is in handcuffs and cannot get them off. Can someone from security take them off?`;
+}
+/** How long (milliseconds) before it passes on the same person's word again. */
+const STUCK_PASSED_AGAIN_MS = 600000;
+/** When each head last passed on each person's word, by `head|person`. */
+const stuckPassed = new Map<string, number>();
+
+/**
+ * Someone telling a head they are in handcuffs and cannot get them off (SEC-07, the owner's answer
+ * B: only security takes the cuffs off). The head cannot: it passes the word on to the Head of
+ * Security, else an officer, face to face if in view, else by PDA, once in ten minutes for each.
+ * With nobody of security known, nobody is told. TRUE if that is what the words were.
+ */
+export function passOnStuckInCuffs(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+): boolean {
+  if (!from || from === brain.name || !STUCK_IN_CUFFS_WORDS.test(text)) {
+    return false;
+  }
+  const key = `${brain.id}|${from}`;
+  if (
+    Date.now() - (stuckPassed.get(key) ?? -Infinity) <
+    STUCK_PASSED_AGAIN_MS
+  ) {
+    return true;
+  }
+  const known = [...brain.peopleInView, ...brain.pdaPeople].filter(
+    (person) => person.name !== brain.name && person.name !== from,
+  );
+  const security =
+    known.find((person) => isHeadOfSecurity(person.job)) ??
+    known.find((person) => isOfficer(person.job));
+  if (!security) {
+    return true;
+  }
+  const here = brain.peopleInView.some(
+    (person) => person.name === security.name,
+  );
+  if (!here && !brain.hasPda) {
+    return true;
+  }
+  stuckPassed.set(key, Date.now());
+  brain.toTell.push({
+    to: security.name,
+    line: stuckPassedLine(from),
+    why: `${from} has told you they are in handcuffs and cannot get them off. Only security takes them off, so you are passing it on to ${security.name}.`,
+    byPda: !here,
+    exact: true,
+    at: Date.now(),
+  });
+  return true;
+}
+
 export const HEAD_OF_PERSONNEL: Job = {
   is: isHeadOfPersonnel,
   // It has an office and errands of its own. It does not wander the station or show people round.
@@ -1786,6 +1850,13 @@ export const HEAD_OF_PERSONNEL: Job = {
     if (
       event.details.said_to !== 'other' &&
       answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (
+      event.details.said_to !== 'other' &&
+      passOnStuckInCuffs(brain, speaker, heard)
     ) {
       return;
     }
@@ -1853,6 +1924,10 @@ export const HEAD_OF_PERSONNEL: Job = {
   readsMessage: (brain, from, text, at, job) => {
     // A keeper asking whether it sent someone to a room (SECT-08).
     if (answerSentAsk(brain, from, text, true)) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (passOnStuckInCuffs(brain, from, text)) {
       return;
     }
     // One of its staff is shut in somewhere and nobody has come to the door. A head has no key

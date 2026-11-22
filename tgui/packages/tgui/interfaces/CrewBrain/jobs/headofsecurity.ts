@@ -45,6 +45,7 @@ import {
   syncDesk,
 } from './desk';
 import {
+  answerSentAsk,
   hearReport,
   MEET,
   type Meeting,
@@ -52,6 +53,8 @@ import {
   meetingActed,
   meetingSaid,
   meetStep,
+  noteSaidSending,
+  noteSending,
   staffMeetingWord,
   syncMeeting,
   workReported,
@@ -216,6 +219,10 @@ export const HEAD_OF_SECURITY: Job = {
   // A warrant, a pardon or a sighting sent by PDA, word from its officer, or the Captain telling
   // it to find out how its staff are doing.
   readsMessage: (brain, from, text, at, job) => {
+    // A keeper asking whether it sent someone to a room: a yes or a no, never "noted" (SECT-08 B).
+    if (answerSentAsk(brain, from, text, true)) {
+      return;
+    }
     // Word from engineering about a door it asked to have forced.
     if (forcingReads(brain, from, job, text)) {
       return;
@@ -262,6 +269,13 @@ export const HEAD_OF_SECURITY: Job = {
     if (!speaker) {
       return;
     }
+    // A keeper asking whether it sent someone to a room (SECT-08 B).
+    if (
+      event.details.said_to !== 'other' &&
+      answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
     if (stuckInCuffsAsk(brain, speaker, heard)) {
       return;
     }
@@ -287,6 +301,8 @@ export const HEAD_OF_SECURITY: Job = {
       return;
     }
     meetingSaid(brain, called);
+    // Whom a line of its sends where (SECT-08 B).
+    noteSaidSending(brain, called);
     deskAfterSaying(brain, called);
     beatAfterSaying(brain, called);
   },
@@ -300,6 +316,10 @@ export const HEAD_OF_SECURITY: Job = {
     ),
   afterActing: (brain, act, task, ok, looped, details) => {
     meetingActed(brain, act, ok, looped);
+    // Whom a PDA message of its sends where (SECT-08 B).
+    if (ok && act.tool === 'message') {
+      noteSending(brain, String(act.person ?? ''), String(act.text ?? ''));
+    }
     deskAfterActing(brain, act, task, ok);
     beatAfterActing(brain, act, task, ok, details);
   },
