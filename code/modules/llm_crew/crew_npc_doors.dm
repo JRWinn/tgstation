@@ -677,11 +677,12 @@
  * among them: with no other technician about, it lets a shut-in technician out itself (QM-05).
  *
  * The room is its post unless another room of its department is named. Anyone inside is let out.
- * Only a janitor is let in, and only when there is a mess in there for them to clean: the door is
- * locked to the rest of the crew for a reason. Whether this janitor was sent for is the brain's to
- * know. Someone standing at the door, or shut inside, need not be in sight: a door hides them.
+ * Only a janitor is let in, and only when there is a mess in there for them to clean, or when the
+ * janitor was sent for on a superior's order (sent_on_order, PLAY-10: the brain knows of the call,
+ * and the mess may be one no technician has seen): the door is locked to the rest of the crew for a
+ * reason. Whether this janitor was sent for is the brain's to know. Someone standing at the door, or shut inside, need not be in sight: a door hides them.
  */
-/datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name, door_label)
+/datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name, door_label, sent_on_order = FALSE)
 	if(!works_in_cargo() || (isnull(post_turf) && !is_quartermaster()))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no door of your own to open for anyone.")
 		return
@@ -732,7 +733,7 @@
 	// (CARGO-04): the server refused it every time, and the technician walked to the door for nothing.
 	var/shown_job = person.get_assignment(if_no_id = "", if_no_job = "")
 	var/security = findtext(shown_job, "Security Officer") || findtext(shown_job, "Head of Security")
-	if(!inside && !security && !(findtext(shown_job, "janitor") && mess_beyond))
+	if(!inside && !security && !(findtext(shown_job, "janitor") && (mess_beyond || sent_on_order)))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].", list("not_inside" = TRUE))
 		return
 	if(isnull(door))
