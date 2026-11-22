@@ -9,7 +9,8 @@
  *   engine, right away." within a minute it gives the order again.
  * - It delegates: it does not work the engine room. The one thing it sets with its own hands is
  *   the station's three batteries, straight after the first meeting, so that what the engine
- *   makes is stored.
+ *   makes is stored. The one exception: once its engineer says the emitters will not go off, it
+ *   goes to the engine room and tries them itself, and tells the Captain how it went (ENG-01).
  * - What it knows of the engine it reads from the engine monitor on its PDA, and from what its
  *   engineer tells it. With no reading it knows nothing, and says so.
  * - If the crystal's integrity falls, it has the emitters switched off: "Sam, the engine is
@@ -26,8 +27,15 @@
  */
 import { answersTo } from '../hierarchy';
 import { addTask, findTask, finishTask } from '../tasks';
-import type { ChiefWork, NpcBrain, Plan, SenseEvent, Task } from '../types';
-import { batterySteps } from './engine';
+import type {
+  Action,
+  ChiefWork,
+  NpcBrain,
+  Plan,
+  SenseEvent,
+  Task,
+} from '../types';
+import { batterySteps, emitterSteps } from './engine';
 import {
   beginsWith,
   ENGINE_TAKEN,
@@ -43,6 +51,7 @@ import {
   LIGHT_WORDS,
   lightLine,
   litLine,
+  machineFailKind,
   matchAfterName,
   NOT_OFF_WORDS,
   NOT_ON_WORDS,
@@ -53,6 +62,7 @@ import {
   SHUT_WORDS,
   STUCK_WORDS,
   shutLine,
+  switchFailReason,
   UNANSWERED_MAX,
 } from './engineering';
 import {
@@ -87,6 +97,8 @@ const BATTERIES = 'charge_batteries';
 const GIVE = 'engine_order';
 /** Going back to its office when there is nothing else to see to. */
 const OFFICE = 'chief_office';
+/** Switching the emitters off with its own hands, once its engineer has said it cannot (ENG-01). */
+const SELF_SHUT = 'chief_emitters_off';
 
 /** How long (deciseconds) into the shift its first staff meeting is called. */
 const FIRST_MEETING_DS = 300;
@@ -134,6 +146,29 @@ function chiefOf(brain: NpcBrain): ChiefWork {
     relitAt: 0,
   };
   return brain.chief;
+}
+
+/** How many times it tries one emitter itself before it leaves that one as it is. */
+const SELF_TRIES = 2;
+
+/**
+ * Where it has got to switching the emitters off itself: the emitters it has done with (off, or
+ * given up on), how often each would not switch, and why the first that would not did not. Made
+ * when its engineer says the emitters will not go off, while they must; `done` once each has been
+ * tried, after which it does not go again until the next shut-off.
+ */
+type SelfShut = {
+  switched: string[];
+  tries: Record<string, number>;
+  wouldNot: string | null;
+  done: boolean;
+};
+const selfShuts = new WeakMap<NpcBrain, SelfShut>();
+
+/** TRUE while it is to go to the engine room and switch the emitters off with its own hands. */
+function selfShutting(brain: NpcBrain): boolean {
+  const self = selfShuts.get(brain);
+  return !!self && !self.done;
 }
 
 /** The job of someone it knows of, by name: from sight, or from its PDA. */
@@ -402,9 +437,19 @@ function syncTasks(brain: NpcBrain): void {
   if (chief.order && !engineer(brain)) {
     chief.order = null;
   }
+  // Its own try at the emitters belongs to this shut-off: once they are off, or the engine is no
+  // longer to be shut, it is put aside, and the next shut-off may see it go again.
+  if (!chief.shut || chief.emittersOff) {
+    selfShuts.delete(brain);
+  }
 
   // Its staff meeting. Not called while the emitters have to come off.
-  syncMeeting(brain, ENGINE_WAY, chief.order?.what === 'shut');
+  syncMeeting(
+    brain,
+    ENGINE_WAY,
+    chief.order?.what === 'shut' || selfShutting(brain),
+  );
+  keep(brain, SELF_SHUT, selfShutting(brain), 'emergency');
 
   for (const what of ['shut', 'relight', 'light']) {
     keep(
@@ -533,6 +578,25 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind === GIVE) {
     return giveStep(brain);
   }
+  if (task.kind === SELF_SHUT) {
+    const self = selfShuts.get(brain);
+    const next = self
+      ? emitterSteps(brain.machines, 'switch_off').find(
+          (action) => !self.switched.includes(action.key),
+        )
+      : undefined;
+    return next
+      ? {
+          ready: true,
+          step: `The engine is losing integrity, and your engineer has told you they cannot switch the emitters off: ${chiefOf(brain).notOff ?? 'they would not go off'}. Nothing comes before this. You are going to the engine room to switch them off yourself: ${next.name} ${next.nth}.`,
+          act: {
+            tool: 'work_machine',
+            machine: next.machine.id,
+            how: next.how,
+          },
+        }
+      : { ready: false, step: 'You have tried every emitter yourself.' };
+  }
   if (task.kind === BATTERIES) {
     const left = batteriesLeft(brain);
     const next = left[0];
@@ -574,6 +638,8 @@ function describeTask(task: Task): string | null {
         : task.item === 'relight'
           ? 'have the emitters switched on again'
           : 'give your engineer the engine to light';
+    case SELF_SHUT:
+      return 'switch the emitters off yourself';
     case BATTERIES:
       return "set the station's batteries to charge";
     case OFFICE:
@@ -602,12 +668,17 @@ function cues(brain: NpcBrain): string[] {
     );
   }
   if (chief.shut) {
+    const self = selfShuts.get(brain);
     lines.push(
       chief.emittersOff
-        ? 'Your engineer has told you the emitters are off. The engine is not to be lit again unless the Captain says so.'
-        : engineer(brain)
-          ? 'You have ordered the emitters off, and have not yet heard that they are.'
-          : 'The emitters must come off, and you have no engineer aboard to switch them off.',
+        ? 'The emitters are off. The engine is not to be lit again unless the Captain says so.'
+        : self && !self.done
+          ? 'Your engineer has told you they cannot switch the emitters off, so you are going to the engine room to switch them off yourself. Nothing comes before this.'
+          : self?.done
+            ? 'Neither your engineer nor you could switch the emitters off. The engine is still firing, and the Captain has been told.'
+            : engineer(brain)
+              ? 'You have ordered the emitters off, and have not yet heard that they are.'
+              : 'The emitters must come off, and you have no engineer aboard to switch them off.',
     );
   } else if (
     chief.lightGivenAt !== null &&
@@ -727,6 +798,16 @@ function hearEngineer(
       );
     }
     chief.notOff = what;
+    // Its engineer cannot get them off: it goes to the engine room and tries itself, once for
+    // this shut-off (ENG-01, the owner's answer B). Otherwise it delegates the engine room.
+    if (chief.shut && !chief.emittersOff && !selfShuts.has(brain)) {
+      selfShuts.set(brain, {
+        switched: [],
+        tries: {},
+        wouldNot: null,
+        done: false,
+      });
+    }
     return;
   }
   if (matchAfterName(text, brain.name, NOT_ON_WORDS)) {
@@ -743,6 +824,64 @@ function hearEngineer(
       chief.energyAt = null;
     }
   }
+}
+
+/**
+ * Notes how one of its own switch-offs went, as the engineer notes its own: a switch that does not
+ * take is tried once more (one it was refused outright is not), then that emitter is left and the
+ * next tried. Once every emitter has been seen to, the Captain is told how it went.
+ */
+function selfShutActed(
+  brain: NpcBrain,
+  act: Action,
+  ok: boolean,
+  details: SenseEvent['details'] | undefined,
+  text: string | undefined,
+): void {
+  const chief = chiefOf(brain);
+  const self = selfShuts.get(brain);
+  if (!self || self.done) {
+    return;
+  }
+  const key = `${String(act.machine)}:${String(act.how)}`;
+  if (!ok) {
+    self.tries[key] =
+      machineFailKind(text, details?.reason) === 'unknown'
+        ? SELF_TRIES
+        : (self.tries[key] ?? 0) + 1;
+    if (self.tries[key] < SELF_TRIES) {
+      return;
+    }
+    self.wouldNot ??= switchFailReason(text);
+  }
+  if (!self.switched.includes(key)) {
+    self.switched.push(key);
+  }
+  const all = emitterSteps(brain.machines, 'switch_off').every((action) =>
+    self.switched.includes(action.key),
+  );
+  if (!all) {
+    return;
+  }
+  self.done = true;
+  if (self.wouldNot) {
+    tellCaptain(
+      brain,
+      `I went to switch the emitters off myself and could not: ${self.wouldNot}. The engine is still firing.`,
+      `Your engineer could not switch the emitters off, and you went to the engine room and could not either: ${self.wouldNot}. You are telling the Captain by PDA.`,
+    );
+    return;
+  }
+  if (chief.order?.what === 'shut') {
+    chief.order = null;
+  }
+  chief.emittersOff = true;
+  chief.notOff = null;
+  tellCaptain(
+    brain,
+    'I have switched the emitters off myself. The engine is not to be lit again unless you say so.',
+    'Your engineer could not switch the emitters off, so you went to the engine room and switched them off yourself. You are telling the Captain by PDA.',
+  );
 }
 
 /** Someone it answers to telling it to have the engine lit again, after it was shut off or would not light. */
@@ -769,7 +908,7 @@ export const CHIEF_ENGINEER: Job = {
   keepsPost: true,
   cleans: false,
   about: () =>
-    "You are the Chief Engineer, the head of the engineering staff: the station engineers answer to you, and you answer to the Captain. The station's power is yours to see to. You give your engineer the engine to light, set the station's batteries to charge yourself, and watch the engine from the monitor on your PDA. If the engine starts to come apart you have its emitters switched off at once. You hold a short staff meeting with your engineers now and then. You delegate: you do not work the engine room yourself.",
+    "You are the Chief Engineer, the head of the engineering staff: the station engineers answer to you, and you answer to the Captain. The station's power is yours to see to. You give your engineer the engine to light, set the station's batteries to charge yourself, and watch the engine from the monitor on your PDA. If the engine starts to come apart you have its emitters switched off at once. You hold a short staff meeting with your engineers now and then. You delegate: you work the engine room yourself only to switch the emitters off when your engineer cannot.",
   whenAsked: (brain, heard) => [
     'Whether the engine is lit, and how it stands, is told to you here from your PDA and from your engineer: never say more about it than that, and never promise power that you have not been told is there.',
     'Other repairs are not something your staff can see to yet: a door, a light, a room without power, a hole in the hull. Asked for one, say so plainly, and that you have noted it.',
@@ -862,10 +1001,14 @@ export const CHIEF_ENGINEER: Job = {
       chief.order = null;
     }
   },
-  afterActing: (brain, act, task, ok, _looped, details) => {
+  afterActing: (brain, act, task, ok, _looped, details, text) => {
     const chief = chiefOf(brain);
     meetingActed(brain, act, ok);
     forcingAfterActing(brain, act, ok, details);
+    if (task?.kind === SELF_SHUT && act.tool === 'work_machine') {
+      selfShutActed(brain, act, ok, details, text);
+      return;
+    }
     if (task?.kind === GIVE && chief.order) {
       // Having walked up to its engineer, near enough or not, it speaks.
       if (act.tool === 'approach') {

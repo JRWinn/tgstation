@@ -350,6 +350,50 @@ add('nothing heard of it in a minute and a half: it is given again', ada.chief.o
   heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
   add('told again, the Captain is not told twice', copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').length, 0);
 }
+// ENG-01 (answer B): told its engineer cannot get the emitters off, the Chief Engineer goes to the
+// engine room and tries them itself, and tells the Captain how it went.
+for (const locked of [false, true]) {
+  const copy = structuredClone(ada);
+  copy.toTell = [];
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  const self = () => openOf(copy, 'chief_emitters_off');
+  const label = locked ? 'one locked' : 'none locked';
+  add(`${label}: told they will not go off, it takes the emitters itself, as an emergency`, self()?.urgency, 'emergency');
+  const tried: string[] = [];
+  for (let turn = 0; turn < 10 && self(); turn++) {
+    const plan = CHIEF_ENGINEER.plan(copy, self());
+    if (!plan?.act) break;
+    tried.push(`${plan.act.machine} ${plan.act.how}`);
+    const fails = locked && tried[0].startsWith(`${plan.act.machine} `);
+    CHIEF_ENGINEER.afterActing(copy, plan.act, self(), !fails, false, fails ? { reason: 'machine' } : {}, fails ? 'The emitter will not switch off: its controls are locked.' : 'You switch the emitter off.');
+    CHIEF_ENGINEER.syncTasks(copy);
+  }
+  add(`${label}: it works each emitter off${locked ? ', the locked one twice' : ''}`, tried.length, locked ? 4 : 3);
+  add(`${label}: every switch it tries is a switch-off`, tried.length > 0 && tried.every((it) => it.endsWith('switch_off')), true);
+  add(`${label}: it does not go again`, !!self(), false);
+  const toCaptain = copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line);
+  if (locked) {
+    add('one locked: the Captain is told it could not either, and why', toCaptain.filter((line: string) => line === 'I went to switch the emitters off myself and could not: its controls are locked. The engine is still firing.').length, 1);
+    add('one locked: the emitters are not taken as off', copy.chief.emittersOff, false);
+  } else {
+    add('none locked: the Captain is told it switched them off itself', toCaptain.filter((line: string) => /^I have switched the emitters off myself\./.test(line)).length, 1);
+    add('none locked: the emitters are taken as off, and no order is left to give', [copy.chief.emittersOff, copy.chief.order], [true, null]);
+    copy.now += 9000;
+    CHIEF_ENGINEER.syncTasks(copy);
+    add('none locked: and none is given a long while on either', copy.chief.order, null);
+  }
+}
+{
+  // Its engineer says they are off while it is on its way: it stops.
+  const copy = structuredClone(ada);
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'I cannot reach the emitter to switch it off'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('on its way to the emitters itself: it has the task', !!openOf(copy, 'chief_emitters_off'), true);
+  heardBy(copy, 'Sam Rees', offLine('Ada Volt'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('its engineer then says they are off: it does not go on', !!openOf(copy, 'chief_emitters_off'), false);
+}
 heardBy(ada, 'Sam Rees', offLine('Ada Volt'));
 CHIEF_ENGINEER.syncTasks(ada);
 add('told the emitters are off, it stops asking', [ada.chief.emittersOff, ada.chief.order], [true, null]);
