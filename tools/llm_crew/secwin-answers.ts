@@ -59,6 +59,29 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('DESK-05: it has a warrant to serve', !!o.tasks.find((t: any) => t.kind === 'serve_warrant' && t.state !== 'done'), true);
 }
 
+// ---- ARR-08 A: stopping an attacker with no warrant breaks in on an arrest under way
+{
+  const { drive } = await import(ROOT + 'driver');
+  const o = officer();
+  o.id = 'arr08stop';
+  o.pendingSpeakers = new Set();
+  A.giveWarrant(o, { name: 'Dana Reyes', reason: 'theft', minutes: 5 });
+  const BRICK = { handle: 'p3', name: 'Brick Lane', job: 'Assistant', place: 'Bar', distance: 1 };
+  at(o, 5000, 'Bar', [{ handle: 'p5', name: 'Dana Reyes', job: 'Assistant', place: 'Bar', distance: 3 }, BRICK]);
+  A.beatOf(o).warrants[0].toldAt = 4990;
+  A.syncBeat(o);
+  const dana = o.tasks.find((it: any) => it.kind === 'serve_warrant' && it.state !== 'done');
+  o.lastAct = { key: 'x', tool: 'arrest', at: Date.now(), act: { tool: 'arrest', person: 'p5', how: 'quiet' }, task: dana.id };
+  A.securityFeels(o, { details: { struck_name: 'Brick Lane', struck_by: 'p3' } });
+  A.syncBeat(o);
+  const stop = open(o, 'stop_attacker');
+  add('ARR-08: the stop step may break in', A.planBeat(o, stop)?.breaksIn, true);
+  const issued: any[] = [];
+  o.driveAfter = 0;
+  drive(o, (act: any) => { issued.push(act); return act.tool; }, () => {});
+  add('ARR-08: struck mid-arrest with a baton: it stops the attacker', issued.map((act) => `${act.tool} ${act.person} ${act.how}`), ['arrest p3 stop']);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

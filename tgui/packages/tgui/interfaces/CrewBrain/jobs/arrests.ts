@@ -1498,6 +1498,9 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
           ready: true,
           step: `${seen.name} has attacked you. There is no warrant on them, so you are stopping them with your baton and no more.`,
           act: { tool: 'arrest', person: seen.handle, how: 'stop' },
+          // Stopping an attacker breaks in on an arrest under way, as getting away does (ARR-08,
+          // the owner's answer A): it is being hit while it serves the warrant.
+          breaksIn: true,
         }
       : { ready: false, step: 'Whoever attacked you has gone.' };
   }
