@@ -1281,7 +1281,7 @@ function uiData(body: Body) {
     // A head is told which room to call its staff together in.
     meeting_room: body.office ? (VARIANT === 'shutout' ? 'Staff Room' : 'Bar') : null,
     // Its PDA lists everyone else aboard who carries one, with their job.
-    pda_people: [...bodies.filter((other) => other !== body), ...players.filter((player) => player.job === 'Captain' || player.job === 'Quartermaster' || player.job === 'Chief Engineer' || player.job === 'Janitor')].map((other) => ({ name: other.name, job: other.job })),
+    pda_people: [...bodies.filter((other) => other !== body), ...players.filter((player) => player.job === 'Captain' || player.job === 'Quartermaster' || player.job === 'Chief Engineer' || player.job === 'Janitor' || (VARIANT === 'sentby' && player.job === 'Head of Personnel'))].map((other) => ({ name: other.name, job: other.job })),
     // For engineering staff: the machines they work, how those in the room with them are set, and what the PDA reads of the engine.
     engineering: /Engineer/.test(body.job) ? { machines: machineList.map((machine) => ({ id: machine.id, name: machine.name, kind: machine.kind, nth: machine.nth, place: machine.place, seen: body.room === machine.place ? { on: machine.on ? 1 : 0, full: machine.full ? 1 : 0 } : null })), reading: { integrity: crystal.integrity, energy: crystal.energy } } : null,
     tidy: body.post ? { todo: (rooms['Cargo Bay'].floor?.length ?? 0) + (rooms['Cargo Lobby'].floor?.length ?? 0) } : null,
@@ -1411,6 +1411,19 @@ function spawnMixed() {
   players.push({ name: 'Hal Pott', job: 'Head of Personnel', room: 'Cargo Lobby' });
   return crew;
 }
+// CARGO-08 A: when the head came for its crates with no number.
+let manyAskedAt = 0;
+// SECT-08 B: a technician, a janitor already in the bay (come in behind someone, let in by nobody) with a good deal of mess there,
+// and the Head of Personnel, no NPC, in its office, who sends the janitor to clean the bay by PDA.
+function spawnSentBy() {
+  const crew = [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')];
+  crew[1].room = 'Cargo Bay'; crew[1].holding.push('mop'); crew[1].mopWet = true;
+  for (let i = 0; i < 6; i++) rooms['Cargo Bay'].messes.push(mess('dirt'));
+  players.push({ name: 'Hal Pott', job: 'Head of Personnel', room: HOP_OFFICE });
+  return crew;
+}
+// When the head sent the janitor, when the technician asked it by PDA, and when it said yes.
+const sentBy = { sentAt: 0, askedAt: 0, yesAt: 0 };
 // The whole crew, with a Quartermaster over the two technicians.
 function spawnWithQuartermaster() {
   const crew = spawnCrew();
@@ -1436,10 +1449,12 @@ function spawnQuartermasterGone() {
   return crew;
 }
 // The scenarios about the Quartermaster's desk alone: no janitors, no meeting, one order.
-const DESK = VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmlost' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
+const DESK = VARIANT === 'twoorders' || VARIANT === 'qmbig' || VARIANT === 'qmno' || VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmlost' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
 // How many of the Quartermaster's questions the Captain has answered, in the scenarios where it answers.
 let captainAnswers = 0;
 let captainAnsweredAt = 0;
+// QM-08 B: when the Captain said its bare yes, when the Quartermaster asked which order it was to, and when the Captain named one.
+const twoOrders = { yesAt: 0, whichAt: 0, namedAt: 0 };
 // The engineering staff: a Chief Engineer in its office and one engineer at its post, with a Captain aboard to be told things.
 // In one scenario the Chief Engineer is not an NPC, and never says a word.
 function spawnEngine() {
@@ -1565,11 +1580,11 @@ const CAPTAIN_ORDERS_AT = 150;
 // When the Captain, standing in the head's office, tells it to find out how its section is doing: once the head is back there after this.
 const CAPTAIN_ASKS_AFTER = 420;
 let captainAskedAt = 0;
-const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'callme' ? spawnCallMe() : VARIANT === 'outfail' ? (() => { rooms['Delivery Office'].messes = []; return [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')]; })() : VARIANT === 'askedtwice' ? spawnAskedTwice() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' ? spawnMixed() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
+const crew = SECURITY ? spawnSecurity() : ENGINE ? spawnEngine() : HEADSHUT ? spawnStaffed([]) : VARIANT === 'qm' ? spawnWithQuartermaster() : VARIANT === 'qmgone' ? spawnQuartermasterGone() : VARIANT === 'qmstuck' ? spawnStuckDesk() : DESK ? spawnOrderDesk() : VARIANT === 'bydoor' ? spawnByDoor() : VARIANT === 'lost' ? spawnWaiting() : VARIANT === 'evict' || VARIANT === 'leave' || VARIANT === 'aside' || VARIANT === 'asidetwice' ? spawnCaptainInBay() : VARIANT === 'nested' ? spawnNested() : VARIANT === 'office' ? [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')] : VARIANT === 'alarm' || VARIANT === 'alarmagain' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'rounds' ? [spawn('Cora Tech', 'Cargo Technician')] : VARIANT === 'orders' ? spawnOrders() : VARIANT === 'callme' ? spawnCallMe() : VARIANT === 'outfail' ? (() => { rooms['Delivery Office'].messes = []; return [spawn('Cora Tech', 'Cargo Technician'), spawn('Jan Itor', 'Janitor')]; })() : VARIANT === 'askedtwice' ? spawnAskedTwice() : VARIANT === 'waiting' ? spawnWaiting() : VARIANT === 'mixed' || VARIANT === 'manycrates' ? spawnMixed() : VARIANT === 'sentby' ? spawnSentBy() : VARIANT === 'vouch' ? spawnVouch() : VARIANT === 'trapped' ? spawnTrapped() : VARIANT === 'solo' ? [spawn('Jan Itor', 'Janitor')] : VARIANT === 'crew' ? spawnCrew() : spawnStaffed(['Cora Tech'], VARIANT === 'captain' ? HOP_OFFICE : 'Bridge');
 // The delivery office takes longer: it is only found on a quiet look round, and then someone has to be sent for.
 // With a head aboard, nothing is ordered until the staff meeting two minutes in has been held.
 // A crate nobody comes for is chased three times, five minutes or so apart, before it is asked for.
-const SECONDS = SECURITY ? SECURITY_SECONDS : VARIANT === 'callme' || VARIANT === 'askedtwice' ? 240 : VARIANT === 'outfail' ? 540 : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
+const SECONDS = SECURITY ? SECURITY_SECONDS : VARIANT === 'twoorders' || VARIANT === 'manycrates' ? 420 : VARIANT === 'sentby' ? 300 : VARIANT === 'callme' || VARIANT === 'askedtwice' ? 240 : VARIANT === 'outfail' ? 540 : ENGINE ? 780 : VARIANT === 'qmwait' ? 560 : VARIANT === 'qmquiet' || VARIANT === 'qmpoor' || VARIANT === 'qmlost' || VARIANT === 'qmstuck' ? 480 : VARIANT === 'qmpaper' ? 420 : VARIANT === 'qmbig' || VARIANT === 'qmno' ? 300 : VARIANT === 'waiting' ? 1380 : VARIANT === 'nested' ? 1080 : VARIANT === 'office' ? 900 : FULL || DOORWAY || VARIANT === 'captain' ? 720 : VARIANT === 'mixed' ? 420 : 540;
 // When someone pulls a fire alarm in the room the janitor is in, in the scenarios about that.
 const ALARM_PULLED_AT = 45;
 // With a Quartermaster who does not answer, the order, and the mail that comes with it, are three minutes later.
@@ -1609,7 +1624,17 @@ for (let second = 0; second < SECONDS; second++) {
   // The Captain answers the Quartermaster a little after being asked, in the scenarios where it answers at all.
   // Each question is answered once, yes, except where the scenario is the Captain saying no, or saying nothing.
   const quartermasterBody = bodies.find((other) => other.job === 'Quartermaster');
-  if (quartermasterBody && VARIANT !== 'qmquiet' && captainAsked.length > captainAnswers && clock - captainAsked[captainAnswers].at >= 15_000) { captainAnswers++; captainAnsweredAt ||= clock; playerMessages(CAPTAIN, quartermasterBody, VARIANT === 'qmno' ? 'No. Not this shift.' : 'Yes, go ahead.'); }
+  if (quartermasterBody && VARIANT !== 'qmquiet' && VARIANT !== 'twoorders' && captainAsked.length > captainAnswers && clock - captainAsked[captainAnswers].at >= 15_000) { captainAnswers++; captainAnsweredAt ||= clock; playerMessages(CAPTAIN, quartermasterBody, VARIANT === 'qmno' ? 'No. Not this shift.' : 'Yes, go ahead.'); }
+  // QM-08 B: two orders of more than 1,000 credits, a little apart. Once both are put to the Captain it answers a bare "Yes", and,
+  // asked which order that was to, "Order 2.".
+  if (VARIANT === 'twoorders' && second === 20) playerMessages('Hal Pott', bodies[0], 'I need to order two crates of janitorial supplies and a crate of replacement lights for my staff, please.');
+  if (VARIANT === 'twoorders' && second === 40) playerMessages('Hal Pott', bodies[0], 'I need to order three crates of replacement lights for my staff, please.');
+  if (VARIANT === 'twoorders' && quartermasterBody && !twoOrders.yesAt && captainAsked.length >= 2 && clock - captainAsked[1].at >= 15_000) { twoOrders.yesAt = clock; playerMessages(CAPTAIN, quartermasterBody, 'Yes'); }
+  if (VARIANT === 'twoorders' && quartermasterBody && !twoOrders.whichAt) {
+    const which = quartermasterBody.log.find((line) => / message /.test(line) && line.includes(`"person":"${CAPTAIN}"`) && /Captain, is that order/.test(line));
+    if (which) twoOrders.whichAt = Date.parse(`1970-01-01T${which.slice(0, 8)}Z`);
+  }
+  if (VARIANT === 'twoorders' && quartermasterBody && twoOrders.whichAt && !twoOrders.namedAt && clock - twoOrders.whichAt >= 10_000) { twoOrders.namedAt = clock; playerMessages(CAPTAIN, quartermasterBody, 'Order 2.'); }
   // Whoever the mail is for comes to the counter some minutes after it has arrived.
   if (second === PAT_COMES_AT && (FULL || DOORWAY || VARIANT === 'captain')) players.push({ name: 'Pat Rick', job: 'Botanist', room: 'Cargo Lobby' });
   if ((VARIANT === 'alarm' || VARIANT === 'alarmagain') && second >= ALARM_PULLED_AT && !alarmPulled && !bodies[0].walking) { fireAlarm = bodies[0].room; alarmPulled = true; }
@@ -1648,6 +1673,13 @@ for (let second = 0; second < SECONDS; second++) {
   if (VARIANT === 'waiting' && second === 20) playerSays('Hal Pott', 'Cora, I need to order a crate of janitorial supplies, please.');
   // Two kinds of crate, asked for in one breath.
   if (VARIANT === 'mixed' && second === 20) playerSays('Hal Pott', 'Cora, I need to order two crates of janitorial supplies and a crate of replacement lights, please.');
+  // SECT-08 B: the head sends the janitor to the bay by PDA; asked by the technician whether it did, it says yes, ten seconds on.
+  if (VARIANT === 'sentby' && second === 1) { sentBy.sentAt = clock; playerMessages('Hal Pott', bodies[1], 'There is a mess in the Cargo Bay. Could you clean it up, please?'); }
+  if (VARIANT === 'sentby' && !sentBy.askedAt) { const asked = bodies[0].log.find((line) => / message /.test(line) && line.includes('"person":"Hal Pott"') && /Did you send Jan Itor to the Cargo Bay\?/.test(line)); if (asked) sentBy.askedAt = Date.parse(`1970-01-01T${asked.slice(0, 8)}Z`); }
+  if (VARIANT === 'sentby' && sentBy.askedAt && !sentBy.yesAt && clock - sentBy.askedAt >= 10_000) { sentBy.yesAt = clock; playerMessages('Hal Pott', bodies[0], 'Yes, I sent Jan Itor.'); }
+  // CARGO-08 A: a head orders two crates of one kind, and once both are held in the bay comes for them with no number.
+  if (VARIANT === 'manycrates' && second === 20) playerSays('Hal Pott', 'Cora, I need to order two crates of janitorial supplies, please.');
+  if (VARIANT === 'manycrates' && !manyAskedAt && second >= 150 && held.length === 2 && held.every((entry) => entry.heldSince) && bodies[0].room === 'Cargo Bay' && !bodies[0].busyText) { manyAskedAt = clock; playerSays('Hal Pott', 'Cora, I am here to collect my crates, please.'); }
   // The Captain tells the head to find out how its section is doing, well after the first meeting, when the head is back in its office.
   if (VARIANT === 'captain' && !captainAskedAt && second >= CAPTAIN_ASKS_AFTER && bodies[0].room === HOP_OFFICE && !bodies[0].busyText) { captainAskedAt = clock; playerSays(CAPTAIN, 'Hop, find out how your section is doing.'); }
   if (VARIANT === 'waiting' && second === WRONG_NUMBER_AT) playerSays('Hal Pott', 'Cora, I am here to collect crate 9999, please.');
@@ -1674,7 +1706,7 @@ const bayCounts = FULL;
 // The mess in the delivery office is never a janitor's to get to: nobody lets them in there.
 const left = allMesses().filter((m) => (bayCounts || !rooms['Cargo Bay'].messes.includes(m)) && !rooms['Delivery Office'].messes.includes(m));
 // With no janitor aboard there is nobody to clean anything.
-if (VARIANT !== 'rounds' && VARIANT !== 'callme' && VARIANT !== 'askedtwice' && VARIANT !== 'outfail' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
+if (VARIANT !== 'rounds' && VARIANT !== 'manycrates' && VARIANT !== 'sentby' && VARIANT !== 'callme' && VARIANT !== 'askedtwice' && VARIANT !== 'outfail' && VARIANT !== 'alarmagain' && VARIANT !== 'waiting' && VARIANT !== 'mixed' && VARIANT !== 'bydoor' && VARIANT !== 'lost' && !DESK && !ENGINE && !SECURITY && !HEADSHUT) check(`every mess a janitor can get to is cleaned (started with ${messId}${bayCounts ? ', one of them behind the bay door' : '; the one in the bay does not count'})`, left.length === 0, left.length ? `left: ${Object.entries(rooms).filter(([, room]) => room.messes.length).map(([name, room]) => `${name}: ${room.messes.map((m) => m.name).join(', ')}`).join('; ')}` : '');
 const janitors = crew.filter((body) => body.job === 'Janitor');
 // With no technician aboard to order for it, the janitor with only a rag stays short.
 if (!HEADSHUT) check('every janitor ends with something to clean with', janitors.every((body) => body.holding.some((item) => /mop|space cleaner|soap/.test(item))), janitors.map((body) => `${body.name}: ${body.holding.join(', ') || 'nothing'}`).join('; '));
@@ -1858,7 +1890,7 @@ if (tech) {
     check('it does not nag: each door is knocked at or asked for a few times at most', knocks.filter((entry) => entry.startsWith(jan.name)).length <= 6 && asked.length <= 6, `${knocks.length} knock(s), ${asked.length} ask(s)`);
   }
   const orders = techLog.filter((line) => /^\S+ .{24} order( |$)/.test(line)).length;
-  const ordered = janitors.length > 2 || VARIANT === 'waiting' || VARIANT === 'mixed' || VARIANT === 'lost' || VARIANT === 'qmbig' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
+  const ordered = janitors.length > 2 || VARIANT === 'twoorders' || VARIANT === 'manycrates' || VARIANT === 'waiting' || VARIANT === 'mixed' || VARIANT === 'lost' || VARIANT === 'qmbig' || VARIANT === 'qmpoor' || VARIANT === 'qmpaper' || VARIANT === 'qmwait' || VARIANT === 'qmstuck';
   // A crate that is lost is ordered again: two orders, one after the other.
   if (VARIANT === 'qmlost') check('two orders were placed: the one the head sent, and the same again when its crate was lost', orders === 2, `orders: ${orders}`);
   else check(ordered ? 'exactly one order was placed, by one technician' : 'no order was needed', ordered ? orders === 1 : orders === 0, `orders: ${orders}`);
@@ -1894,6 +1926,31 @@ if (VARIANT === 'mixed') {
   check('two kinds of crate asked for in one breath go in one order: two of the one and one of the other', orderKinds.length === 1 && orderKinds[0] === '2 Janitorial Supplies Crate + 1 Replacement Lights', orderKinds.join('; ') || 'nothing was ordered');
   const word = techLog.filter((line) => / message /.test(line) && /Your order has come in/.test(line));
   check('whoever ordered is sent the manifest number of every crate, with what each one is', word.length === 1 && /crates #4521 and #4522 \(Janitorial Supplies Crate\); crate #4523 \(Replacement Lights\)/.test(word[0]), word[0]?.match(/"text":"([^"]*)"/)?.[1] ?? 'no message');
+}
+// CARGO-08 A: a head with two crates held comes for them and gives no number: both are brought out, one after another.
+if (VARIANT === 'manycrates') {
+  const cora = crew[0];
+  const sinceAsk = (line: { at: number }) => !!manyAskedAt && line.at >= manyAskedAt;
+  check('(two crates came in for the head, and it came for them with no number)', orderKinds[0] === '2 Janitorial Supplies Crate' && manyAskedAt > 0, `ordered: ${orderKinds.join('; ') || 'nothing'}; ${manyAskedAt ? 'asked' : 'never asked'}`);
+  const told = spoken.filter((line) => line.who === cora.name && sinceAsk(line) && /^Hal, I am holding crates #4521 and #4522 for you\. I will bring them out one after another\./.test(line.text));
+  check('the technician says it is holding both for it and will bring them out one after another, once', told.length === 1, cora.said.filter((line) => /4521|4522|holding/.test(line)).join(' | ') || 'nothing said');
+  check('it brings out both, one after another, for the head', released.length === 2 && released.includes('4521 for Hal Pott') && released.includes('4522 for Hal Pott'), released.join(', ') || 'nothing was brought out');
+  const releases = cora.log.filter((line) => / release /.test(line));
+  check('each once, and says no "no crate by that number"', releases.length === 2 && !cora.said.some((line) => /not holding a crate by that number|holding no crate for you/i.test(line)), releases.join(' | '));
+}
+// SECT-08 B: a janitor in the bay says the Head of Personnel sent it; the technician asks the head by PDA, is told yes, and lets it stay.
+if (VARIANT === 'sentby') {
+  const cora = crew[0];
+  const jan = crew[1];
+  const askedWhy = cora.said.filter((line) => /^Jan\b.*why are you in here/i.test(line));
+  check('the technician, finding a janitor in the bay nobody of cargo let in, asks it why', askedWhy.length >= 1 && askedWhy.length <= 2, cora.said.join(' | ') || 'nothing said');
+  const answer = jan.said.filter((line) => /^(\w+, )?Hal asked me to come in here/.test(line));
+  check('the janitor says the Head of Personnel sent it', answer.length >= 1, jan.said.join(' | ') || 'nothing said');
+  const asks = cora.log.filter((line) => / message /.test(line) && line.includes('"person":"Hal Pott"') && /Did you send Jan Itor to the Cargo Bay\?/.test(line));
+  check('it asks the head, who is out of sight, by PDA in so many words, once', asks.length === 1, asks.join(' | ') || `messages: ${cora.log.filter((line) => / message /.test(line)).join(' | ') || 'none'}`);
+  const outAfter = cora.log.filter((line) => / throw_out /.test(line));
+  check('told yes, it lets the janitor stay: it is not walked out, nor told to go', sentBy.yesAt > 0 && !putOut.includes(jan.name) && outAfter.length === 0 && !cora.said.some((line) => /^Jan\b.*(out you go|you will have to leave|please leave)/i.test(line)), `${sentBy.yesAt ? 'yes said' : 'no yes'}; walked out: ${putOut.join(', ') || 'nobody'}; ${outAfter.join(' | ')}`);
+  check('and the bay is cleaned', rooms['Cargo Bay'].messes.length === 0, `left: ${rooms['Cargo Bay'].messes.length}`);
 }
 // A Quartermaster aboard: every order goes through it, into its order book, and to a technician face to face.
 const qm = crew.find((body) => body.job === 'Quartermaster');
@@ -2013,6 +2070,19 @@ if (qm) {
     check('a crate nobody comes for: the technician looks over the bay, and tells the Quartermaster face to face that it is still waiting', claims.length >= 1 && told.length === claims.length && wordPassed.filter((entry) => entry.endsWith('(waiting)')).length === told.length, `${claims.length} look(s), told ${told.length} time(s)`);
     const reminders = sentBy(qm, orderer, /Still waiting at cargo: crate #4521 from your order/);
     check('the Quartermaster reminds the head by PDA, once for each look, and the technician sends the head nothing itself', reminders.length === told.length && reminders.length >= 1 && sentBy(tech, orderer, /./).length === 0, `${reminders.length} reminder(s)`);
+  }
+  if (VARIANT === 'twoorders') {
+    const at = (line: string) => Date.parse(`1970-01-01T${line.slice(0, 8)}Z`);
+    const asked = sentBy(qm, CAPTAIN, /Yes or no\?/);
+    const firstAsks = asked.filter((line) => !twoOrders.yesAt || at(line) <= twoOrders.yesAt);
+    check('both orders are put to the Captain by PDA before it answers', firstAsks.some((line) => /order 1: /.test(line)) && firstAsks.some((line) => /order 2: /.test(line)) && twoOrders.yesAt > 0, asked.map(textOf).join(' | ') || 'the Captain was never asked');
+    const which = sentBy(qm, CAPTAIN, /Captain, is that order/);
+    check('to a bare "Yes" it asks which, once, naming both, the one asked about last first', which.length === 1 && /"text":"Captain, is that order 2 \(3 Replacement Lights\) or order 1 \([^)]*\)\?"/.test(which[0]), which.map(textOf).join(' | ') || 'it never asked which');
+    const between = [...gives.map((line) => spoken.find((said) => said.who === qm.name && said.text === line)?.at ?? 0), ...spentOn.map((it) => it.at)].filter((it) => it >= twoOrders.yesAt && it < (twoOrders.namedAt || Infinity));
+    check('and acts on neither until told: nothing is given out or placed meanwhile', twoOrders.yesAt > 0 && between.length === 0, `${between.length} step(s) between the yes and the answer`);
+    const gaveTwo = spoken.filter((line) => line.who === qm.name && /, order 2: I need to order /.test(line.text));
+    check('told "Order 2.", it gives order 2 to the technician and it is placed', twoOrders.namedAt > 0 && gaveTwo.length >= 1 && gaveTwo[0].at >= twoOrders.namedAt && orderKinds.length === 1 && orderKinds[0] === '3 Replacement Lights' && inBook(/^Order 2\. The Captain said yes\.$/), `${gaveTwo.map((line) => line.text).join(' | ') || 'never given'}; ordered: ${orderKinds.join('; ') || 'nothing'}`);
+    check('order 1 is not taken for answered: it is not given out, and the book has no yes for it', !qm.said.some((line) => /, order 1: I need to order /.test(line)) && !inBook(/^Order 1\. The Captain said (yes|no)\.$/), book.join(' | '));
   }
   if (VARIANT === 'qmpoor') {
     const asked = sentBy(qm, CAPTAIN, /Yes or no\?/);
