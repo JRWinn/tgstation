@@ -8,7 +8,9 @@
  * - It lights the engine one machine at a time, in the order jobs/engine.ts gives. Each step is
  *   something its body does at the machine, as a player would. A step that does not take is tried
  *   once more. If it still does not take, the job stops there, the emitters are not touched, and
- *   it tells the Chief Engineer which step it was.
+ *   it tells the Chief Engineer which step it was. A stop that was not the machine's fault (it
+ *   could not get to it, or had no free hand) it tries again by itself five minutes on, at most
+ *   twice, before it waits to be told (TRC-04).
  * - When every step is done and the emitters are on, it tells the Chief Engineer the engine is
  *   lit, and goes back to its post. It does not stand about in the engine room.
  * - Told "Emitters off, now", it drops whatever it is doing and switches them off. Nothing comes
@@ -86,6 +88,18 @@ const STANDING_DS = 1200;
 const STEP_TRIES = 2;
 /** How many times a step that failed for want of getting to the machine, or of a free hand, is tried before the job stops there (TRC-04). */
 const OTHER_TRIES = 5;
+/** How long (deciseconds) after a stop that was not the machine's fault it tries the engine again by itself (TRC-04). */
+const TRY_AGAIN_DS = 3000;
+/** How many times it tries the engine again by itself before it waits to be told (TRC-04). */
+const TRY_AGAIN_MAX = 2;
+/**
+ * A stop that was not the machine's fault, to be tried again by itself (TRC-04): when it stopped
+ * (null once tried again, or for a stop that is not to be), the count of the step that stopped
+ * it, and how many times it has tried again since it was last given the engine.
+ */
+type TryAgain = { at: number | null; key: string; count: number };
+const tryAgain = new WeakMap<NpcBrain, TryAgain>();
+
 /** How long (deciseconds) after saying a thing to the Chief Engineer it waits to hear that it was heard. */
 const HEARD_WAIT_DS = 250;
 /** How many times it says a thing to the Chief Engineer with no word back before it sends it by PDA. */
@@ -193,6 +207,27 @@ function syncTasks(brain: NpcBrain): void {
   // An engine room it has no steps for is not one it lights by guesswork.
   if (lighting(engine) && !lightingSteps(brain.machines)) {
     stick(brain, engine, UNKNOWN_ENGINE);
+  }
+  // Stopped for want of getting to a machine, or of a free hand: nothing wrong with the engine.
+  // A few minutes on the way may be clear, so it carries on from where it stopped, by itself, a
+  // couple of times before it leaves it to the Chief Engineer and the Captain (TRC-04).
+  const again = tryAgain.get(brain);
+  if (
+    again &&
+    again.at !== null &&
+    engine.stuck &&
+    engine.told &&
+    !engine.shut &&
+    !engine.shutting &&
+    again.count < TRY_AGAIN_MAX &&
+    brain.now - again.at >= TRY_AGAIN_DS
+  ) {
+    again.at = null;
+    again.count += 1;
+    engine.tries[again.key] = 0;
+    engine.stuck = null;
+    // Word not yet passed on that it has stopped is out of date now.
+    engine.words = engine.words.filter((word) => word.what !== 'stuck');
   }
   // With no Chief Engineer aboard there is nobody to tell.
   if (!chiefAboard(brain)) {
@@ -437,8 +472,11 @@ function cues(brain: NpcBrain): string[] {
     ];
   }
   if (engine.stuck) {
+    const again = tryAgain.get(brain);
     return [
-      `You could not light the engine: ${engine.stuck}. You have not switched the emitters on. It is for the Chief Engineer to say what happens next.`,
+      again?.at != null && again.count < TRY_AGAIN_MAX
+        ? `You could not light the engine: ${engine.stuck}. You have not switched the emitters on. Nothing is wrong with the machine, and you will try again in a few minutes.`
+        : `You could not light the engine: ${engine.stuck}. You have not switched the emitters on. It is for the Chief Engineer to say what happens next.`,
     ];
   }
   if (engine.lit) {
@@ -496,6 +534,8 @@ function takeWord(
     // Given the engine while it is already lighting it, it carries on from where it is.
     if (!lighting(engine) && !engine.lit) {
       startLighting(engine, from);
+      // Given the engine afresh, it may try again by itself as often as the first time.
+      tryAgain.delete(brain);
     } else {
       engine.by ??= from;
     }
@@ -631,6 +671,15 @@ export const ENGINEER: Job = {
               ? `I cannot get to the ${machine}`
               : `my hands are full and I cannot work the ${machine}`,
           );
+          // Not the machine's fault: tried again by itself a few minutes on (TRC-04).
+          const again = tryAgain.get(brain) ?? {
+            at: null,
+            key: other,
+            count: 0,
+          };
+          again.at = brain.now;
+          again.key = other;
+          tryAgain.set(brain, again);
         }
         return;
       }
