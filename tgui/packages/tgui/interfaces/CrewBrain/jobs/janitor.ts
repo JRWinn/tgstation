@@ -508,34 +508,53 @@ function mindPutDown(brain: NpcBrain): void {
  * janitor equips itself, in the order a person would try things: use what it knows of, look where
  * the gear is kept, and only then go and ask cargo.
  */
+/**
+ * With a dry mop and no water in sight (`dryMop`), the walk to a room it knows has a sink, to wet
+ * the mop there. Null if its mop is not dry, or it knows of no sink it could get to. Shared by the
+ * step for getting something to clean with and, for a mess elsewhere, the mess task itself: a
+ * janitor with a dry mop and a rag wets the mop first, as a person would before walking to the
+ * mess (DESK-03, the owner's answer B). `forMess` names that mess's room, for the words.
+ */
+function sinkWalk(brain: NpcBrain, forMess?: string): Plan | null {
+  if (!brain.dryMop) {
+    return null;
+  }
+  // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
+  // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
+  // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
+  // it from elsewhere, to find again that it could not get to it.
+  const noWater = noWaterHere(brain);
+  if (remembersSinkIn(brain, brain.location)) {
+    noWater.set(brain.location, brain.now);
+  }
+  const sinkRoom = [...brain.places.keys()].find(
+    (name) =>
+      name !== brain.location &&
+      remembersSinkIn(brain, name) &&
+      brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+  );
+  if (!sinkRoom) {
+    return null;
+  }
+  return {
+    ready: true,
+    step: forMess
+      ? `Your mop is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it before you set off for the mess in ${forMess}.`
+      : `You are holding a mop, but it is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it.`,
+    act: { tool: 'go_to', place: sinkRoom },
+  };
+}
+
 function supplyStep(brain: NpcBrain): Plan {
   // A dry mop is a tool once it is wet.
   if (brain.dryMop) {
-    // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
-    // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
-    // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
-    // it from elsewhere, to find again that it could not get to it.
-    const noWater = noWaterHere(brain);
-    if (remembersSinkIn(brain, brain.location)) {
-      noWater.set(brain.location, brain.now);
-    }
-    const sinkRoom = [...brain.places.keys()].find(
-      (name) =>
-        name !== brain.location &&
-        remembersSinkIn(brain, name) &&
-        brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+    return (
+      sinkWalk(brain) ?? {
+        ready: true,
+        step: 'You are holding a mop, but it is dry, and you do not know where there is a sink to wet it at. You are looking for one.',
+        act: { tool: 'explore' },
+      }
     );
-    return sinkRoom
-      ? {
-          ready: true,
-          step: `You are holding a mop, but it is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it.`,
-          act: { tool: 'go_to', place: sinkRoom },
-        }
-      : {
-          ready: true,
-          step: 'You are holding a mop, but it is dry, and you do not know where there is a sink to wet it at. You are looking for one.',
-          act: { tool: 'explore' },
-        };
   }
   const supply = knownSupply(brain);
   if (supply) {
@@ -961,7 +980,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     };
   }
   // A dry mop with water to hand: its own bucket, a mop bucket or cart with water in, or a sink.
-  if (brain.mopNeedsWater) {
+  // Only with water in sight: the server says the mop wants water wherever the body is, and with
+  // none here the "wetting" was a clean with the rag where it stood, failed, and tried again, and
+  // the janitor never set off (DESK-03).
+  if (brain.mopNeedsWater && (brain.sinkInView || !!brain.waterFrom)) {
     const water = brain.waterFrom ?? 'sink';
     const from = /^bucket$/i.test(water)
       ? 'you have water in your bucket'
@@ -979,6 +1001,15 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
           ? { tool: 'clean' }
           : { tool: 'clean', wet: true },
     };
+  }
+  // A dry mop, no water in sight, and the mess somewhere else: it goes to a sink it knows of to wet
+  // the mop first (DESK-03, the owner's answer B). A mess in the room it stands in is cleaned with
+  // what else it holds, a rag most often. Knowing of no sink, it sets off with the rag.
+  if (task.place !== brain.location) {
+    const toSink = sinkWalk(brain, task.place);
+    if (toSink) {
+      return toSink;
+    }
   }
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
