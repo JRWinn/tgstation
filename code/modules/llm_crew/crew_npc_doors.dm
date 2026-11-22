@@ -659,6 +659,11 @@
 		return null
 	if(known == post_place || (known in work_area) || (known in look_in_rooms))
 		return known
+	// The Quartermaster has no post: the rooms of its department, and its office, are its own (QM-05).
+	if(is_quartermaster())
+		var/area/room = crew_npc_station_places()[known]
+		if(known == office_place || istype(room, /area/station/cargo))
+			return known
 	return null
 
 /// Returns the area that goes by a room's name, as the body knows it.
@@ -668,7 +673,8 @@
 	return crew_npc_station_places()[room_name]
 
 /**
- * Tool: open the door of one of the body's rooms for someone. Cargo staff only.
+ * Tool: open the door of one of the body's rooms for someone. Cargo staff only, the Quartermaster
+ * among them: with no other technician about, it lets a shut-in technician out itself (QM-05).
  *
  * The room is its post unless another room of its department is named. Anyone inside is let out.
  * Only a janitor is let in, and only when there is a mess in there for them to clean: the door is
@@ -676,7 +682,7 @@
  * know. Someone standing at the door, or shut inside, need not be in sight: a door hides them.
  */
 /datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name, door_label)
-	if(!works_in_cargo() || isnull(post_turf))
+	if(!works_in_cargo() || (isnull(post_turf) && !is_quartermaster()))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no door of your own to open for anyone.")
 		return
 	var/room_name = own_room_named(place)
