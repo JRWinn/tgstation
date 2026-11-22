@@ -12,6 +12,7 @@
  *
  * What a kind of task takes to do is known by the job that owns that kind (see jobs/).
  */
+import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
 import {
   describeGuarding,
@@ -239,6 +240,60 @@ function keepsGoing(brain: NpcBrain, task: Task): boolean {
   task.blockedSince = undefined;
   const openLimit = (task.openSince ?? task.createdAt) + GIVE_UP_DS;
   return brain.now < Math.max(openLimit, task.keepUntil ?? 0);
+}
+
+/** What a crew member stuck in handcuffs says to its head (SEC-07, the owner's answer B). */
+export const STUCK_IN_CUFFS_LINE =
+  'I am in handcuffs and cannot get them off. Can someone from security take them off?';
+/** How long (milliseconds) before it says so again, if the server says again that it is still stuck. */
+const CUFFS_TOLD_AGAIN_MS = 600000;
+
+/**
+ * The server says the body is in handcuffs it cannot get off itself (`stuck_in_cuffs`). Whatever
+ * its job, it tells its own head, once: face to face if the head is in view, else by PDA. Only
+ * security takes the cuffs off (SEC-07, the owner's answer B); a head of staff tells the Captain.
+ * With no head in view or on its PDA, nobody is told.
+ */
+export function noteStuckInCuffs(brain: NpcBrain, event: SenseEvent): void {
+  const stuck = event.details.stuck_in_cuffs;
+  if (stuck !== true && stuck !== 1) {
+    return;
+  }
+  if (
+    brain.cuffsToldAt !== undefined &&
+    Date.now() - brain.cuffsToldAt < CUFFS_TOLD_AGAIN_MS
+  ) {
+    return;
+  }
+  const own = headOf(brain.job);
+  const headJob =
+    own && own.toLowerCase() !== brain.job.toLowerCase() ? own : 'Captain';
+  if (headJob.toLowerCase() === brain.job.toLowerCase()) {
+    return;
+  }
+  const isHeadJob = (job: string) =>
+    job.toLowerCase().includes(headJob.toLowerCase());
+  const seen = brain.peopleInView.find(
+    (person) => person.name !== brain.name && isHeadJob(person.job),
+  );
+  const onPda = brain.hasPda
+    ? brain.pdaPeople.find(
+        (person) => person.name !== brain.name && isHeadJob(person.job),
+      )
+    : undefined;
+  const to = seen?.name ?? onPda?.name;
+  if (!to) {
+    return;
+  }
+  brain.cuffsToldAt = Date.now();
+  brain.toTell.push({
+    to,
+    line: seen ? `${to.split(' ')[0]}, ${STUCK_IN_CUFFS_LINE}` : STUCK_IN_CUFFS_LINE,
+    why: `You are in handcuffs and cannot get them off yourself. Only security can take them off. You are telling ${to}, your head, so.`,
+    byPda: !seen,
+    exact: true,
+    at: Date.now(),
+  });
 }
 
 /**

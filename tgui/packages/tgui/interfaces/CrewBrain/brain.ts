@@ -63,6 +63,7 @@ import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
+  noteStuckInCuffs,
   placeNamedIn,
   syncTasks,
   takeToldWork,
@@ -823,6 +824,8 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.keptOut[event.details.put_out_of] = Date.now() + PUT_OUT_KEEPS_MS;
         brain.toldToLeave = null;
       }
+      // Stuck in handcuffs it cannot get off: its head is told, once (SEC-07).
+      noteStuckInCuffs(brain, event);
       if (event.details.in_the_way) {
         brain.inTheWay = {
           handle: String(event.details.in_the_way),

@@ -1705,6 +1705,8 @@ export type NpcBrain = {
    * the latest. Its department reads it to let that janitor in (PLAY-10 3, the owner's answer A).
    */
   calledOnOrder: { room: string; janitor: string; at: number }[];
+  /** When it last told its head it is stuck in handcuffs (this window's clock): said once a stay in them (SEC-07). */
+  cuffsToldAt?: number;
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
