@@ -64,7 +64,6 @@ import {
   calledIn,
   calledMe,
   DOCKED,
-  deadDoorAskLine,
   dutiesIn,
   GIVEN_WORDS,
   isQuartermaster,
@@ -2320,36 +2319,10 @@ function noteDeadDoor(brain: NpcBrain, task: Task, why: string): void {
       /head of personnel/i.test(person.job),
     )?.name;
   const inSight = !!name && brain.peopleInView.some((p) => p.name === name);
-  // A dead door goes to engineering: the Chief Engineer, else an engineer, by PDA (DOOR-14 B).
-  const known = [...brain.peopleInView, ...brain.pdaPeople];
-  const engineering = brain.hasPda
-    ? (known.find((person) => /chief engineer/i.test(person.job)) ??
-      known.find((person) => /\bengineer\b/i.test(person.job)))?.name
-    : undefined;
-  if (engineering) {
-    brain.toTell.push({
-      to: engineering,
-      line: deadDoorAskLine(
-        firstName(engineering),
-        'cargo',
-        room,
-        name ?? 'someone',
-        !!task.out,
-        why,
-      ),
-      why: `The door of the ${room} will not open: ${why}. Opening a door like that is engineering's work, so you are asking ${engineering} to send an engineer.`,
-      byPda: true,
-      at: Date.now(),
-    });
-  }
-  const toldOf = [
-    ...(engineering ? ['asked engineering to open it'] : []),
-    ...(head ? [`told ${head}`] : []),
-  ];
   if (name && (inSight || brain.hasPda)) {
     brain.toTell.push({
       to: name,
-      line: `${firstName(name)}, the door of the ${room} will not open: ${why}. I cannot let you ${way} that way.${toldOf.length > 0 ? ` I have ${toldOf.join(' and ')}.` : ''}`,
+      line: `${firstName(name)}, the door of the ${room} will not open: ${why}. I cannot let you ${way} that way.${head ? ` I have told ${head}.` : ''}`,
       why: `You went to open the door of the ${room} for ${name}, and it will not open: ${why}. You are telling them.`,
       byPda: !inSight,
       at: Date.now(),

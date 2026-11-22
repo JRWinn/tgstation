@@ -360,24 +360,3 @@ export const SHUT_IN_WORDS = /\bI am shut in the (.+?) and\b/i;
 /** A technician telling the Quartermaster that crates someone ordered have been lost, and why. */
 export const LOST_TOLD_WORDS =
   /\b(crates? #\d+(?:(?:, | and )#\d+)*) for (.+?) (?:is|are) lost: ([^.]+)\./i;
-
-/**
- * A department's staff asking engineering to open a door of theirs that will not open: no power,
- * bolted, welded or stuck (DOOR-14 B). Sent by PDA to the Chief Engineer, else to an engineer. It
- * is in the shape of security's ask (forceAskLine in jobs/forcing.ts), with the department and
- * why the person wants the door in place of the warrant: "Cara, cargo needs the door of the
- * Warehouse opened: Jan Mopp is shut inside. It has no power. Could you send an engineer, please?"
- */
-export function deadDoorAskLine(
-  to: string,
-  department: string,
-  room: string,
-  who: string,
-  out: boolean,
-  why: string,
-): string {
-  return `${to}, ${department} needs the door of the ${room} opened: ${who} is ${out ? 'shut inside' : 'waiting to be let in'}. ${why.charAt(0).toUpperCase()}${why.slice(1)}. Could you send an engineer, please?`;
-}
-/** Reads deadDoorAskLine back: the department, the room, who, and which way. */
-export const DEAD_DOOR_ASK_WORDS =
-  /\b(\w+) needs the door of the (.+?) opened: (.+?) is (shut inside|waiting to be let in)\b/i;
