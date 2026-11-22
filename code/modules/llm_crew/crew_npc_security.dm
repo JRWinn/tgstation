@@ -63,6 +63,10 @@
 	var/work_arrests = 0
 	/// Whoever the body has arrested and not yet put in a cell, as a weak reference.
 	var/datum/weakref/arrested
+	/// TRUE if they stood for it: the cuffs alone went on, with no baton. Whoever did, player or crew,
+	/// has the cuffs taken off in the cell (CHEAT-04, the owner's answer A). Judged by what they did, not
+	/// by whether a crew controller drives them.
+	var/arrested_stood = FALSE
 	/// The cell the body is taking them to, and for how many minutes.
 	var/datum/crew_npc_brig_cell/jail_cell
 	var/jail_minutes = 0
@@ -1031,7 +1035,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(errand_over(serial))
 			return broke_off(person_name, handle, 0)
 		if(cuffed_down)
-			return hold_arrested(person, 0, TRUE)
+			return hold_arrested(person, 0, TRUE, FALSE)
 		if(cuffed_by_other(person, cuffs))
 			stow_in_bag(cuffs)
 			return other_cuffs_outcome(person, handle, 0)
@@ -1078,7 +1082,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, hits)
 			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = hits))
-		return hold_arrested(person, hits, TRUE)
+		return hold_arrested(person, hits, TRUE, FALSE)
 	// The cuffs alone.
 	var/cuffed_alone = put_cuffs_on(person, cuffs, serial)
 	if(errand_over(serial))
@@ -1092,7 +1096,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(knocked_down_itself())
 			return knocked_down_outcome(person_name, handle, 0)
 		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
-	return hold_arrested(person, hits, TRUE)
+	// The cuffs alone went on: a quiet arrest stood for, or someone down already when the baton came.
+	return hold_arrested(person, hits, TRUE, how == CREW_ARREST_QUIET)
 
 /**
  * What an arrest comes to when it was called off part way: nothing more is done, and nobody is
@@ -1251,7 +1256,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return list(FALSE, "Someone else from security has put cuffs on [person.name] before you could.", list("handle" = handle, "reason" = "other_cuffs", "hits" = hits))
 
 /// Takes someone who is in cuffs by the arm. `hits` and `counted` are for the report: how many baton hits it took, and whether this is an arrest the body made.
-/datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
+/datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted, stood = null)
 	var/mob/living/carbon/human/body = pawn
 	var/handle = handle_for(person)
 	// One arrest for one person brought in, however many times the cuffs had to go on. `arrested` is
@@ -1259,6 +1264,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	// not take them, or after they got away, it is the same arrest.
 	if(counted && arrested?.resolve() != person)
 		work_arrests++
+	// `stood` is whether they stood for the cuffs this time. Null (taken by the arm in cuffs someone
+	// put on) keeps what it knew of the same arrest, and knows nothing of anyone else's.
+	if(!isnull(stood))
+		arrested_stood = stood
+	else if(arrested?.resolve() != person)
+		arrested_stood = FALSE
 	arrested = WEAKREF(person)
 	// Sat in a chair or lying in a bed is being strapped to it: walked off by the arm, they stay where
 	// they are and the hold breaks on the first step. Got up first, by the click a player makes.
@@ -1527,7 +1538,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		cell_refuses(cell, prisoner_name, "it walked in and [prisoner_name] did not come all the way in behind it")
 		return list(FALSE, "You cannot get [prisoner_name] all the way into [cell.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	body.stop_pulling()
-	if(istype(prisoner.ai_controller, /datum/ai_controller/crew_npc))
+	// Whoever stood for a quiet arrest, player or crew, has the cuffs taken off (CHEAT-04 A).
+	if(arrested_stood)
 		take_cuffs_off(prisoner, serial)
 	return null
 
@@ -1535,9 +1547,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
  *
  * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
- * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
- * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
- * they are in a cell, and the four seconds it takes are four seconds with the door open.
+ * in to the back of the cell, let go, step out, and start the timer, which shuts the door. Whoever
+ * stood for a quiet arrest, player or crew, has the cuffs taken off first (CHEAT-04 A). Anyone who
+ * had the baton is left in them: they are in a cell, and the four seconds it takes are four seconds
+ * with the door open.
  * Back at the timer of a cell it left them in and could not get out of (jail_left_inside), only
  * the timer is left to start.
  *
