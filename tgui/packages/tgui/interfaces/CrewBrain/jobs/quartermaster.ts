@@ -39,7 +39,12 @@ import type {
   SenseEvent,
   Task,
 } from '../types';
-import { itemsAskedFor, PAPER_WORDS } from './cargo';
+import {
+  asksOverTheMost,
+  itemsAskedFor,
+  MOST_AT_ONCE,
+  PAPER_WORDS,
+} from './cargo';
 import {
   captainName,
   hearReport,
@@ -509,7 +514,16 @@ function takeOrder(
   sendWord(
     brain,
     from,
-    `${NOTED} ${order.n}: ${orderWritten(items)}, ${credits(order.cost)} credits. I will send you the crate numbers when it comes in.`,
+    // More than four of a kind asked for: four are taken down, and they are told so (CARGO-05 A).
+    `${NOTED} ${order.n}: ${orderWritten(items)}, ${credits(order.cost)} credits. ${
+      asksOverTheMost(
+        said.toLowerCase(),
+        brain.orderable,
+        brain.pdaPeople.map((person) => person.name),
+      )
+        ? `${MOST_AT_ONCE} `
+        : ''
+    }I will send you the crate numbers when it comes in.`,
     `${from} has sent you an order. You have taken it down as order ${order.n} and are sending word back that it is noted.`,
   );
 }

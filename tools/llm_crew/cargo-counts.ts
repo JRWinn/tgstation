@@ -43,6 +43,27 @@ for (const [said, want] of [
 add('the Quartermaster\'s fixed line reads as before', read(' 2 crates of janitorial supplies and a crate of replacement lights'), ['2 Janitorial Supplies Crate', '1 Replacement Lights']);
 add('a name it knows is no kind and no count', read('two crates of light bulbs for Jan Mopp', ['Jan Mopp']), ['2 Replacement Lights']);
 
+// CARGO-05 A: more than four of a kind asked for is told "four is the most I can order at once".
+{
+  const C = await import(ROOT + 'jobs/cargo');
+  const over = (said: string) => C.asksOverTheMost(said.toLowerCase(), KINDS);
+  add('five crates is over the most', over('five crates of janitorial supplies'), true);
+  add('four is not', over('four crates of janitorial supplies'), false);
+  add('three and three of one kind named twice is', over('three janitorial supplies crates and three more janitorial supplies crates'), true);
+  add('four of one kind and two of another is not', over('four crates of janitorial supplies and two crates of light bulbs'), false);
+  add('the words', C.MOST_AT_ONCE, 'Four is the most I can order at once.');
+  const { makeBrain } = await import('./fixtures');
+  const b: any = makeBrain('Sam Tech', 'Cargo Technician');
+  b.orderable = KINDS;
+  b.peopleInView = [{ handle: 'p1', name: 'Hal Pott', job: 'Head of Personnel', distance: 1 }];
+  const act: any = { tool: 'order' };
+  C.CARGO.fills(b, act, '[12:00] Hal Pott says: "I need to order six crates of janitorial supplies, please."');
+  add('fills: four ordered, and marked as over the most', [act.count, act.over_most], [4, true]);
+  act.for = 'p1';
+  C.CARGO.afterActing(b, act, null, true, false, {}, 'You order 4 Janitorial Supplies Crate for Hal Pott at the supply console.');
+  add('and the placed line says so', b.toTell.at(-1)?.line, 'Hal, I have put your order in: 4 crates of janitorial supplies. I will send you the manifest number when it comes in. Four is the most I can order at once.');
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

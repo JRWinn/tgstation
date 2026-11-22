@@ -2637,7 +2637,7 @@ const COUNT_WORDS =
  * "2 janitorial crates", "three lots of", "a couple of", "x2" (CARGO-05). No more than the console
  * takes of one kind at once.
  */
-function countIn(said: string): number | null {
+function countIn(said: string, max = ORDER_MAX): number | null {
   const words = said.replace(NOT_A_COUNT, ' ');
   const times = words.match(/\bx\s?(\d{1,2})\b|\b(\d{1,2})\s?x\b/);
   const asked = times ? (times[1] ?? times[2]) : words.match(COUNT_WORDS)?.[1];
@@ -2645,7 +2645,7 @@ function countIn(said: string): number | null {
     return null;
   }
   const count = NUMBER_WORDS[asked] ?? Number(asked);
-  return count > 0 ? Math.min(ORDER_MAX, count) : null;
+  return count > 0 ? Math.min(max, count) : null;
 }
 
 /** TRUE if these words ask for this kind of crate, by the words it goes by or by its own name. */
@@ -2673,6 +2673,7 @@ export function itemsAskedFor(
   said: string,
   orderable: string[],
   names: string[] = [],
+  max = ORDER_MAX,
 ): { crate: string; count: number }[] {
   let words = said.replace(
     /\bfor (the |my |our |a |your )?(janitors?|cleaners?|custodians?|staff|crew|department)\b/g,
@@ -2693,7 +2694,7 @@ export function itemsAskedFor(
   for (const part of words.split(
     /[,;.?!]|\band\b|\bplus\b|\balso\b|\bas well as\b/,
   )) {
-    const said = countIn(part);
+    const said = countIn(part, max);
     if (said !== null) {
       each = /\beach\b/.test(part) ? said : null;
     }
@@ -2704,11 +2705,25 @@ export function itemsAskedFor(
       if (!item) {
         items.push({ crate, count: count ?? 1 });
       } else if (said !== null) {
-        item.count = Math.min(ORDER_MAX, item.count + said);
+        item.count = Math.min(max, item.count + said);
       }
     }
   }
   return items;
+}
+
+/** What it says when more than four of a kind were asked for: four is what it orders (CARGO-05 A). */
+export const MOST_AT_ONCE = 'Four is the most I can order at once.';
+
+/** TRUE if these words ask for more of some kind of crate than the console takes in one order. */
+export function asksOverTheMost(
+  said: string,
+  orderable: string[],
+  names: string[] = [],
+): boolean {
+  return itemsAskedFor(said, orderable, names, Number.POSITIVE_INFINITY).some(
+    (item) => item.count > ORDER_MAX,
+  );
 }
 
 /**
@@ -2891,7 +2906,7 @@ export const CARGO: Job = {
           Array.isArray(act.items) && act.items.length > 0
             ? (act.items as { crate: string; count: number }[])
             : [{ crate: String(act.crate ?? ''), count: Number(act.count ?? 1) }];
-        const line = placedLine(firstName(asker), orderSpoken(items));
+        const line = `${placedLine(firstName(asker), orderSpoken(items))}${act.over_most ? ` ${MOST_AT_ONCE}` : ''}`;
         brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: asker,
@@ -3196,6 +3211,16 @@ export const CARGO: Job = {
       action.items = items;
       action.crate = items[0].crate;
       action.count = items[0].count;
+      // More than four of a kind asked for: four are ordered, and they are told so (CARGO-05 A).
+      if (
+        asksOverTheMost(
+          said,
+          brain.orderable,
+          brain.pdaPeople.map((person) => person.name),
+        )
+      ) {
+        action.over_most = true;
+      }
     } else {
       action.count = countIn(said) ?? 1;
     }
