@@ -581,7 +581,15 @@ function readAnswer(
   aloud: boolean,
 ): boolean {
   const ledger = ledgerOf(brain);
-  const order = orderAnswered(ledger, text);
+  // The Captain's reply to "is that order 2 or order 1?": the yes or no they gave before is to
+  // the order they name now (QM-08 B).
+  const chosen = whichChosen(brain, ledger, text);
+  if (chosen) {
+    whichOf(ledger).which = null;
+    actOnAnswer(brain, chosen.order, chosen.answer);
+    return true;
+  }
+  let order = orderAnswered(ledger, text);
   // "Is order 2 approved?" asks; it does not answer.
   if (!order || sortLine(text) === 'question') {
     return false;
@@ -589,15 +597,31 @@ function readAnswer(
   const namesIt = new RegExp(`(?:\\border\\s*#?|#)\\s*${order.n}\\b`, 'i').test(
     text,
   );
+  let picked = namesIt;
   const words = text.split(/\s+/).filter(Boolean).length;
   // A crate named is a new order, unless it is only the kind the order asked about is for, in a
   // line that orders nothing: "yes, the paper one" is a yes to the paper order (PARSE-06).
   const named = kindsAskedFor(brain, text);
+  // With several waiting, the kind named may pick one out: "yes, the lights" (QM-08 B).
+  const waiting = waitingOnCaptain(ledger);
+  if (!namesIt && waiting.length > 1 && named.length > 0) {
+    const byKind = waiting.filter((one) =>
+      named.every((item) =>
+        one.items.some((theirs) => theirs.crate === item.crate),
+      ),
+    );
+    if (byKind.length === 1) {
+      order = byKind[0];
+      picked = true;
+    }
+  }
+  const answering = order;
   const newKind =
     named.length > 0 &&
     (sortLine(text) === 'order' ||
       named.some(
-        (item) => !order.items.some((theirs) => theirs.crate === item.crate),
+        (item) =>
+          !answering.items.some((theirs) => theirs.crate === item.crate),
       ));
   if ((!namesIt && words >= ANSWER_WORDS) || newKind) {
     return false;
@@ -611,6 +635,145 @@ function readAnswer(
     askWhatWasMeant(brain, captain, text, aloud, true);
     return true;
   }
+  // With two or more waiting on their say and none named, a bare yes or no is to neither until
+  // they say which (QM-08 B).
+  if (!picked && waiting.length > 1) {
+    askWhichOrder(brain, captain, answer, aloud);
+    return true;
+  }
+  whichOf(ledger).which = null;
+  actOnAnswer(brain, answering, answer);
+  return true;
+}
+
+/** Orders waiting on the Captain's say, the one asked about last first. */
+function waitingOnCaptain(ledger: Ledger): LedgerOrder[] {
+  return ledger.orders
+    .filter((order) => order.state === 'asking' && order.approved === null)
+    .sort((one, other) => (other.askedAt ?? -1) - (one.askedAt ?? -1));
+}
+
+/**
+ * The Captain's yes or no it is holding until they say which order it is to. Kept on the ledger,
+ * reached through `whichOf`: `types.ts`'s Ledger has no field for it yet.
+ */
+type WhichAsked = {
+  answer: 'yes' | 'no';
+  /** The orders it named in the question, by number. */
+  orders: number[];
+  /** Server time it last asked, and how many times in a row. */
+  at: number;
+  asks: number;
+};
+function whichOf(ledger: Ledger): { which?: WhichAsked | null } {
+  return ledger as Ledger & { which?: WhichAsked | null };
+}
+/** How long a yes or no is held for the Captain to say which order it was to. */
+const WHICH_MS = 10 * 60 * 1000;
+
+/**
+ * Asks the Captain which of the orders waiting on them a bare yes or no was to: "Captain, is that
+ * order 2 (1 Replacement Lights) or order 1 (1 Janitorial Supplies Crate)?", the one asked about
+ * last first. Nothing is done about any of them until they say. Asked at most twice in a row;
+ * after that the line is let go and the orders wait.
+ */
+function askWhichOrder(
+  brain: NpcBrain,
+  captain: string,
+  answer: 'yes' | 'no',
+  aloud: boolean,
+): void {
+  const ledger = ledgerOf(brain);
+  const waiting = waitingOnCaptain(ledger);
+  const held = whichOf(ledger);
+  const asks =
+    held.which && brain.now - held.which.at < WHICH_MS ? held.which.asks : 0;
+  held.which = {
+    answer,
+    orders: waiting.map((order) => order.n),
+    at: brain.now,
+    asks: asks + 1,
+  };
+  if (asks >= UNCLEAR_ASKS) {
+    return;
+  }
+  const named = waiting.map(
+    (order) => `order ${order.n} (${orderWritten(order.items)})`,
+  );
+  const choice = `${named.slice(0, -1).join(', ')} or ${named[named.length - 1]}`;
+  const why = `${captain} has said ${answer} about an order, and ${waiting.length} orders are waiting on the Captain's say. They did not say which, so you are asking before doing anything about any of them.`;
+  if (aloud) {
+    const line = `${firstName(captain)}, is that ${choice}?`;
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: captain,
+      line,
+      why,
+      exact: true,
+      whileBusy: true,
+      at: Date.now(),
+    });
+  } else {
+    sendWord(brain, captain, `Captain, is that ${choice}?`, why);
+  }
+}
+
+/**
+ * The order the Captain's reply picks out, with the yes or no held from before, when it was asked
+ * which order that was to: "Order 2.", "2", "#2", "the lights". A reply with a yes or no of its
+ * own is read as an answer in the usual way; one that picks out no single waiting order, none.
+ */
+function whichChosen(
+  brain: NpcBrain,
+  ledger: Ledger,
+  text: string,
+): { order: LedgerOrder; answer: 'yes' | 'no' } | null {
+  const held = whichOf(ledger).which;
+  if (
+    !held ||
+    brain.now - held.at >= WHICH_MS ||
+    yesOrNo(text) !== null ||
+    sortLine(text) === 'question' ||
+    sortLine(text) === 'cancel' ||
+    text.split(/\s+/).filter(Boolean).length >= ANSWER_WORDS
+  ) {
+    return null;
+  }
+  const waiting = waitingOnCaptain(ledger).filter((order) =>
+    held.orders.includes(order.n),
+  );
+  // A number is an order's after "order" or "#", or as the whole reply: "2." ("send 2 crates" is none).
+  const bare = text.match(/^\W*(?:the\s+)?(\d+)\W*$/i);
+  const numbers = [
+    ...[...text.matchAll(/(?:\border\s*#?|#)\s*(\d+)\b/gi)].map((found) =>
+      Number(found[1]),
+    ),
+    ...(bare ? [Number(bare[1])] : []),
+  ];
+  const byNumber = waiting.filter((order) => numbers.includes(order.n));
+  if (byNumber.length === 1) {
+    return { order: byNumber[0], answer: held.answer };
+  }
+  // A crate named in a line that orders it is a new order, not a pick: "the lights" is a pick.
+  if (numbers.length > 0 || sortLine(text) !== 'talk') {
+    return null;
+  }
+  const kinds = kindsAskedFor(brain, text).map((item) => item.crate);
+  const byKind = waiting.filter((order) =>
+    kinds.every((kind) => order.items.some((item) => item.crate === kind)),
+  );
+  return kinds.length > 0 && byKind.length === 1
+    ? { order: byKind[0], answer: held.answer }
+    : null;
+}
+
+/** Does as the Captain has said about one order: clears it, or refuses it and tells whoever ordered. */
+function actOnAnswer(
+  brain: NpcBrain,
+  order: LedgerOrder,
+  answer: 'yes' | 'no',
+): void {
+  const ledger = ledgerOf(brain);
   if (answer === 'no') {
     order.state = 'refused';
     ledger.toWrite.push(BOOK.no(order));
@@ -622,12 +785,11 @@ function readAnswer(
         `The Captain has refused order ${order.n}, which ${order.from} sent you. You are sending ${order.from} word of it.`,
       );
     }
-    return true;
+    return;
   }
   order.approved = 'captain';
   order.state = 'new';
   ledger.toWrite.push(BOOK.yes(order));
-  return true;
 }
 
 /**
