@@ -392,6 +392,57 @@ function declinedCall(brain: NpcBrain, task: Task): boolean {
   );
 }
 
+/** What the janitor noted of a room where what is left will not come off with what it holds. */
+type ClosedCall = { tool: string; line: string; told: Map<string, number> };
+
+/**
+ * The rooms where a janitor has done what it can and what is left will not come off with what it
+ * holds, by room (lower case): the tool it held, the words it sent, and when it last sent them to
+ * each caller. A call to such a room is closed on its side until it holds a different tool, as a
+ * call it turned down for want of soap or a rag is (KNB-08, the owner's answer A). Without this, a
+ * janitor let out of a room asked to be let straight back in to the same mess.
+ */
+const closedNotes = new WeakMap<NpcBrain, Map<string, ClosedCall>>();
+
+/** How long (deciseconds) before the same caller is told again that a room is closed to it. */
+const CLOSED_TOLD_DS = 600;
+
+/** The rooms this janitor has closed its calls to, by room. */
+function closedCalls(brain: NpcBrain): Map<string, ClosedCall> {
+  let notes = closedNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    closedNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/**
+ * Lets go of the closed rooms that no longer are: it holds a different tool (or has soap or a rag
+ * about it to take up), the mess there is gone from what it remembers, or something it remembers
+ * there is now one it could shift.
+ */
+function reopenCalls(brain: NpcBrain): void {
+  const notes = closedCalls(brain);
+  if (notes.size === 0) {
+    return;
+  }
+  const messy = new Set(brain.messPlaces.map((name) => name.toLowerCase()));
+  const workable = new Set(
+    brain.workablePlaces.map((name) => name.toLowerCase()),
+  );
+  for (const [room, note] of [...notes]) {
+    if (
+      brain.cleaningTool !== note.tool ||
+      !!scrubberToHand(brain) ||
+      !messy.has(room) ||
+      workable.has(room)
+    ) {
+      notes.delete(room);
+    }
+  }
+}
+
 /** TRUE if the body remembers a sink among the things of this room. */
 function remembersSinkIn(brain: NpcBrain, name: string): boolean {
   const place = brain.places.get(name);
@@ -630,6 +681,40 @@ function syncTasks(brain: NpcBrain): void {
       dropTask(brain, task);
     }
   }
+  // A call to a room where it has done what it can, and what is left will not come off with what
+  // it holds, is closed until it holds something else (KNB-08). Whoever calls is told so, and it
+  // does not go.
+  reopenCalls(brain);
+  const closed = closedCalls(brain);
+  for (const task of closed.size > 0 ? [...brain.tasks] : []) {
+    const note =
+      task.kind === CLEAN &&
+      task.state !== 'done' &&
+      task.source === 'told' &&
+      task.place
+        ? closed.get(task.place.toLowerCase())
+        : undefined;
+    if (!note) {
+      continue;
+    }
+    const caller = task.askedBy;
+    const toldAt = caller ? note.told.get(caller) : undefined;
+    if (
+      caller &&
+      brain.hasPda &&
+      (toldAt === undefined || brain.now - toldAt >= CLOSED_TOLD_DS)
+    ) {
+      note.told.set(caller, brain.now);
+      brain.toTell.push({
+        to: caller,
+        line: note.line,
+        why: `${caller} has called you to the mess in the ${task.place}. You have done what you can there, and what is left will not come off with your ${note.tool}. You are sending ${caller} a PDA message to say so, and not going back until you hold something else.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+    dropTask(brain, task);
+  }
   // The body keeps track of the messes it has seen and not yet seen gone. A room wants cleaning
   // for as long as it remembers one there: not seeing a mess from where it stands proves nothing.
   const messy = new Set(brain.messPlaces);
@@ -733,13 +818,23 @@ function syncTasks(brain: NpcBrain): void {
     ) {
       // One thing is said of the room, and it is true of all of it: that none of it would shift,
       // or that some is done and the rest would not.
+      const line = leftUnreached
+        ? `I have done what I can in the ${task.place}. I could not get to the rest.`
+        : task.cleanedSome
+          ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
+          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`;
+      // What is left will not come off: the room is closed to calls until it holds something
+      // else (KNB-08). What it could not get to is another matter, tried again later.
+      if (beyondIt && brain.cleaningTool) {
+        closedCalls(brain).set(task.place.toLowerCase(), {
+          tool: brain.cleaningTool,
+          line,
+          told: new Map([[task.askedBy, brain.now]]),
+        });
+      }
       brain.toTell.push({
         to: task.askedBy,
-        line: leftUnreached
-          ? `I have done what I can in the ${task.place}. I could not get to the rest.`
-          : task.cleanedSome
-          ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
-          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`,
+        line,
         why: leftUnreached
           ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what you could get to, and could not get to the rest. You are sending ${task.askedBy} a PDA message to say so.`
           : task.cleanedSome
