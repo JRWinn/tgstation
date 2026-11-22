@@ -45,6 +45,7 @@ import {
   ARREST_WORDS,
   addressOf,
   arrestLine,
+  EARLY,
   freeToGoLine,
   LET_IN_WORDS,
   letInFarLine,
@@ -132,6 +133,34 @@ const LET_IN_WAIT_DS = 900;
 const DOOR_TRIES = 2;
 /** How many people it asks to let it into a room before it gives that up. */
 const LET_IN_ASKS = 3;
+/** How long (deciseconds) after it puts someone in a cell before seeing them out of one counts: what it sees of the cells may be a moment behind (TRB-06). */
+const SEEN_OUT_AFTER_DS = 150;
+
+/** Someone it put in a cell, with when it put them there (TRB-06). */
+type JailedMore = BeatWork['jailed'][string] & { at?: number };
+
+/**
+ * TRUE if someone it put in a cell is in view and in no cell it can see running with them in it
+ * (TRB-06): let out by someone, or broken out. Someone in view inside a cell puts that cell in
+ * sight, so a cell it cannot see is no cell they are in.
+ */
+function seenOutEarly(
+  brain: NpcBrain,
+  name: string,
+  held: JailedMore,
+): boolean {
+  if (held.at !== undefined && brain.now - held.at < SEEN_OUT_AFTER_DS) {
+    return false;
+  }
+  if (!brain.peopleInView.some((person) => sameName(name, person.name))) {
+    return false;
+  }
+  return !(brain.security?.cells ?? []).some(
+    (cell) =>
+      !!cell.running &&
+      (cell.occupants ?? []).some((inside) => sameName(name, inside)),
+  );
+}
 
 /** What it knows of its own legwork. Made the first time it is asked for. */
 export function beatOf(brain: NpcBrain): BeatWork {
@@ -331,10 +360,16 @@ export function takeOutcomes(brain: NpcBrain): SecurityOutcome[] {
   return outcomes;
 }
 
-/** The names of those it knows to be shut in a cell: ones it put there, and ones it can see there. */
+/**
+ * The names of those it knows to be shut in a cell: ones it put there, unless it sees them out of
+ * one (TRB-06), and ones it can see there.
+ */
 function inCells(brain: NpcBrain): string[] {
+  const jailed = beatOf(brain).jailed;
   return [
-    ...Object.keys(beatOf(brain).jailed),
+    ...Object.keys(jailed).filter(
+      (name) => !seenOutEarly(brain, name, jailed[name] as JailedMore),
+    ),
     ...(brain.security?.cells ?? []).flatMap((cell) =>
       cell.running ? (cell.occupants ?? []) : [],
     ),
@@ -687,6 +722,11 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   for (const [name, held] of Object.entries(beat.jailed)) {
     if (brain.now > held.until) {
       delete beat.jailed[name];
+    } else if (seenOutEarly(brain, name, held as JailedMore)) {
+      // Seen out of the cells before their time, let out or broken out: the head is told, and
+      // the desk tells the Captain (TRB-06). Whether they are arrested again is the owner's to say.
+      delete beat.jailed[name];
+      beat.outcomes.push({ what: 'freed', name, cell: held.cell, why: EARLY });
     }
   }
 
@@ -1356,9 +1396,10 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       round.next = 0;
       round.at = brain.now;
     }
+    // What it cannot see, it does not know: in the dark it sees only what is beside it (CHEAT-15).
     return {
       ready: false,
-      step: `${name} is not in the ${hall}.`,
+      step: `You do not see ${name} in the ${hall}.`,
     };
   }
   return {
@@ -1705,6 +1746,12 @@ export function beatAfterActing(
     if (!ok) {
       more(warrant).arrestAttempts = (more(warrant).arrestAttempts ?? 0) + 1;
     }
+    // Someone else from security put their cuffs on them first (MULTI-01): no try at them, and
+    // not its own cuffs, so it does not say it has them. The next look sees them cuffed and
+    // leaves them, or takes them by the arm if nobody has them.
+    if (!ok && String(details.reason ?? '') === 'other_cuffs') {
+      return;
+    }
     // The cuffs went on, whether or not it then got a hold of them: they are its prisoner, and
     // whoever keeps the list is told so. Left unsaid, the list read "still wanted" for seven
     // minutes while it walked them about the station.
@@ -1825,7 +1872,8 @@ export function beatAfterActing(
         cell,
         until: brain.now + minutes * 600,
         cuffsLeft: !!details.cuffs_left,
-      };
+        at: brain.now,
+      } as JailedMore;
       beat.outcomes.push({
         what: 'jailed',
         name: warrant.name,

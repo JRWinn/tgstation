@@ -151,6 +151,8 @@ type DeskMore = DeskWork & {
     officer: string | null;
     going?: boolean;
   }[];
+  /** The officer that broke off hurt, so that "try again" goes to that one. */
+  hurtOfficer?: string;
 };
 
 /** The desk with what it keeps beyond DeskWork. */
@@ -650,12 +652,18 @@ export function deskTakes(
     // Its staff hurt again after this is news.
     forgetWords(brain, (what) => what === 'hurt');
     arrestAgain(brain);
-    const officer = officerAboard(brain);
+    // The officer that broke off hurt is the one told, while it is still aboard; else any.
+    const more = moreOf(brain);
+    const hurt = more.hurtOfficer;
+    delete more.hurtOfficer;
+    const officer =
+      hurt && officerKnown(brain, hurt) ? hurt : officerAboard(brain);
     if (officer) {
       tellOfficer(
         brain,
         againLine(officer),
         'The Captain has said to try again. You are telling your officer to make arrests again.',
+        officer,
       );
     }
     reply(
@@ -1091,6 +1099,7 @@ export function deskOutcome(
         );
       } else {
         desk.officerOut = 'hurt';
+        moreOf(brain).hurtOfficer = from;
         for (const it of desk.warrants) {
           it.given = 'no';
         }
