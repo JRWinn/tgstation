@@ -373,9 +373,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * Lets go of whatever the body is holding that is not its own baton or cuffs, the way anyone
  * drops what they have in their hands to draw a weapon. It goes on the floor at its feet: there
  * is no time to find a table for it. The owner: "when they need to pull their weapon they should
- * probably drop whatever they are holding".
+ * probably drop whatever they are holding". The same before the cuffs (KNA-05, the owner's yes):
+ * `what` names what it is drawing, for the log.
  */
-/datum/ai_controller/crew_npc/proc/drop_for_weapon()
+/datum/ai_controller/crew_npc/proc/drop_for_weapon(what = "its baton")
 	var/mob/living/carbon/human/body = pawn
 	var/list/dropped = list()
 	for(var/obj/item/held in body.held_items.Copy())
@@ -385,7 +386,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(body.dropItemToGround(held))
 			dropped += held_name
 	if(length(dropped))
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw its baton.")
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw [what].")
 
 /// Puts something the body holds into the bag on its back, by a click on the bag. Returns FALSE if it is still in its hand.
 /datum/ai_controller/crew_npc/proc/stow_in_bag(obj/item/thing)
@@ -1206,7 +1207,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/put_cuffs_on(mob/living/carbon/human/person, obj/item/restraints/handcuffs/cuffs, serial = null)
 	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(cuffs) || !draw_item(cuffs, CREW_NPC_KIT_GAP, serial))
+	if(QDELETED(cuffs))
+		return FALSE
+	// Whatever else it holds goes on the floor first, as before the baton (KNA-05): a thing pushed
+	// into its hand on the way up would otherwise go into its bag to free a hand, and stay there.
+	if(!body.is_holding(cuffs))
+		drop_for_weapon("its cuffs")
+	if(!draw_item(cuffs, CREW_NPC_KIT_GAP, serial))
 		return FALSE
 	// Twice, for someone who is down: they may be knocked a step off as the cuffs come up, and
 	// are down for long enough to go after once more. Someone on their feet who would not stay
