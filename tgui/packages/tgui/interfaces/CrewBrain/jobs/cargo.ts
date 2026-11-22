@@ -708,10 +708,69 @@ function heldFor(brain: NpcBrain, name: string): HeldCrate[] {
 }
 
 /**
+ * Held crates whose orderer has been told someone else took them, by `post:number`, for the whole
+ * department in this window: one technician tells them, once (SUP-17).
+ */
+const takenTold = new Set<string>();
+
+/**
+ * TRUE if this held crate has been taken out of cargo by someone who did not come for it at the
+ * counter. The server says so (`taken_away`); until the window maps that field, a crate with a
+ * taker that is no longer in any of the department's rooms or the lobby is taken (SUP-17).
+ */
+function takenAway(brain: NpcBrain, crate: HeldCrate): boolean {
+  const flag = (crate as HeldCrate & { takenAway?: boolean }).takenAway;
+  if (flag !== undefined) {
+    return flag && !!crate.takenBy;
+  }
+  return (
+    !!crate.takenBy &&
+    !ownRooms(brain).includes(crate.place) &&
+    !/\blobby\b/i.test(crate.place)
+  );
+}
+
+/**
+ * A held crate taken out of cargo in someone else's hands is not lost: it was taken. Whoever
+ * ordered it is told who has it, once, by PDA if not in sight: "Hop, Jan Mopp has taken crate
+ * #12." Taken by whoever it was for, it is collected, and nobody is told anything (SUP-17 1A 2A).
+ */
+function tellTaken(brain: NpcBrain): void {
+  for (const crate of brain.heldCrates) {
+    const key = `${brain.post ?? brain.id}:${crate.number}`;
+    if (
+      !crate.for ||
+      !crate.takenBy ||
+      crate.takenBy === crate.for ||
+      takenTold.has(key) ||
+      !takenAway(brain, crate)
+    ) {
+      continue;
+    }
+    takenTold.add(key);
+    const who = crate.takenBy === 'someone' ? 'someone' : crate.takenBy;
+    const inSight = brain.peopleInView.some(
+      (person) => person.name === crate.for,
+    );
+    if (!inSight && !brain.hasPda) {
+      continue;
+    }
+    brain.toTell.push({
+      to: crate.for,
+      line: `${firstName(crate.for)}, ${who} has taken crate #${crate.number}.`,
+      why: `Crate #${crate.number}, which ${crate.for} ordered, has been taken out of cargo by ${who}, not by anyone who came to the counter for it. You are telling ${crate.for} who has it.`,
+      byPda: !inSight,
+      at: Date.now(),
+    });
+  }
+}
+
+/**
  * Keeps the work on held crates true to what the server says is waiting, who has come for one, and
  * who is owed a reminder.
  */
 function syncHeld(brain: NpcBrain): void {
+  tellTaken(brain);
   // Whoever came to the counter for a crate has a task until it is out in the lobby for them.
   const asked = brain.pickupAsked;
   const crate =
@@ -3023,6 +3082,36 @@ export const CARGO: Job = {
     // Having walked up to the Quartermaster to say again what was not heard, near enough or not, it speaks.
     if (task && act.tool === 'approach' && task.telling) {
       task.walkedUp = true;
+    }
+    // Someone has taken the crate out of cargo already (SUP-17): there is nothing to bring out.
+    // The errand is over, and whoever came for it is told who has it; it is not tried again.
+    if (
+      task?.kind === HANDOVER &&
+      act.tool === 'release' &&
+      !ok &&
+      typeof details?.taken_by === 'string'
+    ) {
+      const taker = details.taken_by;
+      const held = brain.heldCrates.find(
+        (crate) => String(crate.number) === task.item,
+      );
+      if (held) {
+        held.takenBy = taker;
+      }
+      if (task.askedBy && task.askedBy !== taker) {
+        brain.toTell.push({
+          to: task.askedBy,
+          line: `${firstName(task.askedBy)}, ${taker === 'someone' ? 'someone' : taker} has taken crate ${task.item} out of cargo already.`,
+          why: `You went to bring crate #${task.item} out for ${task.askedBy}, and it has been taken out of cargo already. You are telling them so.`,
+          needs: new RegExp(`\\b${task.item}\\b`),
+          at: Date.now(),
+        });
+      }
+      if (brain.pickupAsked?.name === task.askedBy) {
+        brain.pickupAsked = null;
+      }
+      task.reported = true;
+      finishTask(brain, task);
     }
     // The crate is out in the lobby for whoever came for it, and they are told so by name.
     if (task?.kind === HANDOVER && ok && task.askedBy) {

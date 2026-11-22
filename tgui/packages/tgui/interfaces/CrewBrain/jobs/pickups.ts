@@ -452,12 +452,16 @@ export function pickupsAfterActing(
   }
   // Someone else has hold of the crate: they are taking it, and it is not this one's to pull out
   // of their hands. The errand is over, with no word to anyone: whoever has it tells the head
-  // when it is unpacked (MULTI-07).
+  // when it is unpacked (MULTI-07). Someone who has taken it out of cargo already is the same: it
+  // is not gone after again (SUP-17).
   if (
     act.tool === 'collect_crate' &&
     !ok &&
     (details?.held_by ||
-      /\b(already has hold of|has taken hold of)\b/i.test(text ?? ''))
+      details?.taken_by ||
+      /\b(already has hold of|has taken hold of|has taken crate #?\d+ away already)\b/i.test(
+        text ?? '',
+      ))
   ) {
     task.reported = true;
     finishTask(brain, task);
