@@ -46,6 +46,7 @@ import {
   PAPER_WORDS,
 } from './cargo';
 import {
+  answerSentAsk,
   captainName,
   hearReport,
   MEET,
@@ -54,6 +55,8 @@ import {
   meetingActed,
   meetingSaid,
   meetStep,
+  noteSaidSending,
+  noteSending,
   present,
   staffMeetingWord,
   syncMeeting,
@@ -2234,6 +2237,10 @@ export const QUARTERMASTER: Job = {
   // An order from a head, the Captain's answer about one, or the Captain telling it to find out
   // how its staff are doing, by PDA.
   readsMessage: (brain, from, text, at, job) => {
+    // A keeper asking whether it sent someone to a room (SECT-08 B).
+    if (answerSentAsk(brain, from, text, true)) {
+      return;
+    }
     // A technician sending word that they are on their way to its meeting, or their report
     // because they cannot come, as the other heads read it (KNB-09).
     if (staffMeetingWord(brain, from, text, at)) {
@@ -2318,6 +2325,13 @@ export const QUARTERMASTER: Job = {
     const speaker = String(event.details.speaker ?? '');
     const job = jobOf(brain, speaker);
     if (!speaker) {
+      return;
+    }
+    // A keeper, its own technician or another, asking whether it sent someone to a room (SECT-08 B).
+    if (
+      event.details.said_to !== 'other' &&
+      answerSentAsk(brain, speaker, heard, false)
+    ) {
       return;
     }
     if (isTechnician(job)) {
@@ -2412,6 +2426,8 @@ export const QUARTERMASTER: Job = {
     }
     const ledger = ledgerOf(brain);
     meetingSaid(brain, called);
+    // Whom a line of its sends where (SECT-08 B).
+    noteSaidSending(brain, called);
     // Having told a technician, in so many words, what is theirs this shift, it is theirs.
     const duty = dutiesIn(called);
     if (duty) {
@@ -2443,6 +2459,10 @@ export const QUARTERMASTER: Job = {
   afterActing: (brain, act, task, ok, looped, details, text) => {
     const ledger = ledgerOf(brain);
     meetingActed(brain, act, ok, looped);
+    // Whom a PDA message of its sends where (SECT-08 B).
+    if (ok && act.tool === 'message') {
+      noteSending(brain, String(act.person ?? ''), String(act.text ?? ''));
+    }
     // What it wrote is written. What it could not write waits for paper.
     if (act.tool === 'note' && ok) {
       const lines = Array.isArray(act.lines) ? act.lines.length : 0;
