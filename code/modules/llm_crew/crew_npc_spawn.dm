@@ -19,7 +19,63 @@
 	if(owner_ckey)
 		get_crew_brain_link(owner_ckey).add_npc(controller)
 	controller.learn_starting_places()
+	crew_npc_add_to_manifest(npc, outfit_type)
 	return npc
+
+/**
+ * Puts a crew NPC on the crew manifest, as the game does for anyone who joins the crew (CHEAT-02).
+ * The base game's GLOB.manifest.inject wants a mind with an assigned role, which a crew NPC has
+ * not, so the same two records inject makes are made here from the body: a locked record and a
+ * crew record, under its real name and the job on its ID card (or its outfit's job).
+ */
+/proc/crew_npc_add_to_manifest(mob/living/carbon/human/npc, datum/outfit/outfit_type)
+	if(QDELETED(npc) || find_record(npc.real_name))
+		return
+	var/obj/item/card/id/id_card = npc.get_idcard(hand_first = FALSE)
+	var/datum/outfit/job/job_outfit = outfit_type
+	var/datum/job/job = ispath(outfit_type, /datum/outfit/job) ? SSjob.get_job_type(initial(job_outfit.jobtype)) : null
+	var/assignment = id_card?.get_trim_assignment() || job?.title
+	if(!assignment)
+		return
+	var/mutable_appearance/character_appearance = new(npc.appearance)
+	var/person_gender = "Other"
+	if(npc.gender == "male")
+		person_gender = "Male"
+	if(npc.gender == "female")
+		person_gender = "Female"
+	var/datum/dna/stored/record_dna = new()
+	npc.dna.copy_dna(record_dna)
+	var/datum/record/locked/lockfile = new(
+		age = npc.age,
+		blood_type = npc.get_bloodtype()?.name || "UNKNOWN",
+		character_appearance = character_appearance,
+		dna_string = record_dna.unique_enzymes,
+		fingerprint = md5(record_dna.unique_identity),
+		gender = npc.gender,
+		initial_rank = assignment,
+		name = npc.real_name,
+		rank = assignment,
+		species = record_dna.species.name,
+		trim = assignment,
+		voice = npc.voice,
+		locked_dna = record_dna,
+		mind_ref = null,
+	)
+	new /datum/record/crew(
+		age = npc.age,
+		blood_type = npc.get_bloodtype()?.name || "UNKNOWN",
+		character_appearance = character_appearance,
+		dna_string = record_dna.unique_enzymes,
+		fingerprint = md5(record_dna.unique_identity),
+		gender = person_gender,
+		initial_rank = assignment,
+		name = npc.real_name,
+		rank = assignment,
+		species = record_dna.species.name,
+		trim = assignment,
+		voice = npc.voice,
+		lock_ref = REF(lockfile),
+	)
 
 ADMIN_VERB(spawn_crew_npc, R_SPAWN, "Spawn Crew NPC", "Spawns an AI-controlled janitor on your tile, owned by you.", ADMIN_CATEGORY_FUN)
 	var/turf/spawn_turf = get_turf(user.mob)
