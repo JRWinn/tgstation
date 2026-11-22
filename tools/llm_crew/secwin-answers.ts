@@ -105,6 +105,61 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('ARR-03: anyone else, baton in hand, is stopped, not run from', [!!open(o, 'stop_attacker'), !!open(o, 'get_away')], [true, false]);
 }
 
+// ---- ARR-04 A: a prisoner held in the brig with no cell is let go once the warrant's minutes are up there
+{
+  const o = officer();
+  A.giveWarrant(o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  const PUN = { handle: 'p9', name: 'Pun Pun', job: '', place: 'Brig', distance: 1, cuffed: 1, pulled_by: 'Hale Stone' };
+  o.security.holding = 'Pun Pun';
+  at(o, 5000, 'Brig', [PUN]);
+  const warrant = A.beatOf(o).warrants[0];
+  warrant.cuffedByMe = true;
+  warrant.noCellAt = 5000;
+  warrant.noCellWhy = 'no_cell';
+  A.syncBeat(o);
+  at(o, 5000 + 2999, 'Brig', [PUN]);
+  warrant.noCellAt = 5000 + 2990;
+  A.syncBeat(o);
+  add('ARR-04: held in the brig short of the warrant\'s five minutes: still held, nobody let go', [A.beatOf(o).warrants.length, A.beatOf(o).toFree.length], [1, 0]);
+  at(o, 5000 + 3001, 'Brig', [PUN]);
+  A.syncBeat(o);
+  add('ARR-04: five minutes on: the warrant is served, and they are to be let go', [A.beatOf(o).warrants.length, A.beatOf(o).toFree.map((it: any) => it.name)], [0, ['Pun Pun']]);
+  const free = open(o, 'let_go');
+  const plan = A.planBeat(o, free);
+  add('ARR-04: with the usual let-go step', [plan?.act, /served their time/.test(plan?.step ?? '')], [{ tool: 'free', person: 'Pun Pun' }, true]);
+  A.beatAfterActing(o, plan.act, free, true, {});
+  add('ARR-04: and "Pun Pun is free" goes to whoever keeps the list', A.takeOutcomes(o), [{ what: 'freed', name: 'Pun Pun' }]);
+}
+{
+  // Resisting adds its five minutes here too.
+  const o = officer();
+  A.giveWarrant(o, { name: 'Pun Pun', reason: 'theft', minutes: 5 });
+  const PUN = { handle: 'p9', name: 'Pun Pun', job: '', place: 'Brig', distance: 1, cuffed: 1, pulled_by: 'Hale Stone' };
+  o.security.holding = 'Pun Pun';
+  at(o, 5000, 'Brig', [PUN]);
+  const warrant = A.beatOf(o).warrants[0];
+  Object.assign(warrant, { cuffedByMe: true, noCellAt: 5000, noCellWhy: 'no_cell', resisted: true });
+  A.syncBeat(o);
+  at(o, 5000 + 3001, 'Brig', [PUN]);
+  A.syncBeat(o);
+  add('ARR-04: one who resisted is held ten minutes, not five', A.beatOf(o).toFree.length, 0);
+}
+{
+  // The Head of Security, told "Hale, Pun Pun is free." of one still on its list, strikes the warrant off.
+  const D = await import(ROOT + 'jobs/desk');
+  const h: any = makeBrain('Joan Hale', 'Head of Security');
+  h.pdaPeople = [{ name: 'Zim Fire', job: 'Captain' }, { name: 'Hale Stone', job: 'Security Officer' }];
+  h.staffPost = 'Security Office';
+  h.office = 'Security Office';
+  know(h, ['Security Office', 'Bar', 'Brig']);
+  h.security = { has_baton: 1, has_cuffs: 1, holding: null, health: 90, baton_seen: null, cells: [] };
+  at(h, 3000, 'Security Office');
+  D.deskTakes(h, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for theft.', false);
+  add('(the warrant is on the list)', D.deskOf(h).warrants.map((w: any) => w.name), ['Pun Pun']);
+  D.deskTakes(h, 'Hale Stone', 'Security Officer', 'Joan, Pun Pun is free.', false);
+  add('ARR-04: told they are free, the Head of Security strikes the warrant off', D.deskOf(h).warrants.map((w: any) => w.name), []);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

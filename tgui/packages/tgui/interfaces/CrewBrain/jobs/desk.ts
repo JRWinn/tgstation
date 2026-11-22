@@ -1159,6 +1159,16 @@ export function deskOutcome(
       if (held) {
         delete desk.held[held];
       }
+      // Free with a warrant still on the list: held in the brig with no cell, they have served
+      // their time there and been let go (ARR-04). The warrant is served, as a cell that has run
+      // out is: struck off, and nobody is sent after them again.
+      if (warrant && outcome.why !== EARLY) {
+        desk.warrants = desk.warrants.filter((it) => it !== warrant);
+        desk.serial += 1;
+        if (!own) {
+          forgetWarrant(brain, warrant.name);
+        }
+      }
       // Let out: nobody need go to the cell (TRB-11).
       {
         const more = moreOf(brain);

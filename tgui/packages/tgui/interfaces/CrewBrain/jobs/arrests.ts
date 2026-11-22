@@ -511,6 +511,54 @@ export function waitingWith(brain: NpcBrain): string | null {
   );
 }
 
+/** A warrant with when its person began to wait in the brig for a cell (ARR-04). It belongs on BeatWarrant in types.ts. */
+type WaitingWarrant = BeatWarrant & { brigSince?: number };
+
+/** One to be let go, and whether it is because their time is served, waiting in the brig with no cell (ARR-04). */
+type FreeMore = BeatWork['toFree'][number] & { served?: boolean };
+
+/**
+ * A prisoner it holds in the brig with no cell for them serves their time there (ARR-04, the
+ * owner's answer A). The clock starts when it first waits with them in the brig for a cell, and
+ * runs while it holds them. Once the warrant's minutes (more for resisting) are up, the warrant
+ * is served: it lets them go with the usual let-go step, and "X is free" goes to whoever keeps
+ * the list, as for a cell that has run out.
+ */
+function serveTimeInBrig(brain: NpcBrain): void {
+  const beat = beatOf(brain);
+  const brig = brigPlace(brain);
+  for (const warrant of [...beat.warrants] as WaitingWarrant[]) {
+    if (!holds(brain, warrant)) {
+      warrant.brigSince = undefined;
+      continue;
+    }
+    if (
+      warrant.brigSince === undefined &&
+      waitsForCell(brain, warrant) &&
+      !!brig &&
+      brain.location === brig
+    ) {
+      warrant.brigSince = brain.now;
+    }
+    if (
+      warrant.brigSince === undefined ||
+      brain.now - warrant.brigSince < minutesFor(warrant) * 600
+    ) {
+      continue;
+    }
+    beat.warrants = beat.warrants.filter((it) => it !== warrant);
+    if (!beat.toFree.some((it) => sameName(it.name, warrant.name))) {
+      const free: FreeMore = {
+        name: warrant.name,
+        pardoned: false,
+        tries: 0,
+        served: true,
+      };
+      beat.toFree.push(free);
+    }
+  }
+}
+
 /** The main hallways it walks when it has nobody's whereabouts to go on, in a fixed order. */
 function hallways(brain: NpcBrain): string[] {
   return allPlaces(brain)
@@ -590,6 +638,7 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
       beat.warrants[0];
     beat.outcomes.push({ what: 'hurt', name: about?.name ?? '' });
   }
+  serveTimeInBrig(brain);
   // Seeing someone it has a warrant on is a sighting like any other: where, and when. Left to
   // word from others alone, it saw the monkey across a hallway, walked on, and did not know
   // where to go back to.
@@ -1427,7 +1476,7 @@ function freeStep(brain: NpcBrain, name: string): Plan {
   }
   return {
     ready: true,
-    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
+    step: `${name} is to be let go${free.pardoned ? ': the Captain has pardoned them' : (free as FreeMore).served ? ': there was no cell for them, and they have served their time with you in the brig' : ': the warrant on them is withdrawn'}. You are letting them go now.`,
     act: { tool: 'free', person: name },
   };
 }
