@@ -35,7 +35,7 @@ add('a walk out that failed because the body was knocked down is no word for any
   t.hasPda = true;
   t.pdaPeople = [{ name: 'Quin Master', job: 'Quartermaster' }, { name: 'Joan Marsh', job: 'Head of Security' }];
   at(t, 4000, 'Cargo Bay', [{ handle: 'p4', name: 'Unknown', job: '', place: 'Cargo Bay', distance: 1, in_post: 1 }]);
-  wantedAfterActing(t, { tool: 'throw_out', person: 'p4' }, false, 'You cannot get a hold of Unknown.');
+  wantedAfterActing(t, { tool: 'throw_out', person: 'p4' }, false, 'You could not get Unknown out of Cargo Bay: they got away from you.');
   syncWanted(t);
   add('a technician who could not put out Unknown tells its head plainly, with no name', t.toTell.map((tell: any) => tell.line), ['Quin, someone with their face hidden would not leave the Cargo Bay.']);
   const q = makeBrain('Quin Master', 'Quartermaster');

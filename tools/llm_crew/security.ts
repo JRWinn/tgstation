@@ -573,7 +573,8 @@ add('someone it had no right to put out is no word for anyone', said(outranked),
 for (const [why, line, word] of [
   ['a stranger the body never reached', 'You could not get to it.', []],
   ['a walk out that took too long', 'You could not get Pun Pun out of Cargo Bay: it was taking too long.', []],
-  ['a stranger it could not get a hold of', 'You cannot get a hold of Pun Pun.', ['PDA to Quin Master: Quin, I could not put Pun Pun out of the Cargo Bay.']],
+  // API-01, answer B: no hold got is not their refusing (buckled, anchored, too heavy, the body unable to pull).
+  ['a stranger it could not get a hold of', 'You cannot get a hold of Pun Pun.', []],
 ] as const) {
   const t = makeBrain('Cora Tech', 'Cargo Technician');
   t.post = 'Cargo Bay'; t.pdaPeople = tech.pdaPeople;
