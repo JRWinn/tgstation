@@ -350,7 +350,11 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
 		// A hold lost because this body itself went down is its own trouble, not theirs: they did not get away.
 		if(why == "they got away from you" && (body.incapacitated || body.body_position == LYING_DOWN))
 			why = "you were knocked down"
-		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].")
+		// Only a hold they broke is their refusing to go (MULTI-08, the owner's answer B; API-01): the
+		// walk timing out, no way to the door, the body going down, or them being down, in cuffs or
+		// strapped to a seat is no refusal. The window needs that and the telling to leave before a warrant.
+		var/broke_hold = reason == "they got away from you" && why == reason && !crew_npc_person_down(person) && !person.handcuffed && !person.buckled
+		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].", list("would_not_go" = broke_hold, "person" = person.name))
 
 /// Someone has taken this body by the arm to walk it out of a room. It goes along with it.
 /datum/ai_controller/crew_npc/proc/taken_hold_of(mob/living/carbon/human/by, place)
