@@ -75,3 +75,7 @@ Read `crew_npc_held.dm` end to end (`crew_npc_crate_lost`, `crew_npc_held_crates
 ## Not started (m-cargosrv, 2026-11-19)
 
 Skipped: step 0 is the owner's question (the secure-areas plan lists both "gone from cargo's rooms" and "emptied" as lost on purpose), and steps 2 to 4 change that rule.
+
+## Fix so far (answer 1 A, 2 A, 2026-11-22: server part)
+
+Built in `crew_npc_held.dm`. A cargo body that can see a held crate being pulled by someone who is not a crew NPC notes their shown name on the entry (`note_held_pullers`, `seen_pulled_by`, cleared when a crew NPC takes hold of it). A held crate out of every `/area/station/cargo` room and off the shuttle, with no crew collector, and pulled now by someone not a crew NPC or seen pulled before, is marked taken (`crew_npc_crate_taken_away`): `taken_by` is that name, or "someone" if nobody saw who. A taken crate is never lost, is not reminded of, cannot be released or collected (the tool says who took it), and stays on the held list, marked, for 10 minutes (`CREW_NPC_HELD_TAKEN_KEEP`) so cargo's brains are told, then is dropped. "Emptied" now counts only inside cargo's rooms (step 3). The window is sent `taken_by` (the crew collector's name or the taker's) and a new `taken_away: true` for a taken one. Left to the window (a-cargo): telling the orderer "<first>, <name> has taken crate #N.", and treating a crate taken by its own orderer as collected (no message to them; the Quartermaster's book closes the order). Compile only.
