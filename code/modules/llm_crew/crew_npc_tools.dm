@@ -630,6 +630,12 @@
 		else if(get_dist(pawn, target) <= CREW_NPC_NEAR_ENOUGH && (target in view(CREW_NPC_VISION_RANGE, pawn)))
 			action_result(tool, TRUE, "You cannot get any closer to [goal], but you are near enough to talk.", details)
 		else
+			// Lost sight of on the way (CORE-03): the room they were last seen near goes with it, as the
+			// errand's lost_sight_errand sends it.
+			var/static/regex/lost_sight = regex(@"^you lost sight of .+ near (.+)$")
+			if(istext(reason) && lost_sight.Find(reason))
+				details["lost_sight"] = TRUE
+				details["near"] = lost_sight.group[1]
 			action_result(tool, FALSE, "You stop walking to [goal]: [why].", details)
 		return
 
