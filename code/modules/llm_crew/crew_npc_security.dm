@@ -57,6 +57,8 @@
 #define CREW_CUSTODY_ARREST "arrest"
 #define CREW_CUSTODY_CELL "cell"
 #define CREW_CUSTODY_CUFFS "cuffs"
+/// Real tries at working its cuffs off before a body left in them says it cannot do it alone (SEC-07). It keeps trying after.
+#define CREW_NPC_CUFF_TRIES_ALONE 3
 
 /datum/ai_controller/crew_npc
 	/// How many arrests the body has made this shift. Its head hears of them at staff meetings.
@@ -106,6 +108,8 @@
 	var/custody_cell
 	/// How many times it has tried to work its cuffs off since it was left in them.
 	var/cuff_tries = 0
+	/// TRUE once it has been told it cannot get its cuffs off by itself (SEC-07), since it was left in them.
+	var/cuffs_stuck_told = FALSE
 
 /// TRUE if the body is the Head of Security, who heads the security staff.
 /datum/ai_controller/crew_npc/proc/is_head_of_security(mob/living/carbon/human/body = pawn)
@@ -2037,12 +2041,20 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				if(length(body.do_afters))
 					cuff_tries++
 					log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) begins try [cuff_tries] at working its cuffs off, at [AREACOORD(body)].")
+					// Three real tries have come to nothing. It keeps at them, and says so once: only
+					// security takes cuffs off one of the crew (SEC-07, the owner's answer B), and its brain
+					// may tell its head. Nobody else is asked to.
+					if(cuff_tries > CREW_NPC_CUFF_TRIES_ALONE && !cuffs_stuck_told)
+						cuffs_stuck_told = TRUE
+						log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) cannot get its cuffs off by itself after [CREW_NPC_CUFF_TRIES_ALONE] tries, at [AREACOORD(body)].")
+						emit_sense(CREW_SENSE_KNOWLEDGE, "You cannot get these handcuffs off by yourself. Only security can take them off you.", list("stuck_in_cuffs" = TRUE, "tries" = cuff_tries - 1))
 	if(!held && custody_phase != CREW_CUSTODY_CUFFS && body.handcuffed)
 		// Let go of, or the cell has opened, and still in cuffs. It sets about getting out of them.
 		custody_phase = CREW_CUSTODY_CUFFS
 		custody_timer = null
 		custody_cell = null
 		cuff_tries = 0
+		cuffs_stuck_told = FALSE
 		held = TRUE
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was left in cuffs at [AREACOORD(body)], and is working them off.")
 		emit_sense(CREW_SENSE_KNOWLEDGE, "You are still in handcuffs, and nobody is taking them off. You start working them off.", list("working_off_cuffs" = TRUE))
@@ -2273,3 +2285,4 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_CUSTODY_ARREST
 #undef CREW_CUSTODY_CELL
 #undef CREW_CUSTODY_CUFFS
+#undef CREW_NPC_CUFF_TRIES_ALONE
