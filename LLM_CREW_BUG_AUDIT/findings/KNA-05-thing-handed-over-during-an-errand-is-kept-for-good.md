@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 6cbf2eeb8e8
+fixed_in: 6cbf2eeb8e8, 64afbbe6e12
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: hands

@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 04e2fea955d
+fixed_in: 04e2fea955d, 4217de7e56e
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo

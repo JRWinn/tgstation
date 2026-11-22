@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: b2802ed8b07
+fixed_in: b2802ed8b07, 5ae2bd74066
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core

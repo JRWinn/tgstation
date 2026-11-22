@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: a1ef28d2779
+fixed_in: a1ef28d2779, f2c1d5d51db
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: memory

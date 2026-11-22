@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: likely
 status: fixed
-fixed_in: 7be2e1630f1
+fixed_in: 7be2e1630f1, 958f33cbc65
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: driver

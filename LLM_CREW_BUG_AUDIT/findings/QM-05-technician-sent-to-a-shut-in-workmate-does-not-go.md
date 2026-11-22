@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: b3d0e838950, 004e23bcb2b
+fixed_in: b3d0e838950, 004e23bcb2b, f49a77bd637, 22ea65912ab
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: quartermaster

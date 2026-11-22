@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: d403dbf015f, 07fa697a1f8
+fixed_in: d403dbf015f, 07fa697a1f8, f2c1d5d51db
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: supply

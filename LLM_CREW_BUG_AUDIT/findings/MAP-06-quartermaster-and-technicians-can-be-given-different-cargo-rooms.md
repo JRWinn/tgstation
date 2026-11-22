@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: ac9305eff46
+fixed_in: ac9305eff46, e4ceb5c8cf5
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo

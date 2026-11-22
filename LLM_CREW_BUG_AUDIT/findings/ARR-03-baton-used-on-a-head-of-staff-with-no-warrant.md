@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 3ee1db32f6f, 7bf567c25fc, 111a7206845
+fixed_in: 3ee1db32f6f, 7bf567c25fc, 111a7206845, 5bad3bf6742
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security

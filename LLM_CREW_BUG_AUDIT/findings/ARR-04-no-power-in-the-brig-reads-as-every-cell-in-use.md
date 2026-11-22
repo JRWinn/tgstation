@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: bc5dda1b405
+fixed_in: bc5dda1b405, fb28056030a
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security

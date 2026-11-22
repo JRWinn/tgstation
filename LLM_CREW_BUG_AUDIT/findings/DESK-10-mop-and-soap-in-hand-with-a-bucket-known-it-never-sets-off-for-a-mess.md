@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: 44493665320, 2b1a0d353be
+fixed_in: 44493665320, 2b1a0d353be, 09348441855
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor

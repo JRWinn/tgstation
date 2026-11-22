@@ -5,7 +5,8 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: found
+status: fixed
+fixed_in: 2656f69bbf7
 found_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:752, tgui/packages/tgui/interfaces/CrewBrain/jobs/guarding.ts:261, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:2919, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:902

@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: likely
 status: fixed
-fixed_in: bd93759d5eb
+fixed_in: bd93759d5eb, 7a0d9c3eb5c, 0389480d858, 283027d0591, 2656f69bbf7, fcdb41a2fbe
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: ca0fd5941bf, f6b61e0a350
+fixed_in: ca0fd5941bf, f6b61e0a350, 46a06e15eb0, 1aa2b103e13, 131c8e461b1, 055100dde23
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo

@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9a5a1f96b62
+fixed_in: 9a5a1f96b62, 51cfeb1a3e7, 2cedd6710a4
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo

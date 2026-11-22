@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: cdcda46f592
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: head

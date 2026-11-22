@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 5e627c94c3e
+fixed_in: 5e627c94c3e, a905d4e859d
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: quartermaster

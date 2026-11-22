@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9b3ba456b48, 45be421d6c1
+fixed_in: 9b3ba456b48, 45be421d6c1, a21fd388736, 39499e933ba, 2656f69bbf7, 822b93df5f6, d4723638009
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security

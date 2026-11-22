@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: fixed
-fixed_in: e5a28a5a127
+fixed_in: e5a28a5a127, 2738498a755
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core

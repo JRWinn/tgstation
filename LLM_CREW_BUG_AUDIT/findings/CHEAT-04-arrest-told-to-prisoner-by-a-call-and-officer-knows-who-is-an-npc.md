@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: c136092e8fc, a4dbe4585b4
+fixed_in: c136092e8fc, a4dbe4585b4, a0442a40d06
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

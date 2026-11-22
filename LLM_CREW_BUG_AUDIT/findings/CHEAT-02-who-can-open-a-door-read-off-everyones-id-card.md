@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: c6f74f1e256, 1e0ad3f0dfd
+fixed_in: c6f74f1e256, 1e0ad3f0dfd, 1b02ee873b1, 6756fbbc7c7, 352429e2c22
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core

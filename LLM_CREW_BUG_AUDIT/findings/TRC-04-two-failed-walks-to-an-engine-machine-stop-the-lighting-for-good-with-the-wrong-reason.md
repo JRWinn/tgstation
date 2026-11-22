@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9d32175335d, 484615cefa6
+fixed_in: 9d32175335d, 484615cefa6, 0dddc8240f4
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: ce07c72f8e5
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo

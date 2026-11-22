@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: fixed
-fixed_in: f4cd1ae82b2
+fixed_in: f4cd1ae82b2, 0ab17cab33d
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering

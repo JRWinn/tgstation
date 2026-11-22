@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 9f42272152a, 07fa697a1f8
+fixed_in: 9f42272152a, 07fa697a1f8, f2c1d5d51db
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
