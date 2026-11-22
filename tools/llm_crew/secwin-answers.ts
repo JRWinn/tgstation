@@ -160,6 +160,27 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('ARR-04: told they are free, the Head of Security strikes the warrant off', D.deskOf(h).warrants.map((w: any) => w.name), []);
 }
 
+// ---- SENSE-08 / CHEAT-15 A: the server refusing an arrest of a Captain known by face
+{
+  const S = await import(ROOT + 'jobs/security');
+  const o = officer();
+  A.giveWarrant(o, { name: 'Zim Fire', reason: 'theft', minutes: 5 });
+  at(o, 5000, 'Bar', [{ handle: 'p9', name: 'Zim Fire', job: '', place: 'Bar', distance: 2 }]);
+  A.syncBeat(o);
+  const task = open(o, 'serve_warrant');
+  const warrant = A.beatOf(o).warrants[0];
+  warrant.toldAt = 4990;
+  A.beatAfterActing(o, { tool: 'arrest', person: 'p9', how: 'quiet' }, task, false, { reason: 'captain_known', handle: 'p9' });
+  const why = 'they are the Captain: I know their face, and nobody lays a hand on the Captain';
+  add('SENSE-08: refused as the Captain known by face: no try, its own words told once', [warrant.tries, A.takeOutcomes(o)], [0, [{ what: 'cannot', name: 'Zim Fire', why }]]);
+  add('SENSE-08: and they are passed over', A.planBeat(o, task)?.act?.tool === 'arrest', false);
+  A.beatAfterActing(o, { tool: 'arrest', person: 'p9', how: 'quiet' }, task, false, { reason: 'captain_known', handle: 'p9' });
+  add('SENSE-08: refused again: not told again', A.takeOutcomes(o), []);
+  const line = S.outcomeLine('Joan', { what: 'cannot', name: 'Zim Fire', why });
+  add('SENSE-08: the line to the Head of Security', line, 'Joan, I cannot bring in Zim Fire: they are the Captain: I know their face, and nobody lays a hand on the Captain.');
+  add('SENSE-08: which it reads back whole', S.readOutcome(line), { what: 'cannot', name: 'Zim Fire', why });
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

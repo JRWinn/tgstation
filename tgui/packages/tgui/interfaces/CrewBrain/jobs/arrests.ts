@@ -85,6 +85,13 @@ const NO_WAY_TO_THEM = 'they are in sight, but there is no way through to them';
 /** Why there is no arrest of someone the server would not let it touch: they wear or hold a Captain's ID. */
 const CAPTAIN_CARD =
   "they carry a Captain's ID, and nobody lays a hand on the Captain";
+/**
+ * Why there is no arrest of someone the server would not let it touch because it knows them by
+ * face for the Captain, card or no card (SENSE-08 / CHEAT-15, the owner's answer A). No full stop
+ * inside: the Head of Security reads the why up to the first one, and passes it on whole.
+ */
+const CAPTAIN_FACE =
+  'they are the Captain: I know their face, and nobody lays a hand on the Captain';
 /** How long (deciseconds) someone the server would not let it arrest is passed over. They may take the card off. */
 const REFUSED_DS = 3000;
 /** How long (deciseconds) a warrant dropped by a pardon or taken back is remembered, for an arrest still under way. */
@@ -1777,7 +1784,9 @@ export function beatAfterActing(
         attacker.stopped = true;
         // Refused because they are the Captain or a head of staff: still word for the list.
         const spared =
-          details.reason === 'captain' || details.reason === 'command';
+          details.reason === 'captain' ||
+          details.reason === 'captain_known' ||
+          details.reason === 'command';
         if ((ok || spared) && !attacker.told) {
           attacker.told = true;
           const about = beat.warrants.find(
@@ -1831,7 +1840,9 @@ export function beatAfterActing(
     const reason = String(details.reason ?? '');
     // The server would not let it lay a hand on them: they carry a Captain's ID. That is no try
     // and no refusal to stand still. They are passed over a while, and the list is told why, once.
-    if (reason === 'captain') {
+    // Known by face for the Captain, with no Captain's ID on show, is the same, in its own words.
+    if (reason === 'captain' || reason === 'captain_known') {
+      const why = reason === 'captain' ? CAPTAIN_CARD : CAPTAIN_FACE;
       warrant.refused = [
         ...(warrant.refused ?? []).filter(
           (it) => brain.now - it.at < REFUSED_DS,
@@ -1840,13 +1851,13 @@ export function beatAfterActing(
       ];
       warrant.toldAt = null;
       beat.cannotTold ??= {};
-      const key = `${warrant.name}|${CAPTAIN_CARD}`;
+      const key = `${warrant.name}|${why}`;
       if (beat.cannotTold[key] === undefined) {
         beat.cannotTold[key] = brain.now;
         beat.outcomes.push({
           what: 'cannot',
           name: warrant.name,
-          why: CAPTAIN_CARD,
+          why,
         });
       }
       return;
