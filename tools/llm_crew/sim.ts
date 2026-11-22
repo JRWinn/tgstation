@@ -1413,6 +1413,8 @@ function spawnMixed() {
 }
 // CARGO-08 A: when the head came for its crates with no number.
 let manyAskedAt = 0;
+// When each of its crates was put out in the lobby.
+const manyOutAt = new Map<number, number>();
 // SECT-08 B: a technician, a janitor already in the bay (come in behind someone, let in by nobody) with a good deal of mess there,
 // and the Head of Personnel, no NPC, in its office, who sends the janitor to clean the bay by PDA.
 function spawnSentBy() {
@@ -1679,6 +1681,11 @@ for (let second = 0; second < SECONDS; second++) {
   if (VARIANT === 'sentby' && sentBy.askedAt && !sentBy.yesAt && clock - sentBy.askedAt >= 10_000) { sentBy.yesAt = clock; playerMessages('Hal Pott', bodies[0], 'Yes, I sent Jan Itor.'); }
   // CARGO-08 A: a head orders two crates of one kind, and once both are held in the bay comes for them with no number.
   if (VARIANT === 'manycrates' && second === 20) playerSays('Hal Pott', 'Cora, I need to order two crates of janitorial supplies, please.');
+  // The head hauls each crate away ten seconds after it is put out, so that none is left waiting to be reminded of.
+  if (VARIANT === 'manycrates') for (const entry of held.filter((it) => it.out)) {
+    if (!manyOutAt.has(entry.number)) manyOutAt.set(entry.number, clock);
+    if (clock - manyOutAt.get(entry.number)! >= 10_000) { held = held.filter((it) => it !== entry); rooms['Cargo Lobby'].boxes = rooms['Cargo Lobby'].boxes.filter((box) => box !== entry.box); }
+  }
   if (VARIANT === 'manycrates' && !manyAskedAt && second >= 150 && held.length === 2 && held.every((entry) => entry.heldSince) && bodies[0].room === 'Cargo Bay' && !bodies[0].busyText) { manyAskedAt = clock; playerSays('Hal Pott', 'Cora, I am here to collect my crates, please.'); }
   // The Captain tells the head to find out how its section is doing, well after the first meeting, when the head is back in its office.
   if (VARIANT === 'captain' && !captainAskedAt && second >= CAPTAIN_ASKS_AFTER && bodies[0].room === HOP_OFFICE && !bodies[0].busyText) { captainAskedAt = clock; playerSays(CAPTAIN, 'Hop, find out how your section is doing.'); }
