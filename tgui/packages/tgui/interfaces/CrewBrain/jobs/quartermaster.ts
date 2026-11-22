@@ -57,6 +57,7 @@ import {
   meetStep,
   noteSaidSending,
   noteSending,
+  passOnStuckInCuffs,
   present,
   staffMeetingWord,
   syncMeeting,
@@ -2217,6 +2218,10 @@ export const QUARTERMASTER: Job = {
     if (answerSentAsk(brain, from, text, true)) {
       return;
     }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (passOnStuckInCuffs(brain, from, text)) {
+      return;
+    }
     // A technician sending word that they are on their way to its meeting, or their report
     // because they cannot come, as the other heads read it (KNB-09).
     if (staffMeetingWord(brain, from, text, at)) {
@@ -2307,6 +2312,13 @@ export const QUARTERMASTER: Job = {
     if (
       event.details.said_to !== 'other' &&
       answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (
+      event.details.said_to !== 'other' &&
+      passOnStuckInCuffs(brain, speaker, heard)
     ) {
       return;
     }

@@ -85,6 +85,7 @@ import {
   meetStep,
   noteSaidSending,
   noteSending,
+  passOnStuckInCuffs,
   present,
   staffMeetingWord,
   syncMeeting,
@@ -934,6 +935,10 @@ export const CHIEF_ENGINEER: Job = {
     if (answerSentAsk(brain, from, text, true)) {
       return;
     }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (passOnStuckInCuffs(brain, from, text)) {
+      return;
+    }
     // Security asking for a door to be forced, or its engineer saying how that went.
     if (forcingReads(brain, from, job, text)) {
       return;
@@ -970,6 +975,13 @@ export const CHIEF_ENGINEER: Job = {
     if (
       event.details.said_to !== 'other' &&
       answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (
+      event.details.said_to !== 'other' &&
+      passOnStuckInCuffs(brain, speaker, heard)
     ) {
       return;
     }

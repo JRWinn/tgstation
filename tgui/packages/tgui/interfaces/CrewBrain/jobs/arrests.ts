@@ -527,6 +527,9 @@ const CUFF_ASK_DS = 6000;
 /** A crew member saying they are stuck in handcuffs and cannot get them off (SEC-07). */
 const STUCK_IN_CUFFS =
   /\b(?:hand)?cuffs\b[^.?!]*\b(?:cannot|can ?not|can'?t)\s+get\s+them\s+off\b|\bstuck\s+in\s+(?:hand)?cuffs\b/i;
+/** The same word passed on by someone's head: "Jan Itor is in handcuffs and cannot get them off." */
+const STUCK_PASSED_ON =
+  /^\W*(?:[^,.!?]{2,40},\s*)?(.{2,60}?) is (?:in|stuck in) (?:hand)?cuffs\b/i;
 /**
  * Takes in someone saying they are in handcuffs and cannot get them off, said to it or sent to it
  * (SEC-07, the owner's answer B: only security takes the cuffs off a crew member stuck in them).
@@ -540,14 +543,21 @@ export function stuckInCuffsAsk(
   if (!from || from === brain.name || !STUCK_IN_CUFFS.test(text)) {
     return false;
   }
-  const beat = beatOf(brain);
-  const wanted = beat.warrants.some((it) => sameName(it.name, from));
-  const holding = brain.security?.holding;
-  const jailed = Object.keys(beat.jailed).some((it) => sameName(from, it));
-  if (wanted || jailed || (holding && sameName(from, holding))) {
+  // Passed on by their head, "Jan Itor is in handcuffs and cannot get them off." (stuckPassedLine
+  // in jobs/head.ts): the one named is the one stuck, not whoever sent it.
+  const named = text.match(STUCK_PASSED_ON)?.[1]?.trim();
+  const who = named && !/^(?:i|he|she|they|it)$/i.test(named) ? named : from;
+  if (who === brain.name) {
     return true;
   }
-  beat.cuffAsks = { ...(beat.cuffAsks ?? {}), [from]: brain.now };
+  const beat = beatOf(brain);
+  const wanted = beat.warrants.some((it) => sameName(it.name, who));
+  const holding = brain.security?.holding;
+  const jailed = Object.keys(beat.jailed).some((it) => sameName(who, it));
+  if (wanted || jailed || (holding && sameName(who, holding))) {
+    return true;
+  }
+  beat.cuffAsks = { ...(beat.cuffAsks ?? {}), [who]: brain.now };
   freeStuck(brain);
   return true;
 }
