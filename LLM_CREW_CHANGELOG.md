@@ -87,7 +87,7 @@ That round (`data/logs/2026/11/19/round-15.44.36`) was played on 99f4d33dd0e, be
 
 **Not done tonight:** no round was played; no model tests; the normal build was not run. Every server change is compile-checked only.
 
-**Counts:** 77 findings were marked fixed over the session (11 in round P, 37 in M1, 25 in M2, 4 in M3 plus LOGB-03), counting each PLAY finding once. `SUMMARY.md` now lists 168 open bugs, down from 243 at the start.
+**Counts:** 77 findings were marked fixed over the session (11 in round P, 37 in M1, 25 in M2, 4 in M3 plus LOGB-03), counting each PLAY finding once. `SUMMARY.md` now lists 167 open bugs, down from 243 at the start.
 
 **Seen and left in rounds M2 and M3:** a body asked to step aside, or getting away, while it hauls a crate now lets go of it with "you were called away" (before SUP-06 the haul was lost the same way, without a word): watch for a technician that drops its crate when someone says "excuse me". `callme` fails its check that the janitor sent for is not turned away at the door: that is PLAY-10's question 3, waiting on the owner, and it will fail until it is answered. If the model names the NPC's own room while the speaker is plainly in another, the own room is still taken. CARGO-04 let officers into cargo on asking, though its finding left that to the owner: now a question.
 
