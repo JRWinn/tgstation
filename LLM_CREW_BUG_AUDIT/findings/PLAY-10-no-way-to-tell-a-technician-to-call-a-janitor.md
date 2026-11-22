@@ -162,3 +162,5 @@ Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`
 - Step 5: both prompt lines in `whenAsked` changed.
 
 Not done, held: step 6 (the reply repeat check) is in `brain.ts`, which another group owns. The change: in the line filter, a reply whose words match, 0.9 or more, a line the NPC itself said in the last minute is not said as it stands (owner to choose: ask the model once more, then say nothing).
+
+Round M3 (group m3-window, 7efbfb5d8e1; tables, not played): a call-a-janitor order with no room named goes to the room the superior who gave it stands in, when the NPC can see them and knows the room, else its own room (`speakerRoom`, `takeToldWork`, `workInWords` in `tasks.ts`); `planCall`'s PDA carries `call_for`. Question 3 (who is let in at the door) is untouched. Left: a model that names the NPC's own room as `where` still gets that room.

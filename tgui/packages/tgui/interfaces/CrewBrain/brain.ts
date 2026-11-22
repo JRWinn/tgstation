@@ -629,6 +629,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.pdaPeople = npc.pda_people ?? [];
     brain.crateToReturn = !!npc.crate_to_return;
     brain.workmateCalled = !!npc.workmate_called;
+    brain.workmateCalledRooms = npc.workmate_called_rooms ?? undefined;
     brain.inHand = !!npc.in_hand;
     brain.floating = !!npc.floating;
     brain.dark = !!npc.dark;

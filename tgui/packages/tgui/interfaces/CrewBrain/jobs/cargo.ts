@@ -2173,8 +2173,7 @@ function listed(names: string[]): string {
  * list, any call by a workmate counts, as before (MULTI-06).
  */
 function workmateCalledFor(brain: NpcBrain, place: string): boolean {
-  const rooms = (brain as { workmateCalledRooms?: string[] })
-    .workmateCalledRooms;
+  const rooms = brain.workmateCalledRooms;
   if (!Array.isArray(rooms)) {
     return brain.workmateCalled;
   }

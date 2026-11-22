@@ -328,20 +328,18 @@ type LetInAsk = NpcBrain['letInAsks'][string] & { openWalks?: number };
 
 /**
  * TRUE if the door the body stands at, and wants through, stands open: what its eyes tell it. The
- * server sends it as at_door_open, copied to brain.atDoorOpen (ARR-06); read through a cast so
- * that this file compiles whether or not types.ts has it yet. Until it comes, always FALSE.
+ * server sends it as at_door_open, copied to brain.atDoorOpen (ARR-06).
  */
 function atDoorOpen(brain: NpcBrain): boolean {
-  return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
+  return !!brain.atDoorOpen;
 }
 
 /**
  * How many of the body's hands can hold anything: what it feels of its own arms. The server sends
- * it as working_hands (HOLE-18); read through a cast so that this file compiles whether or not
- * types.ts has it yet. Until it comes, two, so nothing changes.
+ * it as working_hands (HOLE-18). Two from a server that does not say, or a brain made before it.
  */
 function workingHands(brain: NpcBrain): number {
-  const hands = (brain as NpcBrain & { workingHands?: number }).workingHands;
+  const hands = brain.workingHands;
   return typeof hands === 'number' ? hands : 2;
 }
 

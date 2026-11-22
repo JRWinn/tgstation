@@ -141,3 +141,5 @@ Held: `types.ts`, add `fullAboard?: number` to `Freight`; `brain.ts`, fill it fr
 
 Round M2, group g-srv-b (2026-11-20), compile only, not played: step 6 built. `cancel_errand` (`crew_npc_hands.dm`), while `errand_tool` is still set to `unload`, `stow_crate` or `recycle`, drops every `GLOB.crew_npc_crate_claims` entry whose claimant is this controller.
 Round M2 (g-brain): the held window part is built. `types.ts`: `full_aboard?: number` on the server's freight and `fullAboard?: number` on `Freight`; `brain.ts` `ingest` fills it from `npc.freight.full_aboard` (a number only; unset when not sent, so `toUnload` is read in its place). `jobs/freight.ts` still reads it through its cast, which keeps working: for g-cargo to drop next round (`freight?.fullAboard` direct). Table `tools/llm_crew/brain4-ingest.ts`.
+
+Round M3 (group m3-window, 5af7e35c547): `jobs/freight.ts` reads `freight?.fullAboard` directly; the cast is gone.

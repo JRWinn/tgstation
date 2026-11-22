@@ -200,12 +200,13 @@ for (const [saidTo, want] of [['me', true], ['other', false]] as [string, boolea
   add(`"your order has come in" said ${saidTo === 'me' ? 'to it' : 'to someone else'}: ${want ? '' : 'not '}sent for`, [b.pickups.map((p: any) => p.number), b.requisition === null], want ? [[12], true] : [[], false]);
 }
 
-// TRA-04: at the counter, only an answer to the head counts as its order taken.
+// TRA-04: at the counter, only the technician's set line that the order is in counts as its
+// order taken. Any other line, even said to the head, does not (the stop-gap is gone).
 for (const [line, saidTo, want] of [
   ['I am going to check to see what crates are still here.', 'nobody', false],
   ['Hop, I am coming to the door of the Cargo Bay to let you in.', 'me', false],
   ['Jan, crate 12 is out in the lobby for you.', 'other', false],
-  ['Of course, Hop, I will put that in now.', 'me', true],
+  ['Of course, Hop, I will put that in now.', 'me', false],
   ['Hop, I have put your order in: a crate of janitorial supplies.', 'me', true],
 ] as [string, string, boolean][]) {
   const b = hop();

@@ -244,6 +244,9 @@ function planCall(brain: NpcBrain, task: Task): Plan {
       act: {
         tool: 'message',
         person: janitor,
+        // The room the call is for, so the server notes a janitor called to it (MULTI-06). It
+        // counts for the department only when the room is one of its own.
+        call_for: place,
         text: `There is a mess in the ${place}${messesIn(brain, place)}. ${task.askedBy ? `${task.askedBy} has asked for a janitor. ` : ''}Could you come and clean it up, please?`,
       },
     };

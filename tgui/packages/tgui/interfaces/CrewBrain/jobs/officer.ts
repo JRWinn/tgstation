@@ -45,6 +45,7 @@ import {
   planBeat,
   syncBeat,
   takeOutcomes,
+  waitingWith,
   warrantTalk,
 } from './arrests';
 import {
@@ -106,12 +107,6 @@ const SOUGHT_DS = 200;
  * only have the Head of Security told twice.
  */
 const UNSENT_AGAIN_DS = 1800;
-
-/**
- * A word for the Head of Security, with when its PDA last would not send it (ARR-05).
- * `unsent` belongs on BeatWord in types.ts; it is kept here until that file is free to change.
- */
-type Word = BeatWord & { unsent?: number };
 
 /**
  * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
@@ -200,6 +195,7 @@ function syncTasks(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
+  const waiting = waitingWith(brain);
   for (const word of beat.words) {
     // That it is hurt, or has been attacked, or has lost its baton, is said at once and by PDA
     // unless the Head of Security is standing there: it may not be on its feet much longer.
@@ -217,7 +213,18 @@ function syncTasks(brain: NpcBrain): void {
     ) {
       word.byPda = true;
     }
-    keep(brain, WORD, true, urgent ? 'emergency' : 'asked', word.line);
+    // While it waits in the brig with them for a cell, its other word on them goes out as well
+    // (ARR-04 follow-up): ranked below the wait, "I have them in cuffs" was never sent, and the
+    // Captain heard only that no cell would take them. Ranked with the wait, it goes first, as it
+    // can be got on with and the wait cannot.
+    const meanwhile = !!waiting && sameName(word.outcome.name, waiting);
+    keep(
+      brain,
+      WORD,
+      true,
+      urgent || meanwhile ? 'emergency' : 'asked',
+      word.line,
+    );
   }
   const inHand =
     legwork ||
@@ -242,7 +249,7 @@ function syncTasks(brain: NpcBrain): void {
  * again, and after that, or if the Head of Security is not to be found, it goes by PDA. Word the
  * PDA would not send, or with no PDA on it, it takes to its post to say there (ARR-05).
  */
-function tellHead(brain: NpcBrain, word: Word): Plan {
+function tellHead(brain: NpcBrain, word: BeatWord): Plan {
   const head = headAboard(brain);
   if (!head) {
     return {
@@ -698,7 +705,7 @@ export const OFFICER: Job = {
       if (ok) {
         beat.words = beat.words.filter((it) => it !== word);
       } else {
-        (word as Word).unsent = brain.now;
+        word.unsent = brain.now;
       }
     }
   },

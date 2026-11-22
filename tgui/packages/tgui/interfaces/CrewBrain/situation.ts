@@ -4,6 +4,7 @@
  * The person layer says what is true for anyone. The NPC's job adds what matters about its work.
  */
 import { describeChoice } from './choice';
+import { isWarrantOn } from './jobs/arrests';
 import { asideCues, asideDoing, asideStands } from './jobs/aside';
 import { guardCues } from './jobs/guarding';
 import { meetingCues } from './jobs/meetings';
@@ -75,12 +76,14 @@ export const SHUT_IN_KEY = 'shut-in';
 /**
  * Who a shut-in NPC asks for the door next: someone in view it has not asked yet, one at a time.
  * Each person is asked once. Asked again and again, they would be right to call it nagging, so it
- * asks again only when someone new turns up. Null if there is nobody left to ask.
+ * asks again only when someone new turns up. Null if there is nobody left to ask. Never anyone
+ * it holds a warrant on: a shut-in officer does not ask the person it is after to open the door.
  */
 export function whoToAskForTheDoor(brain: NpcBrain): string | null {
   const asked = brain.outAsks?.asked ?? [];
   const people = brain.peopleInView.filter(
-    (person) => !asked.includes(person.name),
+    (person) =>
+      !asked.includes(person.name) && !isWarrantOn(brain, person.name),
   );
   if (people.length === 0) {
     return null;

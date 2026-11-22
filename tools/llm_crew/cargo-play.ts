@@ -203,6 +203,29 @@ for (const [line, want] of [
   syncOrders(b);
   add('PLAY-10: no janitor on its PDA: it says so', planOrders(b, task)?.say, 'Zim, about the Cargo Bay. There is no janitor on my PDA to send for.');
 }
+// PLAY-10 follow-up: no room named, the call is for the room the speaker stands in, if it can see
+// that: tidying in the Cargo Lobby, the Captain speaking across the counter from the Cargo Bay.
+{
+  const b = order();
+  b.location = 'Cargo Lobby';
+  const caught = workInWords(b, [says(ZIM, 'call a janitor')], ZIM.name, true);
+  add('PLAY-10: the Captain in the Cargo Bay, it in the Cargo Lobby: the call is for the Cargo Bay', caught?.place, 'Cargo Bay');
+  syncOrders(b);
+  const plan = planOrders(b, caught);
+  add('PLAY-10: its PDA to the janitor carries call_for (MULTI-06)', [plan?.act?.call_for, /mess in the Cargo Bay/.test(plan?.act?.text ?? '')], ['Cargo Bay', true]);
+  add('PLAY-10: the model naming "nowhere you know" takes the speaker\'s room too', takeToldWork(b, ORDERS[CALL], WORK_NOWHERE, ZIM.name, true)?.place, 'Cargo Bay');
+}
+{
+  // The speaker's room unknown to it, or the speaker out of sight (a PDA order): its own room.
+  const b = order();
+  b.location = 'Cargo Lobby';
+  b.peopleInView = [{ ...ZIM, place: 'Somewhere Odd', distance: 2 }];
+  add('PLAY-10: the speaker in a room it does not know: its own room', workInWords(b, [says(ZIM, 'call a janitor')], ZIM.name, true)?.place, 'Cargo Lobby');
+  const c = order();
+  c.location = 'Cargo Lobby';
+  c.peopleInView = [];
+  add('PLAY-10: the speaker out of sight: its own room', takeToldWork(c, ORDERS[CALL], WORK_NOWHERE, ZIM.name, true)?.place, 'Cargo Lobby');
+}
 
 // PLAY-12: a collector that gives up hauling tells its head, and the head sends someone else.
 const SUNSHINE = 'Sunshine Langston';

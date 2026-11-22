@@ -294,6 +294,8 @@ export type Npc = {
   rooms_through?: Record<string, string> | null;
   /** TRUE if someone else at its post has lately sent for a janitor. */
   workmate_called?: BooleanLike;
+  /** The rooms a workmate at its post has lately called a janitor to, "" for a call that named none (MULTI-06). */
+  workmate_called_rooms?: string[] | null;
   /** TRUE while someone has it by the arm and is walking it out of a room. */
   in_hand?: BooleanLike;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from (MAP-07). */
@@ -1327,6 +1329,8 @@ export type NpcBrain = {
   verifyHeard: { about: string; voucher: string | null; at: number } | null;
   /** TRUE if someone else at its post has lately sent for a janitor. */
   workmateCalled: boolean;
+  /** The rooms a workmate at its post has lately called a janitor to, "" for a call that named none; unset from a server that does not send them (MULTI-06). */
+  workmateCalledRooms?: string[];
   /** TRUE while someone has it by the arm and is walking it out of a room. */
   inHand: boolean;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */

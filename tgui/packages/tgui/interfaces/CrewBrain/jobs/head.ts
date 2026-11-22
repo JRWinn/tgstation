@@ -60,11 +60,15 @@ import {
   CANNOT_ORDER_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_WORDS,
+  NO_SUCH_CRATE_WORDS,
   NOTED_WORDS,
   ORDERING,
+  PLACED_WORDS,
   QM_SILENT,
   quartermasterAboard,
   REFUSED_WORDS,
+  REORDERED_WORDS,
 } from './supply';
 import { wantedAbsent, wantedMeetingStep, wantedSaid } from './wanted';
 
@@ -157,29 +161,12 @@ const SHUT_IN_AGAIN_DS = 3000;
 /** When each head last passed on word of someone shut in (server time), by the head, the person and the room. */
 const shutInPassedOn = new Map<string, number>();
 /**
- * How a technician or the Quartermaster tells a head that crates of its order are lost, and that
- * they are being ordered again. The senders are the lost-crate notices in cargo.ts and
- * quartermaster.ts: keep the words the same. Better shared from supply.ts (held: HEAD-02).
- */
-const LOST_WORDS = /^lost at cargo: (.+?) from your order\b/i;
-const REORDERED_WORDS = /\bordered again, as order \d+/i;
-/** What one of its staff sends when cargo says there is no such crate to collect: see pickups.ts. */
-const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
-/**
  * How long (deciseconds) after its PDA would not send its order to the Quartermaster it takes the
  * order to the counter instead. The server keeps an unsent message and sends it again by itself
  * for CREW_NPC_UNSENT_KEPT (8 minutes, _defines.dm): keep the two together. Gone to the counter
  * sooner, the kept copy reaches the Quartermaster later and the crate is bought twice (HEAD-05).
  */
 const UNSENT_GIVEN_UP_DS = 5400;
-/**
- * The technician's set line that it has put a head's order in. Nothing says it yet: cargo.ts is to
- * (held: TRA-04), and it is better shared from supply.ts. Until then, any line a cargo worker says
- * to the head that is not one of these, about its other work, is taken for the answer.
- */
-const PLACED_WORDS = /\bI have put your order in\b/i;
-const OTHER_CARGO_WORK =
-  /out in the lobby|not holding a crate|coming to the door|check to see what crates|let you in|crate #?\d+/i;
 /** A technician telling a head that its orders go to the Quartermaster: THROUGH_QM in supply.ts. */
 const THROUGH_QM_WORDS = /orders go through the Quartermaster/i;
 /** How long (deciseconds) an ask that was ordered for, and a crate sent for, stand with no word that it was unpacked. */
@@ -1684,10 +1671,10 @@ export const HEAD_OF_PERSONNEL: Job = {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
     // At the counter, what a cargo worker says to it once the order is put to them is its answer:
-    // the technician's set line that the order is in, or failing that any line said to it that is
-    // not about other cargo work. Not a line to someone else, or to nobody in particular: a
-    // technician telling its workmate something, or calling out that it is checking the crates,
-    // was taken for the order and the head never asked again (KNB-10, TRA-04). On the way by PDA
+    // the technician's set line that the order is in (PLACED in supply.ts, said by cargo.ts once
+    // the order goes through), and nothing else. Any other line a cargo worker said was taken for
+    // the order: a technician telling its workmate something, or calling out that it is checking
+    // the crates, and the head never asked again (KNB-10, TRA-04). On the way by PDA
     // to the Quartermaster only its Noted is an answer: see readsMessage.
     const order = brain.requisition;
     if (
@@ -1697,10 +1684,7 @@ export const HEAD_OF_PERSONNEL: Job = {
       !byQuartermaster(brain, order) &&
       isCargo(jobOf(brain, speaker))
     ) {
-      if (
-        PLACED_WORDS.test(heard) ||
-        (event.details.said_to === 'me' && !OTHER_CARGO_WORK.test(heard))
-      ) {
+      if (PLACED_WORDS.test(heard)) {
         order.heardBack = true;
       }
       // Told that orders go through the Quartermaster: it sends it there by PDA after all.
