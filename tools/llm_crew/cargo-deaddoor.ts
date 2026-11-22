@@ -62,6 +62,24 @@ E.noteLetIn('Cargo Bay', 'Jan Mopp', 'Warehouse', 'Sam Tech', 1000);
   CARGO.afterActing(b, { tool: 'open_door', person: 'p9' }, door, false, false, { ok: false, reason: 'no_access' }, 'Your ID does not open this door.');
   add('not its ID: not a dead door, nobody told of one', b.toTell.length, 0);
 }
+// DOOR-14 B: a dead door goes to engineering, the Chief Engineer first, in the shape of security's ask.
+for (const [people, want] of [
+  [[{ name: 'Ada Finch', job: 'Quartermaster' }, { name: 'Eli Wire', job: 'Station Engineer' }, { name: 'Cara Volt', job: 'Chief Engineer' }], 'Cara Volt'],
+  [[{ name: 'Ada Finch', job: 'Quartermaster' }, { name: 'Eli Wire', job: 'Station Engineer' }], 'Eli Wire'],
+] as [any[], string][]) {
+  E.clearExpected();
+  E.noteLetIn('Cargo Bay', 'Jan Mopp', 'Warehouse', 'Sam Tech', 1000);
+  const b = tech(1000 + 2400);
+  b.pdaPeople = people;
+  CARGO.syncTasks(b);
+  const door = b.tasks.find((task: any) => task.kind === 'door' && task.state !== 'done');
+  CARGO.afterActing(b, { tool: 'open_door', person: 'p9' }, door, false, false, { ok: false, reason: 'no_power' }, 'The door has no power: its lights are out.');
+  const ask = b.toTell.find((tell: any) => tell.to === want);
+  add(`no power: ${want} is asked by PDA`, [ask?.byPda, ask?.line], [true, `${want.split(' ')[0]}, cargo needs the door of the Warehouse opened: Jan Mopp is shut inside. It has no power. Could you send an engineer, please?`]);
+  const S = await import(ROOT + 'jobs/supply');
+  add('and the ask reads back', ask?.line.match(S.DEAD_DOOR_ASK_WORDS)?.slice(1), ['cargo', 'Warehouse', 'Jan Mopp', 'shut inside']);
+  add('and Jan is told engineering was asked', b.toTell.find((tell: any) => tell.to === 'Jan Mopp')?.line, 'Jan, the door of the Warehouse will not open: it has no power. I cannot let you out that way. I have asked engineering to open it and told Ada Finch.');
+}
 
 // MULTI-06: the call names its room, and a workmate's call to another room holds nothing back.
 E.clearExpected();
