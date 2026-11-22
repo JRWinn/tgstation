@@ -698,14 +698,16 @@
 		person = shut_in_at_door(room) || janitor_at_door(room)
 		if(person)
 			handle = handle_for(person)
+	// The three refusals below say the person is not inside, or not to be found there (CARGO-09):
+	// the window strikes its note that someone is shut in the room.
 	if(QDELETED(person))
-		action_result(CREW_TOOL_DOOR, FALSE, "You do not know who that is, and there is nobody of that name at the door of [room_name].")
+		action_result(CREW_TOOL_DOOR, FALSE, "You do not know who that is, and there is nobody of that name at the door of [room_name].", list("not_inside" = TRUE))
 		return
 	var/inside = get_area(person) == room
 	var/obj/machinery/door/airlock/door = room_door_for(person, room, room_name, door_label)
 	var/at_the_door = !isnull(door) && get_dist(person, door) <= CREW_NPC_AT_DOOR
 	if(!recently_saw(person) && !inside && !at_the_door)
-		action_result(CREW_TOOL_DOOR, FALSE, "You cannot see that person, and they are not at the door of [room_name].")
+		action_result(CREW_TOOL_DOOR, FALSE, "You cannot see that person, and they are not at the door of [room_name].", list("not_inside" = TRUE))
 		return
 	// A mess in this room, or in a room of the department that can only be got into through it.
 	var/mess_beyond = remembers_mess_in(room_name)
@@ -725,7 +727,7 @@
 	var/shown_job = person.get_assignment(if_no_id = "", if_no_job = "")
 	var/security = findtext(shown_job, "Security Officer") || findtext(shown_job, "Head of Security")
 	if(!inside && !security && !(findtext(shown_job, "janitor") && mess_beyond))
-		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].")
+		action_result(CREW_TOOL_DOOR, FALSE, "You have no call to let [person.name] into [room_name].", list("not_inside" = TRUE))
 		return
 	if(isnull(door))
 		action_result(CREW_TOOL_DOOR, FALSE, "You cannot see which door [person.name] needs opening.")

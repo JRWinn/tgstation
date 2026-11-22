@@ -901,7 +901,8 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /datum/ai_controller/crew_npc/proc/janitor_call_room(call_for)
 	if(!istext(call_for) || !length(call_for) || isnull(post_place))
 		return null
-	if(call_for == post_place || (call_for in look_in_rooms))
+	// work_area holds the post and, for cargo staff, the Cargo Lobby, which leaves look_in_rooms for it.
+	if(call_for == post_place || (call_for in work_area) || (call_for in look_in_rooms))
 		return call_for
 	return null
 

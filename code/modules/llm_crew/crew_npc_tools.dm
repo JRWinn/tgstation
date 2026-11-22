@@ -116,7 +116,7 @@
 		if(CREW_TOOL_GRENADE)
 			tool_grenade()
 		if(CREW_TOOL_MESSAGE)
-			tool_message(arguments["person"], arguments["text"])
+			tool_message(arguments["person"], arguments["text"], istext(arguments["call_for"]) ? arguments["call_for"] : null)
 
 /// Counts this tool call against the rate limit. Returns FALSE if it should be dropped.
 /datum/ai_controller/crew_npc/proc/tool_call_allowed(tool)
