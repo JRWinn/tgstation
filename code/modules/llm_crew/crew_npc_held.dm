@@ -42,6 +42,58 @@
 	var/lost
 	/// Name of whoever at the post has written it off and is sending word, or null if nobody has yet.
 	var/written_off_by
+	/// The shown name of the last one who is not a crew NPC that cargo staff saw pulling it, or null (SUP-17).
+	var/seen_pulled_by
+	/// Name of whoever took it out of cargo's rooms in their own hands, not a crew NPC collecting it, or
+	/// "someone" if nobody saw who. It was taken, not lost: nobody is reminded of it or writes it off (SUP-17).
+	var/taken_by
+	/// world.time it was found taken, or 0.
+	var/taken_at = 0
+
+/// How long a held crate someone took away stays on the list, marked taken, so the brains of cargo staff are told who took it (SUP-17).
+#define CREW_NPC_HELD_TAKEN_KEEP (10 MINUTES)
+
+/**
+ * TRUE if a held crate has gone from cargo's rooms in the hands of someone who is not a crew NPC
+ * collecting it (SUP-17): out of every cargo room and off the supply shuttle, nobody's claim on it,
+ * and someone not a crew NPC pulling it now or seen by cargo staff pulling it before.
+ */
+/proc/crew_npc_crate_taken_away(datum/crew_npc_held_crate/entry, obj/structure/closet/crate/crate)
+	if(QDELETED(crate) || !entry.held_since || entry.collected_by)
+		return FALSE
+	var/turf/where = get_turf(crate)
+	if(isnull(where) || !is_station_level(where.z))
+		return FALSE
+	var/area/room = get_area(where)
+	if(istype(room, /area/station/cargo) || istype(room, /area/shuttle))
+		return FALSE
+	var/mob/puller = crate.pulledby
+	if(ismob(puller) && !istype(puller.ai_controller, /datum/ai_controller/crew_npc))
+		return TRUE
+	return !isnull(entry.seen_pulled_by)
+
+/**
+ * Notes, for each held crate this cargo body can see someone pulling, who it is, if they are not a
+ * crew NPC: what anyone at the counter would notice of a crate being dragged off (SUP-17).
+ */
+/datum/ai_controller/crew_npc/proc/note_held_pullers()
+	if(!works_in_cargo() || isnull(post_turf) || !can_sense())
+		return
+	var/list/seen
+	for(var/datum/crew_npc_held_crate/entry as anything in GLOB.crew_npc_held_crates)
+		if(entry.collected_by || entry.taken_by)
+			continue
+		var/obj/structure/closet/crate/crate = entry.crate_ref?.resolve()
+		var/mob/puller = QDELETED(crate) ? null : crate.pulledby
+		if(!ismob(puller))
+			continue
+		// One of the crew moving it about: whoever had it before has let it go.
+		if(istype(puller.ai_controller, /datum/ai_controller/crew_npc))
+			entry.seen_pulled_by = null
+			continue
+		seen ||= view(CREW_NPC_VISION_RANGE, pawn)
+		if(crate in seen)
+			entry.seen_pulled_by = puller.name
 
 /// The crates being held for collection, as /datum/crew_npc_held_crate. Read it through crew_npc_held_crates().
 GLOBAL_LIST_EMPTY(crew_npc_held_crates)
@@ -64,7 +116,9 @@ GLOBAL_LIST_EMPTY(crew_npc_lost_crates)
 	var/turf/where = get_turf(crate)
 	if(isnull(where) || !is_station_level(where.z) || isspaceturf(where))
 		return "it is no longer aboard the station"
-	if(isnull(entry.collected_by) && crew_npc_crate_spent(crate))
+	// Emptied where cargo keeps it: someone opened it at the counter. One emptied after it was taken
+	// away is the taker's business (SUP-17).
+	if(isnull(entry.collected_by) && istype(get_area(crate), /area/station/cargo) && crew_npc_crate_spent(crate))
 		return "it has been emptied"
 	if(entry.unreachable >= CREW_NPC_LOST_AFTER)
 		return "nobody can get to it"
@@ -91,6 +145,18 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 				entry.loose_since = 0
 		else
 			entry.loose_since = 0
+		// One taken away is kept a while, so that cargo's brains are told who took it, and then let go.
+		if(entry.taken_by)
+			if(QDELETED(crate) || !is_station_level(crate.z) || world.time - entry.taken_at > CREW_NPC_HELD_TAKEN_KEEP)
+				GLOB.crew_npc_held_crates -= entry
+			continue
+		// Gone from cargo's rooms in the hands of someone who is not a crew NPC collecting it: taken,
+		// not lost (SUP-17). Who took it is known only if cargo staff saw them with it.
+		if(crew_npc_crate_taken_away(entry, crate))
+			entry.taken_by = entry.seen_pulled_by || "someone"
+			entry.taken_at = world.time
+			log_game("Crew NPC held crate #[entry.number] for [entry.for_name || "nobody"] was taken out of cargo by [entry.taken_by]: it is in [get_area_name(crate, TRUE)].")
+			continue
 		// One that can no longer be handed over is not held any more. It is kept apart until
 		// someone at the post has written it off and whoever ordered it has been told.
 		var/why = crew_npc_crate_lost(entry)
@@ -167,7 +233,8 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /datum/ai_controller/crew_npc/proc/held_state()
 	var/list/held = list()
 	var/cargo = works_in_cargo()
-	// Looking over what is held is when one that has been lost is found to be.
+	// Looking over what is held is when one that has been lost, or taken, is found to be.
+	note_held_pullers()
 	crew_npc_held_crates()
 	write_off_lost_crates()
 	var/mob/living/carbon/human/body = pawn
@@ -191,7 +258,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 			"what" = cargo ? entry.what : null,
 			"place" = get_area_name(crate, TRUE),
 			"out" = entry.out,
-			"taken_by" = entry.collected_by,
+			"taken_by" = entry.collected_by || entry.taken_by,
+			// Taken out of cargo's rooms by someone who is not a crew NPC collecting it (SUP-17).
+			"taken_away" = !!entry.taken_by,
 			"waited" = entry.held_since ? world.time - entry.held_since : 0,
 		))
 	return held
@@ -200,7 +269,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 /datum/ai_controller/crew_npc/proc/held_waiting()
 	var/list/waiting = list()
 	for(var/datum/crew_npc_held_crate/entry as anything in crew_npc_held_crates())
-		if(entry.post == post_place && entry.held_since && isnull(entry.collected_by) && entry.reminders < CREW_NPC_HELD_REMINDERS)
+		if(entry.post == post_place && entry.held_since && isnull(entry.collected_by) && isnull(entry.taken_by) && entry.reminders < CREW_NPC_HELD_REMINDERS)
 			waiting += entry
 	return waiting
 
@@ -337,6 +406,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	if(entry.collected_by)
 		action_result(CREW_TOOL_RELEASE, FALSE, "[entry.collected_by] is already taking crate #[entry.number] away.")
 		return
+	if(entry.taken_by)
+		action_result(CREW_TOOL_RELEASE, FALSE, "[entry.taken_by == "someone" ? "Someone" : entry.taken_by] has taken crate #[entry.number] out of cargo already.", list("taken_by" = entry.taken_by))
+		return
 	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	release_for = QDELETED(person) ? last_heard_speaker : person.name
@@ -407,6 +479,9 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		return
 	if(entry.collected_by && entry.collected_by != body.real_name)
 		action_result(CREW_TOOL_COLLECT, FALSE, "[entry.collected_by] is already taking crate #[entry.number] away.", list("no_such_crate" = TRUE))
+		return
+	if(entry.taken_by)
+		action_result(CREW_TOOL_COLLECT, FALSE, "[entry.taken_by == "someone" ? "Someone" : entry.taken_by] has taken crate #[entry.number] away already.", list("no_such_crate" = TRUE, "taken_by" = entry.taken_by))
 		return
 	var/known = istext(place) ? find_known_place(place) : null
 	var/area/station/room = known ? crew_npc_station_places()[known] : null

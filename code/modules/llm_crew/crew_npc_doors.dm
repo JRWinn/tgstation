@@ -659,6 +659,11 @@
 		return null
 	if(known == post_place || (known in work_area) || (known in look_in_rooms))
 		return known
+	// The Quartermaster has no post: the rooms of its department, and its office, are its own (QM-05).
+	if(is_quartermaster())
+		var/area/room = crew_npc_station_places()[known]
+		if(known == office_place || istype(room, /area/station/cargo))
+			return known
 	return null
 
 /// Returns the area that goes by a room's name, as the body knows it.
@@ -668,7 +673,8 @@
 	return crew_npc_station_places()[room_name]
 
 /**
- * Tool: open the door of one of the body's rooms for someone. Cargo staff only.
+ * Tool: open the door of one of the body's rooms for someone. Cargo staff only, the Quartermaster
+ * among them: with no other technician about, it lets a shut-in technician out itself (QM-05).
  *
  * The room is its post unless another room of its department is named. Anyone inside is let out.
  * Only a janitor is let in, and only when there is a mess in there for them to clean: the door is
@@ -676,7 +682,7 @@
  * know. Someone standing at the door, or shut inside, need not be in sight: a door hides them.
  */
 /datum/ai_controller/crew_npc/proc/tool_open_door(handle, place, person_name, door_label)
-	if(!works_in_cargo() || isnull(post_turf))
+	if(!works_in_cargo() || (isnull(post_turf) && !is_quartermaster()))
 		action_result(CREW_TOOL_DOOR, FALSE, "You have no door of your own to open for anyone.")
 		return
 	var/room_name = own_room_named(place)
@@ -1250,3 +1256,187 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 		return ""
 	details["in_the_way"] = handle_for(person)
 	return " [person.name] is standing in the way."
+
+/// What a walk to a shutter button is for, as its tool: walk_finished() in crew_npc_tools.dm reads it (KNB-01).
+#define CREW_NPC_SHUTTER_WALK "press_shutter_button"
+/// How long after opening shutters into a room the body still means to shut them again.
+#define CREW_NPC_SHUTTERS_KEPT (15 MINUTES)
+
+/// The walk under way to a shutter button, or null: list("button" = weakref, "id", "goal" = room name, "open" = TRUE to open them, "calls" = tool_serial then).
+/datum/ai_controller/crew_npc/var/list/shutter_plan
+/// Shutters this body opened with a button and has to shut again once it is out of the room, or null: list("button" = weakref, "id", "room" = room name, "at" = world.time, "tries").
+/datum/ai_controller/crew_npc/var/list/shutters_opened
+
+/**
+ * Returns the shutters (blast doors and shutters worked by a button) on the line between two rooms:
+ * standing in one of them with the other on a side of it. Only those with a button id.
+ */
+/proc/crew_npc_shutters_between(area/one, area/other)
+	var/list/shutters = list()
+	if(isnull(one) || isnull(other) || one == other)
+		return shutters
+	for(var/obj/machinery/door/poddoor/shutter as anything in SSmachines.get_machines_by_type_and_subtypes(/obj/machinery/door/poddoor))
+		if(isnull(shutter.id) || !isturf(shutter.loc))
+			continue
+		var/area/standing_in = get_area(shutter)
+		if(standing_in != one && standing_in != other)
+			continue
+		var/area/wanted = standing_in == one ? other : one
+		for(var/direction in GLOB.cardinals)
+			var/turf/next = get_step(shutter, direction)
+			if(next && get_area(next) == wanted)
+				shutters += shutter
+				break
+	return shutters
+
+/// TRUE if any shutter of this button id on this level stands open.
+/proc/crew_npc_shutters_open(id, z_level)
+	for(var/obj/machinery/door/poddoor/shutter as anything in SSmachines.get_machines_by_type_and_subtypes(/obj/machinery/door/poddoor))
+		if(shutter.id == id && shutter.z == z_level && !shutter.density)
+			return TRUE
+	return FALSE
+
+/**
+ * Returns the button, in the room the body stands in, that opens shut shutters between it and a
+ * cargo room it is going to, or null (KNB-01). Cargo staff only: a technician knows the buttons of
+ * the rooms it works in, as anyone who works there does. A button with no power, broken, opened up,
+ * or that the body's ID does not work, is no use.
+ */
+/datum/ai_controller/crew_npc/proc/shutter_button_into(area/goal_room)
+	var/mob/living/carbon/human/body = pawn
+	var/area/here = get_area(body)
+	if(!works_in_cargo() || !istype(goal_room, /area/station/cargo) || isnull(here) || here == goal_room)
+		return null
+	var/list/shut_ids = list()
+	for(var/obj/machinery/door/poddoor/shutter as anything in crew_npc_shutters_between(here, goal_room))
+		if(shutter.density && shutter.z == body.z)
+			shut_ids |= shutter.id
+	if(!length(shut_ids))
+		return null
+	var/obj/machinery/button/door/best
+	var/best_distance = INFINITY
+	for(var/turf/room_turf as anything in here.get_turfs_by_zlevel(body.z))
+		for(var/obj/machinery/button/door/button in room_turf)
+			if(!(button.id in shut_ids) || button.panel_open || (button.machine_stat & (NOPOWER|BROKEN)) || !button.allowed(body))
+				continue
+			var/distance = get_dist(body, button)
+			if(distance < best_distance)
+				best_distance = distance
+				best = button
+	return best
+
+/**
+ * On its way into a cargo room with the shutters between here and there shut, the body goes to the
+ * button for them first, presses it, and walks in through them; it shuts them again once it is out
+ * (KNB-01, the owner's answer A). Returns TRUE if it set off for the button.
+ */
+/datum/ai_controller/crew_npc/proc/open_shutters_first(known_place)
+	var/area/station/room = crew_npc_station_places()[known_place]
+	var/obj/machinery/button/door/button = room ? shutter_button_into(room) : null
+	if(isnull(button))
+		return FALSE
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) goes to press [button] at ([button.x],[button.y]) to open the shutters into [known_place].")
+	start_walk(button, CREW_NPC_SHUTTER_WALK, "the [button.name]", CREW_NPC_WALK_TIMEOUT)
+	// After start_walk, which knows nothing of it.
+	shutter_plan = list("button" = WEAKREF(button), "id" = button.id, "goal" = known_place, "open" = TRUE, "calls" = tool_serial)
+	return TRUE
+
+/**
+ * The walk to a shutter button has ended: presses it, if the body is beside it and the shutters are
+ * not already as wanted, the way a player would, with an empty hand. The button makes its own
+ * checks. Opening, it then walks on into the room; with the shutters still shut, it goes the way it
+ * would have gone. Sleeps.
+ */
+/datum/ai_controller/crew_npc/proc/shutter_walk_done(obj/machinery/button/door/button)
+	var/list/plan = shutter_plan
+	shutter_plan = null
+	if(isnull(plan) || QDELETED(src) || QDELETED(pawn))
+		return
+	var/mob/living/carbon/human/body = pawn
+	var/id = plan["id"]
+	var/opening = plan["open"]
+	var/goal = plan["goal"]
+	var/pressed = FALSE
+	if(!QDELETED(button) && body.Adjacent(button) && crew_npc_shutters_open(id, body.z) != opening && empty_clicking_hand())
+		pressed = click_as_body(button) == TRUE
+		// The shutters take a moment to move.
+		for(var/i in 1 to 10)
+			if(QDELETED(src) || QDELETED(body) || crew_npc_shutters_open(id, body.z) == opening)
+				break
+			sleep(0.25 SECONDS)
+	if(QDELETED(src) || QDELETED(body))
+		return
+	var/now_open = crew_npc_shutters_open(id, body.z)
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) [pressed ? "pressed" : "could not press"] [QDELETED(button) ? "the shutter button" : "[button] at ([button.x],[button.y])"] to [opening ? "open" : "shut"] the shutters of [goal]: they are [now_open ? "open" : "shut"].")
+	if(!opening)
+		if(shutters_opened)
+			shutters_opened["tries"]++
+			if(!now_open || shutters_opened["tries"] >= 2)
+				shutters_opened = null
+		return
+	// Given something else to do meanwhile, it does that instead.
+	if(tool_serial != plan["calls"] || blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	if(!now_open)
+		tool_go_to(goal, no_shutters = TRUE)
+		return
+	if(pressed)
+		shutters_opened = list("button" = WEAKREF(button), "id" = id, "room" = goal, "at" = world.time, "tries" = 0)
+	// The way in is not what it was a minute ago: in through the shutters, to the near side of the room.
+	open_part_cache -= goal
+	var/area/station/room = crew_npc_station_places()[goal]
+	var/list/open = room ? open_part_of(room) : null
+	var/turf/spot = length(open) ? safe_spot_in(room, get_turf(body), open) : null
+	if(isnull(spot))
+		tool_go_to(goal, no_shutters = TRUE)
+		return
+	start_walk(spot, CREW_TOOL_GO_TO, goal, CREW_NPC_TRAVEL_TIMEOUT)
+
+/**
+ * Shuts shutters this body opened, once it is out of the room they open into and back in the room
+ * their button is in, if they are still open and nobody and nothing stands in them. Called when it
+ * has nothing to do. Returns TRUE if it set off for the button.
+ */
+/datum/ai_controller/crew_npc/proc/shut_shutters_behind()
+	var/list/opened = shutters_opened
+	if(isnull(opened))
+		return FALSE
+	var/mob/living/carbon/human/body = pawn
+	var/datum/weakref/button_ref = opened["button"]
+	var/obj/machinery/button/door/button = button_ref?.resolve()
+	var/id = opened["id"]
+	// Given up on after a while, or shut by someone else, or with no button left to shut them by.
+	if(QDELETED(button) || world.time - opened["at"] > CREW_NPC_SHUTTERS_KEPT || !crew_npc_shutters_open(id, button.z))
+		shutters_opened = null
+		return FALSE
+	if(in_custody() || !can_sense())
+		return FALSE
+	var/area/here = get_area(body)
+	if(get_area(button) != here || format_text(here.name) == opened["room"])
+		return FALSE
+	// Not on anyone it can see still in there.
+	for(var/mob/living/someone in view(CREW_NPC_VISION_RANGE, body))
+		if(someone != body && someone.stat != DEAD && get_area_name(someone, TRUE) == opened["room"])
+			return FALSE
+	// Not on anyone, nor on a crate going through.
+	for(var/obj/machinery/door/poddoor/shutter as anything in SSmachines.get_machines_by_type_and_subtypes(/obj/machinery/door/poddoor))
+		if(shutter.id != id || shutter.z != button.z)
+			continue
+		var/turf/under = get_turf(shutter)
+		if(locate(/mob/living) in under)
+			return FALSE
+		for(var/obj/thing in under)
+			if(thing != shutter && thing.density)
+				return FALSE
+	addtimer(CALLBACK(src, PROC_REF(walk_to_shut_shutters), button), 0.1 SECONDS)
+	return TRUE
+
+/// Sets off to the button to shut the shutters again (shut_shutters_behind()), unless given something else meanwhile.
+/datum/ai_controller/crew_npc/proc/walk_to_shut_shutters(obj/machinery/button/door/button)
+	if(QDELETED(src) || QDELETED(pawn) || QDELETED(button) || isnull(shutters_opened))
+		return
+	if(blackboard_key_exists(BB_CREW_NPC_WALK_TARGET) || blackboard_key_exists(BB_CREW_NPC_ERRAND_TARGET))
+		return
+	var/room_name = shutters_opened["room"]
+	start_walk(button, CREW_NPC_SHUTTER_WALK, "the [button.name]", CREW_NPC_WALK_TIMEOUT)
+	shutter_plan = list("button" = WEAKREF(button), "id" = shutters_opened["id"], "goal" = room_name, "open" = FALSE, "calls" = tool_serial)

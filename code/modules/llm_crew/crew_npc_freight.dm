@@ -311,7 +311,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 				// to draw it onto one, that is the best that could be done, and it is not gone at again.
 				if(!(get_turf(crate) in squares) && !entry?.collected_by && !crate.opened && crate.crew_npc_left_on != get_turf(crate))
 					crates += crate
-			else if(crew_npc_crate_spent(crate) && !(entry?.out && !entry.collected_by))
+			else if(crew_npc_crate_spent(crate) && !(entry?.out && !entry.collected_by && !entry.taken_by))
 				crates += crate
 	// The shuttle deck too, while it is docked. An empty lying by one of its doors counts as sent
 	// back, so nobody would ever move it again, and it is in the way of every crate that comes off.
