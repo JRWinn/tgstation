@@ -200,7 +200,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"awake" = npc.can_sense(),
 			// The room the body is standing in, which it knows the way anyone does: by looking.
 			"location" = get_area_name(body, TRUE),
-			// Too dark where it stands to make out more than what is right beside it (CHEAT-15). The window does not read it yet.
+			// Too dark where it stands to make out more than what is right beside it (CHEAT-15). The window tells the brain so.
 			"dark" = isturf(body.loc) && !body.has_light_nearby() && !body.has_nightvision(),
 			"people_in_view" = npc.people_in_view,
 			"things_in_view" = npc.things_in_view,
@@ -284,7 +284,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"pda_janitors" = snapshot["pda_janitors"],
 			// Someone else at its post has lately sent for a janitor.
 			"workmate_called" = npc.workmate_called_janitor(),
-			// The rooms they sent for one to ("" for a call that named none), for holding back only a call to the same room (MULTI-06). The window does not read it yet.
+			// The rooms they sent for one to ("" for a call that named none), for holding back only a call to the same room (MULTI-06).
 			"workmate_called_rooms" = npc.rooms_workmate_called_for(),
 			// Someone has it by the arm and is walking it out of a room.
 			"in_hand" = world.time < npc.in_hand_until,
