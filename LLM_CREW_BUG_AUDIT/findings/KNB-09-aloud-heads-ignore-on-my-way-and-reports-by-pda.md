@@ -99,3 +99,5 @@ Effort raised to medium: the helper and its four callers span `head.ts`, `quarte
 ## Fix so far
 
 Done in part (group m-heads, 2338810bf4b): `staffMeetingWord` in `jobs/head.ts` reads "On my way" and a report by PDA; the Head of Personnel and the Chief Engineer call it. Step 3 was already in place (`endMeeting` tells those never called on, under an aloud way; LOGA-02). Left: call `staffMeetingWord(brain, from, text, at)` near the top of `readsMessage` in `jobs/quartermaster.ts` and `jobs/headofsecurity.ts` (the latter can drop its own copy, keeping `KEPT_AWAY`), and step 4 for the Quartermaster's needs.
+
+Round M2 (group g-cargo): `jobs/quartermaster.ts` `readsMessage` calls `staffMeetingWord(brain, from, text, at)` first, so a technician's "On my way to the ..." or report by PDA is read as the other heads read it. Step 4 (the Quartermaster's needs): a need in a PDA report goes to `noteAsk`, as a spoken one does through `hearReport`; `SUPPLIES` has nothing for a technician, so for the Quartermaster neither leads anywhere yet. Table case in `tools/llm_crew/cargo-deaddoor.ts`. Left: `jobs/headofsecurity.ts` (group g-sec this round).

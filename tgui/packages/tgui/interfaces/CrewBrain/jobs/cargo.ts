@@ -61,13 +61,20 @@ import {
   syncRounds,
 } from './rounds';
 import {
+  calledIn,
+  calledMe,
   DOCKED,
   dutiesIn,
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_AT_CARGO,
   NOT_PLACED,
+  nameCalled,
+  orderSpoken,
   orderWritten,
+  PLACED_WORDS,
+  placedLine,
   QM_SILENT_WORDS,
   quartermasterAboard,
   SEE_TO_WORDS,
@@ -767,7 +774,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
         tool: 'message',
         person: notice.to,
         // What cannot be done without comes first: a PDA message that runs long is cut off at the end.
-        text: `Lost at cargo: ${written}${notice.what ? ` (${notice.what})` : ''} from your order. ${why[0].toUpperCase()}${why.slice(1)}. It will have to be ordered again, and nobody need come for it.`,
+        text: `${LOST_AT_CARGO} ${written}${notice.what ? ` (${notice.what})` : ''} from your order. ${why[0].toUpperCase()}${why.slice(1)}. It will have to be ordered again, and nobody need come for it.`,
       },
     };
   }
@@ -1433,12 +1440,46 @@ type DoorWant = {
   out: boolean;
   beyond?: string;
   security?: boolean;
+  /**
+   * TRUE for the long stop: someone the department's list has inside a room a good while, who has
+   * not asked. Nobody is at the door, so it does not stop an order being taken (CARGO-09).
+   */
+  unasked?: boolean;
 };
+/**
+ * What the body is told when a door is opened to let out someone who is not in that room: not in
+ * sight and not at its door, or not inside it at all. Whatever the department's list says, they
+ * are not in there (CARGO-09). The server will mark these `not_inside`; the words are read too.
+ */
+const NOT_INSIDE_WORDS =
+  /you cannot see that person, and they are not at the door|you have no call to let .+ into|you do not know who that is/i;
 /** Who a door is opened for when all that is known is that someone is knocking from inside: the body finds who is standing there. */
 const SOMEONE_INSIDE = 'whoever is knocking';
 
 function firstName(name: string): string {
   return name.split(' ')[0];
+}
+
+/** The other technicians this NPC knows of: in view, or on its PDA list. */
+function workmatesKnown(brain: NpcBrain): string[] {
+  return [
+    ...new Set(
+      [...brain.peopleInView, ...brain.pdaPeople]
+        .filter(
+          (person) => isTechnician(person.job) && person.name !== brain.name,
+        )
+        .map((person) => person.name),
+    ),
+  ];
+}
+
+/**
+ * Whether a line the Quartermaster said is said to this NPC by name: it begins with its whole
+ * name, or with its first name and no workmate it knows of shares that. "Sam Cole, order 3" is
+ * not Sam Bell's, though both are Sam (QM-03).
+ */
+function saidToMe(brain: NpcBrain, line: string): boolean {
+  return calledMe(calledIn(line), brain.name, workmatesKnown(brain));
 }
 
 /** The rooms whose doors are this NPC's to open: its post, and the rest of its department. */
@@ -1664,6 +1705,11 @@ function mayPass(
  */
 function doorWanted(brain: NpcBrain): DoorWant | null {
   const want = doorSought(brain);
+  // A door it found dead a moment ago is not gone back to: it would only be found dead again
+  // (DOOR-14). Whoever wanted it has been told, and so has the head.
+  if (want && deadDoorOf(brain, want.room)) {
+    return null;
+  }
   // A door it has only just opened for them is still being held: the server holds it until they
   // are through, or for a quarter of a minute. Opening it again meanwhile is the same door opened
   // over and over, for someone who is standing talking or has been taken by the arm.
@@ -2037,10 +2083,70 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       (entry) => brain.now - entry.at > LEFT_INSIDE_DS,
     );
     if (left) {
-      return { name: left.name, room, out: true };
+      return { name: left.name, room, out: true, unasked: true };
     }
   }
   return null;
+}
+
+/** Why a door will not open, by the reason the server gives for it, as it is said (DOOR-14). */
+const DEAD_DOOR_WHY: Record<string, string> = {
+  no_power: 'it has no power',
+  bolted: 'it is bolted',
+  welded: 'it is welded shut',
+  stuck: 'it will not move',
+};
+/** How long (deciseconds) a door found dead is not gone back to. */
+const DEAD_DOOR_DS = 3000;
+/** The doors each technician found dead, by its id and the room: why, and when (server time). */
+const deadDoors = new Map<string, Record<string, { why: string; at: number }>>();
+
+/** Why the door of this room was found dead lately, or undefined. */
+function deadDoorOf(brain: NpcBrain, room: string): string | undefined {
+  const dead = deadDoors.get(brain.id)?.[room];
+  return dead && brain.now - dead.at < DEAD_DOOR_DS ? dead.why : undefined;
+}
+
+/**
+ * Notes a door of the department that will not open, and tells whoever it was for (to their face
+ * if in sight, by PDA if not) and its head by PDA, once while it is remembered. How to get it open
+ * (a crowbar, or engineering) is the owner's to decide: nothing is done about it here.
+ */
+function noteDeadDoor(brain: NpcBrain, task: Task, why: string): void {
+  const room = task.place ?? '';
+  const told = !!deadDoorOf(brain, room);
+  const rooms = deadDoors.get(brain.id) ?? {};
+  rooms[room] = { why, at: brain.now };
+  deadDoors.set(brain.id, rooms);
+  if (told) {
+    return;
+  }
+  const name = task.item && task.item !== SOMEONE_INSIDE ? task.item : null;
+  const way = task.out ? 'out' : 'in';
+  const head =
+    quartermasterAboard(brain)?.name ??
+    [...brain.peopleInView, ...brain.pdaPeople].find((person) =>
+      /head of personnel/i.test(person.job),
+    )?.name;
+  const inSight = !!name && brain.peopleInView.some((p) => p.name === name);
+  if (name && (inSight || brain.hasPda)) {
+    brain.toTell.push({
+      to: name,
+      line: `${firstName(name)}, the door of the ${room} will not open: ${why}. I cannot let you ${way} that way.${head ? ` I have told ${head}.` : ''}`,
+      why: `You went to open the door of the ${room} for ${name}, and it will not open: ${why}. You are telling them.`,
+      byPda: !inSight,
+      at: Date.now(),
+    });
+  }
+  if (head && head !== brain.name && brain.hasPda) {
+    brain.toTell.push({
+      to: head,
+      line: `The door of the ${room} will not open: ${why}.${name ? ` ${name} is ${task.out ? 'shut inside' : 'waiting to be let in'}, and I cannot let them ${way}.` : ''}`,
+      why: `The door of the ${room} will not open: ${why}. You are telling ${head}, your head, so that it can be seen to.`,
+      byPda: true,
+      at: Date.now(),
+    });
+  }
 }
 
 /** Says why someone is being let through a door, for the step and for what the LLM is told. */
@@ -2062,6 +2168,20 @@ function listed(names: string[]): string {
 }
 
 /**
+ * TRUE if a workmate at the post has called a janitor to this room lately. The server lists the
+ * rooms (`workmate_called_rooms`, "" for a call that named none); until the window is given that
+ * list, any call by a workmate counts, as before (MULTI-06).
+ */
+function workmateCalledFor(brain: NpcBrain, place: string): boolean {
+  const rooms = (brain as { workmateCalledRooms?: string[] })
+    .workmateCalledRooms;
+  if (!Array.isArray(rooms)) {
+    return brain.workmateCalled;
+  }
+  return rooms.includes(place) || rooms.includes('');
+}
+
+/**
  * What getting a mess in the work area seen to comes down to: a PDA message to a janitor. A
  * janitor who is standing there can see it for themselves, so nothing is sent while one is.
  */
@@ -2073,7 +2193,16 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // A locked room of its department other than its post is out of everyone's sight. A janitor is
   // in there only if one was let in.
   const lockedAway = !inPost && brain.closedRooms.includes(place);
-  const letIn = brain.post ? stillInside(brain.post, place, brain.now)[0] : null;
+  // One let in is taken to be in there seeing to it only for as long as a call stands, and not
+  // once they have said it is beyond them: a janitor who left unseen kept the room from ever being
+  // called about again (CARGO-09).
+  const letIn = brain.post
+    ? stillInside(brain.post, place, brain.now).find(
+        (entry) =>
+          brain.now - entry.at < CALL_AGAIN_DS &&
+          !brain.janitorCalls[place]?.declined?.includes(entry.name),
+      )
+    : null;
   const here = lockedAway
     ? letIn
       ? { name: letIn.name }
@@ -2124,7 +2253,7 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
   // One call from a post is enough. Whoever is slower to it leaves it a while longer when a
   // workmate has sent for a janitor already.
   if (
-    brain.workmateCalled ||
+    workmateCalledFor(brain, place) ||
     brain.now - task.createdAt < NOTICE_DS + stagger(brain, CALL_STAGGER_DS)
   ) {
     return {
@@ -2203,6 +2332,9 @@ function tidyStep(brain: NpcBrain, task: Task): Plan {
     act: {
       tool: 'message',
       person: janitor,
+      // The room the call is for, so that the server notes a janitor called to it, and only to
+      // it: a mail notice to a janitor is not a call (MULTI-06).
+      call_for: place,
       // What it wants is passed on only if whoever tried it said so. Otherwise the next janitor is
       // asked to come and try: what beat the first may have been only what it had in its hand.
       text: !tried
@@ -2535,6 +2667,37 @@ function sayerOf(
   );
 }
 
+/** Of the crates held for this person in the bay (heldFor), the ones of a kind asked for in these words. A crate whose kind it does not know counts. */
+function heldAskedFor(brain: NpcBrain, name: string, said: string): HeldCrate[] {
+  const kinds = itemsAskedFor(
+    said.toLowerCase(),
+    brain.orderable,
+    brain.pdaPeople.map((person) => person.name),
+  ).map((item) => item.crate);
+  return heldFor(brain, name).filter(
+    (crate) => !crate.what || kinds.includes(crate.what),
+  );
+}
+
+/** The words a crate held for someone is told of: "crate #12 (Janitorial Supplies Crate); crates #13 and #14 (Replacement Lights)". */
+function heldWritten(crates: HeldCrate[]): string {
+  const kinds = [...new Set(crates.map((crate) => crate.what))];
+  return kinds
+    .map((kind) => {
+      const numbers = crates
+        .filter((crate) => crate.what === kind)
+        .map((crate) => crate.number);
+      return `${cratesWritten(numbers)}${kind ? ` (${kind})` : ''}`;
+    })
+    .join('; ');
+}
+
+/**
+ * Who has just asked at the counter for a kind it is holding for them, and when (server time), by
+ * this NPC's id. No order is offered for them meanwhile: they are told it has come in (TRA-02).
+ */
+const askedForHeld = new Map<string, { name: string; at: number }>();
+
 function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
   // With a Quartermaster aboard, an order is taken from the Quartermaster and nobody else, and
   // that is done by code from its own words (see overhears). The one way round it is a head who
@@ -2544,9 +2707,21 @@ function offers(brain: NpcBrain, askers: PersonInView[] = []): Option[] {
     brain.orderable.length === 0 ||
     brain.orderPending ||
     // Someone at the door wants the door. Offered an order as well, the LLM sometimes takes it.
-    doorWanted(brain) ||
+    // Not the long stop for someone let in a while ago: nobody is at the door, and one who left
+    // unseen stopped every order at the post for the rest of the round (CARGO-09).
+    (doorWanted(brain) && !doorWanted(brain)?.unasked) ||
     // Likewise someone come to collect a crate: "I am here for crate 12" is not an order for one.
-    (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS)
+    (!!brain.pickupAsked && brain.now - brain.pickupAsked.at < PICKUP_ASK_DS) ||
+    // Or a head asking again for what has come in for them and is waiting in the bay: a second
+    // crate was bought each time its PDA word was lost (TRA-02).
+    askers.some((person) => {
+      const held = askedForHeld.get(brain.id);
+      return (
+        !!held &&
+        held.name === person.name &&
+        brain.now - held.at < PICKUP_ASK_DS
+      );
+    })
   ) {
     return [];
   }
@@ -2577,7 +2752,7 @@ export const CARGO: Job = {
       ? 'All that takes is a PDA message to a janitor.'
       : null,
   // A message sent about a mess is a janitor called to it.
-  afterActing: (brain, act, task, ok, _looped, _details, text) => {
+  afterActing: (brain, act, task, ok, _looped, details, text) => {
     afterFreight(brain, act, task, ok, text);
     // The order the Quartermaster gave it is placed, or could not be. Either way it is done with
     // here: one that could not be placed goes back to the Quartermaster, who gives it again.
@@ -2597,6 +2772,41 @@ export const CARGO: Job = {
         });
         telling.from = given.by;
         telling.found = notPlacedWhy(String(text ?? ''));
+      }
+    }
+    // An order placed at the counter for whoever asked: they are told so, in so many words, and
+    // that is what the head goes by as its order taken. Any word from cargo in its hearing was
+    // taken for it before, and an order nobody took was not asked for again for ten minutes
+    // (TRA-04). Only the placing ("You order ..."), not the shuttle docking with it later, and not
+    // an order the Quartermaster gave, whose word goes back to the Quartermaster.
+    if (
+      ok &&
+      act.tool === 'order' &&
+      task?.kind !== GIVEN &&
+      !act.via &&
+      /^you order /i.test(text ?? '')
+    ) {
+      const asker =
+        brain.peopleInView.find((person) => person.handle === act.for)?.name ??
+        String(text ?? '')
+          .match(/^you order .+ for (.+?) at the supply console/i)?.[1]
+          ?.trim();
+      if (asker && asker !== brain.name) {
+        const items =
+          Array.isArray(act.items) && act.items.length > 0
+            ? (act.items as { crate: string; count: number }[])
+            : [{ crate: String(act.crate ?? ''), count: Number(act.count ?? 1) }];
+        const line = placedLine(firstName(asker), orderSpoken(items));
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+        brain.toTell.push({
+          to: asker,
+          line,
+          why: `You have placed the order ${asker} asked you for at the counter: ${orderWritten(items)}. You are telling them it is in.`,
+          needs: PLACED_WORDS,
+          exact: true,
+          whileBusy: true,
+          at: Date.now(),
+        });
       }
     }
     // Word of an order that has come in is passed on, or it knocked for the Quartermaster.
@@ -2652,6 +2862,28 @@ export const CARGO: Job = {
       }
       if (brain.knockAt?.room === task.place) {
         brain.knockAt = null;
+      }
+      // A door that will not open for anyone: no power, bolted, welded or stuck. It is
+      // remembered a while, and whoever wanted it and the head are told, once (DOOR-14).
+      const deadWhy =
+        !ok && typeof details?.reason === 'string'
+          ? DEAD_DOOR_WHY[details.reason]
+          : undefined;
+      if (deadWhy && task.place) {
+        noteDeadDoor(brain, task, deadWhy);
+      }
+      // A let-out the body is told is for someone not in that room: they are not in there, though
+      // the department's list has them inside. Struck, so that the door is not tried for them every
+      // two minutes for the rest of the round (CARGO-09).
+      if (
+        !ok &&
+        task.out &&
+        task.item &&
+        task.place &&
+        brain.post &&
+        (details?.not_inside || NOT_INSIDE_WORDS.test(text ?? ''))
+      ) {
+        noteLetOut(brain.post, task.item, task.place);
       }
       // Whoever it opened the door for went through it by its leave. The department keeps track
       // of who is in which of its rooms, so that they are let out again.
@@ -2812,6 +3044,8 @@ export const CARGO: Job = {
       asksToOrder(words) &&
       // Coming for a crate that is here is not asking for one to be ordered.
       !comeForCrate(words, crateNumberIn(words)) &&
+      // Nor asking for a kind that has come in for them already (TRA-02).
+      heldAskedFor(brain, sayer.name, words).length === 0 &&
       takeOrder(brain.post ?? '', speakerOf(heard), brain.name, brain.now)
     );
   },
@@ -2849,7 +3083,7 @@ export const CARGO: Job = {
     if (
       isQuartermaster(speakerJob) &&
       WORD_HEARD_WORDS.test(heard) &&
-      new RegExp(`\\b${firstName(brain.name)}\\b`, 'i').test(heard)
+      saidToMe(brain, heard)
     ) {
       for (const task of brain.tasks) {
         if (task.telling && task.toldAt !== undefined && task.state !== 'done') {
@@ -2863,15 +3097,9 @@ export const CARGO: Job = {
     // yours this shift." Everyone there hears who has what, and goes by it.
     const duty = isQuartermaster(speakerJob) ? dutiesIn(heard) : null;
     if (duty) {
-      const first = duty.first.toLowerCase();
-      const name =
-        firstName(brain.name).toLowerCase() === first
-          ? brain.name
-          : [...brain.peopleInView, ...brain.pdaPeople].find(
-              (person) =>
-                isTechnician(person.job) &&
-                firstName(person.name).toLowerCase() === first,
-            )?.name;
+      const name = calledMe(duty.to, brain.name, workmatesKnown(brain))
+        ? brain.name
+        : nameCalled(duty.to, workmatesKnown(brain));
       if (name) {
         brain.duties[name] = duty.duties;
       }
@@ -2885,16 +3113,14 @@ export const CARGO: Job = {
       ? heard.trim().match(SEND_TO_LET_OUT_WORDS)
       : null;
     if (sendToLetOut) {
-      if (
-        sendToLetOut[1].toLowerCase() === firstName(brain.name).toLowerCase()
-      ) {
-        const first = sendToLetOut[2].trim().toLowerCase();
+      if (calledMe(sendToLetOut[1], brain.name, workmatesKnown(brain))) {
         const who =
-          [...brain.peopleInView, ...brain.pdaPeople].find(
-            (person) =>
-              person.name !== brain.name &&
-              firstName(person.name).toLowerCase() === first,
-          )?.name ?? sendToLetOut[2].trim();
+          nameCalled(
+            sendToLetOut[2],
+            [...brain.peopleInView, ...brain.pdaPeople]
+              .map((person) => person.name)
+              .filter((name) => name !== brain.name),
+          ) ?? sendToLetOut[2].trim();
         const said = sendToLetOut[3].trim();
         const room =
           ownRooms(brain).find(
@@ -2917,7 +3143,7 @@ export const CARGO: Job = {
       ? heard.trim().match(SEE_TO_WORDS)
       : null;
     if (seeTo) {
-      if (seeTo[1].toLowerCase() === firstName(brain.name).toLowerCase()) {
+      if (calledMe(seeTo[1], brain.name, workmatesKnown(brain))) {
         brain.seeToUntil = brain.now + SEE_TO_DS;
         // A held crate that would not come out to the lobby is not shuttle or rooms work: it is a
         // hand-over, and it is this one's to bring out now (CARGO-18).
@@ -2938,7 +3164,7 @@ export const CARGO: Job = {
       const number = tryAgain[2].match(/\bcrate #(\d+)\b/i)?.[1];
       if (
         number &&
-        tryAgain[1].toLowerCase() === firstName(brain.name).toLowerCase() &&
+        calledMe(tryAgain[1], brain.name, workmatesKnown(brain)) &&
         brain.heldCrates.some((held) => held.number === Number(number))
       ) {
         seeToCrates.set(brain.id, { number: Number(number), at: brain.now });
@@ -2952,7 +3178,7 @@ export const CARGO: Job = {
     if (
       given &&
       isQuartermaster(speakerJob) &&
-      new RegExp(`^${firstName(brain.name)}\\b`, 'i').test(heard.trim())
+      saidToMe(brain, heard)
     ) {
       const n = Number(given[1]);
       const items = itemsAskedFor(given[2].toLowerCase(), brain.orderable);
@@ -2982,6 +3208,40 @@ export const CARGO: Job = {
           // there waiting to hear it, and gives the order to someone else if it does not. Left to
           // its turn, it was said eighty seconds late, after the order was placed, and the same
           // order was bought a second time by the other technician.
+          exact: true,
+          whileBusy: true,
+          at: Date.now(),
+        });
+      }
+      return;
+    }
+    // A head asking at the counter for a kind of crate that has come in for them and is waiting in
+    // the bay: told so, in the words of the PDA it was sent, and nothing is ordered. Its PDA word
+    // lost, the head came back every ten minutes and a crate was bought each time (TRA-02).
+    const askingSeen = brain.peopleInView.find(
+      (person) => person.name === speaker,
+    );
+    const heldAsked =
+      askingSeen &&
+      !isCargo(speakerJob) &&
+      (!!askingSeen.command || isHead(speakerJob)) &&
+      atMyCounter(brain, event, speaker) &&
+      ORDERING_WORDS.test(heard) &&
+      !comeForCrate(heard, crateNumberIn(heard))
+        ? heldAskedFor(brain, speaker, heard)
+        : [];
+    if (heldAsked.length > 0) {
+      askedForHeld.set(brain.id, { name: speaker, at: brain.now });
+      if (
+        takeOrder(brain.post ?? '', `${speaker}, held for them`, brain.name, brain.now)
+      ) {
+        const line = `${firstName(speaker)}, your order has come in: ${heldWritten(heldAsked)}. Send someone to the Cargo Lobby counter with the number to collect ${heldAsked.length > 1 ? 'each one' : 'it'}.`;
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+        brain.toTell.push({
+          to: speaker,
+          line,
+          why: `${speaker} is asking you to order what has already come in for them and is waiting in the bay. You are telling them the number, so that they can send someone for it.`,
+          needs: /\border has come in\b/i,
           exact: true,
           whileBusy: true,
           at: Date.now(),
@@ -3223,6 +3483,7 @@ export const CARGO: Job = {
       items.length > 0 &&
       asksToOrder(said) &&
       !comeForCrate(said, crateNumberIn(said)) &&
+      heldAskedFor(brain, asker.name, said).length === 0 &&
       !/, speaking to (?!you\b|everyone\b)/.test(heard) &&
       offers(brain, [asker]).length > 0 &&
       takeOrder(brain.post ?? '', asker.name, brain.name, brain.now)

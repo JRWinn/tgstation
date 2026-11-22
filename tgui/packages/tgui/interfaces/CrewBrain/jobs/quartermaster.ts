@@ -50,6 +50,7 @@ import {
   meetingSaid,
   meetStep,
   present,
+  staffMeetingWord,
   syncMeeting,
   workReported,
 } from './head';
@@ -58,6 +59,7 @@ import { isMeetingOrder } from './meetings';
 import { totalWords } from './reports';
 import {
   CANNOT_ORDER,
+  calledBy,
   cratesTold,
   cratesWritten,
   DOCKED_WORDS,
@@ -67,13 +69,16 @@ import {
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_AT_CARGO,
   LOST_TOLD_WORDS,
   letOutLine,
   NOT_PLACED_WORDS,
   NOTED,
+  nameCalled,
   ORDERING,
   orderSpoken,
   orderWritten,
+  REORDERED,
   SHUT_IN_WORDS,
   seeToLine,
   TAKEN_WORDS,
@@ -221,6 +226,14 @@ function technicians(brain: NpcBrain): string[] {
         .map((person) => person.name),
     ),
   ];
+}
+
+/**
+ * What it calls a technician by, speaking to it: the first name, or the whole name when another
+ * technician aboard has the same first name (QM-03).
+ */
+function techCalled(brain: NpcBrain, name: string): string {
+  return calledBy(name, technicians(brain));
 }
 
 /** Its working copy of the order book, made the first time it is wanted. */
@@ -1080,8 +1093,8 @@ function freeTechnicians(brain: NpcBrain, ledger: Ledger): string[] {
 }
 
 /** The words an order is given to a technician in. Said word for word: the technician's body goes by them. */
-function giveLine(order: LedgerOrder, to: string): string {
-  return `${firstName(to)}, order ${order.n}: ${ORDERING} ${orderSpoken(order.items)}, for ${order.from}.`;
+function giveLine(brain: NpcBrain, order: LedgerOrder, to: string): string {
+  return `${techCalled(brain, to)}, order ${order.n}: ${ORDERING} ${orderSpoken(order.items)}, for ${order.from}.`;
 }
 
 /** What its staff have brought in and sent out between them, as it says it to end a meeting. */
@@ -1164,7 +1177,7 @@ function dutyStep(brain: NpcBrain, meeting: Meeting): Plan | null {
   if (!owed) {
     return null;
   }
-  const line = dutyLine(owed.name, owed.duties);
+  const line = dutyLine(owed.name, owed.duties, technicians(brain));
   return {
     ready: true,
     step: `Your staff have reported. You divide the standing work between your technicians: your body is telling ${owed.name} what is theirs, in these words: "${line}"`,
@@ -1447,7 +1460,7 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
       act: { tool: 'approach', person: seen.handle },
     };
   }
-  const line = giveLine(order, pick);
+  const line = giveLine(brain, order, pick);
   return {
     ready: true,
     step: `Order ${order.n} is cleared and ${pick}, one of your technicians, is here. Your body is giving them the order, in these words: "${line}"`,
@@ -1488,10 +1501,10 @@ function crateHeldUp(
       to,
       line:
         to === speaker
-          ? tryAgainLine(firstName(to), what)
+          ? tryAgainLine(techCalled(brain, to), what)
           : seeToLine(
-              firstName(to),
-              `${what} ${where} and ${firstName(speaker)} could not get it ${how}`,
+              techCalled(brain, to),
+              `${what} ${where} and ${techCalled(brain, speaker)} could not get it ${how}`,
             ),
       why:
         to === speaker
@@ -1793,7 +1806,7 @@ function crateLost(
     sendWord(
       brain,
       whose,
-      `Lost at cargo: ${written} from your order. ${capital(why)}. ${again ? `I am having it ordered again, as order ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
+      `${LOST_AT_CARGO} ${written} from your order. ${capital(why)}. ${again ? `I am having it ${REORDERED} ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
       `One of your technicians has told you that ${written}, which ${whose} ordered, ${numbers.length === 1 ? 'has' : 'have'} been lost: ${why}. You are sending ${whose} word of it${again ? ', and having it ordered again' : ''}.`,
     );
   }
@@ -1887,7 +1900,12 @@ export const QUARTERMASTER: Job = {
   describeTask,
   // An order from a head, the Captain's answer about one, or the Captain telling it to find out
   // how its staff are doing, by PDA.
-  readsMessage: (brain, from, text, _at, job) => {
+  readsMessage: (brain, from, text, at, job) => {
+    // A technician sending word that they are on their way to its meeting, or their report
+    // because they cannot come, as the other heads read it (KNB-09).
+    if (staffMeetingWord(brain, from, text, at)) {
+      return;
+    }
     if (/captain/i.test(job) && readAnswer(brain, from, text, false)) {
       return;
     }
@@ -1932,7 +1950,11 @@ export const QUARTERMASTER: Job = {
         // that door (QM-05). The see-to line only had it take on the shuttle and the rooms.
         ledgerOf(brain).sendFor = {
           to: other,
-          line: letOutLine(firstName(other), firstName(from), shutIn[1].trim()),
+          line: letOutLine(
+            techCalled(brain, other),
+            techCalled(brain, from),
+            shutIn[1].trim(),
+          ),
           why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
         };
@@ -1966,7 +1988,7 @@ export const QUARTERMASTER: Job = {
       // And says so, by name. The technician cannot tell being seen from being heard, and until
       // it has this back it goes on trying to pass its word on.
       const heardIt = () => {
-        const line = `${firstName(speaker)}, ${WORD_HEARD}.`;
+        const line = `${techCalled(brain, speaker)}, ${WORD_HEARD}.`;
         brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: speaker,
@@ -2109,9 +2131,7 @@ export const QUARTERMASTER: Job = {
     // Having told a technician, in so many words, what is theirs this shift, it is theirs.
     const duty = dutiesIn(called);
     if (duty) {
-      const name = technicians(brain).find(
-        (it) => firstName(it).toLowerCase() === duty.first.toLowerCase(),
-      );
+      const name = nameCalled(duty.to, technicians(brain));
       if (name) {
         ledger.duties[name] = duty.duties;
       }

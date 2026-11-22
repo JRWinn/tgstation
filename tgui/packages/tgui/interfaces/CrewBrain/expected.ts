@@ -28,6 +28,12 @@ export type Expected = {
 
 /** How long (deciseconds) a call stands as a reason to let someone in. */
 const EXPECTED_DS = 12000;
+/**
+ * How long (deciseconds) a note that someone is inside stands with nothing to renew it: the long
+ * stop for one who left unseen, by a door someone else opened. Kept for the round, it had the door
+ * tried for them and orders stopped at the post for good (CARGO-09). Being let in again renews it.
+ */
+const INSIDE_DS = 18000;
 
 let list: Expected[] = [];
 /** When each room was last let out of, by post and room (server time). See lastLetOutAt. */
@@ -41,7 +47,9 @@ export function clearExpected(): void {
 }
 
 function current(now: number): Expected[] {
-  list = list.filter((entry) => entry.inside || now - entry.at < EXPECTED_DS);
+  list = list.filter(
+    (entry) => now - entry.at < (entry.inside ? INSIDE_DS : EXPECTED_DS),
+  );
   return list;
 }
 
