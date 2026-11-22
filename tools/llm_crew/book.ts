@@ -448,6 +448,30 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add("a duty line to Sam Cole goes against Sam Cole in Sam Bell's book", bell.duties, { 'Sam Cole': ['shuttle', 'rooms'] });
 }
 
+// QM-05 A: with no other technician about, the Quartermaster goes to the door itself.
+{
+  const shutInQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.staffPost = 'Cargo Bay'; qm.office = "Quartermaster's Office"; qm.location = "Quartermaster's Office"; qm.now = 5000;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }];
+    QUARTERMASTER.readsMessage(qm, 'Cora Tech', 'I am shut in the Warehouse and nobody has come to the door. Could you send someone to let me out to the Cargo Bay, please?', 5000, 'Cargo Technician');
+    QUARTERMASTER.syncTasks(qm);
+    return qm;
+  };
+  const qm = shutInQm();
+  const task = qm.tasks.find((t: any) => t.kind === 'qm_let_out' && t.state !== 'done');
+  add('nobody else to send: nobody is sent', qm.ledger.sendFor, null);
+  add('and it opens the Warehouse door for Cora itself', QUARTERMASTER.plan(qm, task)?.act, { tool: 'open_door', name: 'Cora Tech', place: 'Warehouse' });
+  QUARTERMASTER.afterActing(qm, { tool: 'open_door', name: 'Cora Tech', place: 'Warehouse' }, task, true, false, {}, 'You open the door.');
+  QUARTERMASTER.syncTasks(qm);
+  add('opened: it is done', task.state, 'done');
+  const twice = shutInQm();
+  const again = twice.tasks.find((t: any) => t.kind === 'qm_let_out' && t.state !== 'done');
+  for (let i = 0; i < 2; i++) QUARTERMASTER.afterActing(twice, { tool: 'open_door' }, again, false, false, {}, 'The door will not open.');
+  QUARTERMASTER.syncTasks(twice);
+  add('not opened twice: done, and Cora is told by PDA', [again.state, twice.toTell.filter((t: any) => t.byPda).map((t: any) => t.line)], ['done', ['Cora, I could not get the door of the Warehouse open for you.']]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

@@ -101,6 +101,21 @@ const UNPACK = 'qm_unpack';
 const SEND = 'qm_send';
 /** How long (deciseconds) such a sending is worth making. After that the trouble is over, or someone has told it again. */
 const SEND_STANDS_DS = 3000;
+/** Letting one of its technicians out of a room it is shut in, itself, with nobody else to send (QM-05 A). */
+const LET_OUT = 'qm_let_out';
+/** How long (deciseconds) word that a technician is shut in is acted on by going to the door itself. */
+const LET_OUT_STANDS_DS = 3000;
+/** How many times it tries the door before telling them it could not let them out. */
+const LET_OUT_TRIES = 2;
+/**
+ * A technician it is going to let out itself: who, the room, when it was told (server time), and
+ * how many times the door has not opened. Kept on the ledger, reached through `letOutOf`:
+ * `types.ts`'s Ledger has no field for it yet.
+ */
+type LetOut = { who: string; room: string; at: number; tries: number };
+function letOutOf(ledger: Ledger): { letOut?: LetOut | null } {
+  return ledger as Ledger & { letOut?: LetOut | null };
+}
 /** Coming out of its office to a knock at the door. */
 const KNOCK = 'qm_knock';
 /** Going back to its office when there is nothing to see to. */
@@ -1459,6 +1474,25 @@ function syncTasks(brain: NpcBrain): void {
     finishTask(brain, sending);
   }
 
+  // A technician shut in, with nobody else to send: it goes to the door itself (QM-05 A).
+  const held = letOutOf(ledger);
+  const lettingOut = brain.tasks.find(
+    (task) => task.kind === LET_OUT && task.state !== 'done',
+  );
+  const toLetOut =
+    !!held.letOut && brain.now - held.letOut.at < LET_OUT_STANDS_DS;
+  if (toLetOut && !lettingOut) {
+    addTask(brain, {
+      kind: LET_OUT,
+      item: held.letOut?.who,
+      urgency: 'asked',
+      source: 'own',
+    });
+  } else if (!toLetOut && lettingOut) {
+    held.letOut = null;
+    finishTask(brain, lettingOut);
+  }
+
   // A knock at its office door, while it is in there: one of its technicians has word for it.
   const knock = brain.knockAt;
   const atDoor =
@@ -1492,7 +1526,7 @@ function syncTasks(brain: NpcBrain): void {
   const busy = brain.tasks.some(
     (task) =>
       task.state !== 'done' &&
-      [WRITE, GIVE, SEND, KNOCK, UNPACK, MEET].includes(task.kind),
+      [WRITE, GIVE, SEND, LET_OUT, KNOCK, UNPACK, MEET].includes(task.kind),
   );
   const stayingOut =
     ledger.cameOutAt > 0 && brain.now - ledger.cameOutAt < STAY_OUT_DS;
@@ -1745,6 +1779,23 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind === SEND) {
     return sendStep(brain);
   }
+  if (task.kind === LET_OUT) {
+    const out = letOutOf(ledger).letOut;
+    return out
+      ? {
+          ready: true,
+          step: `${out.who} has sent word that they are shut in the ${out.room}, and there is no other technician to send. You are going to the door of the ${out.room} to let them out yourself.`,
+          act: {
+            tool: 'open_door',
+            ...(brain.handles[out.who]
+              ? { person: brain.handles[out.who] }
+              : {}),
+            name: out.who,
+            place: out.room,
+          },
+        }
+      : { ready: false, step: 'There is nobody to let out.' };
+  }
   if (task.kind === PAPER) {
     return {
       ready: true,
@@ -1809,6 +1860,8 @@ function describeTask(task: Task): string | null {
       return `give order ${task.item} to one of your technicians`;
     case SEND:
       return 'send a technician to see to a crate that would not come';
+    case LET_OUT:
+      return `let ${task.item} out of the room they are shut in`;
     case UNPACK:
       return `open the crate that came on order ${task.item}`;
     case KNOCK:
@@ -2202,6 +2255,15 @@ export const QUARTERMASTER: Job = {
           why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
         };
+      } else {
+        // With no other technician about, it goes to the door and lets them out itself (QM-05 A).
+        // Whether the room's door is its to open is the server's to say.
+        letOutOf(ledgerOf(brain)).letOut = {
+          who: from,
+          room: shutIn[1].trim(),
+          at: brain.now,
+          tries: 0,
+        };
       }
     }
   },
@@ -2336,7 +2398,7 @@ export const QUARTERMASTER: Job = {
       ledger.toWrite.push(BOOK.given(order, order.pick));
     }
   },
-  afterActing: (brain, act, task, ok, looped, details) => {
+  afterActing: (brain, act, task, ok, looped, details, text) => {
     const ledger = ledgerOf(brain);
     meetingActed(brain, act, ok, looped);
     // What it wrote is written. What it could not write waits for paper.
@@ -2364,6 +2426,23 @@ export const QUARTERMASTER: Job = {
     // Likewise one it means to send somewhere.
     if (task?.kind === SEND && act.tool === 'approach' && ledger.sendFor) {
       ledger.sendFor.walkedUp = true;
+    }
+    // The door of the room its technician is shut in (QM-05 A). Opened, or they are not inside
+    // after all, it is done. Not opened twice, it tells them so by PDA.
+    const out = letOutOf(ledger).letOut;
+    if (task?.kind === LET_OUT && act.tool === 'open_door' && out) {
+      out.tries++;
+      if (ok || details?.not_inside) {
+        letOutOf(ledger).letOut = null;
+      } else if (out.tries >= LET_OUT_TRIES) {
+        letOutOf(ledger).letOut = null;
+        sendWord(
+          brain,
+          out.who,
+          `${techCalled(brain, out.who)}, I could not get the door of the ${out.room} open for you.`,
+          `You went to let ${out.who} out of the ${out.room} yourself, and the door would not open for you: ${String(text ?? '')}. You are telling them so.`,
+        );
+      }
     }
     // Its own crate is open, and what was in it is out where it can be got at.
     if (task?.kind === UNPACK && act.tool === 'open_own_crate' && ok) {
