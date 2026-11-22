@@ -10,13 +10,8 @@
 	var/mob/living/carbon/human/npc = new(spawn_turf)
 	randomize_human_normie(npc)
 	npc.equipOutfit(outfit_type)
-	// A janitor works on floors it has just made wet. In ordinary shoes it slips on them, falls, and
-	// drops what it is holding. A real janitor puts on the galoshes from the wardrobe; this one starts in them.
-	if(ispath(outfit_type, /datum/outfit/job/janitor))
-		var/obj/item/ordinary_shoes = npc.get_item_by_slot(ITEM_SLOT_FEET)
-		if(ordinary_shoes)
-			qdel(ordinary_shoes)
-		npc.equip_to_slot_or_del(new /obj/item/clothing/shoes/galoshes(npc), ITEM_SLOT_FEET)
+	// A janitor starts in the shoes of its outfit, as a player does: no galoshes are made for it
+	// (KNB-06). It keeps its feet on the floors it has just mopped by remembering them (note_mopped).
 	// Whatever the outfit put in its hands goes in its bag, so its hands start free for what it is asked to do.
 	for(var/obj/item/held in npc.held_items)
 		npc.equip_to_storage(held, ITEM_SLOT_BACK, indirect_action = TRUE)
