@@ -378,6 +378,13 @@ export function wantedAfterActing(
   if (stranger?.seenOut && !stranger.orderedBy) {
     return;
   }
+  // A trespass warrant takes all three (MULTI-08, the owner's answer B): they were told to leave
+  // (the NPC said its "out you go" line to them), they did not go of their own accord (they were
+  // still in the room to be taken by the arm), and they broke the hold (WOULD_NOT_GO, above). One
+  // never told, walked out with no word, is not reported however the walk ended.
+  if (stranger?.toldOutAt === undefined || stranger.toldOutAt > brain.now) {
+    return;
+  }
   known.couldNot.push({ name, place, at: brain.now, done: false });
 }
 

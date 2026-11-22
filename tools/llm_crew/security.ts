@@ -561,6 +561,9 @@ const tech = makeBrain('Cora Tech', 'Cargo Technician');
 tech.post = 'Cargo Bay';
 tech.pdaPeople = [{ name: 'Quin Master', job: 'Quartermaster' }, { name: 'Joan Marsh', job: 'Head of Security' }];
 at(tech, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Cargo Bay', distance: 2, in_post: 1 }]);
+// Told to go ("out you go"), still there to be taken by the arm, and got away: all three (MULTI-08 B).
+const TOLD = { seenAt: 3800, lastSeenAt: 4000, asks: 2, verifyAsks: 0, verdict: 'go', toldOutAt: 3990 } as const;
+tech.strangers['Pun Pun'] = { ...TOLD };
 wantedAfterActing(tech, { tool: 'throw_out', person: 'p9' }, false, 'You could not get Pun Pun out of Cargo Bay: they got away from you.');
 syncWanted(tech);
 add('a technician that could not put someone out tells its head, by PDA when the head is not there', said(tech), ['PDA to Quin Master: Quin, I could not put Pun Pun out of the Cargo Bay.']);
@@ -579,6 +582,7 @@ for (const [why, line, word] of [
   const t = makeBrain('Cora Tech', 'Cargo Technician');
   t.post = 'Cargo Bay'; t.pdaPeople = tech.pdaPeople;
   at(t, 4000, 'Cargo Bay', [{ handle: 'p9', name: 'Pun Pun', job: '', place: 'Cargo Bay', distance: 2, in_post: 1 }]);
+  t.strangers['Pun Pun'] = { ...TOLD };
   wantedAfterActing(t, { tool: 'throw_out', person: 'p9' }, false, line);
   syncWanted(t);
   add(`${why} is ${word.length ? 'word for the head' : 'no word for anyone'}`, said(t), [...word]);

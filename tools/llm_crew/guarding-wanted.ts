@@ -23,10 +23,13 @@ function reported(record: object | null, line = GOT_AWAY) {
 
 add('a janitor seen out after its work, whose walk out failed, is not reported', reported({ verdict: 'go', sent: true, seenOut: true }), []);
 add('nor when the record says only that it was seen out', reported({ verdict: 'go', seenOut: true }), []);
-add('one sent for but put out on a superior order still is', reported({ verdict: 'go', sent: true, seenOut: false, orderedBy: 'Quin Master' }), ['Tolly Field']);
-add('a stranger with no good reason who got away still is', reported({ verdict: 'go' }), ['Tolly Field']);
-add('a stranger never asked anything who got away still is', reported(null), ['Tolly Field']);
-add('a walk out that failed because the body was knocked down is no word for anyone', reported({ verdict: 'go' }, 'You could not get Tolly Field out of Cargo Bay: you were knocked down.'), []);
+add('one sent for but put out on a superior order, told to go, still is', reported({ verdict: 'go', sent: true, seenOut: false, orderedBy: 'Quin Master', toldOutAt: 3990 }), ['Tolly Field']);
+add('a stranger with no good reason, told to go, who got away still is', reported({ verdict: 'go', toldOutAt: 3990 }), ['Tolly Field']);
+// MULTI-08, answer B: told to leave, refused, and broke the hold, all three.
+add('a stranger never told to go who got away is not', reported({ verdict: 'go' }), []);
+add('nor one with no record at all', reported(null), []);
+add('a told stranger the body could not get a hold of is not (API-01 B)', reported({ verdict: 'go', toldOutAt: 3990 }, 'You cannot get a hold of Tolly Field.'), []);
+add('a walk out that failed because the body was knocked down is no word for anyone', reported({ verdict: 'go', toldOutAt: 3990 }, 'You could not get Tolly Field out of Cargo Bay: you were knocked down.'), []);
 
 // SECT-13: someone seen as Unknown (face hidden, no ID on show) is no name to declare a warrant on.
 {
@@ -35,6 +38,7 @@ add('a walk out that failed because the body was knocked down is no word for any
   t.hasPda = true;
   t.pdaPeople = [{ name: 'Quin Master', job: 'Quartermaster' }, { name: 'Joan Marsh', job: 'Head of Security' }];
   at(t, 4000, 'Cargo Bay', [{ handle: 'p4', name: 'Unknown', job: '', place: 'Cargo Bay', distance: 1, in_post: 1 }]);
+  t.strangers.Unknown = { seenAt: 3900, lastSeenAt: 4000, asks: 2, verifyAsks: 0, verdict: 'go', toldOutAt: 3990 };
   wantedAfterActing(t, { tool: 'throw_out', person: 'p4' }, false, 'You could not get Unknown out of Cargo Bay: they got away from you.');
   syncWanted(t);
   add('a technician who could not put out Unknown tells its head plainly, with no name', t.toTell.map((tell: any) => tell.line), ['Quin, someone with their face hidden would not leave the Cargo Bay.']);

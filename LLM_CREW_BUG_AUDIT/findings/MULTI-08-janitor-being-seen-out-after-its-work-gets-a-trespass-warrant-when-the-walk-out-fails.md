@@ -92,3 +92,9 @@ Checked by Opus 5.5, from the code. Not run, not seen in a round.
 - Not checked: whether a slip on a wet floor ends the pull or the walk leaf in this build (`on_pull_blocked_trait_gain` in `code/modules/mob/living/init_signals.dm` stops pulling when `TRAIT_PULL_BLOCKED` is added; whether a knockdown adds it was not traced). The timeout and no-way cases do not depend on it.
 - Not in the change log or plans as known; the change log's trespass section (`LLM_CREW_CHANGELOG.md` near line 601) describes the report as meant for someone who would not go.
 - Severity kept high: the wrong person is arrested. How often a seeing-out walk fails is not known, which is why confidence stays `likely`. Effort small for step 3, which is enough on its own; step 1 shares the details field with API-01 (confirmed). Changed the fix to test `seenOut` without `orderedBy` instead of `sent`, since an order from a superior leaves `sent` set.
+
+## Fix so far
+
+Owner's answer B (2026-11-22), the window part (`jobs/wanted.ts`, branch `a-secwin`): `wantedAfterActing` now reports someone as one who would not go only when all three hold: they were told to leave (their stranger record has `toldOutAt`, set when the NPC said its "out you go" line), they were still in the room to be taken by the arm, and they broke the hold (the "they got away from you" line only, API-01 B). Someone never told, or with no stranger record, is not reported however the walk ended. Tables `security.ts` and `guarding-wanted.ts` changed to match.
+
+Left for `jobs/guarding.ts` (a-cargo): "refused" rests on the keeper giving them a chance to go after the told line. Today `planGuarding` takes them by the arm on the very next step. It should wait a short while after `toldOutAt` and take hold only if they are still in the post. Not played.
