@@ -2856,8 +2856,25 @@ export const CARGO: Job = {
     // apart from someone shut inside asking out, whose door it could not get to the first time:
     // that is tried once more before they are told and left to be seen out another way (PLAY-06).
     if (task?.kind === DOOR) {
+      // Whom the server opened it for, and which way (LOGB-03). With nobody of the name it gave at
+      // the door, the server opens it for whoever is: someone shut in at it, or a janitor knocking
+      // outside. Booked to the name asked for, a janitor across the station was put down as inside
+      // the Delivery Office, and the door was tried for them for the rest of the round.
+      const who =
+        ok && typeof details?.for === 'string' && details.for
+          ? details.for
+          : task.item;
+      const outSaid =
+        ok &&
+        (typeof details?.out === 'number' || typeof details?.out === 'boolean')
+          ? !!details.out
+          : undefined;
       if (task.item && (ok || !letOutFailed(brain, task.item, text))) {
         dropAsk(brain, task.item);
+      }
+      // Whoever it was opened for has had their ask answered as well.
+      if (ok && who && who !== task.item) {
+        dropAsk(brain, who);
       }
       if (brain.knockAt?.room === task.place) {
         brain.knockAt = null;
@@ -2886,28 +2903,27 @@ export const CARGO: Job = {
       }
       // Whoever it opened the door for went through it by its leave. The department keeps track
       // of who is in which of its rooms, so that they are let out again.
-      if (ok && task.item && task.place && brain.post) {
-        const person = brain.peopleInView.find(
-          (seen) => seen.name === task.item,
-        );
+      if (ok && who && task.place && brain.post) {
+        const person = brain.peopleInView.find((seen) => seen.name === who);
         // Which way the door was opened for them, if the task says. Standing in the post is not
         // being let out of it when the door was that of a room inside the post.
         const wasInside =
+          outSaid ??
           task.out ??
           (!!person?.in_post ||
             stillInside(brain.post, task.place, brain.now).some(
-              (entry) => entry.name === task.item,
+              (entry) => entry.name === who,
             ));
         // Security let in come on a warrant, and are left to serve it, not seen out after a
         // minute as a janitor with no mess left is (ARR-02).
         noteSentFor(
           brain,
-          task.item,
-          wasInside ? undefined : letInOnWarrant(brain, task.item),
+          who,
+          wasInside ? undefined : letInOnWarrant(brain, who),
         );
         // The door is being held for them now. It is not opened again, the same way, until that is over.
         lastOpened.set(brain.id, {
-          name: task.item,
+          name: who,
           room: task.place,
           out: !!wasInside,
           at: brain.now,
@@ -2915,9 +2931,9 @@ export const CARGO: Job = {
         if (wasInside) {
           // Out of a room that lies inside another, they are still in the outer one.
           const outer = brain.roomsThrough[task.place];
-          noteLetOut(brain.post, task.item, undefined, brain.now, task.place);
+          noteLetOut(brain.post, who, undefined, brain.now, task.place);
           if (outer) {
-            noteLetIn(brain.post, task.item, outer, brain.name, brain.now);
+            noteLetIn(brain.post, who, outer, brain.name, brain.now);
             // One asking takes them all the way out. The outer room is locked to them as well:
             // let out of the Delivery Office into the Cargo Bay, a janitor was shut in a second
             // time, and had to find that out, go to a door, knock and send word all over again.
@@ -2926,10 +2942,10 @@ export const CARGO: Job = {
             // they have work there, and ask when they are done with it.
             const workThere =
               !!brain.areaMesses[outer] &&
-              !brain.janitorCalls[outer]?.declined?.includes(task.item);
+              !brain.janitorCalls[outer]?.declined?.includes(who);
             if (!workThere) {
               putAsk(brain, {
-                name: task.item,
+                name: who,
                 at: brain.now,
                 room: outer,
                 out: true,
@@ -2943,15 +2959,15 @@ export const CARGO: Job = {
             }
           }
         } else {
-          noteLetIn(brain.post, task.item, task.place, brain.name, brain.now);
+          noteLetIn(brain.post, who, task.place, brain.name, brain.now);
         }
       }
       // It stands by the door while it is held, and takes no new walk until they are through.
-      if (ok && task.item && task.place) {
+      if (ok && who && task.place) {
         // Which way, as worked out above when the door was noted as opened.
         const opened = lastOpened.get(brain.id);
         const out =
-          opened?.name === task.item ? opened.out : (task.out ?? false);
+          opened?.name === who ? opened.out : (outSaid ?? task.out ?? false);
         for (const old of brain.tasks) {
           if (old.kind === DOOR_WATCH && old.state !== 'done') {
             finishTask(brain, old);
@@ -2959,14 +2975,16 @@ export const CARGO: Job = {
         }
         addTask(brain, {
           kind: DOOR_WATCH,
-          item: task.item,
+          item: who,
           place: task.place,
           urgency: 'asked',
           source: 'own',
         }).out = !!out;
       }
+      // The call of whoever it was let in for. One named who was not the one at the door has not
+      // been let in, and their call is left as it stands.
       const call = brain.post ? brain.janitorCalls[brain.post] : undefined;
-      if (call && call.to === task.item) {
+      if (call && call.to === who) {
         call.letIn = true;
       }
     }

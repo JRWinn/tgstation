@@ -831,7 +831,10 @@
 			// on them: see watch_door.
 			GLOB.crew_npc_door_holds[REF(door)] += 1
 			watch_door(WEAKREF(door), WEAKREF(other), TRUE, held_until, room)
-	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].")
+	// Who it was opened for, and which way (LOGB-03): the brain may have named someone else, and the
+	// door have been opened for whoever stood at it. The shown name, as people_in_view sends it, not
+	// the real one. finish_errand passes this on as the result's details.
+	return list(TRUE, "You open the door for [person.name] and hold it, to let them [inside ? "out of" : "into"] [room_name].", list("for" = person.name, "out" = inside ? TRUE : FALSE))
 
 /// Watches a door held open for someone, and lets it shut once they are through it or time is up.
 /datum/ai_controller/crew_npc/proc/watch_door(datum/weakref/door_ref, datum/weakref/person_ref, was_inside, until, area/room, extended = 0)
