@@ -30,6 +30,13 @@ function mopAndSoap() {
   add('the bucket could not be picked up: it sets off for the mess', JANITOR.plan(b, task)?.act, { tool: 'go_to', place: 'Bar' });
 }
 {
+  // DESK-10 step 3, the owner's yes: the server puts the soap in the bag for the bucket, and says so.
+  const { b, task } = mopAndSoap();
+  add('mop and soap: it says the soap goes in its bag', /putting your soap away in your bag/.test(JANITOR.plan(b, task)?.step ?? ''), true);
+  b.holding = ['mop'];
+  add('a hand free already: no soap is put away', /soap/.test(JANITOR.plan(b, task)?.step ?? ''), false);
+}
+{
   const { b, task } = mopAndSoap();
   JANITOR.afterActing(b, { tool: 'pick_up', item: 'soap' }, task, false);
   add('some other pick-up failing leaves the bucket step', JANITOR.plan(b, task)?.act, { tool: 'pick_up', item: 'bucket' });

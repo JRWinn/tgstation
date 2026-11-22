@@ -226,8 +226,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// and whether it holds a mop and no bucket to carry water for it.
 			"water_from" = npc.water_from,
 			"bucket_to_fill" = npc.bucket_to_fill,
-			// Only with a hand to carry it in, or one it would free for it (DESK-10).
-			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(npc.free_hands()) || !isnull(npc.spare_held_item())),
+			// Only with a hand to carry it in, or one it would free for it: soap goes in the bag for it (DESK-10).
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(npc.free_hands()) || !isnull(npc.spare_held_item(TRUE))),
 			// How many of its hands work: an arm hurt past using, or gone, holds nothing (HOLE-18).
 			"working_hands" = npc.working_hand_count(),
 			// It has tried to leave this room more than once and found no way out.

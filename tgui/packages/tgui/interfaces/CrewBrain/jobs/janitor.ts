@@ -1023,9 +1023,14 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   ) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
+      // Both hands full, one of them with soap: the soap goes in its bag for the bucket (DESK-10).
+      const soap =
+        brain.holding.length >= 2
+          ? brain.holding.find((item) => /soap/i.test(item))
+          : undefined;
       return {
         ready: true,
-        step: `You have a mop and nothing to carry water in, and you know where there is a bucket. You are going to get it before you set off for the mess in ${task.place}${toldBy}.`,
+        step: `You have a mop and nothing to carry water in, and you know where there is a bucket. ${soap ? `You are putting your ${soap} away in your bag to have a hand for it, and going` : 'You are going'} to get it before you set off for the mess in ${task.place}${toldBy}.`,
         act: { tool: 'pick_up', item: bucket },
       };
     }
