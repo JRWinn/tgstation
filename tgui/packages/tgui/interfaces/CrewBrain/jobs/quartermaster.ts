@@ -50,6 +50,7 @@ import {
   meetingSaid,
   meetStep,
   present,
+  staffMeetingWord,
   syncMeeting,
   workReported,
 } from './head';
@@ -58,6 +59,7 @@ import { isMeetingOrder } from './meetings';
 import { totalWords } from './reports';
 import {
   CANNOT_ORDER,
+  calledBy,
   cratesTold,
   cratesWritten,
   DOCKED_WORDS,
@@ -67,13 +69,16 @@ import {
   GIVEN_WORDS,
   isQuartermaster,
   isTechnician,
+  LOST_AT_CARGO,
   LOST_TOLD_WORDS,
   letOutLine,
   NOT_PLACED_WORDS,
   NOTED,
+  nameCalled,
   ORDERING,
   orderSpoken,
   orderWritten,
+  REORDERED,
   SHUT_IN_WORDS,
   seeToLine,
   TAKEN_WORDS,
@@ -221,6 +226,14 @@ function technicians(brain: NpcBrain): string[] {
         .map((person) => person.name),
     ),
   ];
+}
+
+/**
+ * What it calls a technician by, speaking to it: the first name, or the whole name when another
+ * technician aboard has the same first name (QM-03).
+ */
+function techCalled(brain: NpcBrain, name: string): string {
+  return calledBy(name, technicians(brain));
 }
 
 /** Its working copy of the order book, made the first time it is wanted. */
@@ -1053,19 +1066,35 @@ function clearOrders(brain: NpcBrain, ledger: Ledger): void {
   }
 }
 
-/** The technicians who have no order of its on the go, by name. */
+/** TRUE if a technician is seen lying down or in cuffs: one who cannot take an order to the console (QM-02). */
+function unfit(brain: NpcBrain, name: string): boolean {
+  const seen = brain.peopleInView.find((person) => person.name === name);
+  return !!seen && (!!seen.down || !!seen.cuffed);
+}
+
+/** How many times running an order given to a technician has gone unanswered, by `brain id:order number` (QM-02). */
+const unanswered = new Map<string, number>();
+/** How many times an order goes unanswered by one technician before it is given to another. */
+const UNANSWERED_MAX = 2;
+/** A short "I have it" in someone's own words, at the start of what they say (QM-02). */
+const SHORT_OK_WORDS =
+  /^(ok(ay)?|on it|got it|will do|right away|sure|yes|yep|aye|roger)\b/i;
+
+/** The technicians who have no order of its on the go, and are not seen down or cuffed, by name. */
 function freeTechnicians(brain: NpcBrain, ledger: Ledger): string[] {
   const busy = new Set(
     ledger.orders
       .filter((order) => order.state === 'given')
       .map((order) => order.givenTo),
   );
-  return technicians(brain).filter((name) => !busy.has(name));
+  return technicians(brain).filter(
+    (name) => !busy.has(name) && !unfit(brain, name),
+  );
 }
 
 /** The words an order is given to a technician in. Said word for word: the technician's body goes by them. */
-function giveLine(order: LedgerOrder, to: string): string {
-  return `${firstName(to)}, order ${order.n}: ${ORDERING} ${orderSpoken(order.items)}, for ${order.from}.`;
+function giveLine(brain: NpcBrain, order: LedgerOrder, to: string): string {
+  return `${techCalled(brain, to)}, order ${order.n}: ${ORDERING} ${orderSpoken(order.items)}, for ${order.from}.`;
 }
 
 /** What its staff have brought in and sent out between them, as it says it to end a meeting. */
@@ -1148,7 +1177,7 @@ function dutyStep(brain: NpcBrain, meeting: Meeting): Plan | null {
   if (!owed) {
     return null;
   }
-  const line = dutyLine(owed.name, owed.duties);
+  const line = dutyLine(owed.name, owed.duties, technicians(brain));
   return {
     ready: true,
     step: `Your staff have reported. You divide the standing work between your technicians: your body is telling ${owed.name} what is theirs, in these words: "${line}"`,
@@ -1194,6 +1223,9 @@ function syncTasks(brain: NpcBrain): void {
       order.state = 'cleared';
       order.pick = order.givenTo;
       order.walkedUp = false;
+      // Counted: after UNANSWERED_MAX, it goes to someone else (QM-02).
+      const key = `${brain.id}:${order.n}`;
+      unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
     }
   }
   clearOrders(brain, ledger);
@@ -1357,17 +1389,35 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
   // is where what is ordered comes in. Failing that one who is in sight, and failing that they
   // take turns, by the order's number.
   // An order it has given once and not heard back about goes to the same technician again.
+  // Not one seen down or in cuffs, and not one who has twice not answered: that one may be dead,
+  // or a player who answers in words of their own. Another free technician has it then, and the
+  // one who did not answer only if there is nobody else (QM-02).
+  const silent = order.givenTo;
+  const lapses = unanswered.get(`${brain.id}:${order.n}`) ?? 0;
   const again =
-    order.givenTo && technicians(brain).includes(order.givenTo)
-      ? order.givenTo
+    silent &&
+    technicians(brain).includes(silent) &&
+    !unfit(brain, silent) &&
+    lapses < UNANSWERED_MAX
+      ? silent
       : null;
+  if (!again && silent && lapses >= UNANSWERED_MAX) {
+    order.givenTo = null;
+    unanswered.delete(`${brain.id}:${order.n}`);
+    const others = free.filter((name) => name !== silent);
+    if (others.length > 0 && order.pick === silent) {
+      order.pick = null;
+    }
+  }
+  const choices = free.filter((name) => name !== silent);
+  const from = choices.length > 0 ? choices : free;
   if (again) {
     order.pick = again;
   } else if (!order.pick || !free.includes(order.pick)) {
     order.pick =
-      free.find((name) => (ledger.duties[name] ?? []).includes('shuttle')) ??
-      free.find((name) => inView(name)) ??
-      free[order.n % free.length];
+      from.find((name) => (ledger.duties[name] ?? []).includes('shuttle')) ??
+      from.find((name) => inView(name)) ??
+      from[order.n % from.length];
     order.walkedUp = false;
   }
   let seen: PersonInView | undefined = inView(order.pick);
@@ -1410,7 +1460,7 @@ function giveStep(brain: NpcBrain, task: Task): Plan {
       act: { tool: 'approach', person: seen.handle },
     };
   }
-  const line = giveLine(order, pick);
+  const line = giveLine(brain, order, pick);
   return {
     ready: true,
     step: `Order ${order.n} is cleared and ${pick}, one of your technicians, is here. Your body is giving them the order, in these words: "${line}"`,
@@ -1451,10 +1501,10 @@ function crateHeldUp(
       to,
       line:
         to === speaker
-          ? tryAgainLine(firstName(to), what)
+          ? tryAgainLine(techCalled(brain, to), what)
           : seeToLine(
-              firstName(to),
-              `${what} ${where} and ${firstName(speaker)} could not get it ${how}`,
+              techCalled(brain, to),
+              `${what} ${where} and ${techCalled(brain, speaker)} could not get it ${how}`,
             ),
       why:
         to === speaker
@@ -1756,7 +1806,7 @@ function crateLost(
     sendWord(
       brain,
       whose,
-      `Lost at cargo: ${written} from your order. ${capital(why)}. ${again ? `I am having it ordered again, as order ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
+      `${LOST_AT_CARGO} ${written} from your order. ${capital(why)}. ${again ? `I am having it ${REORDERED} ${again.n}, and nobody need come for the lost one.` : 'It will have to be ordered again, and nobody need come for it.'}`,
       `One of your technicians has told you that ${written}, which ${whose} ordered, ${numbers.length === 1 ? 'has' : 'have'} been lost: ${why}. You are sending ${whose} word of it${again ? ', and having it ordered again' : ''}.`,
     );
   }
@@ -1850,7 +1900,12 @@ export const QUARTERMASTER: Job = {
   describeTask,
   // An order from a head, the Captain's answer about one, or the Captain telling it to find out
   // how its staff are doing, by PDA.
-  readsMessage: (brain, from, text, _at, job) => {
+  readsMessage: (brain, from, text, at, job) => {
+    // A technician sending word that they are on their way to its meeting, or their report
+    // because they cannot come, as the other heads read it (KNB-09).
+    if (staffMeetingWord(brain, from, text, at)) {
+      return;
+    }
     if (/captain/i.test(job) && readAnswer(brain, from, text, false)) {
       return;
     }
@@ -1895,7 +1950,11 @@ export const QUARTERMASTER: Job = {
         // that door (QM-05). The see-to line only had it take on the shuttle and the rooms.
         ledgerOf(brain).sendFor = {
           to: other,
-          line: letOutLine(firstName(other), firstName(from), shutIn[1].trim()),
+          line: letOutLine(
+            techCalled(brain, other),
+            techCalled(brain, from),
+            shutIn[1].trim(),
+          ),
           why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
         };
@@ -1929,7 +1988,7 @@ export const QUARTERMASTER: Job = {
       // And says so, by name. The technician cannot tell being seen from being heard, and until
       // it has this back it goes on trying to pass its word on.
       const heardIt = () => {
-        const line = `${firstName(speaker)}, ${WORD_HEARD}.`;
+        const line = `${techCalled(brain, speaker)}, ${WORD_HEARD}.`;
         brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: speaker,
@@ -1993,6 +2052,9 @@ export const QUARTERMASTER: Job = {
       }
       const failed = heard.match(NOT_PLACED_WORDS);
       if (failed) {
+        // Said to its face like the rest, and answered like the rest: the technician goes on
+        // saying it until it hears this (CARGO-03).
+        heardIt();
         const order = ledger.orders.find((it) => it.n === Number(failed[1]));
         // Only from whoever has the order: from anyone else it would be given again while it is
         // being placed, and bought twice.
@@ -2001,7 +2063,13 @@ export const QUARTERMASTER: Job = {
           order.givenTo = null;
           order.pick = null;
           order.shortTold = false;
-          order.retryAt = brain.now + PLACE_AGAIN_DS;
+          // Refused for want of money, it is not sent back to the console in two minutes: the
+          // budget seldom fills that fast (CARGO-03).
+          order.retryAt =
+            brain.now +
+            (/not enough money/i.test(heard)
+              ? PLACE_AGAIN_DS * 5
+              : PLACE_AGAIN_DS);
           ledger.toWrite.push(BOOK.failed(order));
         }
         return;
@@ -2011,6 +2079,27 @@ export const QUARTERMASTER: Job = {
         const order = ledger.orders.find((it) => it.n === Number(taken[1]));
         if (order && order.state === 'given' && order.givenTo === speaker) {
           order.taken = true;
+          unanswered.delete(`${brain.id}:${order.n}`);
+        }
+        return;
+      }
+      // A plain "on it" or "got it" from the one it has just given an order to, said in their own
+      // words: a player in the job does not answer in the fixed ones. Only within the minute it
+      // waits, and only for an order that one has not answered yet (QM-02).
+      if (SHORT_OK_WORDS.test(heard.trim())) {
+        const order = ledger.orders
+          .filter(
+            (it) =>
+              it.state === 'given' &&
+              !it.taken &&
+              it.givenTo === speaker &&
+              it.givenAt !== null &&
+              brain.now - it.givenAt <= TAKEN_WAIT_DS,
+          )
+          .sort((a, b) => (b.givenAt ?? 0) - (a.givenAt ?? 0))[0];
+        if (order) {
+          order.taken = true;
+          unanswered.delete(`${brain.id}:${order.n}`);
         }
       }
       return;
@@ -2042,9 +2131,7 @@ export const QUARTERMASTER: Job = {
     // Having told a technician, in so many words, what is theirs this shift, it is theirs.
     const duty = dutiesIn(called);
     if (duty) {
-      const name = technicians(brain).find(
-        (it) => firstName(it).toLowerCase() === duty.first.toLowerCase(),
-      );
+      const name = nameCalled(duty.to, technicians(brain));
       if (name) {
         ledger.duties[name] = duty.duties;
       }

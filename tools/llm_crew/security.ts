@@ -484,9 +484,36 @@ for (const [line, name] of [['Dana is in the bar', 'Dana Reyes'], ['Punpun is in
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
 add('a message from the Captain that code can make nothing of waits for the LLM to read it', [said(b), deskOf(b).unread.map((it: any) => it.text)], [[], ['How are things over there today']]);
-add('and with no answer from the LLM, is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.']]);
-HOS.readsMessage(b, 'Zim Fire', 'Hello?', 0, 'Captain');
+// SECT-10: talk is not answered "I did not follow that"; an order that could not be read is.
+add('and with no answer from the LLM and no order in it, nothing is sent (SECT-10)', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
+add('an order with no answer from the LLM is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.']]);
+HOS.readsMessage(b, 'Zim Fire', 'lock up the clown now', 0, 'Captain');
 add('a second one straight after is not put to the LLM, and is not answered twice in a minute', [b.toTell.length, deskOf(b).unread.length], [1, 0]);
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
+HOS.readsMessage(b, 'Zim Fire', 'Good work, Joan.', 0, 'Captain');
+add('SECT-10: thanks sent while an order waits on the reader is not answered "not followed"', said(b), []);
+for (const line of ['Good work, Joan.', 'Where is Pun Pun now?', 'How many are in the cells?', 'Thanks', 'I wanted to say well done']) {
+  b = head();
+  HOS.readsMessage(b, 'Zim Fire', line, 0, 'Captain');
+  add(`SECT-10: "${line}" with no answer from the LLM: nothing sent`, [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+}
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
+add('SECT-10: the LLM saying "neither", even of a message with an order word: nothing sent', [deskRead(b, deskOf(b).unread[0], S.readReading('{"kind":"neither","name":"","minutes":0}', 'arest the clown pls')), said(b)], ['Read as no order. Nothing is sent to Zim Fire.', []]);
+b = head();
+HOS.readsMessage(b, 'Zim Fire', 'see to Hale Stone for me', 0, 'Captain');
+add('SECT-10: a warrant read on one of security\'s own is still refused in so many words', [deskRead(b, deskOf(b).unread[0], { kind: 'warrant', name: 'Hale Stone', minutes: 0 }), said(b).length], ['Read as: "Warrant for Hale Stone." The body answers Zim Fire in the fixed words.', 1]);
+{
+  // The officer keeping the list itself does the same.
+  const o: any = makeBrain('Hale Stone', 'Security Officer');
+  o.pdaPeople = [{ name: 'Zim Fire', job: 'Captain' }];
+  at(o, 3000, 'Security Office');
+  jobFor('Security Officer').readsMessage(o, 'Zim Fire', 'Thanks for that', 0, 'Captain');
+  add('SECT-10: an officer keeping the list: "Thanks for that" with no answer: nothing sent', [deskRead(o, deskOf(o).unread[0], null), said(o)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+}
 for (const line of ['Joan, do not arrest Dana Reyes, she is with me.', 'Is there a warrant for Dana Reyes?', 'Did your officer arrest Pun Pun yet?']) {
   b = head();
   add(`SECT-01: "${line}" from the Captain is not taken by code`, deskTakes(b, 'Zim Fire', 'Captain', line, false), false);
@@ -653,7 +680,7 @@ add('and a loose pardon', [said(b), deskOf(b).warrants.length], [['PDA to Zim Fi
 add('the question is small: the message and nothing else', S.buildReading('could you see that pun pun spends ten minutes behind bars').user.length < 600, true);
 add('a warrant read', S.readReading('{"kind":"warrant","name":"pun pun","minutes":10}', 'could you see that pun pun spends ten minutes behind bars'), { kind: 'warrant', name: 'pun pun', minutes: 10 });
 add('a name the message does not have in it is not taken', S.readReading('{"kind":"warrant","name":"Dana Reyes","minutes":0}', 'could you see that pun pun spends ten minutes behind bars'), null);
-add('"neither" is nothing', S.readReading('{"kind":"neither","name":"","minutes":0}', 'how are you'), null);
+add('"neither" is kept as the LLM saying it is no order (SECT-10)', S.readReading('{"kind":"neither","name":"","minutes":0}', 'how are you'), { kind: 'neither', name: '', minutes: 0 });
 add('nor is anything that is not JSON', S.readReading('Sure! I think that is a warrant.', 'how are you'), null);
 // BRAIN-11: the minutes are read from the message by code, never taken from the LLM.
 add('the LLM is not asked for minutes', [/minutes/i.test(S.buildReading('bring pun pun to me').user), 'minutes' in (S.buildReading('bring pun pun to me').schema as any).properties], [false, false]);

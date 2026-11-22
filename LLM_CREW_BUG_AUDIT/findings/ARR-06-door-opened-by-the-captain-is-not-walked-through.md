@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 5f42cf32506, 409f9d5ae03, 67902017cbc, e792be1653b
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -86,3 +87,10 @@ Checked by Opus 5.5. Confirmed, and confidence raised to sure: nothing in the co
 Read `letInStep` (`arrests.ts:561-625`): the only ready step once it is at the door is the `doorHeld` one; otherwise it waits `LET_IN_WAIT_DS = 900` (90 seconds) per person asked. Read `crew_brain_link.dm:124` and every write of `door_held_until`: `door_opened_for` (`crew_npc_doors.dm:810`) and `watch_door` (`:653`), both from a crew NPC's own `open_door`. Read `crew_npc_senses.dm:174`: `open_door_in_view` is looked at only when shut in. Read `serveStep` (`arrests.ts:785` and `:850-858`): with the wanted person out of sight or more than `NEAR = 2` tiles off, the plan goes to `letInStep` while `blockedPlaces` has the room, and `is_blocked_place` goes by whether a door opens to the body's ID (`door.allowed`), which an open door does not change. Read `inBackoff` (`driver.ts:228`): it lets go of held-back steps for `doorHeld` and for a body shut in, not for this. The one way round is the wanted person standing within two tiles in view, when the arrest walks up to them: rare.
 
 The walk would work: `tool_go_to` (`crew_npc_tools.dm:200`) has no refusal for a locked room, and `/obj/machinery/door/airlock/CanAStarPass` (`code/game/machinery/doors/airlock.dm:1523`) passes any airlock with `!density`. `route_by_open_door` is used only in `tool_go_to_door` and in forcing. The change log's 20:19 entry lists "a Captain opening a door for security" under Not built as something the Captain "can" do, but nothing was built to notice it. The janitor's let-in wait (`jobs/janitor.ts:476`, `:488`) also goes by `doorHeld` alone, so step 4 is right. Added the `inBackoff` point to step 2 and moved the round test beside the door. Severity medium and effort medium kept.
+
+## Fix so far
+
+Group m-secsrv, commit 5f42cf32506 (tables only; inert until the rest lands). The window's part of step 2 in `letInStep`: at the door it asked at, having asked, with `brain.atDoorOpen` set, it sends `go_to` the room, numbered, three failed walks at most (`openWalks`). Table: `tools/llm_crew/arrests3-opendoor.ts`. Left: step 1 (`wanted_door_open()` in `crew_npc_doors.dm`, `"at_door_open"` in `crew_brain_link.dm` ui_data), `brain.atDoorOpen` in `brain.ts` and `types.ts`, `inBackoff` in `driver.ts` passing a held-back step while it is set, and step 4 (the janitor's let-in wait in `jobs/janitor.ts`).
+
+Round M2 (g-brain): `types.ts` has `at_door_open?: BooleanLike` (server) and `atDoorOpen: boolean` (brain, false where the brain is made in `brain.ts`); `ingest` sets `brain.atDoorOpen = !!npc.at_door_open`. In `driver.ts`, `inBackoff` passes over held-back walks while `atDoorOpen` is set, as for `doorHeld`, and the DRV-12 hold on a walk to a room where a step failed does not apply to a walk into the room whose door stands open. `jobs/arrests.ts` still reads it through its local type, which keeps working (g-sec may drop the cast). Tables `tools/llm_crew/driver4-dooropen.ts`, `brain4-ingest.ts`. The server half (`at_door_open` in `ui_data`) is g-srv-a's this round.
+Round M2 (g-tasks): step 4, the janitor's let-in wait (`letInStep`, `jobs/janitor.ts`): at the door it asked at (knocked, messaged or said), with `brain.atDoorOpen` read through a cast, it sends `go_to` the room numbered `attempt`, three walks that came to nothing at most (counted on the letInAsks entry in `afterActing`). Table: `tools/llm_crew/janitor-letin.ts`. Inert until the server sends `at_door_open` and `brain.ts` copies it.

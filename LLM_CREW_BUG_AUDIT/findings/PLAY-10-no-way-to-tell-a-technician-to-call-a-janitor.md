@@ -5,7 +5,8 @@ kind: gap
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: ca0fd5941bf, f6b61e0a350
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
@@ -151,3 +152,15 @@ Not a duplicate. The near ones are as the finder lists them, plus `GAP-19` (faul
 Severity medium holds: the Captain's order is lost, but it is a less common ask and the room is not left for good. Effort medium holds: one new order with a step, two gates in `tasks.ts`, two prompt lines and the filter, all in the window code. Kept the regex as proposed, though `get` in it is loose ("I get that the janitors are busy" would match); the owner may want to drop `get`.
 
 Not checked: whether Kailyn's call for the Cargo Bay cobweb was still open at 22:11, and anything in the simulator. Nothing was built or run.
+
+## Fix so far
+
+Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`; not played):
+
+- Steps 1 to 3: a `CALL` order in `ORDERS` and `ORDER_SOUNDS` (`jobs/orders.ts`), tried before the look order. `takeToldWork` takes it with no room, or "nowhere you know", as the room the NPC stands in, and `workInWords` tries it when no room is named (`tasks.ts`, `orderTakesHere`). Both read it only from the clauses that are orders, so "don't call a janitor" sends for nobody. `planCall` sends one janitor the PDA message ("There is a mess in the X[: what]. Y has asked for a janitor. Could you come and clean it up, please?"), then tells whoever gave the order who was sent for, face to face or by PDA. No PDA, no janitor on it, or its own call for that room still standing: it says so and sends nothing (`callNeedless`). It is for any NPC, not cargo alone, and the rooms keeper test in `tidyStep` does not apply to it.
+- Step 4, part: a cargo NPC records the call in `janitorCalls` only when it knows of a mess in that room (`areaMesses`), so that the tidy loop can strike it out again. For a mess it has not seen nothing is recorded, and `mayPass` still lets a janitor in only for a mess in `areaMesses`: a janitor sent on an order to a cargo room whose mess no technician has seen may be refused at the door. Left as found.
+- Step 5: both prompt lines in `whenAsked` changed.
+
+Not done, held: step 6 (the reply repeat check) is in `brain.ts`, which another group owns. The change: in the line filter, a reply whose words match, 0.9 or more, a line the NPC itself said in the last minute is not said as it stands (owner to choose: ask the model once more, then say nothing).
+
+Round M3 (group m3-window, 7efbfb5d8e1; tables, not played): a call-a-janitor order with no room named goes to the room the superior who gave it stands in, when the NPC can see them and knows the room, else its own room (`speakerRoom`, `takeToldWork`, `workInWords` in `tasks.ts`); `planCall`'s PDA carries `call_for`. Question 3 (who is let in at the door) is untouched. Left: a model that names the NPC's own room as `where` still gets that room.

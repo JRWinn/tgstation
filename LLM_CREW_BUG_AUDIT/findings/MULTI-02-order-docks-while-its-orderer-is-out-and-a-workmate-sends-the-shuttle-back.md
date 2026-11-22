@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 63de8d924f8, bc5f8767986
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply
@@ -103,3 +104,10 @@ Checked by Opus 5.5. Confirmed, with step 2 of the case corrected and two steps 
 - Wrong in the test: the shuttle moves made by `supply_run_step` write nothing to `game.log`. Mended.
 - Overlap: CARGO-01 (confirmed, and SUP-02 is its duplicate) names the timeout with the body out of the bay and proposes "do not time out while aboard and docked". That does not stop the recall once a workmate has sent the shuttle away, which is this finding's own part. Both stand; built as one.
 - Change log and plans: no entry for this. Nothing run; not seen in a round. Effort raised to medium for the window line in step 4.
+
+## Fix so far
+
+Done on branch `m-cargosrv` (server only, compile only, not played): steps 1 to 3. `supply_run_landed_at` (`crew_npc_cargo.dm`) is set the first time `supply_run_step` sees the shuttle docked at the station with the order aboard (or loaded without it for want of money, SUP-11) while the body is out of the bay. From then the run never moves the shuttle and never times out at six minutes: it waits for the body to be back in the bay and calls `order_arrived`, which finds the crates in the bay or the lobby by their manifests. It ends with a plain failure after 30 minutes (`CREW_NPC_SUPPLY_LANDED_WAIT`), or quietly if the body is dead. Handing the numbers on to a workmate (CARGO-01 step 7's adrift list) is not built, as CARGO-01 is not.
+
+Not done: step 4 (`jobs/cargo.ts`, the POST task while only `orderPending` is in hand), not this group's. Until it is in, an orderer out of the bay may stay out with its order pending for up to the 30 minutes, and places no other order meanwhile. Step 5 is the owner's.
+Window part on branch `m-cargo` (`jobs/cargo.ts` `syncTasks`; cases in `tools/llm_crew/cargo-rooms.ts`; not played): a technician away from its post with only a placed order waiting on the shuttle (`orderPending`) now gets its POST task and goes back to the bay, where the server can find the order come in. An order given to it and not yet placed, or an arrived notice owed, still keeps it where it is. The server part is on branch `m-cargosrv`.

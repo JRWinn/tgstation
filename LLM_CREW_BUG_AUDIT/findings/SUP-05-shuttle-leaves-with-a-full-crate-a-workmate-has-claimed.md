@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 42bf94ca235, 5a06095969f, 5fa1b7cf212, e4cae62344f
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: supply
@@ -126,3 +127,19 @@ Checked by Opus 5.5. Confirmed, with the case corrected for the base game's igni
 - Base game: `SSshuttle.moveShuttle(..., TRUE)` calls `request()`, which checks `canMove()` and starts `ignitionTime` (5.5 seconds); `enterTransit()` and `initiate_docking()` check `canMove()` again, and `/mob/living` is on the supply shuttle's blacklist (`supply.dm`). So a workmate who steps aboard within those seconds stops the shuttle. The write-up's case had the shuttle leave at the tick while Sam was still walking to the crate; that only happens if his walk is long. Mended to the case that does not depend on it: a claim left standing by a dropped or failed errand. `sell()` sells every unanchored thing aboard at the far dock, as said.
 - The fix keeps "mine to unload" and "may it go" apart, as it should, and keeps the rules. Step 6 was put in `finish_errand` and `cancel_errand`; `finish_errand` calls `cancel_errand` first, so one place does, and it is safe after the grip because `crate_taken` looks at `pulledby` first. Mended.
 - Change log and plans: nothing on claims and the send. Nothing run; not seen in a round. Effort raised to medium: the fix is about forty lines over the server, the window types, `syncFreight` and the simulator. Severity medium: it needs two technicians, a claim at the wrong moment, and the last full crate, but when it happens a paid-for crate held for someone is sold.
+
+## Fix so far
+
+Done on branch `m-cargosrv` (server only, compile only, not played): steps 1 to 4 and the server half of step 5. `full_crates_aboard` (`crew_npc_freight.dm`) counts every full crate that came in on the docked shuttle, claimed or not (with SUP-12, only those aboard when it docked). `supply_run_step` and `tool_send_shuttle` wait on it in place of `crate_to_unload`. `send_shuttle_back` asks again at the console, and its words count only spent crates as empty (its `game.log` line still counts every crate aboard). `freight_state` sends `full_aboard`.
+
+Not done (not this group's files): step 5's window half, step 6.
+- `brain.ts` (where `brain.freight` is filled): `fullAboard: npc.freight.full_aboard ?? undefined`; `types.ts`: `fullAboard?: number` on the freight type; `jobs/freight.ts` `syncFreight`, SEND: `(freight?.fullAboard ?? freight?.toUnload) === 0` in place of `freight?.toUnload === 0`; `tools/llm_crew/sim.ts`: `full_aboard` in the stand-in freight state. Until then a workmate's window may still open SEND, and `tool_send_shuttle` refuses it ("has to come off first").
+- Step 6, `crew_npc_hands.dm` `cancel_errand`: before `errand_tool` is cleared, when it is `unload`, `stow_crate` or `recycle`, remove every `GLOB.crew_npc_crate_claims` entry whose claimant is this controller.
+Window part on branch `m-cargo` (`jobs/freight.ts` `syncFreight`; cases in `tools/llm_crew/cargo-freight.ts`; simulator rounds, crew, qmno passed; not played): the SEND task now needs `(freight.fullAboard ?? freight.toUnload) === 0`, so a full crate still aboard keeps the shuttle when the server says what is aboard. `fullAboard` is read through a cast, since `types.ts` and `brain.ts` are another group's.
+
+Held: `types.ts`, add `fullAboard?: number` to `Freight`; `brain.ts`, fill it from `npc.freight.full_aboard` where `freight` is built. Until then the old test (`toUnload`) stands. The server part is on branch `m-cargosrv`.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: step 6 built. `cancel_errand` (`crew_npc_hands.dm`), while `errand_tool` is still set to `unload`, `stow_crate` or `recycle`, drops every `GLOB.crew_npc_crate_claims` entry whose claimant is this controller.
+Round M2 (g-brain): the held window part is built. `types.ts`: `full_aboard?: number` on the server's freight and `fullAboard?: number` on `Freight`; `brain.ts` `ingest` fills it from `npc.freight.full_aboard` (a number only; unset when not sent, so `toUnload` is read in its place). `jobs/freight.ts` still reads it through its cast, which keeps working: for g-cargo to drop next round (`freight?.fullAboard` direct). Table `tools/llm_crew/brain4-ingest.ts`.
+
+Round M3 (group m3-window, 5af7e35c547): `jobs/freight.ts` reads `freight?.fullAboard` directly; the cast is gone.

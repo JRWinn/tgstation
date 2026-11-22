@@ -51,6 +51,7 @@ import {
   meetingActed,
   meetingSaid,
   meetStep,
+  staffMeetingWord,
   syncMeeting,
   workReported,
 } from './head';
@@ -60,11 +61,11 @@ import { isMeetingOrder } from './meetings';
 import { addCounts, readReport, totalWords } from './reports';
 import { isHeadOfSecurity, isOfficer, KEPT_AWAY } from './security';
 
-/** How a report begins that an officer sends by PDA because it could not be at the meeting. */
-const REPORT_BY_PDA = new RegExp(
-  `^(I could not get into|Sorry I missed the meeting|${KEPT_AWAY})`,
-  'i',
-);
+/**
+ * How a report begins that an officer sends by PDA because it was after someone and could not be
+ * at the meeting. The other reports by PDA are read by staffMeetingWord (KNB-09).
+ */
+const REPORT_BY_PDA = new RegExp(`^${KEPT_AWAY}`, 'i');
 
 /** Going back to its office when there is nothing else to see to. */
 const OFFICE = 'security_office';
@@ -213,17 +214,22 @@ export const HEAD_OF_SECURITY: Job = {
   describeTask,
   // A warrant, a pardon or a sighting sent by PDA, word from its officer, or the Captain telling
   // it to find out how its staff are doing.
-  readsMessage: (brain, from, text, _at, job) => {
+  readsMessage: (brain, from, text, at, job) => {
     // Word from engineering about a door it asked to have forced.
     if (forcingReads(brain, from, job, text)) {
+      return;
+    }
+    // An officer's "On my way" to its meeting, or its report sent by PDA because it could not be
+    // there (shut out of the room, or missed it), read as every head reads them (KNB-09).
+    if (staffMeetingWord(brain, from, text, at)) {
       return;
     }
     if (deskTakes(brain, from, job, text, false)) {
       return;
     }
-    // Its officer's report, sent by PDA because it could not be at the meeting: shut out of the
-    // room, or after someone and not to be called off. During a meeting it counts as given. After
-    // one, the work in it goes into the next one's count.
+    // Its officer's report sent because it was after someone and not to be called off (KEPT_AWAY,
+    // which only security staff send). During a meeting it counts as given. After one, the work
+    // in it goes into the next one's count.
     if (isOfficer(job)) {
       const report = REPORT_BY_PDA.test(text) ? readReport(text) : null;
       if (report && brain.meeting) {

@@ -17,17 +17,78 @@ import { has } from './guarding';
 
 /** Go to a room, look at what is there, and tell whoever gave the order. */
 const LOOK = 'look';
+/**
+ * Send a janitor a PDA message about a mess in a room, and tell whoever gave the order who was
+ * sent for. Named with no room ("Then ask for a janitor"), the room is the one it stands in,
+ * where whoever gave the order was (PLAY-10).
+ */
+export const CALL = 'call';
 
 /** The orders anyone can be given, each in the words the LLM is given for it. */
 export const ORDERS: Record<string, string> = {
   [LOOK]: 'an order to go and look at a room and report back',
+  [CALL]: 'an order to send for a janitor to a room',
 };
 
-/** For each order, the words that mark speech as giving it. A net for when the LLM does not say. */
+/**
+ * For each order, the words that mark speech as giving it. A net for when the LLM does not say.
+ * Sending for a janitor is tried first: "call a janitor to check the bar" is not a look.
+ */
 export const ORDER_SOUNDS: Record<string, RegExp> = {
+  [CALL]:
+    /\b(call|ask for|send for|fetch|get (?:a|us a|me a|one of the|someone|somebody))\b[^.?!]*\bjanitors?\b/,
   [LOOK]:
     /\b(look|check|inspect|see what|see if|see how|find out|report back|go and see|go see)\b/,
 };
+
+/** TRUE for an order that may be given with no room named: it is for the room it is standing in. */
+export function orderTakesHere(kind: string): boolean {
+  return kind === CALL;
+}
+
+/** Words that make a look order of a room named straight after them: "check the Bar", "look in on the Kitchen". */
+const LOOK_AT =
+  '(?:look at|look in(?: on)?|look into|look round|look around|look over|check(?: in)? on|check|inspect|go and see|go see|see what is in|see what\'s in|find out what is in|find out what\'s in|find out what is going on in|report on)';
+/** In a clause, what makes a look word no order to this NPC: "I'll check the Bar myself", "no need to look at the Bar". */
+const NOT_ITS_TO_DO =
+  /\b(i'll|i will|i'm going to|i am going to|i'm gonna|myself|don'?t|do not|no need|never mind)\b/;
+
+/**
+ * TRUE if these clauses of a superior's (orderClauses in tasks.ts: no questions, nothing said
+ * not to do) give this order for this room. Sending for a janitor goes by its words anywhere in
+ * them. A look is an order only with the look word right before the room, with nothing but "at",
+ * "on", "in" or "the" between, in a clause that is not the speaker saying they will look (MEM-08):
+ * "Tolly, go and check the Bar" is one; "I'll check the Bar myself" and "Look, Tolly, the Kitchen
+ * staff are upset with you" are not, and are left to the model. So is a look asked as a question
+ * ("Could you check on the Bar, Tolly?"): `heard`, all that was said, shows where one ends in "?".
+ */
+export function orderIn(
+  kind: string,
+  clauses: string,
+  room: string,
+  heard: string,
+): boolean {
+  if (kind !== LOOK) {
+    return ORDER_SOUNDS[kind]?.test(clauses) ?? false;
+  }
+  const name = room.toLowerCase().replace(/[^a-z0-9 ]/g, '.');
+  const look = new RegExp(
+    `\\b${LOOK_AT}\\s+(?:(?:at|on|in)\\s+)?(?:the\\s+)?${name}\\b`,
+  );
+  const sentences: string[] = heard.match(/[^.!?]+[.!?]*/g) ?? [];
+  const said = sentences.some(
+    (sentence) => look.test(sentence) && !sentence.trim().endsWith('?'),
+  );
+  return (
+    said &&
+    clauses
+      .split(/[.!?;,]/)
+      .some((clause) => look.test(clause) && !NOT_ITS_TO_DO.test(clause))
+  );
+}
+
+/** How long (deciseconds) a janitor it sent for counts as still coming: it is not sent for again on an order. */
+const CALL_STANDS_DS = 3000;
 
 /** How long (deciseconds) it looks about a room before it has seen what there is to see. */
 const LOOK_ABOUT_DS = 50;
@@ -80,9 +141,71 @@ function reportLine(task: Task): string {
   return `${task.askedBy ? `${firstName(task.askedBy)}, ` : ''}about the ${task.place}. ${task.found}`;
 }
 
+/** The janitors it could send a PDA message to: never itself. */
+function janitorsToCall(brain: NpcBrain): string[] {
+  return brain.hasPda
+    ? brain.janitorsOnPda.filter((name) => name !== brain.name)
+    : [];
+}
+
+/**
+ * Why there is nobody to send for, to a mess in this room, in the words it tells whoever gave
+ * the order: no PDA, no janitor on it, or one it sent for already who is still to come. Undefined
+ * if it is to send a PDA message now.
+ */
+function callNeedless(brain: NpcBrain, place: string): string | undefined {
+  if (!brain.hasPda) {
+    return 'I have no PDA to send for a janitor with.';
+  }
+  if (janitorsToCall(brain).length === 0) {
+    return 'There is no janitor on my PDA to send for.';
+  }
+  const call = brain.janitorCalls[place];
+  if (
+    call &&
+    brain.now - call.at < CALL_STANDS_DS &&
+    !call.declined?.includes(call.to)
+  ) {
+    return `I have sent for ${call.to}, a janitor, already. They know of it.`;
+  }
+  return undefined;
+}
+
+/** The janitor it sends for: one in sight first, then one who has not said a mess here is beyond them. */
+function janitorToCall(brain: NpcBrain, place: string): string {
+  const janitors = janitorsToCall(brain);
+  const declined = brain.janitorCalls[place]?.declined ?? [];
+  const willing = janitors.filter((name) => !declined.includes(name));
+  const pool = willing.length > 0 ? willing : janitors;
+  return (
+    brain.peopleInView.find((person) => pool.includes(person.name))?.name ??
+    pool[0]
+  );
+}
+
+/** The kinds of mess it knows of in a room, as a janitor is told them, or ''. */
+function messesIn(brain: NpcBrain, place: string): string {
+  const seen =
+    brain.location === place
+      ? brain.thingsInView
+          .filter((thing) => thing.kind === 'mess')
+          .map((thing) => thing.name)
+      : [];
+  const kinds = [...new Set([...(brain.areaMesses[place] ?? []), ...seen])];
+  return kinds.length > 0 ? `: ${listed(kinds.slice(0, NAMED))}` : '';
+}
+
 /** Keeps each order true to how far it has got: what was found, and whether it has been reported. */
 export function syncOrders(brain: NpcBrain): void {
   for (const task of brain.tasks) {
+    if (task.kind === CALL && task.state !== 'done') {
+      if (task.reported) {
+        finishTask(brain, task);
+      } else if (!task.found) {
+        task.found = callNeedless(brain, task.place ?? '');
+      }
+      continue;
+    }
     if (task.kind !== LOOK || task.state === 'done' || !task.place) {
       continue;
     }
@@ -106,8 +229,58 @@ export function syncOrders(brain: NpcBrain): void {
   }
 }
 
+/**
+ * What sending for a janitor on an order comes down to: the PDA message to the janitor, then word
+ * to whoever gave the order of who was sent for, face to face if they are here, else by PDA.
+ */
+function planCall(brain: NpcBrain, task: Task): Plan {
+  const place = task.place ?? '';
+  const by = task.askedBy ?? 'whoever asked';
+  if (!task.found) {
+    const janitor = janitorToCall(brain, place);
+    return {
+      ready: true,
+      step: `${by} ordered you to send for a janitor to the ${place}. That comes before everything else, and you are sending ${janitor}, a janitor, a PDA message asking them to come and clean it.`,
+      act: {
+        tool: 'message',
+        person: janitor,
+        // The room the call is for, so the server notes a janitor called to it (MULTI-06). It
+        // counts for the department only when the room is one of its own.
+        call_for: place,
+        text: `There is a mess in the ${place}${messesIn(brain, place)}. ${task.askedBy ? `${task.askedBy} has asked for a janitor. ` : ''}Could you come and clean it up, please?`,
+      },
+    };
+  }
+  if (brain.peopleInView.some((person) => person.name === task.askedBy)) {
+    return {
+      ready: true,
+      step: `${by} ordered you to send for a janitor to the ${place}. ${task.found} ${by} is here: in "say", tell ${by} so.`,
+      say: reportLine(task),
+      needs: has(place),
+    };
+  }
+  if (brain.hasPda && task.askedBy && !task.pdaFailed) {
+    return {
+      ready: true,
+      step: `${by} is not here to tell who you sent for to the ${place}. You are sending them a PDA message to say.`,
+      act: {
+        tool: 'message',
+        person: task.askedBy,
+        text: `About the ${place}. ${task.found}`,
+      },
+    };
+  }
+  return {
+    ready: false,
+    step: `You will tell ${by} about sending for a janitor to the ${place} when you next see them.`,
+  };
+}
+
 /** What carrying out an order comes down to right now, or null if the task is not an order. */
 export function planOrders(brain: NpcBrain, task: Task): Plan | null {
+  if (task.kind === CALL) {
+    return planCall(brain, task);
+  }
   if (task.kind !== LOOK) {
     return null;
   }
@@ -170,6 +343,9 @@ export function planOrders(brain: NpcBrain, task: Task): Plan | null {
 
 /** Says an order in a few words, or null if the task is not an order. */
 export function describeOrders(task: Task): string | null {
+  if (task.kind === CALL) {
+    return `send for a janitor to the ${task.place}`;
+  }
   return task.kind === LOOK
     ? `look at the ${task.place} and report back`
     : null;
@@ -178,7 +354,11 @@ export function describeOrders(task: Task): string | null {
 /** Notes that the NPC has said its report: whoever gave the order has heard it. */
 export function ordersAfterSaying(brain: NpcBrain, called: string | null): void {
   for (const task of brain.tasks) {
-    if (task.kind === LOOK && task.found && called === reportLine(task)) {
+    if (
+      (task.kind === LOOK || task.kind === CALL) &&
+      task.found &&
+      called === reportLine(task)
+    ) {
       task.reported = true;
     }
   }
@@ -190,7 +370,14 @@ export function ordersAfterActing(
   task: Task | undefined,
   ok: boolean,
 ): void {
-  if (task?.kind !== LOOK || act.tool !== 'message') {
+  if (task?.kind === CALL && act.tool === 'message' && !task.found) {
+    // The message to the janitor: what whoever gave the order is told is how it went.
+    task.found = ok
+      ? `I have sent ${act.person}, a janitor, a PDA message to come and clean it.`
+      : `I could not get a PDA message through to ${act.person}, a janitor.`;
+    return;
+  }
+  if ((task?.kind !== LOOK && task?.kind !== CALL) || act.tool !== 'message') {
     return;
   }
   if (ok) {

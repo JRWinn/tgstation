@@ -41,6 +41,15 @@ GLOBAL_LIST_EMPTY(crew_npc_station_places)
 	var/area/station/room = crew_npc_station_places()[place]
 	if(isnull(room))
 		return null
+	// A room in parts is walked to in the part the body can get into: a spot behind an inner door
+	// locked to it, or in a corner sealed off, was set off for and never reached (KNA-19, KNA-28).
+	// With no part open to it at all, the whole room as before: the walk finds the way shut, and the
+	// brain goes by that.
+	var/list/open = open_part_of(room)
+	if(length(open))
+		var/turf/open_spot = safe_spot_in(room, get_turf(pawn), open)
+		if(open_spot)
+			return open_spot
 	return safe_spot_in(room, get_turf(pawn))
 
 /**
@@ -67,3 +76,34 @@ GLOBAL_LIST_EMPTY(crew_npc_station_places)
 			best_distance = distance
 			best = candidate
 	return best
+
+/**
+ * Returns the clear square of a room furthest from the body that it can find a way to, or null: of
+ * the part of the room it can get into (open_part_of()), safe as far as it can tell (CHEAT-11), not
+ * blocked, and out of the way of doors. The furthest few are tried for a way, furthest first.
+ * Sleeps while routes are tested.
+ */
+/datum/ai_controller/crew_npc/proc/far_spot_in(area/room)
+	var/mob/living/carbon/human/body = pawn
+	var/turf/here = get_turf(body)
+	if(isnull(here) || isnull(room))
+		return null
+	var/list/by_distance = list()
+	for(var/turf/candidate as anything in open_part_of(room))
+		if(candidate.z != here.z || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate, 2) || !far_spot_safe(candidate))
+			continue
+		by_distance[candidate] = get_dist(here, candidate)
+	var/tries_left = CREW_NPC_DOORS_TRIED
+	while(length(by_distance) && tries_left > 0)
+		tries_left--
+		var/turf/furthest
+		for(var/turf/candidate as anything in by_distance)
+			if(isnull(furthest) || by_distance[candidate] > by_distance[furthest])
+				furthest = candidate
+		by_distance -= furthest
+		var/list/route = get_path_to(body, furthest, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+		if(QDELETED(src) || QDELETED(body))
+			return null
+		if(length(route))
+			return furthest
+	return null

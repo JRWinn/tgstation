@@ -4,7 +4,8 @@
  * The person layer says what is true for anyone. The NPC's job adds what matters about its work.
  */
 import { describeChoice } from './choice';
-import { asideCues } from './jobs/aside';
+import { isWarrantOn } from './jobs/arrests';
+import { asideCues, asideDoing, asideStands } from './jobs/aside';
 import { guardCues } from './jobs/guarding';
 import { meetingCues } from './jobs/meetings';
 import { wantedCues } from './jobs/wanted';
@@ -75,12 +76,14 @@ export const SHUT_IN_KEY = 'shut-in';
 /**
  * Who a shut-in NPC asks for the door next: someone in view it has not asked yet, one at a time.
  * Each person is asked once. Asked again and again, they would be right to call it nagging, so it
- * asks again only when someone new turns up. Null if there is nobody left to ask.
+ * asks again only when someone new turns up. Null if there is nobody left to ask. Never anyone
+ * it holds a warrant on: a shut-in officer does not ask the person it is after to open the door.
  */
 export function whoToAskForTheDoor(brain: NpcBrain): string | null {
   const asked = brain.outAsks?.asked ?? [];
   const people = brain.peopleInView.filter(
-    (person) => !asked.includes(person.name),
+    (person) =>
+      !asked.includes(person.name) && !isWarrantOn(brain, person.name),
   );
   if (people.length === 0) {
     return null;
@@ -114,17 +117,30 @@ export function describeShutIn(brain: NpcBrain): string {
 export function describeSituation(brain: NpcBrain): string[] {
   const job = jobFor(brain.job);
   const lines: string[] = [];
-  if (brain.doing) {
+  // PLAY-11: asked to step aside, the body is already moving, so what it was doing is set down
+  // for now and the aside line comes first, before the job's lines about its work pull the other way.
+  const asideBy = asideStands(brain);
+  if (asideBy) {
+    const broken = brain.doing ? asideDoing(asideBy, brain.doing) : null;
+    if (broken) {
+      lines.push(broken);
+    }
+    lines.push(...asideCues(brain));
+  } else if (brain.doing) {
     lines.push(`You are in the middle of ${brain.doing}.`);
   }
   lines.push(...job.cues(brain));
   lines.push(...guardCues(brain));
-  lines.push(...asideCues(brain));
   lines.push(...meetingCues(brain));
   lines.push(...wantedCues(brain));
   // MAP-07: with the gravity off it cannot walk, so that it can say why it is not going anywhere.
   if (brain.floating) {
     lines.push('There is no gravity here: you float and cannot walk.');
+  }
+  // CHEAT-15: in the dark it sees only what is right beside it, so that it can say why it has
+  // not seen what is across the room. One line, and only while it is dark.
+  if (brain.dark) {
+    lines.push('It is dark here: you see only what is right beside you.');
   }
   if (brain.shutIn) {
     lines.push(describeShutIn(brain));

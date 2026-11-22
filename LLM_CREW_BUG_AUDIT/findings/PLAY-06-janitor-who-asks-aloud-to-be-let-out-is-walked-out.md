@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: ed367f92eae, fe96a537708
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
@@ -139,3 +140,10 @@ Checked by Opus 5.5 against the round logs and the code at 99f4d33dd0e. Nothing 
 - Mended two claims. A seen-out line was planned before the walk-out (the model turned it into a remark to Tyson), so it is not true that nothing was planned. It is still true that nothing was said about the door.
 - The fix is sound and keeps the rules: the code retries and speaks, a bounded number of times, and a dead model does not stall it. I added two steps. Do not retry a door that will not open (DOOR-14's case), only one that could not be reached. And log a failed door errand to `game.log`, or the next round will look like this one. Effort raised to medium, since it touches `cargo.ts`, `types.ts` and one DM file.
 - Severity stays medium. The janitor still gets out and the work goes on, but a player would see a janitor who asked to be let out being taken by the arm.
+
+## Fix so far
+
+Group p-server, commit fe96a537708 (compile only): step 6 is done in `finish_errand` (`crew_npc_hands.dm`), which logs a failed `open_door` errand to `game.log` ("did not open <door> at <where> for <person>: <words> It stands at <where>."). It covers every errand failure of the tool (`crew_npc_fail_errand`, `do_errand`, `hold_door_for`), not the refusals `tool_open_door` gives before any errand starts. Left: steps 1 to 5, all in the window.
+Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`; not played): steps 1 to 5. `letOutFailed` in `jobs/cargo.ts` keeps the ask of someone seen shut inside asking out when `open_door` comes back "You could not get to it." the first time and sets `after` ten seconds on; the try is counted in a map in `cargo.ts` (`letOutTries`), not in a new `DoorAsk` field, since `types.ts` is not this group's. A second such failure, or "The door will not open for you." at once, drops the ask and tells them face to face why. Any other failure drops it silently, as before.
+
+Not done, held: step 6, the `game.log` line for a failed door errand in `crew_npc_fail_errand` (`code/modules/llm_crew/crew_npc_hands.dm`), and in the refusals of `hold_door_for` (`crew_npc_doors.dm`).

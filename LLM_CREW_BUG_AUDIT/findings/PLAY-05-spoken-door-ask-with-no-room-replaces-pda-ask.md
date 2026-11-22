@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 3bffe3a08f4
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: doors
@@ -174,3 +175,7 @@ What I could not settle:
 - Why Hayden did not get through in the moments the door was held. Kailyn opened from outside: her prompt at 22:10:43 has her in Fore Port Maintenance at (76,163), and Hayden then says "Step back so I can reach it". She may have stood in his way, and the server's hold may have ended when she walked off. Neither is in the log. This does not change the finding: without the task, no let-in was booked, no watch was kept, and the refusal was given to the janitor she had sent for. But a DOOR_WATCH alone may not have got him in if her body was on his square.
 - Severity medium and effort small are right: it needs a roomless spoken follow-up while an open is in flight, which comes up when a janitor waits at a door, and both steps are a few lines in cargo.ts.
 - Step 2 of the fix is sound. `lastAct` is cleared after `LOST_ACT_MS` if no result comes, so a DOOR task kept for an in-flight open cannot stick for good. If `wants` has moved to someone else meanwhile, `syncTasks` adds their DOOR task beside the kept one, and the driver takes it after the result.
+
+## Fix so far
+
+Both steps done on branch `p-cargo`, in `jobs/cargo.ts` only (`putAsk`, and the DOOR finish loop in `syncTasks` reading `brain.lastAct`), so nothing in `driver.ts` was needed. Table `tools/llm_crew/cargo-play.ts`; not played.

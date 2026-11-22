@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: acf7c981990, 342d2280d4c
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: supply
@@ -152,3 +153,23 @@ What must keep working: a crate that slips the grip is still gone back for three
 Checked by Opus 5.5 on 2026-11-19. Read `start_walk` and `walk_finished` (`crew_npc_tools.dm:397-420`), `start_errand` (`crew_npc_hands.dm:161`), the walk leaf `crew_npc_walk` (`crew_npc_motor.dm:80-160`), `haul_collected`, `crate_collected` and `tool_collect` (`crew_npc_held.dm:366-430`), `finish_haul` (`crew_npc_grip.dm:336`), `take_hold_of`, `put_out`, `taken_hold_of` and `let_go_of` (`crew_npc_guarding.dm:163-232`), the in-hand refusal (`crew_npc_tools.dm:20`), and on the window side `drive` and `orderToDrop` (`driver.ts:631-760`), `takeToldWork` (`tasks.ts:184`), the meeting plan (`jobs/meetings.ts:420-435`) and `planPickups`/`syncPickups` (`jobs/pickups.ts`). The quotes match. `stop_pulling` is called only in the haul finishers, the grip code, eviction and security. No server guard refuses a new walk while hauling, and the window drops a haul for an order told by a superior (`emergency`) and for any step-aside ask. The change log and plans say nothing of a haul broken off.
 
 Changed: the meeting example, which is wrong (meetings wait for the haul to end); step 3, since the old walk is retargeted, not finished; step 5, since the janitor's own pick-up task usually sends `collect_crate` again and so the crate is stuck only when that task is gone; confidence to sure; effort to medium (a helper plus the two lapses, spread over five server files, with no window change expected). Severity stays medium: the work as a rule still gets done, but a crate is dragged through an order, a stranger is held for 40 s by nobody, and a crate can be stuck for good. SENSE-07 is already marked a duplicate of this. Not run.
+
+## Fix so far
+
+Part built by group m-doors (2026-11-19, night), compile only, not played.
+
+- New `break_off_haul(new_tool)` in `crew_npc_tools.dm` (not `crew_npc_grip.dm`, which m-doors does not own), called as the first line of `start_walk`, before `walk_tool` is set. If a haul (`CREW_NPC_HAULS`) is under way and the new walk is another tool (not the same tool, and neither is `put_clear`), it writes "broke off a haul (TOOL) at ... to NEW" to `game.log`, clears the walk key (so the old walk reports nothing more), and calls `put_out(FALSE, "you were called away")` for a walk out by the arm, else `finish_haul(tool, FALSE, "you were called away")`, which lets go, clears `collected_by` for a collection and tells the brain.
+- In the window, `noteResult` (`driver.ts`) matches a result to `lastAct` by tool, so the old haul's failure does not land on the new task. Read, not run.
+
+Left (held, files not owned by m-doors):
+- `crew_npc_hands.dm`, `start_errand`: call `break_off_haul(tool)` as its first line, before `cancel_search()` / `clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)`. `take_up` starts an errand only when no walk key is set, so it is unaffected.
+- `crew_npc_held.dm`, step 4: a `collected_by` claim lapses after 45 s with the crate not pulled (`loose_since` on the entry, checked in `crew_npc_held_crates()`).
+- `crew_npc_guarding.dm` / `crew_npc_senses.dm`, step 5: keep `in_hand_by` (weakref) in `taken_hold_of`; in `look_around`, while `world.time < in_hand_until` and `pulledby` is not that body, call `let_go_of` and clear it.
+- Simulator (`sim.ts`): an order to a janitor half way through `collect_crate`, the stand-in server answering the broken-off haul with a failed `collect_crate` ("you were called away").
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played:
+
+- `start_errand` (`crew_npc_hands.dm`) calls `break_off_haul(tool)` first, before the walk key is cleared.
+- Step 4: a `collected_by` claim lapses when the crate has had nobody pulling it for more than `CREW_NPC_CRATE_CLAIM` (45 s): `loose_since` on the entry, looked at in `crew_npc_held_crates()` (`crew_npc_held.dm`), logged "claim on it lapsed".
+- Step 5: `taken_hold_of` keeps `in_hand_by` (weakref); `check_arm_hold` (`crew_npc_guarding.dm`) looks once a second, on its own timer rather than in `look_around` (senses.dm is another group's), and on two misses in a row (the holder gone, not conscious, or no longer pulling) lets go: `let_go_of`, or the same reset when the holder is deleted. Left alone while `custody_phase` is set.
+- Still left: the simulator case (sim.ts).

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: c6f74f1e256, 1e0ad3f0dfd
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -84,3 +85,7 @@ No owner question for the card test: this is the senses rule as written. One thi
 ## Check
 
 Checked by Opus 5.5. Read `door_keepers` (`crew_npc_doors.dm:134`), `room_keepers` and `keepers_known` (`crew_npc_security.dm:770-830`): the quotes are what the code says. Both take `candidate.computer.stored_id` or `holder?.get_idcard(TRUE)` from the PDA's holder, wherever they are, and call `door.check_access(card)`; both skip any PDA not on a station z-level. Read the base `get_messengers()` (`messenger_program.dm:88`): the contact list a player sees filters only on `invisible` and shows `saved_identification` and `saved_job`, nothing about place or access. So the three concrete cases hold (extra access from the HoP, a PDA off the station level, a lost card). The change log (`(3)`, `(21)`, H9 and "Who can open a room is worked out from ID cards") describes it as how it works; no entry or plan says the owner accepted it as a hidden channel, and `LLM_CREW_PLAN_NO_CHEATS.md` does not mention it. Checked the fix against `code/datums/id_trim/jobs.dm` and `_id_trim.dm`: trims keep `access` and `wildcard_access` apart, so the fix must test both (the Captain's `New()` adds to `extra_access`, which `refresh_trim_access` folds into `access`). Severity kept at medium: it decides only whom to write to, not what the body does to the world, and in most rounds the job title gives the same answer as the card. Effort raised to medium: one new shared proc and two callers in two files, more if the owner wants the manifest filter.
+
+## Fix so far
+
+Group m-secsrv, commit c6f74f1e256 (compile only; not played). New global `crew_npc_contacts_who_open(doors, own_messenger)` in `crew_npc_security.dm`: names on the messenger list (not `invisible`), by their title's starting access (`crew_npc_job_access`), staff, heads, Captain; no card read, no station-level test. `room_keepers` uses it. Left: `door_keepers` in `crew_npc_doors.dm` should call the same proc in place of its card and z-level loop; the owner's call on a manifest filter (step 3) and on `janitors_on_pda` / `people_on_pda`.

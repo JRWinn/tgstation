@@ -82,3 +82,7 @@ One correction to the write-up: the numbers themselves are not all secret. The c
 Severity medium kept: it breaks the senses-only rule, but the crew still does the right thing and a player would rarely notice. Effort medium kept: it is server work in `order_arrived` and `haul_freight` plus the simulator's arrival message. Not run, not seen in a round. Searched `LLM_CREW_CHANGELOG.md` and the plans for "manifest" and `order_arrived`: no entry chooses this or fixes it (the Quartermaster plan only lists "Stamping manifests" as later work).
 
 On the fix: step 2 works with the base game (`attack_hand` with an empty hand puts the manifest in the hand), but the body must have a free hand before it clicks, and must click before `start_pulling` in `haul_freight` (`crew_npc_freight.dm:459`), since opening a crate later also tears the manifest and drops it on the floor. The owner question (keep or bin the manifests) should be settled before building.
+
+## Not started (m-cargosrv, 2026-11-19)
+
+Skipped. The owner's question (keep the torn manifests for the Quartermaster, or bin them) is open, and the fix is larger than its label: besides `order_arrived` and `haul_freight` it moves the arrival word from the dock to the unload, which the window's ORDER handling and every cargo scenario in `tools/llm_crew/sim.ts` lean on (the stand-in server sends the numbers with the dock).

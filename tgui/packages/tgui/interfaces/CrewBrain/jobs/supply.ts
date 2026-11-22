@@ -103,6 +103,33 @@ export const DOCKED_WORDS = /\border (\d+) has come in: (.+)$/i;
 export const WORD_HEARD = 'I have that';
 export const WORD_HEARD_WORDS = /\bI have that\b/i;
 
+/**
+ * A technician telling a head, at the counter, that it has placed their order: "Hal, I have put
+ * your order in: a crate of janitorial supplies. I will send you the manifest number when it comes
+ * in." The head reads this as its order taken (TRA-04): jobs/head.ts.
+ */
+export const PLACED = 'I have put your order in';
+export const PLACED_WORDS = /\bI have put your order in\b/i;
+export function placedLine(first: string, what: string): string {
+  return `${first}, ${PLACED}: ${what}. I will send you the manifest number when it comes in.`;
+}
+
+/**
+ * Cargo telling whoever ordered that crates of their order are lost, and whether they are being
+ * ordered again: "Lost at cargo: crate #12 (Janitorial Supplies Crate) from your order. ...". Sent
+ * by cargo.ts and quartermaster.ts, read by jobs/head.ts (HEAD-02).
+ */
+export const LOST_AT_CARGO = 'Lost at cargo:';
+export const LOST_WORDS = /^lost at cargo: (.+?) from your order\b/i;
+export const REORDERED = 'ordered again, as order';
+export const REORDERED_WORDS = /\bordered again, as order \d+/i;
+
+/** What someone sent for a crate tells whoever sent them when cargo says there is no such crate (pickups.ts; read by head.ts). */
+export function noSuchCrateLine(number: string | number): string {
+  return `Cargo says there is no crate #${number} to collect: it has been lost, or the number is wrong. I have not got it.`;
+}
+export const NO_SUCH_CRATE_WORDS = /\bthere is no crate #(\d+) to collect\b/i;
+
 /** The technician telling the Quartermaster that an order could not be placed. */
 export const NOT_PLACED = 'did not go through';
 export const NOT_PLACED_WORDS = /\border (\d+) did not go through\b/i;
@@ -138,30 +165,101 @@ export function dutiesFor(names: string[]): Record<string, string[]> {
   return dealt;
 }
 
-/** The Quartermaster giving a technician its standing work, to its face: "Cora, the counter is yours this shift." */
-export function dutyLine(name: string, duties: string[]): string {
+/**
+ * What a workmate is called by, spoken to by name: the first name, or the whole name when another
+ * of `others` has the same first name, so that two technicians called Sam can tell which of them
+ * a line is for (QM-03).
+ */
+export function calledBy(name: string, others: string[]): string {
+  const first = name.split(' ')[0];
+  const shared = others.some(
+    (other) =>
+      other !== name &&
+      other.split(' ')[0].toLowerCase() === first.toLowerCase(),
+  );
+  return shared ? name : first;
+}
+
+/** The name a line is said to, as it begins: "Sam Bell" from "Sam Bell, order 3: ...". Null if it begins with none. */
+export function calledIn(line: string): string | null {
+  return (
+    line
+      .trim()
+      .match(/^([^,.!?]+?),/)?.[1]
+      .trim() ?? null
+  );
+}
+
+/**
+ * Whether a name a line was said to is this body's own: its whole name, or its first name alone
+ * when no workmate it knows of has that first name too. A whole name that is not its own is never
+ * its own, though the first word is the same (QM-03).
+ */
+export function calledMe(
+  called: string | null,
+  me: string,
+  others: string[],
+): boolean {
+  if (!called) {
+    return false;
+  }
+  const said = called.trim().toLowerCase();
+  if (said === me.toLowerCase()) {
+    return true;
+  }
+  return (
+    said === me.split(' ')[0].toLowerCase() &&
+    calledBy(me, others).toLowerCase() === said
+  );
+}
+
+/** Of `names`, the one a name said means: the whole name, else the only one with that first name. */
+export function nameCalled(
+  called: string,
+  names: string[],
+): string | undefined {
+  const said = called.trim().toLowerCase();
+  const whole = names.find((name) => name.toLowerCase() === said);
+  if (whole) {
+    return whole;
+  }
+  const firsts = names.filter(
+    (name) => name.split(' ')[0].toLowerCase() === said,
+  );
+  return firsts.length === 1 ? firsts[0] : undefined;
+}
+
+/**
+ * The Quartermaster giving a technician its standing work, to its face: "Cora, the counter is
+ * yours this shift." By the whole name when one of `others` has the same first name (QM-03).
+ */
+export function dutyLine(
+  name: string,
+  duties: string[],
+  others: string[] = [],
+): string {
   const parts = duties.map((duty) => `the ${duty}`);
   const said =
     parts.length < 2
       ? parts.join('')
       : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-  return `${name.split(' ')[0]}, ${said} ${duties.length === 1 ? 'is' : 'are'} yours this shift.`;
+  return `${calledBy(name, others)}, ${said} ${duties.length === 1 ? 'is' : 'are'} yours this shift.`;
 }
 
-/** Reads such a line back: whose first name it was said to, and the work it gave them. Null if these words are not that. */
+/** Reads such a line back: the name it was said to (first or whole), and the work it gave them. Null if these words are not that. */
 export function dutiesIn(
   line: string,
-): { first: string; duties: string[] } | null {
+): { to: string; duties: string[] } | null {
   const said = line
     .trim()
     .match(
-      /^(\S+), (the (?:counter|shuttle|rooms)(?:(?:, | and )the (?:counter|shuttle|rooms))*) (?:is|are) yours this shift\b/i,
+      /^([^,.!?]+?), (the (?:counter|shuttle|rooms)(?:(?:, | and )the (?:counter|shuttle|rooms))*) (?:is|are) yours this shift\b/i,
     );
   if (!said) {
     return null;
   }
   return {
-    first: said[1],
+    to: said[1].trim(),
     duties: DUTIES.filter((duty) => said[2].toLowerCase().includes(duty)),
   };
 }
@@ -233,7 +331,7 @@ export const WONT_COME_WORDS =
 export function seeToLine(first: string, what: string): string {
   return `${first}, ${what}. See to it, please.`;
 }
-export const SEE_TO_WORDS = /^(\S+), (.+?)\. See to it, please\./i;
+export const SEE_TO_WORDS = /^([^,.!?]+?), (.+?)\. See to it, please\./i;
 
 /**
  * The Quartermaster sending a technician to let out a workmate who is shut in, to its face: "Sam,
@@ -246,12 +344,15 @@ export function letOutLine(first: string, who: string, room: string): string {
 }
 /** Reads letOutLine back: whom it is said to, who is shut in, and where. */
 export const SEND_TO_LET_OUT_WORDS =
-  /^(\S+), (.+?) is shut in the (.+?)\. Could you let them out, please\?/i;
+  /^([^,.!?]+?), (.+?) is shut in the (.+?)\. Could you let them out, please\?/i;
 
 /** The Quartermaster telling its only technician to have another go at a crate that would not come. */
 export function tryAgainLine(first: string, what: string): string {
   return `${first}, try ${what} again in a little while, please.`;
 }
+/** Reads tryAgainLine back: whom it is said to, and what (CARGO-18). */
+export const TRY_CRATE_AGAIN_WORDS =
+  /^([^,.!?]+?), try (.+?) again in a little while, please\./i;
 
 /** A PDA message from someone who is shut in, to their head: the room they are shut in is read from it. */
 export const SHUT_IN_WORDS = /\bI am shut in the (.+?) and\b/i;

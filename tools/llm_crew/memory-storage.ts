@@ -3,7 +3,7 @@
 //
 //   bun run memory-storage.ts
 const { ROOT, janitor } = await import('./fixtures');
-const { recordStorage } = await import(ROOT + 'memory');
+const { allKnownItems, recordStorage } = await import(ROOT + 'memory');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -30,6 +30,9 @@ const held = (b: any) => Object.fromEntries(b.places.get('Custodial Closet')?.st
   look(b, 'looked', ['mop']);
   look(b, 'locked', []);
   add('locked: what it remembered is kept', held(b), { mop: true });
+  add('locked: what it remembered is not to be had (HAND-05)', allKnownItems(b).includes('mop'), false);
+  look(b, 'looked', ['mop']);
+  add('open again: the mop is known again', allKnownItems(b).includes('mop'), true);
 }
 
 let failed = 0;

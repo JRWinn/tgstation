@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a8923d17986, dc6729f493a, a79111f3825
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: senses
@@ -83,3 +84,16 @@ Checked by Opus 5.5. Confirmed, with the fix corrected.
 - The fix as first written was wrong in one step: it said "the step test stops the body at the door", but a planned walk has no air test at all (`crew_npc_walk/perform` checks time, grip, arrival and `movement_failed`; only `try_random_step` tests the air). Taking the far tests out alone would walk a body into a vented room. Step 3a added.
 - Not in the change log as known. Severity medium: rare in test rounds (a vented room), but when it happens the room is lost for the round and the knowledge is not a player's. Effort medium: one new proc, a per-body memory, a walk-step test, and a dozen call sites, all on the server.
 - Not run: nothing here needed a script.
+
+## Fix so far
+
+Part built by group m-doors (2026-11-19, night), compile only, not played.
+
+- `crew_npc_safe_turf` is split: `crew_npc_safe_floor` (the map: open floor, not space, no external airlock, the game's own cross test) and `crew_npc_air_ok` (the pressure). `crew_npc_safe_turf` is both, as before, for squares next to the body.
+- New `far_spot_safe(turf)` on the controller (`crew_npc_motor.dm`): the floor test, then bad air only if the square is in sight (`can_see`, 7 squares) or the room is in `bad_air_seen` (room name -> time, kept 5 minutes, `note_bad_air`).
+- The walk leaf (`crew_npc_walk/perform`) looks at the next square of the move loop's path: from good air into bad, it stops with "the air in there is bad" and notes the room. Standing in good air in a noted room clears the note.
+- Far tests changed to `far_spot_safe`: `safe_spot_in` (so `pick_somewhere_new`, `place_spot`), both sides in `tool_go_to_door`, the working side in `tool_force_door`. An explore walk stopped by bad air does not write `unreachable_places`.
+
+Left (files not owned by m-doors), each a swap of `crew_npc_safe_turf(x)` for `far_spot_safe(x)` where x may be out of sight: `nearest_paper_bin` (`crew_npc_quartermaster.dm`), `find_post_turf`, `middle_of`, `learn_place`, `room_middle` (`crew_npc_cargo.dm`), `storage_spot` and the crate squares (`crew_npc_freight.dm`), `spot_outside_post` (`crew_npc_guarding.dm`). The errand's reach leaf (`crew_npc_reach/perform`, `crew_npc_storage.dm`) has no step test yet: it needs the same few lines as the walk leaf. Not done: shut fire doors in view as a sign (they stop the walk anyway). The owner's question (careless, or unsafe until looked) was taken as the checker read it: unseen air is taken as good, and the step test is the guard.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: the swaps in g-srv-b's files built. `far_spot_safe` in place of `crew_npc_safe_turf` in `find_post_turf`, `middle_of`, `room_middle` (`crew_npc_cargo.dm`; `learn_place` goes through `middle_of` and `safe_spot_in`, both now far), `free_square` (the bay's marked squares), `storage_spot` and `shuttle_spot` (`crew_npc_freight.dm`), `nearest_paper_bin` (`crew_npc_quartermaster.dm`) and `spot_outside_post` (`crew_npc_guarding.dm`). Kept on `crew_npc_safe_turf`: the next square in `freight_hauled` (beside the body) and the put-clear squares in `crew_npc_grip.dm` (beside a crate in reach). The errand's reach leaf (`crew_npc_reach/perform`, `crew_npc_storage.dm`) has the walk leaf's next-square test: from good air into bad it notes the room, writes "stopped its X walk ... the air at ... is bad" to game.log and fails; the errand's words are its usual failure, not "the air in there is bad".

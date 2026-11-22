@@ -4,6 +4,9 @@
  * Each sense event is a short record that is kept on the controller and passed to the owner's brain window.
  */
 
+/// The most PDA messages kept to read that came while the body was out cold.
+#define CREW_NPC_MISSED_PDA_KEPT 10
+
 /// Starts watching and listening through the pawn. Called when the controller takes over a body.
 /datum/ai_controller/crew_npc/proc/start_senses(mob/living/carbon/human/body)
 	RegisterSignal(body, COMSIG_MOVABLE_PRE_HEAR, PROC_REF(on_pre_hear))
@@ -25,6 +28,43 @@
 	deltimer(look_timer)
 	look_timer = null
 
+/**
+ * Keeps, of what is in line of sight, only what the body could make out: what stands on a lit tile,
+ * or on a tile right beside it. view() and oview() leave nothing out for want of light here (every
+ * mob sees in the dark, and the lighting plane does the hiding on a player's screen), so a body in
+ * a dark room would otherwise see the whole room as if the lights were on (CHEAT-15). A light that
+ * someone carries lights their tile, and an area with no lighting is lit throughout. Eyes that see
+ * in the dark (meson or night-vision glasses) see it all.
+ */
+/proc/crew_npc_visible(list/in_view, mob/living/viewer)
+	if(viewer.has_nightvision())
+		return in_view
+	var/turf/here = get_turf(viewer)
+	// Each tile is asked once, however many things stand on it.
+	var/list/lit = list()
+	var/list/seen = list()
+	for(var/atom/thing as anything in in_view)
+		var/turf/spot = get_turf(thing)
+		if(isnull(spot))
+			seen += thing
+			continue
+		var/known = lit[spot]
+		if(isnull(known))
+			known = get_dist(spot, here) <= 1 || spot.check_lumcount_above(LIGHTING_TILE_IS_DARK)
+			lit[spot] = known
+		if(known)
+			seen += thing
+	return seen
+
+/// TRUE if the viewer can make this one thing out, by the same rule as crew_npc_visible(): in line of sight within `range`, and lit or right beside it.
+/proc/crew_npc_sees(atom/thing, mob/living/viewer, range = CREW_NPC_VISION_RANGE)
+	if(QDELETED(thing) || QDELETED(viewer) || !(thing in view(range, viewer)))
+		return FALSE
+	if(viewer.has_nightvision())
+		return TRUE
+	var/turf/spot = get_turf(thing)
+	return isnull(spot) || get_dist(spot, get_turf(viewer)) <= 1 || spot.check_lumcount_above(LIGHTING_TILE_IS_DARK)
+
 /// TRUE if this thing lying on the floor would slip a runner, and can be seen for what it is: oil, a peel, soap, foam.
 /proc/crew_npc_slippery_thing(atom/movable/thing)
 	return isturf(thing.loc) && !thing.invisibility && thing.alpha > 0 && !isnull(thing.GetComponent(/datum/component/slippery))
@@ -42,25 +82,52 @@
 		if(QDELETED(thing_ref.resolve()))
 			slippery_seen -= key
 
-/// TRUE if the body knows of something slippery lying on this tile: it has seen it there before, or can see it now.
-/datum/ai_controller/crew_npc/proc/knows_slippery(turf/spot)
-	var/list/in_reach
-	for(var/atom/movable/thing as anything in spot)
-		var/datum/weakref/seen_ref = slippery_seen[REF(thing)]
-		if(seen_ref?.resolve() == thing)
-			return TRUE
-		if(!crew_npc_slippery_thing(thing))
-			continue
-		// Not seen before. The tile in front of it is in plain sight, unless it is too dark to see.
-		in_reach ||= oview(1, pawn)
-		if(thing in in_reach)
-			slippery_seen[REF(thing)] = WEAKREF(thing)
-			return TRUE
-	return FALSE
+/**
+ * TRUE if walking, not running, keeps a body on its feet on this slippery thing. In this game that
+ * is so only for a thing whose slipperiness says so (NO_SLIP_WHEN_WALKING): oil, fresh blood. A
+ * banana peel, soap or slippery foam slips a walker just the same (SENSE-06).
+ */
+/proc/crew_npc_walking_helps(atom/movable/thing)
+	var/datum/component/slippery/slip = thing.GetComponent(/datum/component/slippery)
+	return !isnull(slip) && (slip.lube_flags & NO_SLIP_WHEN_WALKING)
 
 /**
- * Walks, not runs, for a step onto a tile where it knows something slippery lies, and runs again
- * once it is off. This is a player holding the walk key past a pool of oil, and nothing more.
+ * Returns the slippery thing the body knows of lying on this tile, having seen it there before or
+ * seeing it now, or null. One that walking will not help with is returned before one it will.
+ */
+/datum/ai_controller/crew_npc/proc/known_slippery_on(turf/spot)
+	var/list/in_reach
+	var/atom/movable/found
+	for(var/atom/movable/thing as anything in spot)
+		var/datum/weakref/seen_ref = slippery_seen[REF(thing)]
+		if(seen_ref?.resolve() != thing)
+			if(!crew_npc_slippery_thing(thing))
+				continue
+			// Not seen before. The tile in front of it is in plain sight: a tile right beside the body is
+			// made out even in the dark (crew_npc_visible), so this needs no test of the light.
+			in_reach ||= oview(1, pawn)
+			if(!(thing in in_reach))
+				continue
+			slippery_seen[REF(thing)] = WEAKREF(thing)
+		if(!crew_npc_walking_helps(thing))
+			return thing
+		found ||= thing
+	return found
+
+/// TRUE if the body knows of something slippery lying on this tile: it has seen it there before, or can see it now.
+/datum/ai_controller/crew_npc/proc/knows_slippery(turf/spot)
+	return !isnull(known_slippery_on(spot))
+
+/**
+ * Minds a step onto a tile where it knows something slippery lies. This is a player who sees a
+ * pool of oil or a banana peel ahead, and nothing more.
+ *
+ * Where walking keeps it on its feet (oil, blood), it walks, not runs, for that step and runs again
+ * once it is off. Where walking does not help (a peel, soap, foam), it goes round the tile: the step
+ * is not taken, and the walk's next plan leaves that tile out (the same way round as for something
+ * in the way that will not move, tile_to_go_round). Only where the plan finds no way round, or the
+ * tile is the one it is walking to, or the move is not one a plan is made for, does it step on with
+ * care and may slip, as a player in a one-tile corridor would.
  *
  * It goes by sight alone. A thing it has seen, or can see on the tile in front of it, it knows of.
  * A floor that is only wet from a mop it does not: there is nothing lying there to see, and it
@@ -76,10 +143,17 @@
 	if(body.moving_from_pull || body.throwing || body.pulledby || body.buckled)
 		return
 	// Shoes that grip need no care taken.
-	var/careful = !HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) && !HAS_TRAIT(body, TRAIT_NO_SLIP_ALL) && knows_slippery(new_loc)
-	if(!careful)
+	var/atom/movable/slippery = (HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) || HAS_TRAIT(body, TRAIT_NO_SLIP_ALL)) ? null : known_slippery_on(new_loc)
+	if(isnull(slippery))
 		body.set_move_intent(MOVE_INTENT_RUN)
 		return
+	// Walking will not save it: it keeps off the tile. Asked once a walk for each tile: a second step
+	// onto the same one means the plan could not leave it out, and it goes on with care instead.
+	if(!crew_npc_walking_helps(slippery) && !avoid_gave_up && avoid_turf != new_loc)
+		avoid_ref = WEAKREF(slippery)
+		avoid_turf = new_loc
+		avoid_logged = FALSE
+		return COMPONENT_MOVABLE_BLOCK_PRE_MOVE
 	if(body.move_intent == MOVE_INTENT_WALK)
 		return
 	// It slows to a walk first, and takes the step at that pace: this one, begun at a run, is not taken.
@@ -101,12 +175,56 @@
 		sense_events.Cut(1, 2)
 	brain_link?.on_sense_event(src)
 
-/// TRUE if the body is in a state to perceive anything at all.
+/**
+ * TRUE if the body is in a state to act: it can perceive, and the controller is running it. A body
+ * stunned or paralysed for a moment cannot act, but still sees and hears (can_perceive).
+ */
 /datum/ai_controller/crew_npc/proc/can_sense()
+	return can_perceive() && ai_status != AI_STATUS_OFF
+
+/**
+ * TRUE if the body is in a state to perceive anything at all: alive, awake, and with no player in
+ * it. This goes by the body, not by whether the controller is running: the controller is switched
+ * off while the body is stunned, paralysed or in stamina crit, and a person in that state still
+ * sees, hears and has their PDA buzz (CORE-02).
+ */
+/datum/ai_controller/crew_npc/proc/can_perceive()
 	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(body) || ai_status == AI_STATUS_OFF)
+	if(QDELETED(body) || forced_off || body.client || isnull(get_turf(body)))
 		return FALSE
 	return body.stat != DEAD && !IS_UNCONSCIOUS(body)
+
+/datum/ai_controller/crew_npc
+	/// PDA messages that came while the body was out cold, to be read when it comes to: each list(weakref to the PDA, sender, job, message).
+	var/list/missed_pda_messages
+
+/**
+ * Keeps a PDA message that came while the body could not perceive it. It sits on the PDA, and the
+ * body reads it when it comes to, as a player looks at their PDA on getting up. Ten at most.
+ */
+/datum/ai_controller/crew_npc/proc/keep_missed_pda(obj/item/modular_computer/computer, sender, job, message)
+	LAZYADD(missed_pda_messages, list(list(WEAKREF(computer), sender, job, message)))
+	if(length(missed_pda_messages) > CREW_NPC_MISSED_PDA_KEPT)
+		missed_pda_messages.Cut(1, 2)
+
+/// Reads the PDA messages that came while it was out, if the PDA they came to is still on it.
+/datum/ai_controller/crew_npc/proc/read_missed_pda()
+	var/list/missed = missed_pda_messages
+	missed_pda_messages = null
+	for(var/list/entry as anything in missed)
+		var/datum/weakref/computer_ref = entry[1]
+		var/obj/item/modular_computer/computer = computer_ref?.resolve()
+		if(QDELETED(computer) || !crew_npc_carries(computer))
+			continue
+		var/sender = entry[2]
+		var/job = entry[3]
+		var/message = entry[4]
+		emit_sense(CREW_SENSE_PDA_MESSAGE, "While you were out, your PDA got a message from [sender][job ? ", [job]" : ""]: \"[message]\"", list(
+			"speaker" = sender,
+			"job" = job,
+			"message" = message,
+			"missed" = TRUE,
+		))
 
 /// The key a person is remembered under. A new face on the same body counts as someone new.
 /datum/ai_controller/crew_npc/proc/person_key(mob/living/carbon/human/person)
@@ -127,10 +245,24 @@
 		handle_people[handle] = WEAKREF(person)
 	return handle
 
-/// Checks who is in view and emits an event for each person who was not in view a moment ago.
+/**
+ * Looks round (see_around), then works out once what the brain window is sent of its senses and
+ * memory (take_look_snapshot), so that each of the window's updates need not work it out again.
+ */
 /datum/ai_controller/crew_npc/proc/look_around()
+	see_around()
+	if(!QDELETED(pawn))
+		take_look_snapshot()
+
+/// Checks who is in view and emits an event for each person who was not in view a moment ago.
+/datum/ai_controller/crew_npc/proc/see_around()
 	var/mob/living/carbon/human/body = pawn
-	if(!can_sense() || body.is_blind())
+	// A body stunned for a moment still looks about: only one that cannot perceive (CORE-02) or is blind sees nothing.
+	var/perceives = can_perceive()
+	// Come to, it reads what its PDA got while it was out.
+	if(perceives && length(missed_pda_messages))
+		read_missed_pda()
+	if(!perceives || body.is_blind())
 		people_in_view = list()
 		things_in_view = list()
 		storage_here = 0
@@ -160,9 +292,14 @@
 		current_place = null
 		forget_trail()
 
-	drop_disguise()
+	// Putting a thing down is doing, not looking: not while it is stunned.
+	if(can_sense())
+		drop_disguise()
+	// A hand that stops working is felt when it happens, not the next time it reaches for something (HOLE-18).
+	note_working_hands()
 	note_place(body)
-	var/list/in_sight = oview(CREW_NPC_VISION_RANGE, body)
+	// In the dark it makes out only what a light falls on, and what is right beside it.
+	var/list/in_sight = crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body)
 	things_in_view = notable_things(in_sight)
 	// Water to wet a mop with: the bucket it carries, a mop bucket or cart with water in, or a sink.
 	var/atom/water = water_to_hand(in_sight)
@@ -189,11 +326,17 @@
 	for(var/obj/effect/decal/cleanable/mess as anything in messes_to_clean(in_sight))
 		cleanable_messes |= format_text(mess.name)
 	people_in_view = list()
+	// The heads its PDA lists, read only if someone in view wears no head's card and shows their face (SENSE-08).
+	var/list/heads_on_pda
 	for(var/mob/living/carbon/human/person in in_sight)
+		var/command = crew_npc_is_command(person)
+		if(!command && person.get_face_name() == person.real_name)
+			heads_on_pda ||= command_on_pda()
+			command = !isnull(heads_on_pda[person.real_name])
 		// For crew with a post, whether each person is inside it: that is who can be let out, and who would have to be let in.
 		// And whether they have a right to be in it, and whether they outrank the body: that is who may be asked their business, and who may be walked out.
 		// And who has them by the arm, as anyone standing there would see: pulled_by is sent as null when nobody has, never left out.
-		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = crew_npc_is_command(person), "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
+		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = command, "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
 		if(already_in_view)
@@ -343,6 +486,7 @@
 
 	var/list/counts = list()
 	var/list/kinds = list()
+	var/here = get_area_name(pawn, TRUE)
 	for(var/obj/thing in in_sight)
 		var/kind
 		if(iseffect(thing))
@@ -352,6 +496,13 @@
 		else if(ignored_types[thing.type])
 			continue
 		else if(isitem(thing))
+			// A thing it could not get to lately, or one behind the glass of a room locked to it, is
+			// not one it could go and pick up, so it is not listed as one to hand (HAND-04).
+			if(pickup_given_up(thing))
+				continue
+			var/thing_place = get_area_name(thing, TRUE)
+			if(thing_place != here && place_locked_to_body(thing_place))
+				continue
 			kind = "item"
 		else if(isvehicle(thing))
 			kind = "vehicle"
@@ -388,7 +539,8 @@
 	SIGNAL_HANDLER
 
 	var/atom/movable/speaker = hearing_args[HEARING_SPEAKER]
-	if(speaker == body || !can_sense() || HAS_TRAIT(body, TRAIT_DEAF))
+	// A stunned body still hears (CORE-02): only one that cannot perceive at all does not.
+	if(speaker == body || !can_perceive() || HAS_TRAIT(body, TRAIT_DEAF))
 		return
 	// Radio is a separate sense that comes later.
 	if(hearing_args[HEARING_RADIO_FREQ])
@@ -408,13 +560,17 @@
 			message = stars(message)
 	message = html_decode(message)
 
+	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
+	// Told it is under arrest by someone from security: it goes along, on what it heard (CHEAT-04).
+	if(ishuman(living_speaker))
+		heard_arrest_line(living_speaker, message)
+
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
 	var/whispered = !!message_mods[WHISPER_MODE]
 	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
 	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
 	// the parrot's "CRYSTAL DELAMINATION IMMINENT" twenty-nine times in half an hour.
-	var/mob/living/living_speaker = isliving(speaker) ? speaker : null
-	var/someone = living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
+	var/someone =living_speaker && (ishuman(living_speaker) || issilicon(living_speaker) || living_speaker.client)
 	if(someone)
 		last_heard_speaker = speaker_name
 	var/list/details = list(
@@ -447,8 +603,19 @@
 	// walked out of view before its turn to answer. It is known from their ID, as in people_in_view,
 	// so only of someone it has just seen: a voice alone does not say who someone answers for.
 	details["superior"] = 0
+	// Someone in plain sight who speaks before the next look has taken them in (they have just come
+	// round a corner, or put a mask on and are seen anew) is looked at now, so that the voice goes
+	// with the face it is coming from (API-02). Only by what it can see: a voice from behind a wall
+	// or in the dark ties to nobody.
+	if(ishuman(speaker) && !recently_saw(speaker) && !body.is_blind() && can_see(body, speaker, CREW_NPC_VISION_RANGE))
+		look_around()
 	if(ishuman(speaker) && recently_saw(speaker))
 		details["handle"] = handle_for(speaker)
 		details["superior"] = answers_to(speaker) ? 1 : 0
+		// The name they are seen by, which may not be the voice's: "Captain John" with the honorific
+		// on their card, where the voice is "John Smith" (API-02).
+		details["seen_as"] = speaker.name
 
 	emit_sense(CREW_SENSE_SPEECH_HEARD, "[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\"", details)
+
+#undef CREW_NPC_MISSED_PDA_KEPT

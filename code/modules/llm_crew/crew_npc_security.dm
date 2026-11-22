@@ -43,10 +43,10 @@
 #define CREW_NPC_CUSTODY_HOLD (3 SECONDS)
 /// How long a crew NPC told it is under arrest stands for it with nobody's hand on it and no cuffs on.
 #define CREW_NPC_ARREST_GRACE (20 SECONDS)
+/// How far (tiles) a line said in a normal voice carries: the game's own say range.
+#define CREW_NPC_EARSHOT 7
 /// How long a crew NPC in cuffs waits, with nobody holding it, before it takes it that nobody is coming.
 #define CREW_NPC_CUFFED_ALONE (2 MINUTES)
-/// How many times a crew NPC left in cuffs tries to work them off.
-#define CREW_NPC_CUFF_TRIES 3
 /// How often, at most, security staff are told that the same person has laid a hand on them.
 #define CREW_NPC_STRUCK_GAP (3 SECONDS)
 /// How long something security staff went for and could not get, or found nothing in, is left alone.
@@ -66,6 +66,9 @@
 	/// The cell the body is taking them to, and for how many minutes.
 	var/datum/crew_npc_brig_cell/jail_cell
 	var/jail_minutes = 0
+	/// The cell its prisoner was walked into and let go in, when the body could not then get back out
+	/// past them to the timer (PLAY-01). The next go at a cell only walks out and starts that timer.
+	var/datum/crew_npc_brig_cell/jail_left_inside
 	/// Whoever the body last set out to arrest, as a weak reference: for saying why it never got to them.
 	var/datum/weakref/arrest_target
 	/// Why its last go with the baton stopped short, in words for the log. Null if it landed what it meant to.
@@ -435,7 +438,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(can_reach_target_now(person))
 			body.face_atom(person)
 			return TRUE
-		if(taken == most || get_dist(body, person) > most || !(person in view(CREW_NPC_VISION_RANGE, body)))
+		if(taken == most || get_dist(body, person) > most || !crew_npc_sees(person, body))
 			return FALSE
 		// Stunned, out cold or dead, it lies where it fell. Moved with no player behind it, it slid along the floor after them.
 		if(!can_step())
@@ -446,7 +449,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			body.Move(next, get_dir(body, next))
 		// It did not move: something stands in the way. The first step of the way round it.
 		if(get_turf(body) == from)
-			var/list/path = get_path_to(body, person, max_distance = CREW_NPC_CELL_PATH, mintargetdist = 1, access = get_access())
+			// Straight steps only, as every crew walk: a diagonal step into someone just stops, while a
+			// head-on one swaps places with them.
+			var/list/path = get_path_to(body, person, max_distance = CREW_NPC_CELL_PATH, mintargetdist = 1, access = get_access(), diagonal_handling = DIAGONAL_REMOVE_ALL)
 			if(QDELETED(person) || QDELETED(body) || QDELETED(src) || !length(path))
 				return FALSE
 			next = path[1]
@@ -473,7 +478,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return FALSE
 	if(get_turf(body) == destination || (near && get_dist(body, destination) <= near && body.z == destination.z))
 		return TRUE
-	var/list/path = get_path_to(body, destination, max_distance = CREW_NPC_CELL_PATH, mintargetdist = near, access = get_access())
+	// Straight steps only, as every crew walk. The game swaps places only head-on: a diagonal step
+	// past someone, such as out of a cell past the prisoner just let go, stops against them.
+	var/list/path = get_path_to(body, destination, max_distance = CREW_NPC_CELL_PATH, mintargetdist = near, access = get_access(), diagonal_handling = DIAGONAL_REMOVE_ALL)
 	if(QDELETED(src) || QDELETED(body) || !length(path) || errand_over(serial))
 		return FALSE
 	for(var/turf/next as anything in path)
@@ -573,7 +580,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return
 	var/obj/item/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/item/thing in oview(CREW_NPC_VISION_RANGE, body))
+	for(var/obj/item/thing in crew_npc_visible(oview(CREW_NPC_VISION_RANGE, body), body))
 		if(!isturf(thing.loc) || thing.anchored || kit_skips(thing))
 			continue
 		if(!(need_baton && is_live_baton(thing)) && !(need_cuffs && is_spare_cuffs(thing)))
@@ -823,7 +830,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/list/details = list("reason" = (tool == CREW_TOOL_ARREST ? "lost" : "no_way"))
 	// Someone it can still see is not lost: there is a door or a counter between them. The brain is told which room they are in.
 	var/mob/living/carbon/human/wanted = arrest_target?.resolve()
-	if(tool == CREW_TOOL_ARREST && !QDELETED(wanted) && !QDELETED(pawn) && (wanted in view(CREW_NPC_VISION_RANGE, pawn)))
+	if(tool == CREW_TOOL_ARREST && !QDELETED(wanted) && !QDELETED(pawn) && crew_npc_sees(wanted, pawn))
 		details["reason"] = "no_way"
 		details["handle"] = handle_for(wanted)
 		details["place"] = get_area_name(wanted, TRUE)
@@ -840,7 +847,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(tool == CREW_TOOL_JAIL && !isnull(jail_cell) && !QDELETED(pawn) && !knocked_down_itself())
 		var/mob/living/carbon/human/prisoner = arrested?.resolve()
 		var/prisoner_name = QDELETED(prisoner) ? null : prisoner.name
-		cell_refuses(jail_cell, prisoner_name || "its prisoner", "it could not get to the cell's timer")
+		// Its prisoner is in this cell already, let go (PLAY-01): still stuck inside with them, and the
+		// cell has not refused them.
+		if(jail_left_inside == jail_cell)
+			details["reason"] = "stuck_inside"
+		else
+			cell_refuses(jail_cell, prisoner_name || "its prisoner", "it could not get to the cell's timer")
 		details["cell"] = jail_cell.name
 		if(prisoner_name)
 			details["prisoner"] = prisoner_name
@@ -848,6 +860,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 
 /// room_keepers() for a room, worked out afresh once a minute at most: it is asked for with every look the body takes.
 /datum/ai_controller/crew_npc/proc/keepers_known(area/room, place)
+	// With no PDA it goes by who is in sight, which changes from one look to the next.
+	if(isnull(pda_messenger()))
+		return room_keepers(room)
 	var/list/known = keepers_cache[place]
 	if(known && world.time - known[1] < 1 MINUTES)
 		return known[2]
@@ -856,55 +871,88 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return names
 
 /**
- * Returns the names of those with a PDA whose own ID opens a door of this room, for a body that
+ * Returns the names on the body's PDA list whose job opens a door of this room, for a body that
  * is shut out of it with a warrant on someone inside: those who work behind the door first, then
  * heads of department, then the Captain, whose card opens every door. It is what anyone aboard
- * knows: cargo's people open cargo's doors. Empty if the room has no door that is locked to it.
+ * knows: cargo's people open cargo's doors. Going by job titles, not by anyone's card (CHEAT-02).
+ * With no PDA of its own (taken, or lost), those in sight whose ID says a job that opens it
+ * (KNA-26): someone it could call out to. Empty if the room has no door that is locked to it.
  */
 /datum/ai_controller/crew_npc/proc/room_keepers(area/room)
-	if(isnull(room))
-		return list()
-	var/list/names = list()
-	var/list/heads = list()
-	var/list/captains = list()
 	var/mob/living/carbon/human/body = pawn
-	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
-	if(isnull(room) || isnull(own_messenger))
-		return names
+	if(isnull(room) || QDELETED(body))
+		return list()
 	var/list/doors = list()
 	for(var/obj/machinery/door/airlock/door as anything in crew_npc_doors_of(room, body.z))
 		if(!door.allowed(body))
 			doors += door
 	if(!length(doors))
-		return names
+		return list()
+	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
+	if(!isnull(own_messenger))
+		return crew_npc_contacts_who_open(doors, own_messenger)
+	var/list/titles = list()
+	if(can_perceive() && isturf(body.loc) && !body.is_blind())
+		for(var/mob/living/carbon/human/person in crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body))
+			if(person == body || person.stat > SOFT_CRIT)
+				continue
+			var/datum/job/their_job = crew_npc_job_of(person)
+			if(their_job)
+				titles[person.name] = their_job.title
+	return crew_npc_keepers_by_title(doors, titles)
+
+/**
+ * Returns the names on a PDA's messenger list whose job, by the title the list shows, is one whose
+ * card opens one of these doors: those who work behind them first, then heads of department, then
+ * the Captain. What anyone reading the list knows (CHEAT-02): names and job titles, nothing of
+ * where anyone is or what is on their card. A title that is no job (renamed, or one the Head of
+ * Personnel made up) opens nothing, as someone reading it would take it. Someone far off or with
+ * no card is written to all the same, and does not come; the wait then moves on to the next name.
+ */
+/proc/crew_npc_contacts_who_open(list/doors, datum/computer_file/program/messenger/own_messenger)
+	var/list/titles = list()
 	for(var/messenger_ref in GLOB.pda_messengers)
 		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
-		if(candidate == own_messenger || isnull(candidate.computer) || !candidate.computer.saved_identification)
+		// As the messenger's own list goes (get_messengers()): not itself, not hidden, with a computer.
+		if(candidate == own_messenger || candidate.invisible || isnull(candidate.computer) || !candidate.computer.saved_identification)
 			continue
-		var/turf/where = get_turf(candidate.computer)
-		if(isnull(where) || !is_station_level(where.z))
+		titles[candidate.computer.saved_identification] = candidate.computer.saved_job
+	return crew_npc_keepers_by_title(doors, titles)
+
+/**
+ * Of these people, by name with the job title each is known by, those whose job opens one of
+ * these doors: those who work behind them first, then heads of department, then the Captain.
+ */
+/proc/crew_npc_keepers_by_title(list/doors, list/titles)
+	var/list/names = list()
+	var/list/heads = list()
+	var/list/captains = list()
+	if(!length(doors))
+		return names
+	// What each title's card opens, worked out once a call: many share a job.
+	var/list/opens_by_title = list()
+	for(var/name in titles)
+		var/title = titles[name]
+		if(!istext(title) || !length(title))
 			continue
-		// The card in the PDA, or failing that the one its holder wears, as door_keepers() goes by.
-		var/obj/item/card/id/card = candidate.computer.stored_id
-		if(isnull(card))
-			var/mob/living/holder = get(candidate.computer, /mob/living)
-			card = holder?.get_idcard(TRUE)
-		if(isnull(card))
+		if(isnull(opens_by_title[title]))
+			var/list/job_access = crew_npc_job_access(SSjob.get_job(title))
+			var/opens = FALSE
+			if(length(job_access))
+				for(var/obj/machinery/door/airlock/door as anything in doors)
+					if(door.check_access_list(job_access))
+						opens = TRUE
+						break
+			opens_by_title[title] = opens
+		if(!opens_by_title[title])
 			continue
-		var/opens = FALSE
-		for(var/obj/machinery/door/airlock/door as anything in doors)
-			if(door.check_access(card))
-				opens = TRUE
-				break
-		if(!opens)
-			continue
-		var/datum/job/their_job = SSjob.get_job(candidate.computer.saved_job)
+		var/datum/job/their_job = SSjob.get_job(title)
 		if(istype(their_job, /datum/job/captain))
-			captains += candidate.computer.saved_identification
+			captains += name
 		else if(their_job?.departments_bitflags & DEPARTMENT_BITFLAG_COMMAND)
-			heads += candidate.computer.saved_identification
+			heads += name
 		else
-			names += candidate.computer.saved_identification
+			names += name
 	return names + heads + captains
 
 /**
@@ -933,8 +981,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(istype(crew_npc_job_of(person), /datum/job/captain))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is the Captain. Nobody lays a hand on the Captain.", list("handle" = handle, "reason" = "captain"))
 		return
-	// Stopping someone is the baton with no warrant, so it is no lawful arrest: never on a head of staff.
-	if(how == CREW_ARREST_STOP && crew_npc_is_command(person))
+	// Stopping someone is the baton with no warrant, so it is no lawful arrest: never on a head of
+	// staff, known by the card they wear or, with none, by their face and the PDA list (SENSE-08).
+	if(how == CREW_ARREST_STOP && (crew_npc_is_command(person) || known_command_job(person)))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is a head of staff. With no warrant you do not lay a hand on them.", list("handle" = handle, "reason" = "command"))
 		return
 	arrest_target = WEAKREF(person)
@@ -955,10 +1004,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/handle = handle_for(person)
 	var/person_name = person.name
 	var/hits = 0
-	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	// One of the crew stands for it, and goes along. It is told before a hand is laid on it.
-	if(how != CREW_ARREST_STOP && istype(their_controller))
-		their_controller.being_arrested(body)
+	// One of the crew who heard the arrest line said (the brain says it before it sends the arrest)
+	// has gone along already, by its own hearing: heard_arrest_line(), from on_pre_hear() (CHEAT-04).
+	// One that is deaf or out of earshot goes along once it feels the cuffs and the hand on its arm
+	// (hold_arrested()).
 	// In cuffs already: someone has done that part. It only has to be taken by the arm.
 	if(person.handcuffed && how != CREW_ARREST_STOP)
 		var/closed = close_with(person, CREW_NPC_CLOSE_STEPS, serial)
@@ -982,6 +1031,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return broke_off(person_name, handle, 0)
 		if(cuffed_down)
 			return hold_arrested(person, 0, TRUE)
+		if(cuffed_by_other(person, cuffs))
+			stow_in_bag(cuffs)
+			return other_cuffs_outcome(person, handle, 0)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
 	// The baton, for someone who is still on their feet. Nobody hits someone who is down.
@@ -1006,23 +1058,25 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			if(!hits)
 				if(knocked_down_itself())
 					return knocked_down_outcome(person_name, handle, 0)
-				return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+				return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 			return list(TRUE, "You stop [person_name] with your baton.", list("handle" = handle, "cuffed" = FALSE, "hits" = hits))
 		if(!hits)
 			put_baton_away(baton)
 			stow_in_bag(cuffs)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, 0)
-			return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+			return list(FALSE, "You could not get your baton to [person_name].", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 		var/cuffed = put_cuffs_on(person, cuffs, serial)
 		if(errand_over(serial))
 			return broke_off(person_name, handle, hits)
 		put_baton_away(baton)
 		if(!cuffed)
 			stow_in_bag(cuffs)
+			if(cuffed_by_other(person, cuffs))
+				return other_cuffs_outcome(person, handle, hits)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, hits)
-			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (!QDELETED(person) && (person in view(CREW_NPC_VISION_RANGE, body))) ? "moved" : "lost", "hits" = hits))
+			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = hits))
 		return hold_arrested(person, hits, TRUE)
 	// The cuffs alone.
 	var/cuffed_alone = put_cuffs_on(person, cuffs, serial)
@@ -1032,9 +1086,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		stow_in_bag(cuffs)
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person))
 			return list(FALSE, "[person_name] is gone.", list("handle" = handle, "reason" = "lost", "hits" = 0))
+		if(cuffed_by_other(person, cuffs))
+			return other_cuffs_outcome(person, handle, 0)
 		if(knocked_down_itself())
 			return knocked_down_outcome(person_name, handle, 0)
-		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = (person in view(CREW_NPC_VISION_RANGE, body)) ? "moved" : "lost", "hits" = 0))
+		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
 	return hold_arrested(person, hits, TRUE)
 
 /**
@@ -1170,17 +1226,31 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				waited += 0.5 SECONDS
 		if(QDELETED(src) || QDELETED(body) || QDELETED(person) || errand_over(serial))
 			return FALSE
+		// Only its own pair is its arrest (MULTI-01). Cuffs someone else put on while it tried are
+		// theirs: see cuffed_by_other().
 		if(!isnull(person.handcuffed))
-			return TRUE
+			return person.handcuffed == cuffs
 		if(!crew_npc_person_down(person))
 			return FALSE
 	return FALSE
+
+/// TRUE if the person is in cuffs that are not the pair the body was putting on: someone else got there first.
+/datum/ai_controller/crew_npc/proc/cuffed_by_other(mob/living/carbon/human/person, obj/item/restraints/handcuffs/cuffs)
+	return !QDELETED(person) && !isnull(person.handcuffed) && person.handcuffed != cuffs
+
+/// What an arrest comes to when someone else's cuffs went on while the body's own were coming up. Not its arrest, and no try at them.
+/datum/ai_controller/crew_npc/proc/other_cuffs_outcome(mob/living/carbon/human/person, handle, hits)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) was arresting [key_name(person)] at [AREACOORD(pawn)] when someone else put cuffs on them.")
+	return list(FALSE, "Someone else from security has put cuffs on [person.name] before you could.", list("handle" = handle, "reason" = "other_cuffs", "hits" = hits))
 
 /// Takes someone who is in cuffs by the arm. `hits` and `counted` are for the report: how many baton hits it took, and whether this is an arrest the body made.
 /datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
 	var/mob/living/carbon/human/body = pawn
 	var/handle = handle_for(person)
-	if(counted)
+	// One arrest for one person brought in, however many times the cuffs had to go on. `arrested` is
+	// whoever it cuffed and has not yet put in a cell or let go: cuffed again after a cell that would
+	// not take them, or after they got away, it is the same arrest.
+	if(counted && arrested?.resolve() != person)
 		work_arrests++
 	arrested = WEAKREF(person)
 	// Sat in a chair or lying in a bed is being strapped to it: walked off by the arm, they stay where
@@ -1246,15 +1316,57 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	qdel(window)
 	return TRUE
 
+/// TRUE if the body, seeing what is in in_sight, can see this cell's timer or into the cell: what a player looking would know of it.
+/datum/ai_controller/crew_npc/proc/sees_cell(datum/crew_npc_brig_cell/cell, list/in_sight)
+	var/mob/living/carbon/human/body = pawn
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	if(isnull(timer) || QDELETED(body))
+		return FALSE
+	if(timer in in_sight)
+		return TRUE
+	if(timer.z != body.z || get_dist(body, timer) > CREW_NPC_VISION_RANGE + 3)
+		return FALSE
+	for(var/turf/spot as anything in cell.turfs)
+		if(spot in in_sight)
+			return TRUE
+	return FALSE
+
 /**
- * Returns the best brig cell with its timer stopped and nobody in it, other than this person: one
- * in the Brig before a checkpoint's, and one in a prison or isolation room last, then the nearest.
- * Not by name: on Tramstation "Cargo Cell", across the station, came before every other.
+ * Why a cell cannot take a prisoner, as seen by someone looking at it: "dark" (its timer has no
+ * power or is broken: a blank display), "in use" (its timer running, or someone in it other than
+ * this person and the body), "smashed" (its door is gone), or null if it can.
+ */
+/datum/ai_controller/crew_npc/proc/cell_unusable(datum/crew_npc_brig_cell/cell, mob/living/apart_from)
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	if(isnull(timer))
+		return "smashed"
+	if(timer.machine_stat & (NOPOWER|BROKEN))
+		return "dark"
+	if(timer.timing || length(cell.occupants() - apart_from - pawn))
+		return "in use"
+	// Its glass door smashed: a windoor at no integrity is deleted, not left broken. It shuts nobody in.
+	if(isnull(cell.door()))
+		return "smashed"
+	return null
+
+/**
+ * Returns the best brig cell to take a prisoner to: one in the Brig before a checkpoint's, and one
+ * in a prison or isolation room last, then one the body can see is free before one it cannot see
+ * from here, then the nearest. Not by name: on Tramstation "Cargo Cell", across the station, came
+ * before every other.
+ *
+ * Senses only (CHEAT-03): a cell the body can see is passed over if it is in use, dark or smashed.
+ * One it cannot see may be any of those: it is walked to and looked at, and put_in_cell() picks
+ * again from there. So "every cell is in use" is only ever found out by looking.
+ *
  * One the body lately could not get a prisoner into is passed over while there is another, and
- * is the one tried again, the longest left first, when there is not. Null if every cell is in use.
+ * is the one tried again, the longest left first, when there is not. Null if every cell it can
+ * see is no use and there is none it cannot see.
  */
 /datum/ai_controller/crew_npc/proc/free_cell(mob/living/apart_from)
 	var/mob/living/carbon/human/body = pawn
+	var/can_look = can_perceive() && isturf(body.loc) && !body.is_blind()
+	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
 	var/datum/crew_npc_brig_cell/refused
 	var/refused_at = INFINITY
 	var/datum/crew_npc_brig_cell/best
@@ -1262,21 +1374,21 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/best_dist = INFINITY
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
-		if(isnull(timer) || timer.timing || timer.z != body.z || (timer.machine_stat & (NOPOWER|BROKEN)))
+		if(isnull(timer) || timer.z != body.z)
 			continue
-		if(length(cell.occupants() - apart_from - body))
-			continue
-		// Its glass door smashed: a windoor at no integrity is deleted, not left broken. It shuts nobody in.
-		if(isnull(cell.door()))
+		var/seen = can_look && sees_cell(cell, in_sight)
+		if(seen && !isnull(cell_unusable(cell, apart_from)))
 			continue
 		var/last_refused = cell_refused[cell.name]
 		if(isnull(last_refused) || world.time - last_refused >= CREW_NPC_CELL_SKIP)
 			var/area/room = get_area(timer)
-			var/rank = 1
+			var/rank = 2
 			if(istype(room, /area/station/security/brig))
 				rank = 0
 			else if(istype(room, /area/station/security/execution) || istype(room, /area/station/security/prison))
-				rank = 2
+				rank = 4
+			if(!seen)
+				rank++
 			var/dist = get_dist(body, timer)
 			if(rank < best_rank || (rank == best_rank && dist < best_dist))
 				best = cell
@@ -1304,6 +1416,17 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return
 	var/mob/living/carbon/human/body = pawn
 	var/mob/living/carbon/human/prisoner = arrested?.resolve()
+	// In the cell already and let go, and it could not get back out past them a moment ago (PLAY-01):
+	// the timer is all that is left. Walked out to and started, as a player would, nobody taken
+	// by the arm again. Not if they have left the cell, or someone else has come into it.
+	var/datum/crew_npc_brig_cell/left_in = jail_left_inside
+	jail_left_inside = null
+	if(!isnull(left_in) && left_in == jail_cell && !QDELETED(prisoner) && body.pulling != prisoner && (get_turf(prisoner) in left_in.turfs))
+		var/obj/machinery/status_display/door_timer/left_timer = left_in.timer_ref?.resolve()
+		if(!QDELETED(left_timer) && !left_timer.timing && !length(left_in.occupants() - prisoner - body))
+			jail_left_inside = left_in
+			start_errand(left_timer, CREW_TOOL_JAIL, left_in.name)
+			return
 	// Let go of for a moment, and still standing there in cuffs: taken by the arm again. Not if they
 	// have sat down or been strapped in: walked off, they would stay put. The arrest again gets them
 	// up first (unbuckle_for_hold()), which takes a click this answer has no time for.
@@ -1317,15 +1440,38 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	jail_cell = free_cell(prisoner)
 	var/obj/machinery/status_display/door_timer/timer = jail_cell?.timer_ref?.resolve()
 	if(isnull(timer))
-		action_result(CREW_TOOL_JAIL, FALSE, "Every cell is in use.", list("reason" = "no_cell", "prisoner" = prisoner.name))
+		var/list/answer = no_cell_answer(prisoner.name)
+		action_result(CREW_TOOL_JAIL, FALSE, answer[2], answer[3])
 		return
 	start_errand(timer, CREW_TOOL_JAIL, jail_cell.name)
+
+/**
+ * The answer when no cell will do, every one of them seen (free_cell() leaves none unseen): "no_power" if
+ * every cell on this level is dark (ARR-04), and "no_cell" if they are in use, or some of each.
+ * A list as put_in_cell() returns.
+ */
+/datum/ai_controller/crew_npc/proc/no_cell_answer(prisoner_name)
+	var/mob/living/carbon/human/body = pawn
+	var/dark = 0
+	var/other = 0
+	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
+		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+		if(isnull(timer) || QDELETED(body) || timer.z != body.z)
+			continue
+		if(cell_unusable(cell, null) == "dark")
+			dark++
+		else
+			other++
+	if(dark && !other)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) found no cell's timer with power, at [AREACOORD(body)].")
+		return list(FALSE, "No cell's timer has power: their displays are blank.", list("reason" = "no_power", "prisoner" = prisoner_name))
+	return list(FALSE, "Every cell is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
 
 /// Says where someone who got away was last seen, for the brain: the room they are in if they are in sight.
 /datum/ai_controller/crew_npc/proc/got_away_details(mob/living/carbon/human/prisoner, prisoner_name)
 	var/mob/living/carbon/human/body = pawn
 	var/list/details = list("reason" = "got_away", "prisoner" = prisoner_name, "cell" = jail_cell?.name)
-	if(!QDELETED(prisoner) && !QDELETED(body) && (prisoner in view(CREW_NPC_VISION_RANGE, body)))
+	if(!QDELETED(prisoner) && !QDELETED(body) && crew_npc_sees(prisoner, body))
 		details["place"] = get_area_name(prisoner, TRUE)
 		details["handle"] = handle_for(prisoner)
 	else if(!QDELETED(body))
@@ -1333,49 +1479,14 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return details
 
 /**
- * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
+ * put_in_cell()'s walk in: the prisoner by the arm to the back of the cell, let go, and one of the
+ * crew has the cuffs taken off. Sleeps while it does so.
  *
- * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
- * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
- * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
- * they are in a cell, and the four seconds it takes are four seconds with the door open.
- *
- * Returns a list: whether they are in the cell with the timer running, the words, and the details.
+ * Returns null once they are in and let go, or put_in_cell()'s list for why they are not.
  */
-/datum/ai_controller/crew_npc/proc/put_in_cell(obj/machinery/status_display/door_timer/timer)
+/datum/ai_controller/crew_npc/proc/walk_in_and_let_go(datum/crew_npc_brig_cell/cell, atom/door, mob/living/carbon/human/prisoner, prisoner_name, turf/outside, serial)
 	var/mob/living/carbon/human/body = pawn
-	// Called off part way, it stops where it is. Its prisoner stays its own (`arrested`), so that the
-	// next go at a cell takes hold of them again. Read once: a new go at a cell sets them again.
-	var/serial = errand_serial
-	var/datum/crew_npc_brig_cell/cell = jail_cell
-	var/minutes = jail_minutes
-	var/mob/living/carbon/human/prisoner = arrested?.resolve()
-	var/prisoner_name = prisoner?.name
-	if(QDELETED(prisoner) || body.pulling != prisoner)
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reached [cell?.name] without its prisoner.")
-		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
-	if(isnull(cell) || cell.timer_ref?.resolve() != timer || timer.timing || length(cell.occupants() - prisoner - body))
-		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
-	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
-	// cell is tried with them still by the arm.
-	var/atom/door = cell.door()
-	if(isnull(door))
-		cell_refuses(cell, prisoner_name, "its door is broken")
-		return list(FALSE, "The door of [cell.name] is smashed. It will not hold [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
-	// The time, before anyone goes in: once the prisoner is inside there is no moment to spare for it.
-	var/wanted = minutes MINUTES
-	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
-		if(errand_over(serial))
-			return jail_broken_off(prisoner_name, cell)
-		cell_refuses(cell, prisoner_name, "its timer would not let it set the time")
-		return list(FALSE, "You cannot get at the timer of [cell.name]. It may have no power.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
-	if(errand_over(serial))
-		return jail_broken_off(prisoner_name, cell)
-	if(QDELETED(timer) || timer.timer_duration != wanted)
-		cell_refuses(cell, prisoner_name, "its timer would not take the time")
-		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	// In, to the tile furthest from the door, so that whoever trails a step behind is inside too.
-	var/turf/outside = get_turf(body)
 	var/turf/deep
 	var/deep_distance = -1
 	for(var/turf/spot as anything in cell.turfs)
@@ -1409,21 +1520,103 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		cell_refuses(cell, prisoner_name, "it walked in and [prisoner_name] did not come all the way in behind it")
 		return list(FALSE, "You cannot get [prisoner_name] all the way into [cell.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	body.stop_pulling()
-	var/datum/ai_controller/crew_npc/their_controller = prisoner.ai_controller
-	if(istype(their_controller))
+	if(istype(prisoner.ai_controller, /datum/ai_controller/crew_npc))
 		take_cuffs_off(prisoner, serial)
+	return null
+
+/**
+ * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
+ *
+ * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
+ * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
+ * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
+ * they are in a cell, and the four seconds it takes are four seconds with the door open.
+ * Back at the timer of a cell it left them in and could not get out of (jail_left_inside), only
+ * the timer is left to start.
+ *
+ * Returns a list: whether they are in the cell with the timer running, the words, and the details.
+ */
+/datum/ai_controller/crew_npc/proc/put_in_cell(obj/machinery/status_display/door_timer/timer)
+	var/mob/living/carbon/human/body = pawn
+	// Called off part way, it stops where it is. Its prisoner stays its own (`arrested`), so that the
+	// next go at a cell takes hold of them again. Read once: a new go at a cell sets them again.
+	var/serial = errand_serial
+	var/datum/crew_npc_brig_cell/cell = jail_cell
+	var/minutes = jail_minutes
+	var/mob/living/carbon/human/prisoner = arrested?.resolve()
+	var/prisoner_name = prisoner?.name
+	// Back at the timer of a cell it left them in and could not get out of past them (PLAY-01): they
+	// are in already, and only the timer is left to start.
+	var/finishing = !isnull(cell) && jail_left_inside == cell
+	jail_left_inside = null
+	if(finishing && !QDELETED(prisoner) && body.pulling != prisoner)
+		if(!(get_turf(prisoner) in cell.turfs))
+			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) had [prisoner_name] walk out of [cell.name] before the timer was started.")
+			return list(FALSE, "[prisoner_name] walked out of [cell.name] before you could shut it.", got_away_details(prisoner, prisoner_name))
+	else
+		finishing = FALSE
+	if(QDELETED(prisoner) || (!finishing && body.pulling != prisoner))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) reached [cell?.name] without its prisoner.")
+		return list(FALSE, "[prisoner_name || "Your prisoner"] got away from you on the way to the cell.", got_away_details(prisoner, prisoner_name))
+	if(isnull(cell) || cell.timer_ref?.resolve() != timer)
+		return list(FALSE, "[cell?.name || "The cell"] is in use.", list("reason" = "no_cell", "prisoner" = prisoner_name))
+	// Chosen from afar, and looked at now it is here (CHEAT-03): in use, dark or smashed. Passed over
+	// for a while, and the next one it can see that will do is gone to at once. None: it says so
+	// from here, where it can see that, still holding them.
+	var/why_not = cell_unusable(cell, prisoner)
+	if(!isnull(why_not))
+		if(why_not != "smashed")
+			cell_refuses(cell, prisoner_name, "it came to its timer and found it [why_not]")
+			var/datum/crew_npc_brig_cell/other = free_cell(prisoner)
+			if(isnull(other))
+				return no_cell_answer(prisoner_name)
+			return list(FALSE, "[cell.name] is [why_not]. You will try [other.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
+	// Its door was smashed while the prisoner was walked there. Before anyone is let go: the next
+	// cell is tried with them still by the arm.
+	var/atom/door = cell.door()
+	if(isnull(door))
+		cell_refuses(cell, prisoner_name, "its door is broken")
+		return list(FALSE, "The door of [cell.name] is smashed. It will not hold [prisoner_name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
+	// The time, before anyone goes in: once the prisoner is inside there is no moment to spare for it.
+	var/wanted = minutes MINUTES
+	if(timer.timer_duration != wanted && !work_timer(timer, "time", list("adjust" = "[wanted - timer.timer_duration]"), serial))
+		if(errand_over(serial))
+			return jail_broken_off(prisoner_name, cell)
+		cell_refuses(cell, prisoner_name, "its timer would not let it set the time")
+		return list(FALSE, "You cannot get at the timer of [cell.name]. It may have no power.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
 	if(errand_over(serial))
 		return jail_broken_off(prisoner_name, cell)
-	// Out, and the timer started at once.
-	if(!walk_steps(outside, 0, serial))
+	if(QDELETED(timer) || timer.timer_duration != wanted)
+		cell_refuses(cell, prisoner_name, "its timer would not take the time")
+		return list(FALSE, "The timer of [cell.name] will not take the time.", list("reason" = "timer", "prisoner" = prisoner_name, "cell" = cell.name))
+	var/turf/outside = get_turf(body)
+	var/datum/ai_controller/crew_npc/their_controller = prisoner.ai_controller
+	if(!finishing)
+		var/list/walked_in = walk_in_and_let_go(cell, door, prisoner, prisoner_name, outside, serial)
+		if(islist(walked_in))
+			return walked_in
+	if(errand_over(serial))
+		return jail_broken_off(prisoner_name, cell)
+	// Out, and the timer started at once. Stopped on the way, most likely by the prisoner it has just
+	// let go standing where it would step, it waits a moment for them to shift and tries once more.
+	var/got_out = walk_steps(outside, 0, serial)
+	if(!got_out && !QDELETED(src) && !QDELETED(body) && !errand_over(serial) && !knocked_down_itself())
+		sleep(1.5 SECONDS)
+		if(!QDELETED(src) && !QDELETED(body))
+			got_out = walk_steps(outside, 0, serial)
+	if(!got_out)
 		if(QDELETED(src) || QDELETED(body))
 			return list(FALSE, "You could not get to it.")
 		if(errand_over(serial))
 			return jail_broken_off(prisoner_name, cell)
 		if(knocked_down_itself())
 			return list(FALSE, "You were knocked down yourself in [cell.name], before you could start its timer.", list("reason" = "down", "prisoner" = prisoner_name, "cell" = cell.name))
-		cell_refuses(cell, prisoner_name, "it could not walk back out to the timer")
-		return list(FALSE, "You cannot get back out of [cell.name] to its timer.", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
+		// They are in and let go: the cell did not refuse them. Most likely they stand where it would
+		// step and will not swap places (in combat mode, as a player can be). The next go at a cell
+		// only walks out and starts this one's timer (tool_jail).
+		jail_left_inside = cell
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) could not get past [prisoner_name] to the door of [cell.name]. It stands at [AREACOORD(body)], they at [AREACOORD(prisoner)].")
+		return list(FALSE, "You cannot get past [prisoner_name] to the door of [cell.name].", list("reason" = "stuck_inside", "prisoner" = prisoner_name, "cell" = cell.name))
 	if(QDELETED(prisoner) || !(get_turf(prisoner) in cell.turfs))
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) had [prisoner_name] walk out of [cell.name] before the timer was started.")
 		return list(FALSE, "[prisoner_name] walked out of [cell.name] before you could shut it.", got_away_details(prisoner, prisoner_name))
@@ -1579,7 +1772,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	// part of: told to let "Pun Pun" go, it does not open the cell on Pun Pun II with Pun Pun in
 	// the next one.
 	var/mob/living/carbon/human/held = arrested?.resolve()
-	var/list/in_sight = view(CREW_NPC_VISION_RANGE, body)
+	var/list/in_sight = crew_npc_visible(view(CREW_NPC_VISION_RANGE, body), body)
 	for(var/whole in list(TRUE, FALSE))
 		// By the arm, or arrested and still about.
 		if(!QDELETED(held) && is_named(held, wanted, whole) && (body.pulling == held || recently_saw(held)))
@@ -1684,9 +1877,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		return list(FALSE, "You break off.", list("reason" = "called_off", "freed" = freed))
 	if(arrested?.resolve() == person)
 		arrested = null
-	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
-	if(istype(their_controller) && !cuffs_left)
-		their_controller.let_out_of_custody()
+	// Nothing is told to them by a call (CHEAT-04): one of the crew finds the hand gone and the cuffs
+	// off, and is free once its grace has run (custody_tick()), as anyone let go finds it out.
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) let [key_name(person)] go at [AREACOORD(body)][cuffs_left ? ", but could not get the cuffs off" : ""].")
 	return list(TRUE, cuffs_left ? "You let go of [freed], but could not get the cuffs off [person.p_them()]." : "You take the cuffs off [freed] and let [person.p_them()] go.", list("freed" = freed, "from" = "hold", "cuffs_left" = cuffs_left))
 
@@ -1736,8 +1928,27 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(!was_held)
 		addtimer(CALLBACK(src, PROC_REF(custody_tick)), 1 SECONDS)
 
+/**
+ * The body has heard a line said (on_pre_hear() calls this with what it heard). Someone who
+ * works in security, by the ID they wear, telling it by name that it is under arrest: it goes
+ * along quietly, on what it heard (CHEAT-04), whether the one arresting it is crew or a player.
+ * Returns TRUE if it took the line for its own arrest.
+ */
+/datum/ai_controller/crew_npc/proc/heard_arrest_line(mob/living/carbon/human/speaker, message)
+	var/mob/living/carbon/human/body = pawn
+	if(!istype(speaker) || QDELETED(body) || speaker == body || !istext(message))
+		return FALSE
+	if(!findtext(message, "under arrest") || !findtext(message, body.name))
+		return FALSE
+	var/datum/job/their_job = crew_npc_job_of(speaker)
+	if(isnull(their_job) || !(their_job.departments_bitflags & DEPARTMENT_BITFLAG_SECURITY))
+		return FALSE
+	being_arrested(speaker)
+	return TRUE
+
 /// The cell this body was walked into has been shut on it.
 /datum/ai_controller/crew_npc/proc/put_in_custody(datum/crew_npc_brig_cell/cell, minutes, mob/living/carbon/human/by)
+	var/mob/living/carbon/human/body = pawn
 	var/was_held = in_custody()
 	arrested_by = WEAKREF(by)
 	arrested_by_name = by.name
@@ -1745,7 +1956,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	custody_timer = cell.timer_ref
 	custody_cell = cell.name
 	hold_in_custody()
-	emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name] for [minutes] minute\s.", list("in_cell" = cell.name, "minutes" = minutes))
+	// The time is what its timer shows, and so known only if the timer can be seen from inside (CHEAT-04).
+	var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
+	var/sees_timer = !QDELETED(timer) && !QDELETED(body) && can_perceive() && !body.is_blind() && (timer in view(CREW_NPC_VISION_RANGE, body))
+	if(sees_timer)
+		emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name]. Its timer shows [minutes] minute\s.", list("in_cell" = cell.name, "minutes" = minutes))
+	else
+		emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has put you in [cell.name].", list("in_cell" = cell.name))
 	if(!was_held)
 		addtimer(CALLBACK(src, PROC_REF(custody_tick)), 1 SECONDS)
 
@@ -1787,12 +2004,19 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			var/obj/machinery/status_display/door_timer/timer = custody_timer?.resolve()
 			held = !QDELETED(timer) && timer.timing
 		if(CREW_CUSTODY_CUFFS)
-			held = !isnull(body.handcuffed) && cuff_tries <= CREW_NPC_CUFF_TRIES
-			// Not at it just now: it starts, or starts again.
+			// Held for as long as the cuffs are on (SEC-07): told it was free in them, it went back to
+			// its work with its hands bound, and every errand failed for the rest of the round. A
+			// player in cuffs presses Resist again and again until they are off; so does it.
+			held = !isnull(body.handcuffed)
+			// Not at it just now: it starts, or starts again. A try is counted only if the game
+			// really began one: it does not while its resist is cooling down, while it lies down,
+			// is buckled or is inside something. Counted on every press, a try broken in its first
+			// ten seconds used up the rest in two.
 			if(held && !length(body.do_afters))
-				cuff_tries++
-				if(cuff_tries <= CREW_NPC_CUFF_TRIES)
-					INVOKE_ASYNC(body, TYPE_PROC_REF(/mob/living, execute_resist))
+				INVOKE_ASYNC(body, TYPE_PROC_REF(/mob/living, execute_resist))
+				if(length(body.do_afters))
+					cuff_tries++
+					log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) begins try [cuff_tries] at working its cuffs off, at [AREACOORD(body)].")
 	if(!held && custody_phase != CREW_CUSTODY_CUFFS && body.handcuffed)
 		// Let go of, or the cell has opened, and still in cuffs. It sets about getting out of them.
 		custody_phase = CREW_CUSTODY_CUFFS
@@ -1930,33 +2154,32 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	var/obj/item/melee/baton/security/baton = baton_carried()
 	if(baton)
 		own_baton = WEAKREF(baton)
-	var/can_look = can_sense() && isturf(body.loc) && !body.is_blind()
+	var/can_look = can_perceive() && isturf(body.loc) && !body.is_blind()
 	var/list/in_sight = can_look ? view(CREW_NPC_VISION_RANGE, body) : list()
+	// Of that, what it can make out: lit, or right beside it (CHEAT-15). A cell's timer shows by its
+	// own display, so a cell is seen by in_sight; who is inside it, and its baton, only by this.
+	var/list/made_out = crew_npc_visible(in_sight, body)
 	// Its own baton, off its body and in sight: on the floor, or in someone's hand.
 	var/list/baton_seen
 	var/obj/item/melee/baton/security/lost = baton ? null : own_baton?.resolve()
 	if(!QDELETED(lost))
 		var/mob/living/holder = lost.loc
-		if(isturf(lost.loc) && (lost in in_sight))
+		if(isturf(lost.loc) && (lost in made_out))
 			baton_seen = list("where" = "floor", "by" = null)
-		else if(istype(holder) && holder != body && holder.is_holding(lost) && (holder in in_sight))
+		else if(istype(holder) && holder != body && holder.is_holding(lost) && (holder in made_out))
 			baton_seen = list("where" = "held", "by" = holder.name)
 	var/list/cells = list()
 	for(var/datum/crew_npc_brig_cell/cell as anything in crew_npc_brig_cells())
 		var/obj/machinery/status_display/door_timer/timer = cell.timer_ref?.resolve()
 		if(isnull(timer))
 			continue
-		var/seen = can_look && (timer in in_sight)
-		if(can_look && !seen && timer.z == body.z && get_dist(body, timer) <= CREW_NPC_VISION_RANGE + 3)
-			for(var/turf/spot as anything in cell.turfs)
-				if(spot in in_sight)
-					seen = TRUE
-					break
+		var/seen = can_look && sees_cell(cell, in_sight)
 		var/list/names
 		if(seen)
 			names = list()
 			for(var/mob/living/carbon/human/person as anything in cell.occupants())
-				names += person.name
+				if(person in made_out)
+					names += person.name
 		// The room the cell is in, and how far off it is on this level (null on another): where to
 		// wait with a prisoner when no cell is in the Brig, as on Tramstation (MAP-04).
 		cells += list(list(
@@ -1988,7 +2211,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			through = reached_through[through]
 	if(can_look)
 		var/area/own_room = get_area(body)
-		for(var/mob/living/carbon/human/person in in_sight)
+		for(var/mob/living/carbon/human/person in made_out)
 			var/area/their_room = get_area(person)
 			var/their_place = get_area_name(person, TRUE)
 			if(their_room == own_room || keepers[their_place])
@@ -2022,8 +2245,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_NPC_CELL_SKIP
 #undef CREW_NPC_CUSTODY_HOLD
 #undef CREW_NPC_ARREST_GRACE
+#undef CREW_NPC_EARSHOT
 #undef CREW_NPC_CUFFED_ALONE
-#undef CREW_NPC_CUFF_TRIES
 #undef CREW_NPC_STRUCK_GAP
 #undef CREW_NPC_KIT_SKIP
 #undef CREW_NPC_KNOCKED_DOWN

@@ -5,7 +5,8 @@ kind: bug
 severity: low
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 9644b3810e1, 3f7b496f841
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: logs
@@ -158,3 +159,7 @@ Confirmed. I tried to find a place where the tags reach the log and found none.
 - No duplicate. HOLE-12 is the server's answer to each step. RT-06 is two records in one millisecond. HOLE-26 is the number of calls a minute. None covers the window's `calls` list. The change log line 897 and `LLM_CREW_PLAN_ROUND_0912.md:45` note that the log keeps the raw reply but list nothing to fix.
 - The fix is sound. `NEWLINE` exists in `brain.ts:77`. `log_field` cuts the new field like the others, so a bad client cannot make it longer than 6,000 characters. It adds no new call. It keeps the project's rules, since it only writes down what the code already decided. It also helps with the owner's wish, said this session, to keep the brain history longer: the tags would then outlive a window reload in the log, even before the window keeps its own history.
 - Not checked: I did not build, type check or run the simulator.
+
+## Fix so far
+
+Group p-server, commit 9644b3810e1 (compile only): step 2 is done, `write_brain_log` writes `record["calls"]` through `log_field` when `params["calls"]` is text, and writes nothing new when it is absent. Left: step 1, `logDecision` in `brain.ts` sending `calls: decision.calls.join(NEWLINE)`.

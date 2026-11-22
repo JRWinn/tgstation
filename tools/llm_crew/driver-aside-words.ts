@@ -25,7 +25,16 @@ const ASKS = [
 const NOT_ASKS = [
   'I moved the bucket out of the way', "I'll move the crate out of the way", 'I will clean this out of the way', 'put it out of the way',
   'can you move the crate to the bay', 'could you move that', 'can you move it to the bay', 'excuse me, where is the bar?', 'the move went fine',
+  // PARSE-04 left over (round P): a refusal, or the speaker's own stepping aside, is no ask.
+  'I must finish mopping this oil before I can step aside', "I can't step aside", 'I cannot step aside right now, sorry.',
+  "Sorry, can't step aside, I'm mopping.", "I'll step aside in a moment.", "I'm stepping aside now.", "Let me get out of the way.",
+  "We'll make way once the crate is through.", 'I will move out of your way when I am done.', "Won't move over till this is clean.",
 ];
+// Asks that keep being asks beside the refusals above.
+ASKS.push(
+  "Why won't you step aside?", 'Why will you not step aside?', 'I need you to step aside.', 'I asked you to step aside, Tolly.',
+  "Step aside, I'm hauling.", "I can't get by, step aside please.", 'If you could step aside, I would be grateful.',
+);
 for (const line of ASKS) add(`asks: "${line}"`, asked(line), true);
 for (const line of NOT_ASKS) add(`no ask: "${line}"`, asked(line), false);
 add('said to someone else, with no name in it: no ask', asked('move', 'other'), false);

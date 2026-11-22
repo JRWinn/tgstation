@@ -122,3 +122,18 @@ Opus 5.5, 2026-11-19. Confirmed.
 - The round: `data/logs/2026/11/18/round-15.09.26/game.log` has both janitors' walks to (138,91) ending "no route could be found", as quoted.
 - `locked_out_of` returns FALSE on the first door that `allowed()` the body, and `crew_npc_doors_of` skips the two inner airlocks because both their sides are Research Division (`get_area(next) == room`). Nothing in the change log after 16:15 on 2026-11-18 touches this.
 - Fix step 1 widened: seed from open area boundaries as well as doors, and use `LinkBlockedWithAccess` for each step so it serves KNA-28 and KNB-01 too. Severity and effort left as they were.
+
+## Fix so far
+
+Built by group m-doors (2026-11-19, night), compile only, not played.
+
+- New `open_part_of(room)` (`crew_npc_doors.dm`): the squares of a room the body can get into, as turf -> TRUE, kept a minute by room name (not kept while it stands in the room). Seeds: every square of the room that can be stepped onto from a square of another station room not locked to the body (`place_locked_to_body`), through a door that opens for it or across open floor, and the body's own square if inside. Spread by `LinkBlockedWithAccess` with the body's ID; an airlock that does not open for it (`crew_npc_open_to`) stops the spread even while it stands open, unless it stays open for good. No pathfinder call, no sleep. The same helper serves KNA-28 and KNB-01.
+- `place_spot` (`crew_npc_places.dm`) picks the spot of a room the body has not stood in from that part (`safe_spot_in` takes a new `among` list). With no part open, or no safe square in it, the whole room as before.
+- `pick_somewhere_new` picks its spot the same way.
+- `walk_finished`: a failed walk to a square outside the open part of its room does not count towards being shut in.
+
+Left:
+- Step 4, `crew_npc_cleaning.dm`: in `mess_places`, `workable_mess_places` and `remembered_mess_in`, pass over a remembered mess whose tile (`memory[3]`, or the mess's own turf) is not in `open_part_of(room)` of its room, as a locked room is passed over. Without it a janitor still sets off for a mess in the main hall, and now walks into the pocket and stops there.
+- Step 5 (walk to the remembered mess's tile in `tool_go_to`) not built: it calls into cleaning's memory, better done with step 4 by cleaning's owner.
+
+Round M2 (g-srv-c, compile only): step 4 built. `mess_spot_open(memory, parts)` (`crew_npc_cleaning.dm`) is TRUE when the square a mess was remembered on is in `open_part_of` its room; the room the body stands in, and a room whose open part comes out empty, count whole. `mess_places`, `workable_mess_places` and `remembered_mess_in` pass over a mess that fails it (the room is still listed if another mess in it is in the open part). Each pass works out each room's open part once (`open_part_of` keeps it a minute). Left: step 5 (walk to the remembered mess's square in `tool_go_to`, `crew_npc_tools.dm`/`crew_npc_places.dm`, not mine).

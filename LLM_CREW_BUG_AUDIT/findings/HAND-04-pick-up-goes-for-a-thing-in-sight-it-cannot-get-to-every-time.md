@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 8ef45d505b4, c68c6f57aa8
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: hands
@@ -94,3 +95,18 @@ Checked by Opus 5.5. Read `tool_pick_up`, `start_errand`, `do_errand`, `take_ite
 Not run: server-only, the simulator stands in for the server. Confirmed from the code.
 
 Added step 8: the window sees the same thing (`things_in_view` is the same `oview`), so with only the server fix a janitor that knows of no locker keeps asking for the same `pick_up` and never tells its head. Medium stands (the thing must lie in sight behind glass or a locked door, which is not every round). Effort raised to medium: the controller, the hands, `ways_reopened` and the senses, a few lines each.
+
+## Fix so far
+
+Server, `crew_npc_hands.dm` (group m-hands). Done, steps 1 to 5:
+
+- `pickup_unreached` (REF to weak reference and time), `note_pickup_unreached`, `pickup_given_up` (5 minutes, `CREW_NPC_TIDY_GIVE_UP`; an entry whose ref names another object is dropped). Noted by `crew_npc_fail_errand` and by `do_errand`'s "You could not get to it." for a `pick_up`, whether the target was the thing or a remembered container. Logged: "could not get to the X at ... to pick up Y: passed over for a while."
+- `tool_pick_up` skips, in its loop over things in sight, one in `pickup_unreached` and one in a room other than the body's own that is locked to it (`place_locked_to_body`, cached a minute), and in its loop over `storage_memory` a container in `pickup_unreached`. So the remembered locker is gone to, or the tool fails at once with "You cannot see one, and you do not remember where one is kept."
+- `forget_unreached()` (added for HAND-02) empties `pickup_unreached` too.
+
+Left (held):
+
+- `crew_npc_cleaning.dm`: `ways_reopened()` should call `forget_unreached()` (the same line HAND-02 needs).
+- Step 8, `crew_npc_senses.dm`: in `notable_things(in_sight)` / `things_in_view`, leave out (or mark `"unreached" = TRUE`) any item for which `pickup_given_up(item)` is TRUE, or that lies in a room other than the body's whose `place_locked_to_body(get_area_name(item, TRUE))` is TRUE. Then `allKnownItems` (`memory.ts`) stops offering it, so `knownSupply` and `scrubberToHand` in `jobs/janitor.ts` stop naming it and the janitor tells its head it needs supplies. If done in the window instead: `memory.ts` `allKnownItems` skips names whose `pick_up` failed in the last 5 minutes.
+
+Round M2 (g-srv-c, compile only): step 8 built on the server. `notable_things` (`crew_npc_senses.dm`, which makes `things_in_view`) leaves out an item for which `pickup_given_up` is TRUE, and an item lying in another room that `place_locked_to_body` says is locked to the body. Messes, machines and structures are listed as before. The `ways_reopened()` line was already in (`forget_unreached()`, `crew_npc_cleaning.dm`). Nothing left.

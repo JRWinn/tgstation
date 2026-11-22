@@ -5,7 +5,8 @@ kind: bug
 severity: high
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 989ca2af638, 2f8a711b8ea
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -148,3 +149,9 @@ Checked by Opus 5.5. Read from the code and the round log, nothing run. I tried 
 - The fix. Step 1 works: with `DIAGONAL_REMOVE_ALL` the navmap planner puts in (96,163) as the middle tile, the step north is head-on, and she is swapped onto the bed, inside. The walk in is unchanged (it already went the straight way, because the south-first way round is the locker). Pulling a prisoner behind straight steps is fine. It keeps the rules: it is the game's own swap, as a player would do. I narrowed the `fix` line to step 1, which is the small change; steps 2 and 3 are kept as advice and touch both the server and the window.
 - Severity stays high: on MetaStation every jailing of a crew prisoner hits this, each try is a fresh arrest the player sees, and it gets in only by luck.
 - Not checked: other maps, the native pathfinder's tie-breaking (it was assumed to follow the DM A*'s costs), and the route the planner really returned, which nothing logs.
+
+## Fix so far
+
+Group p-server, commit 989ca2af638 (compile only, not played). Step 1 is done: `walk_steps` and `close_with` pass `diagonal_handling = DIAGONAL_REMOVE_ALL`. Part of step 2: a walk out of the cell that fails waits 1.5 seconds and is tried once more before `cell_refuses`. Left: the rest of step 2 (a new `stuck_inside` reason, no `cell_refuses`) and step 3 (the window handling it); they must go in together, since the window does not know a `stuck_inside` reason yet.
+
+Group m-secsrv, commit 2f8a711b8ea (compile, tables and simulator; not played): steps 2 and 3 built together. A walk out that fails after the retry returns `stuck_inside` ("You cannot get past X to the door of Cell N."), with no `cell_refuses`, and keeps `jail_left_inside`. The next `jail` goes back to that cell's timer and only starts it (`tool_jail`, `put_in_cell` with `finishing`). The window counts no cell try for `stuck_inside` and sends the same jail again, twice at most within 20 seconds (`serveStep`, `beatAfterActing`). Table: `tools/llm_crew/arrests3-stuck.ts`. Left: nothing of this finding; a timer that will not start after the prisoner is let go still counts as the cell refusing them (`timer` reason), which is not this finding.

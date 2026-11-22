@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: bc5dda1b405
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -77,3 +78,7 @@ Checked by Opus 5.5, from the code; nothing run.
 - Effort raised to medium: the server's `tool_jail` and `put_in_cell` change, and the simulator's stand-in for `jail` (`tools/llm_crew/sim.ts:995`) must stop answering `no_cell` from afar too.
 - A simpler fix than keeping `cells_seen`, and the one I would build: in `tool_jail`, call `free_cell` only for cells in view (the same test `security_state` uses: the timer or a cell floor tile in `view`). If one is free, go to it as now. If none is in view, choose the first cell by name and walk to its timer without answering; `put_in_cell` already checks the cell on arrival (`timer.timing || length(cell.occupants() - prisoner - body)`), and there, in the brig with the cells in view, it should call `free_cell` once more (in view only) and go to that timer instead of answering "is in use". Only when none in view is free does it answer `no_cell`, and the window's `noCellAt` wait then happens in the brig, as the plan says. `cells_seen` adds little: the brig is one room and the walk there is needed anyway.
 - How to test, added: a case in the simulator's jail scenarios with the officer far from the brig and Cell 1 occupied; `game.log` should show it walk to the brig, then to Cell 2's timer, with no "Every cell is in use" before it has reached the brig.
+
+## Fix so far
+
+Group m-secsrv, commit bc5dda1b405, built with ARR-04 (compile only for this part; not played). Built as the Check's simpler fix: `free_cell` passes over only cells the body can see are no use (`sees_cell`, shared with `security_state`, and `cell_unusable`), prefers a seen free cell, and otherwise walks to one it cannot see. `put_in_cell`, at a cell found no use on arrival, marks it refused and answers `no_way` when another will do, so the next jail goes there at once, or `no_cell_answer` from the brig when none will. Left: the simulator's stand-in for `jail` (`sim.ts`) still answers `no_cell` from afar; not this group's file.

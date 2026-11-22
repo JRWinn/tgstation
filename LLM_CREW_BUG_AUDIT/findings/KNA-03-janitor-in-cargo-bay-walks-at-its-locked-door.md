@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 949a4ee4301
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: doors
@@ -130,3 +131,14 @@ Checked by Opus 5.5, read from the code, the map and the round logs; not seen li
 - The game side of the planner, read to try to clear it: `nav_classify_atom` (`turf.dm:1046`) makes every `/obj/machinery/door` a live blocker, `nav_blocker_can_pass` calls the door's `CanAStarPass` with the walker's `pass_info`, `repath_incoming` refreshes the access from `get_access()` before each plan, a dirtied turf is set to 0 in the DLL until rebaked (`turf.dm:902`), and a restored station bake rebakes every tile with a live blocker and its neighbours (`navmap.dm:567`). RETA grants go onto the ID card, so `allowed` and `CanAStarPass` see the same access. Nothing in DM explains the route, so the cause is still not proven; it is in `navmap_pathfinder.dll` or a door state the logs do not show. Confidence kept at likely for the cause; the effect is sure.
 - Not fixed since: `LLM_CREW_CHANGELOG.md` lists it at line 100 ("not looked into") and line 1043 ("Cause not found"), and no `route_locked_door`, `route_shut_by` or "routed through" is in the code.
 - The fix keeps the rules: it ends a walk on a door the body cannot open, which it would find by trying it, and opens nothing. Added one point: log the first tiles of the plan whatever is on them, since the five steps also fit a diagonal through (78,145). Severity kept at medium (seen in every round with janitors in cargo, but the janitor is let out in the end and the work gets done late); effort kept at medium.
+
+## Fix so far
+
+Server part built by group m-doors (2026-11-19, night), compile only, not played. Step 5 (the owner's priority question) not touched.
+
+- `note_route_doors` (`crew_npc_motor.dm`), called from `route_planned` on every plan: walks the whole path for the first airlock that is shut and welded, bolted, without power or not opened by the body's ID, keeps it as `route_shut_door` (cleared by a plan with none, and at each walk's setup), keeps the first three squares as `route_head`, and logs once per door "was routed through D at (x,y), which is shut and WHY, from ...".
+- `crew_npc_walk/perform`: with such a door noted and still shut, the walk fails at once with "there is no way through". The grip check for hauls stays above it.
+- `walk_finished` (`crew_npc_tools.dm`): the brain is told "You stop on the way to X: the LABEL door is locked to you" (or "is bolted", "is welded shut", "has no power"). If the door is a door of the room it stands in, `stopped_by_door` (`crew_npc_doors.dm`) sets `wanted_door`, `wanted_door_place`, `wanted_door_leaving` and `wanted_door_label`, and `stopped_by`, which `trail_door()` now gives ahead of the door it came in by (cleared in `forget_trail`).
+- `log_walk_failed` adds "first through (x,y), (x,y), (x,y)" and "the route planned ran through D at (x,y), which is shut and does not open for it".
+
+Not checked: that `doorCalled` in `jobs/janitor.ts` reads the label the server now sends (window, not owned by m-doors). No simulator case was added (`sim.ts` not owned).

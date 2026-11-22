@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 8a9840e784b, 0a5f01f9dbc
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: brain

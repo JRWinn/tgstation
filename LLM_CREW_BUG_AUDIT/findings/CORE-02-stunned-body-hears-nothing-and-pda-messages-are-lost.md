@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: fbd01f4ebe5, ba18030bab1, 13f96db5b65, 9eb9b18f7b5
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -84,3 +85,15 @@ Read from the code, following `COMSIG_MOB_INCAPACITATE_CHANGED` through `update_
 ## Check
 
 Checked by Opus 5.5. The quotes match the code. Traced it: `crew_npc_controller.dm` `setup_able_to_run` registers `COMSIG_MOB_INCAPACITATE_CHANGED` to the base `update_able_to_run` (`_ai_controller.dm:590`), which calls the crew `get_able_to_run`; `INCAPACITATED_IGNORING(... RESTRAINTS|STASIS|GRAB)` is true under stun and paralyse (both add `TRAIT_INCAPACITATED`, `debuffs.dm:62` and `:108`) and in stamina crit, so `able_to_run` goes FALSE and `get_expected_ai_status` returns `AI_STATUS_OFF` (`_ai_controller.dm:475`); `set_ai_status` stores it. `can_sense()` then returns FALSE, and `on_pda_message` (`crew_npc_cargo.dm:805`) returns without storing the message anywhere; nothing in `code/modules/llm_crew/` reads the PDA's chats later. Knockdown alone (a water slip) adds only `TRAIT_FLOORED` and does not trigger this; a baton into stamina crit, a tackle's `Paralyze` and lube do. Nothing in the change log or plans chose this. Kept medium: it comes up mainly in arrests and fights, and loses an order or an answer for good. Effort raised to medium: the split touches `crew_npc_senses.dm`, `crew_npc_tools.dm`, `crew_npc_cargo.dm`, `crew_brain_link.dm`, `crew_npc_storage.dm` and `crew_npc_held.dm`. Mended the fix: there is no `forced_off` var, and the window's `awake` must follow `can_act()` or the window sends steps to a stunned body.
+
+## Fix so far
+
+Group m-senses, 2026-11-19. Done the other way round from step 1, so that no caller outside the senses changes meaning: `can_sense()` keeps meaning "can act" (now `can_perceive() && ai_status != AI_STATUS_OFF`, the same answer as before), and the new `can_perceive()` (body alive, not unconscious, not `forced_off`, no player in it, on a turf; not `ai_status`) is the test for perceiving. (There is a base `forced_off` var after all, and it is kept.) In `crew_npc_senses.dm`: `look_around` and `on_pre_hear` use `can_perceive()`, so a stunned body goes on seeing and hearing; `drop_disguise` in the look is gated on `can_sense()`. `keep_missed_pda(computer, sender, job, message)` keeps up to ten messages, and `look_around` reads them, once the body perceives again, as ordinary `pda_message` events worded "While you were out, your PDA got a message from ..." (with `missed: TRUE`), if that PDA is still on it. `"awake"` in `ui_data` stays on `can_sense()`, so the window holds steps while it is stunned (step 2a).
+
+Held (other files):
+- `crew_npc_cargo.dm`, `on_pda_message`: replace `if(!can_sense() || !crew_npc_carries(computer)) return` with: return if `!crew_npc_carries(computer)`; after the literacy test and the `message`/`sender` lines, `if(!can_perceive()) { keep_missed_pda(computer, sender, "[sender_job]", message); return }`. Until this is done a message to a stunned body is still lost, but one to an unconscious body is lost as before too.
+- Seeing and hearing elsewhere to `can_perceive()`: the knock heard (`crew_npc_doors.dm`, about :714 and the `their_controller.can_sense()` at :756), the looks in `crew_npc_engineering.dm:74` and `crew_npc_security.dm` (`can_look`), and the look in `action_result` (`crew_npc_tools.dm:138`). The doing callers (`handle_tool_call`, `start_search`, `write_off_lost_crates`, the errand serial checks) stay on `can_sense()` as they are. Letting `CREW_TOOL_SAY` through while stunned (step 2) is left: `handle_tool_call` is not mine.
+Compile only; not played.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: the `crew_npc_cargo.dm` part built. `on_pda_message` returns only when the PDA is not on the body; after the literacy test, a body that cannot perceive keeps the message with `keep_missed_pda` (not when dead or a player has the body) and returns. The `can_sense()` test is gone, so a stunned body gets its messages at once.
+Round M2 (g-srv-c, compile only): the looks in `crew_npc_security.dm` (`can_look` in `free_cell` and `security_state`, the keepers by ID when the body has no PDA, a prisoner's look at its cell's timer in `put_in_custody`) and in `crew_npc_engineering.dm` (`engineering_state`) now use `can_perceive()`, so a stunned officer or engineer still sees the cells, its baton and the machines. The doing callers in those files stay on `can_sense()`.

@@ -24,6 +24,8 @@
 #define CREW_NPC_PRY_WAIT (3 SECONDS)
 /// How often it looks, in that time, to see whether the door is open yet.
 #define CREW_NPC_PRY_LOOK (0.2 SECONDS)
+/// How long it waits at a door that is open only for the moment for it to shut: an airlock's own timer is 8 seconds (DOOR-07).
+#define CREW_NPC_SHUT_WAIT (10 SECONDS)
 
 /// TRUE while the body is testing routes to the doors of a room it has been told to force its way into.
 /datum/ai_controller/crew_npc/var/finding_door_to_force = FALSE
@@ -33,6 +35,13 @@
 /datum/ai_controller/crew_npc/var/forcing_label
 /// That door, as a weak reference: kept so that a walk to it that comes to nothing can be logged by which door it was.
 /datum/ai_controller/crew_npc/var/datum/weakref/forcing_door
+/// TRUE once the body has felt a shock going into the wires of the door it is forcing (DOOR-15).
+/datum/ai_controller/crew_npc/var/shocked_at_door = FALSE
+
+/// The body is shocked while its multitool is at a door's wires. It feels that, as anyone would (DOOR-15).
+/datum/ai_controller/crew_npc/proc/felt_door_shock(datum/source, shock_damage, atom/shock_source, siemens_coeff, flags)
+	SIGNAL_HANDLER
+	shocked_at_door = TRUE
 
 /// Returns a tool of this kind (TOOL_SCREWDRIVER and the like) that the body has on it: in a hand first, then on its belt, in a pocket or in its bag. Null if it has none.
 /datum/ai_controller/crew_npc/proc/tool_carried(tool_kind)
@@ -44,6 +53,30 @@
 		if(thing.tool_behaviour == tool_kind)
 			return thing
 	return null
+
+/**
+ * TRUE if this airlock stands open and will stay so for whoever comes to it (DOOR-07): it has no
+ * power to shut with, is bolted open, broken by an emag, or does not shut itself. One that shuts
+ * itself on its timer is open only for the moment.
+ */
+/proc/crew_npc_door_stays_open(obj/machinery/door/airlock/door)
+	if(door.density)
+		return FALSE
+	return !door.autoclose || !door.hasPower() || door.locked || (door.obj_flags & EMAGGED)
+
+/**
+ * TRUE if a route planned with no ID is one anyone could walk (DOOR-07): no airlock on it stands
+ * open just for the moment, other than one that opens to anyone anyway. A shut airlock on such a
+ * route is one the planner let through with no ID, so it opens to anyone.
+ */
+/proc/crew_npc_route_open_to_anyone(list/route)
+	for(var/turf/tile as anything in route)
+		for(var/obj/machinery/door/airlock/door in tile)
+			if(door.density || crew_npc_door_stays_open(door))
+				continue
+			if(!door.check_access_list(list()))
+				return FALSE
+	return TRUE
 
 /// Returns how a door is named in the round's game log: the name on it and where it stands, if it is known which door it is, and what it is called among the doors of its room.
 /datum/ai_controller/crew_npc/proc/forcing_door_words(obj/machinery/door/airlock/door, room_name, label)
@@ -100,7 +133,8 @@
  * the nearest door that the body can walk up to is the one.
  *
  * This only chooses the door and sets the body walking to it. The work is force_door_open(). A
- * door that stands open, or opens to the body's own ID, is not forced: the brain is told so at once.
+ * door that stands open and will stay so is not forced: the brain is told so at once. One that
+ * opens to the body's own ID is forced like any other: it is forced for someone else (DOOR-07).
  */
 /datum/ai_controller/crew_npc/proc/tool_force_door(place, door_label)
 	var/mob/living/carbon/human/body = pawn
@@ -154,14 +188,17 @@
 	if(named)
 		scores[named] = -1
 
-	// A door that is open, or that opens to its own ID, is no door to force. If one was named, that
-	// is the door meant, and whether some other door of the room opens is beside the point.
+	// A door that stands open, and will stay so, is no door to force. If one was named, that is the
+	// door meant, and whether some other door of the room opens is beside the point. A door is only
+	// ever forced for someone else (forcing.ts asks for it when nobody whose ID opens it has), so one
+	// that opens to the engineer's own ID is forced like any other, and one open for the moment, that
+	// shuts itself on its timer, will be shut by the time they come to it (DOOR-07).
+	// An airlock open over a shut fire door is no open door either (DOOR-12).
 	for(var/obj/machinery/door/airlock/door as anything in (named ? list(named) : doors))
-		var/standing_open = !door.density
-		if(!standing_open && !(door.allowed(body) && door.hasPower() && !door.locked && !door.welded))
+		if(!crew_npc_door_stays_open(door) || crew_npc_fire_door_on(door))
 			continue
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told to force [forcing_door_words(door, room_name, labels[door])], and did not: it [standing_open ? "is standing open" : "opens to its ID"].")
-		action_result(CREW_TOOL_FORCE_DOOR, TRUE, standing_open ? "The [labels[door]] door of [room_name] is standing open already." : "The [labels[door]] door of [room_name] opens to your ID. There is no need to force it.", list("place" = room_name, "door" = labels[door], "already_open" = TRUE))
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told to force [forcing_door_words(door, room_name, labels[door])], and did not: it is standing open, and will stay so.")
+		action_result(CREW_TOOL_FORCE_DOOR, TRUE, "The [labels[door]] door of [room_name] is standing open already.", list("place" = room_name, "door" = labels[door], "already_open" = TRUE))
 		return
 
 	// The door it would make for first, for what it is told if it cannot set out at all.
@@ -196,20 +233,22 @@
 		scores -= nearest
 		var/turf/spot = spots[nearest]
 		var/list/nearest_sides = doors[nearest]
-		// Nobody stands working at a door where the air is bad.
-		if(!crew_npc_safe_turf(spot))
+		// Nobody stands working at a door where the air is bad, as far as it can tell from here (CHEAT-11).
+		if(!far_spot_safe(spot))
 			no_way_to += "[nearest.name] at ([nearest.x],[nearest.y]), where the air on its near side is bad"
 			continue
 		tries_left--
 		// A door that leads only to floor it can walk to already is no door to force. The bar has one:
 		// its kitchen door opens onto a square of the bar's own floor that stands open to the lounge.
 		// Forced, it would have let nobody into the bar. A door that was named is forced all the same.
+		// The way round is tested with no ID: the door is forced for someone else, and a way only the
+		// engineer's own ID opens is no way in for them (DOOR-07).
 		var/turf/far_side = inside ? nearest_sides[2] : nearest_sides[1]
 		if(nearest != named)
-			var/list/round_it = get_path_to(body, far_side, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access())
+			var/list/round_it = get_path_to(body, far_side, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = list())
 			if(QDELETED(src) || QDELETED(body))
 				return
-			if((length(round_it) && !route_by_open_door(round_it)) || get_turf(body) == far_side)
+			if((length(round_it) && crew_npc_route_open_to_anyone(round_it)) || get_turf(body) == far_side)
 				leads_nowhere ||= nearest
 				continue
 		if(can_reach_target_now(nearest))
@@ -255,6 +294,13 @@
 	forcing_label = labels[best]
 	forcing_door = WEAKREF(best)
 	start_errand(best, CREW_TOOL_FORCE_DOOR, labels[best])
+
+/// Returns the words for a shut fire door on this airlock's square, or null if there is none (DOOR-12).
+/datum/ai_controller/crew_npc/proc/forcing_fire_door(obj/machinery/door/airlock/door, door_words)
+	var/obj/machinery/door/firedoor/fire = crew_npc_fire_door_on(door)
+	if(isnull(fire))
+		return null
+	return "the fire door under the [door_words] is shut: the fire alarm is on in [crew_npc_fire_door_room(fire)]. Nobody gets through until it is reset."
 
 /// TRUE if the body is still at the work of forcing this door: neither is gone, and it has not been given something else to do since it began.
 /datum/ai_controller/crew_npc/proc/still_forcing(obj/machinery/door/airlock/door, serial)
@@ -393,8 +439,17 @@
 	// The click that brings the wires window up for a player. For this body no window comes, but
 	// the door does the rest of what it does to anyone who goes into its wires: one that is
 	// electrified shocks them.
+	// A shock is felt, and is the reason the wires will not take: without insulated gloves the wires
+	// of a live door cannot be worked at all (DOOR-15). The shock lands before the click returns.
 	var/why_not
-	if(!click_as_body(door))
+	shocked_at_door = FALSE
+	RegisterSignal(body, COMSIG_LIVING_ELECTROCUTE_ACT, PROC_REF(felt_door_shock), override = TRUE)
+	var/clicked = click_as_body(door)
+	if(!QDELETED(body))
+		UnregisterSignal(body, COMSIG_LIVING_ELECTROCUTE_ACT)
+	if(shocked_at_door)
+		why_not = "the door shocked you as you went for its wires: it is electrified"
+	else if(!clicked)
 		why_not = "you could not reach its wires with your multitool"
 	var/list/pulsed = list()
 	for(var/list/supply as anything in list(list(WIRE_POWER1, WIRE_POWER2), list(WIRE_BACKUP1, WIRE_BACKUP2)))
@@ -455,10 +510,24 @@
 		return forcing_failure("no_door", "That is not a door you know how to open.", null, room_name, label)
 	var/door_words = "[label] door of [room_name]"
 
-	// What it finds at the door, which may not be what it was when the body set out.
-	if(!door.density || (door.allowed(body) && door.hasPower() && !door.locked && !door.welded))
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) came to force [forcing_door_words(door, room_name, label)], and did not: it [door.density ? "opens to its ID" : "is standing open"].")
-		return list(TRUE, door.density ? "The [door_words] opens to your ID. There is no need to force it." : "The [door_words] is standing open already.", list("place" = room_name, "door" = label, "already_open" = TRUE))
+	// A shut fire door on the door's square bars the way whatever is done to the airlock, and is seen
+	// standing at it. Nothing is opened or unpowered for it (DOOR-12).
+	var/fire_words = forcing_fire_door(door, door_words)
+	if(fire_words)
+		return forcing_failure("fire_doors", capitalize(fire_words), door, room_name, label, more_details = list("fire_doors" = crew_npc_fire_door_room(crew_npc_fire_door_on(door))))
+
+	// What it finds at the door, which may not be what it was when the body set out. One open for the
+	// moment, that shuts itself on its timer, is waited on: by the time whoever wants it open comes,
+	// it will be shut. A door that opens to its own ID is forced all the same (DOOR-07).
+	var/waited_shut = 0
+	while(!door.density && !crew_npc_door_stays_open(door) && waited_shut < CREW_NPC_SHUT_WAIT)
+		sleep(CREW_NPC_PRY_LOOK)
+		waited_shut += CREW_NPC_PRY_LOOK
+		if(!still_forcing(door, serial))
+			return forcing_left_off(door, room_name, label, "waiting for it to shut")
+	if(!door.density)
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) came to force [forcing_door_words(door, room_name, label)], and did not: it is standing open[crew_npc_door_stays_open(door) ? ", and will stay so" : ", held open past its timer"].")
+		return list(TRUE, "The [door_words] is standing open already.", list("place" = room_name, "door" = label, "already_open" = TRUE))
 	if(door.welded)
 		return forcing_failure("welded", "The [door_words] is welded shut. It will not pry until the weld is cut.", door, room_name, label)
 	if(door.locked)
@@ -483,6 +552,19 @@
 		var/why_no_wires = door.is_secure() ? "its wires are behind a plate of armour" : take_door_power(door)
 		if(!still_forcing(door, serial))
 			return forcing_left_off(door, room_name, label, "at its wires")
+		// Shocked at the wires: the door is electrified, and a second go would only shock it again. The
+		// panel is left as it is if the body is down and cannot shut it (DOOR-15).
+		if(why_no_wires && shocked_at_door)
+			shocked_at_door = FALSE
+			var/panel_note = "Its panel is [door.panel_open ? "open" : "shut"]"
+			if(opened_panel && door.panel_open && !body.incapacitated)
+				use_tool_on_door(door, TOOL_SCREWDRIVER)
+				if(!still_forcing(door, serial))
+					return forcing_left_off(door, room_name, label, "shutting its panel")
+				panel_note = "Its panel is [door.panel_open ? "left open" : "shut again"]"
+			else if(door.panel_open)
+				panel_note = "Its panel is left open: the body was down after the shock"
+			return forcing_failure("electrified", "You could not take the power away from the [door_words]: [why_no_wires].", door, room_name, label, panel_note)
 		if(why_no_wires)
 			if(opened_panel && door.panel_open)
 				use_tool_on_door(door, TOOL_SCREWDRIVER)
@@ -530,6 +612,11 @@
 			return forcing_failure("wire", "The power came back to the [door_words] before you could pry it.", door, room_name, label, panel_note)
 		return forcing_failure("pry", "The [door_words] would not pry open[why_no_pry ? ": [why_no_pry]" : (door.seal ? ": there is a seal across it" : "")].", door, room_name, label, panel_note)
 
+	// Pried open, and a fire door has come down under it meanwhile: the way is still barred (DOOR-12).
+	var/fire_after = forcing_fire_door(door, door_words)
+	if(fire_after)
+		return forcing_failure("fire_doors", "You pry the [door_words] open, but [fire_after]", door, room_name, label, "The airlock is left open", list("fire_doors" = crew_npc_fire_door_room(crew_npc_fire_door_on(door))))
+
 	// A way is open that was not, so a room it gave up on getting into may be worth another try.
 	ways_reopened()
 	blocked_places -= room_name
@@ -565,3 +652,4 @@
 #undef CREW_NPC_WIRE_GAP
 #undef CREW_NPC_PRY_WAIT
 #undef CREW_NPC_PRY_LOOK
+#undef CREW_NPC_SHUT_WAIT

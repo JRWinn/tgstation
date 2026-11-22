@@ -222,7 +222,8 @@
 	if(isnull(job))
 		action_result(CREW_TOOL_TIDY, FALSE, "There is nothing lying about that you have anywhere to put.")
 		return
-	if(isitem(job[1]) && !length(body.get_empty_held_indexes()))
+	// An empty hand that works: an empty slot for a hand that is gone or hurt past use holds nothing (HOLE-18).
+	if(isitem(job[1]) && !length(free_hands()))
 		action_result(CREW_TOOL_TIDY, FALSE, "Your hands are full.")
 		return
 	var/atom/place = job[2]

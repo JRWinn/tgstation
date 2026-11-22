@@ -100,3 +100,16 @@ Checked by Opus 5.5. Read from the code and the round's logs; the sizes were not
 - Severity lowered from high to medium. Nothing fails or loops today: the same round's `perf-NULL-MetaStation.csv` has an average time dilation of about 1 percent, the highest 6.9 percent in the first minutes. The cost is real and grows with the crew (HOLE-09), but at 11 crew no one would notice it. At 40 crew it may well be high; that is not measured.
 - Not in the change log or plans. Overlaps HOLE-09 (the whole picture) and CORE-05 (step 3 is its fix); the one-update-a-tick change in step 1 is this finding's own, and is small and server-only by itself.
 - The fix's step 2 was mended: the list for `nearestToSpeaker` must be filled from all bodies before any is read, since `ingest` (`brain.ts:219-221`) takes the bodies one by one. `Details.tsx:50` and `sim.ts:1142` are as the fix says.
+
+## Fix so far
+
+Group m-senses, 2026-11-19, server side only (`crew_brain_link.dm`), so that it works with the window as it is and with the window changed:
+
+- Step 1: `on_sense_event` calls `request_update()`, which sets `update_due` and sends one `SStgui.update_uis` a tick later (`send_due_update`), however many events come in between. All events stay on their bodies (thirty kept) until sent, so none is missed; they arrive together, a tick (50 ms) later than before.
+- Step 3 (CORE-05): `ack` returns FALSE (no update for it); `tool_call` calls `request_update()` and returns FALSE, so what a tool changed still goes out on the next tick, once with whatever else came.
+- Step 2, opt-in: a new action `events_mode` with `only_new` (no `npc` param) sets `only_new_events` on the link; with it on, `ui_data` sends each body's events past its `acked_seq` only (`events_after`). Off until the window asks, so the window as it is still gets all thirty, and `nearestToSpeaker` and the details panel are unaffected.
+- Step 4: the subsystem's own update is untouched.
+
+Held (window, `brain.ts` and `Details.tsx`): send `act('events_mode', { only_new: true })` once the window is up, after building the per-payload heard-lines list for `nearestToSpeaker` (fill it from every body's new events before any body is read) and keeping `brain.recentEvents` (last 30) for the details panel, as the fix says. The simulator (`sim.ts`, `events: [...body.events]`) would send only those past `acked_seq` when it plays the window's mode.
+
+What could not be checked without a round: that nothing in the window leans on an update coming straight after an ack or a tool call (read: the window acks only after taking new events in, and every tool ends in an event; nothing seen that waits for the bare update), and the sizes and counts. Compile only.

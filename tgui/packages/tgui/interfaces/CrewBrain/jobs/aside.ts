@@ -29,8 +29,35 @@ const WHOLE_LINE =
 /** Words left out of a line before it is held up to WHOLE_LINE. */
 const FILLER = new Set(['please', 'pls', 'plz', 'hey', 'oi', 'sorry', 'sir']);
 
+/** Getting out of the way, as a thing someone does: "step aside", "move over", "make way". */
+const ASIDE_ACT =
+  '(?:step|steps|stepping|stepped|stand|standing|move|moves|moving|moved|shift|shifting)\\s+(?:aside|over|back|out of (?:the|my|your) way)|(?:make|making) way|(?:get|getting|got) out of (?:the|my|your) way|(?:scoot|scooting|budge|budging)\\s+(?:over|up)';
+/** Up to four words between, none of them "you": "I need you to step aside" is an ask. */
+const NOT_YOU = "(?:(?!(?:you|u)\\b)[\\w']+\\s+){0,4}?";
+/**
+ * A part of a line that speaks of the speaker's own getting out of the way, or of its not doing so:
+ * "I must finish mopping this oil before I can step aside", "I can't step aside", "I'll make way".
+ * That is no ask of the hearer (PARSE-04, left over from round P). A "can't" counts only at the
+ * start of its part of the line: "why will you not step aside?" still asks.
+ */
+const OWN_ASIDE = new RegExp(
+  `\\b(?:i|i'm|im|i'll|ill|i've|ive|i'd|id|we|we'll|we're|let me|let us)\\s+${NOT_YOU}(?:${ASIDE_ACT})\\b|^\\s*(?:(?:sorry|no|nope)\\s+)?(?:can't|cant|cannot|can not|won't|wont|will not|not|never|couldn't|couldnt|unable to)\\s+${NOT_YOU}(?:${ASIDE_ACT})\\b`,
+);
+/** Where one part of a line ends and the next begins, kept so the line can be put back together. */
+const CLAUSE_BREAK =
+  /([.;!?,]|\b(?:but|before|until|till|because|then|and|once|after|when)\b)/;
+
+/** The line with every part of it that speaks of the speaker's own stepping aside taken out. */
+function withoutOwnAside(heard: string): string {
+  return heard
+    .split(CLAUSE_BREAK)
+    .map((part) => (OWN_ASIDE.test(part) ? ' ' : part))
+    .join('');
+}
+
 /** TRUE if a line, lower-cased, asks whoever hears it to get out of the way. `name` is the hearer's. */
-export function asksAside(heard: string, name: string): boolean {
+export function asksAside(said: string, name: string): boolean {
+  const heard = withoutOwnAside(said);
   if (
     ASIDE_WORDS.test(heard) ||
     YOU_MOVE.test(heard) ||
@@ -99,12 +126,40 @@ export function asideStep(
   };
 }
 
-/** What the LLM should know about having been asked to move, so that what it says matches what the body does. */
-export function asideCues(brain: NpcBrain): string[] {
+/** Who asked it to step aside, while that asking still stands (the step and the hold after it), or null. */
+export function asideStands(brain: NpcBrain): string | null {
   const asked = brain.asideAsked;
   return asked && Date.now() - asked.at < ASIDE_STANDS_MS + ASIDE_HOLD_MS
-    ? [
-        `${asked.by} asked you to step aside, and your body ${asked.done ? 'has stepped' : 'is stepping'} out of their way. You do not argue it or explain what you were doing: at most you say sorry.`,
-      ]
-    : [];
+    ? asked.by
+    : null;
+}
+
+/** What the server calls a step aside while it is being made (describe_doing in crew_npc_hands.dm). */
+const STEPPING_ASIDE = /out of someone's way/;
+
+/**
+ * What it was doing, put for the LLM while an asking to step aside stands. The body has set that
+ * down and is moving out of the way (PLAY-11), so "You are in the middle of cleaning" would pull
+ * the voice the other way. Null when what it is doing is the step aside itself, which the aside
+ * line already says.
+ */
+export function asideDoing(by: string, doing: string): string | null {
+  return STEPPING_ASIDE.test(doing)
+    ? null
+    : `You have broken off ${doing} for now to let ${by} past. You go back to it once they are past.`;
+}
+
+/**
+ * What the LLM should know about having been asked to move, so that what it says matches what the
+ * body does. The code moves the body the moment the asking is heard, often before the LLM's answer
+ * is back, so the line puts it as settled, not as something to be argued (PLAY-11).
+ */
+export function asideCues(brain: NpcBrain): string[] {
+  const by = asideStands(brain);
+  if (!by) {
+    return [];
+  }
+  return [
+    `${by} asked you to step aside, and you ${brain.asideAsked?.done ? 'have stepped' : 'are moving'} out of their way now. That is already done: you do not say you will wait, finish first or cannot. You do not argue it or explain what you were doing: at most you say sorry.`,
+  ];
 }

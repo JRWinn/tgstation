@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: c336c84bd0c, faabf6d9977
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: head
@@ -101,3 +102,9 @@ Checked by Opus 5.5. The regular expression (`meetings.ts:83`), `isMeetingOrder`
 Ran the expression, copied from the file, in a throwaway bun script in the scratchpad on the table's lines and some more. Every row of the table came out as written, except the write-up's side remark: "check the bar, no need for a meeting" is false, and was replaced in the body with lines that are true and do lose an order ("have the bar cleaned, we can have a meeting later", "Don't call a meeting, just clean the bar", "get a crate of lightbulbs ordered, no meeting needed", and also "have you had a meeting yet"). Nothing in `LLM_CREW_CHANGELOG.md` or the plans covers `MEETING_ORDER_WORDS`; the owner's wish that loose wording be understood (memory "loose wording for orders") supports the misses half.
 
 Severity medium stands: a meeting the Captain said was not wanted, or an order lost, which a player sees. Effort raised to medium: the clause split touches `meetings.ts`, `tasks.ts` and `brain.ts`, plus a table.
+
+## Fix so far
+
+Group m-words, c336c84bd0c: steps 1, 2 and the `workInWords` half of step 3 are built (`isMeetingOrder` reads clause by clause in `jobs/meetings.ts`; `withoutMeetingOrder` leaves out only the meeting clauses in `workInWords`, `tasks.ts`). Table `tools/llm_crew/words-meetings.ts`. **Left (brain.ts, not this group's file):** the `work` branch of `think` still drops the model's work answer whenever the line has a meeting order in it. Change the condition to drop it only when what is left names no room: `isMeetingOrder(brain, joined) && !placeNamedIn(brain, withoutMeetingOrder(brain, joined.toLowerCase()))`, where `joined` is the `report.filter((line) => line.includes(' says: ')).join(' ')` it builds now; import `withoutMeetingOrder` from `./jobs/meetings`.
+
+Round M2 (g-brain): the `think` half of step 3 is built (`brain.ts`, the `work` branch). The model's work answer is dropped for a meeting order only when what is left once the meeting clauses are taken out names no room: `isMeetingOrder(brain, joined) && !placeNamedIn(brain, withoutMeetingOrder(brain, joined.toLowerCase()))`. Table `tools/llm_crew/play-meeting-work.ts` (stand-in model; the look is worded so `workInWords` misses it).

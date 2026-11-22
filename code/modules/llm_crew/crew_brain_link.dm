@@ -27,6 +27,11 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	var/log_records_in_window = 0
 	/// The mob whose close-all-windows key (Home) is caught so that it leaves this window open.
 	var/mob/watched_mob
+	/// TRUE while an update of the window has been asked for and not yet sent: see request_update.
+	var/update_due = FALSE
+	/// TRUE once the window has said it wants each body's events past what it has acked, and not all
+	/// of the last thirty (PERF-02). Off until the window asks, so a window that does not ask gets all.
+	var/only_new_events = FALSE
 
 /datum/crew_brain_link/New(owner_ckey)
 	src.owner_ckey = owner_ckey
@@ -54,8 +59,24 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	npc.brain_link = null
 	SStgui.update_uis(src)
 
-/// Called by an owned NPC when it has a new sense event, so the window hears about it straight away.
+/// Called by an owned NPC when it has a new sense event, so the window hears about it at the end of the tick.
 /datum/crew_brain_link/proc/on_sense_event(datum/ai_controller/crew_npc/npc)
+	request_update()
+
+/**
+ * Asks for one update of the window at the next tick, however many events come before then (PERF-02).
+ * A line heard by seven crew, or ten bodies seeing the Captain walk in, is then one rebuild and one
+ * send, not one each, and none of it is paid inside the speaker's own say. Nothing is lost by it:
+ * every event is kept on its body until the window has it.
+ */
+/datum/crew_brain_link/proc/request_update()
+	if(update_due)
+		return
+	update_due = TRUE
+	addtimer(CALLBACK(src, PROC_REF(send_due_update)), world.tick_lag)
+
+/datum/crew_brain_link/proc/send_due_update()
+	update_due = FALSE
 	SStgui.update_uis(src)
 
 /datum/crew_brain_link/ui_interact(mob/user, datum/tgui/ui)
@@ -133,6 +154,31 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	data["places"] = assoc_to_keys(crew_npc_station_places())
 	return data
 
+/datum/ai_controller/crew_npc
+	/// What the brain window is sent that comes from the body's senses and memory, worked out once a
+	/// look rather than on every update (PERF-08). Null until the first look.
+	var/list/look_snapshot
+
+/**
+ * Works out the parts of the window's record that change only when the body looks round or does
+ * something: walks of its remembered messes, of every PDA aboard, of everything it has on it. Every
+ * tool that does anything ends in action_result, which looks round first, so this is fresh for each
+ * result. The order is the one ui_data asked them in: workable_mess_places minds what it holds.
+ */
+/datum/ai_controller/crew_npc/proc/take_look_snapshot()
+	look_snapshot = list(
+		"inventory" = inventory_list(),
+		"has_locator" = has_custodial_locator(),
+		"beyond_kinds" = beyond_kinds_here(),
+		"mess_places" = mess_places(),
+		"workable_mess_places" = workable_mess_places(),
+		"door_keepers" = door_keepers(),
+		"pda_people" = people_on_pda(),
+		"work_area_messes" = work_area_messes(),
+		"pda_janitors" = janitors_on_pda(),
+	)
+	return look_snapshot
+
 /datum/crew_brain_link/ui_data(mob/user)
 	var/list/data = list()
 	var/list/npc_list = list()
@@ -140,6 +186,7 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		var/mob/living/carbon/human/body = npc.pawn
 		if(QDELETED(body))
 			continue
+		var/list/snapshot = npc.look_snapshot || npc.take_look_snapshot()
 		var/list/holding = list()
 		for(var/obj/item/held in body.held_items)
 			holding += format_text(held.name)
@@ -153,23 +200,25 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"awake" = npc.can_sense(),
 			// The room the body is standing in, which it knows the way anyone does: by looking.
 			"location" = get_area_name(body, TRUE),
+			// Too dark where it stands to make out more than what is right beside it (CHEAT-15). The window tells the brain so.
+			"dark" = isturf(body.loc) && !body.has_light_nearby() && !body.has_nightvision(),
 			"people_in_view" = npc.people_in_view,
 			"things_in_view" = npc.things_in_view,
 			"holding" = holding,
 			// Everything it has on it, for the window to show. The LLM is not told of this.
-			"inventory" = npc.inventory_list(),
+			"inventory" = snapshot["inventory"],
 			"cleaning_tool" = npc.describe_cleaning_tool(),
 			// All it has to clean with is a rag, which shifts little.
 			"poor_tool" = npc.has_poor_tool(),
 			// How much of its work it has done so far this shift: messes cleaned up, and things put away.
 			"work_done" = list("cleaned" = npc.work_cleaned, "put_away" = npc.work_put_away, "crates_in" = npc.work_crates_in, "crates_out" = npc.work_crates_out, "machines_set" = npc.work_machines_set, "arrests" = npc.work_arrests),
-			"has_locator" = npc.has_custodial_locator(),
+			"has_locator" = snapshot["has_locator"],
 			"cleanable_messes" = npc.cleanable_messes,
 			// The kinds of mess in this room that nothing it holds will shift: those that want scrubbing.
-			"beyond_kinds" = npc.beyond_kinds_here(),
-			"mess_places" = npc.mess_places(),
+			"beyond_kinds" = snapshot["beyond_kinds"],
+			"mess_places" = snapshot["mess_places"],
 			// Those of them where what the body holds would do some good.
-			"workable_mess_places" = npc.workable_mess_places(),
+			"workable_mess_places" = snapshot["workable_mess_places"],
 			// Holding a mop with no water on it and nothing else that cleans, whether or not there is a sink in sight.
 			"mop_needs_water" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()),
 			"sink_in_view" = npc.sink_in_view,
@@ -178,7 +227,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"water_from" = npc.water_from,
 			"bucket_to_fill" = npc.bucket_to_fill,
 			// Only with a hand to carry it in, or one it would free for it (DESK-10).
-			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(body.get_empty_held_indexes()) || !isnull(npc.spare_held_item())),
+			"wants_bucket" = !isnull(locate(/obj/item/mop) in body.held_items) && isnull(npc.held_bucket()) && (length(npc.free_hands()) || !isnull(npc.spare_held_item())),
+			// How many of its hands work: an arm hurt past using, or gone, holds nothing (HOLE-18).
+			"working_hands" = npc.working_hand_count(),
 			// It has tried to leave this room more than once and found no way out.
 			"shut_in" = npc.is_shut_in(),
 			"door_open" = npc.open_door_in_view,
@@ -191,11 +242,13 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"wants_out" = npc.wants_out,
 			"way_out_to" = npc.way_out_to(),
 			// Those on its PDA whose own ID opens the door it came in by, for when nobody comes to it.
-			"door_keepers" = npc.door_keepers(),
+			"door_keepers" = snapshot["door_keepers"],
 			// The room whose door it is standing at, wanting through, or null.
 			"at_door_of" = npc.at_door_of(),
 			// What that door is called, to tell it from the room's other doors.
 			"at_door_label" = npc.at_door_label(),
+			// That door stands open just now, so it can walk through.
+			"at_door_open" = npc.wanted_door_open(),
 			// It is standing in a doorway or right beside a door, in the way of anyone coming through.
 			"in_doorway" = !crew_npc_clear_of_doors(body) || npc.on_top_of_someone(),
 			"grenade_messes" = npc.grenade_messes,
@@ -216,21 +269,23 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			// Whether a crate it unpacked has yet to be taken back to cargo.
 			"crate_to_return" = !QDELETED(npc.crate_to_return?.resolve()),
 			// Everyone its PDA lists, with their jobs: who it can send word to, and who answers to whom.
-			"pda_people" = npc.people_on_pda(),
+			"pda_people" = snapshot["pda_people"],
 			// What is waiting on the supply shuttle and in the bay, for cargo staff. Null for everyone else.
 			"freight" = npc.freight_state(),
 			// How much is lying about in its work area that it could put away. Null if it has no work area.
 			"tidy" = npc.tidy_state(),
 			// Messes in the rooms it works in, and the janitors its PDA lists, so it can call one over.
-			"work_area_messes" = npc.work_area_messes(),
+			"work_area_messes" = snapshot["work_area_messes"],
 			// The other rooms of its department, to look in on when it is quiet, and which of its rooms are locked to the crew.
 			"look_in_rooms" = npc.look_in_rooms,
 			"closed_rooms" = npc.closed_rooms,
 			// Those of its rooms that lie inside another of them: each with the room it is got into through.
 			"rooms_through" = npc.reached_through,
-			"pda_janitors" = npc.janitors_on_pda(),
+			"pda_janitors" = snapshot["pda_janitors"],
 			// Someone else at its post has lately sent for a janitor.
 			"workmate_called" = npc.workmate_called_janitor(),
+			// The rooms they sent for one to ("" for a call that named none), for holding back only a call to the same room (MULTI-06).
+			"workmate_called_rooms" = npc.rooms_workmate_called_for(),
 			// Someone has it by the arm and is walking it out of a room.
 			"in_hand" = world.time < npc.in_hand_until,
 			// With the gravity off and nothing within a tile to push off from, it floats and cannot walk (MAP-07).
@@ -254,6 +309,8 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"custody" = npc.custody_cell,
 			// Holding a mop that will not clean until it is wetted, with no sink in sight to wet it at.
 			"dry_mop" = !isnull(npc.dry_mop()) && isnull(npc.proper_tool()) && !npc.sink_in_view,
+			// Holding a rag too filthy to clean with until it is rinsed or wrung out (JAN-03).
+			"rag_filthy" = !isnull(npc.filthy_rag()),
 			"place_kind" = npc.place_kind(),
 			// On the way somewhere, on an errand, or working through a room's storage.
 			// Stepping back to its spot at its post does not count: that gives way to anything else there is to do.
@@ -265,7 +322,9 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 			"explored_everything" = npc.nowhere_new_left && !length(npc.room_searched_at),
 			"storage_here" = npc.storage_here,
 			"acked_seq" = npc.acked_seq,
-			"events" = npc.sense_events,
+			// All of the last thirty, or once the window has asked for it, only those it has not acked:
+			// it acks only what it has taken in, so nothing it has not had is left out.
+			"events" = only_new_events ? npc.events_after(npc.acked_seq) : npc.sense_events,
 		))
 	data["npcs"] = npc_list
 	// The rooms locked to the crew at large that some of these NPCs are allowed into, and who. Null while that is being worked out.
@@ -278,24 +337,45 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 	if(.)
 		return
 	// Everything in params comes from the owner's client and is untrusted.
+	// The window says once whether it wants only the events it has not acked (PERF-02). It is for the
+	// whole window, not one body.
+	if(action == "events_mode")
+		only_new_events = !!params["only_new"]
+		request_update()
+		return FALSE
 	var/datum/ai_controller/crew_npc/npc = find_npc(params["npc"])
 	if(isnull(npc))
 		return FALSE
 	switch(action)
 		if("tool_call")
 			npc.handle_tool_call(params["tool"], params["args"])
-			return TRUE
+			// What the tool did is sent with the next tick's update, along with any other (PERF-02,
+			// CORE-05): every tool that does anything ends in an event, which asks for one too.
+			request_update()
+			return FALSE
 		if("ack")
 			var/seq = params["seq"]
 			if(!isnum(seq))
 				return FALSE
 			npc.acked_seq = clamp(round(seq), npc.acked_seq, npc.next_event_seq - 1)
-			return TRUE
+			// The window has these already: nothing it is shown has changed, and an update for it
+			// only made it ack again (CORE-05).
+			return FALSE
 		if("brain_log")
 			write_brain_log(npc, params)
 			// Nothing the window shows has changed.
 			return FALSE
 	return FALSE
+
+/// The body's kept events newer than this seq, oldest first.
+/datum/ai_controller/crew_npc/proc/events_after(seq)
+	var/first = length(sense_events) + 1
+	while(first > 1)
+		var/list/event = sense_events[first - 1]
+		if(event["seq"] <= seq)
+			break
+		first--
+	return sense_events.Copy(first)
 
 /// Returns the owned NPC with this id, or null.
 /datum/crew_brain_link/proc/find_npc(npc_id)
@@ -338,6 +418,11 @@ GLOBAL_LIST_EMPTY(crew_brain_links)
 		record["error"] = log_field(params["error"], CREW_NPC_LOG_FIELD_LENGTH)
 		record["ms"] = isnum(params["ms"]) ? round(params["ms"]) : null
 		record["tokens"] = isnum(params["tokens"]) ? round(params["tokens"]) : null
+		// What the window's code did with the reply: a line held back as sounding like an order, an
+		// order made out from what was heard, a step nothing called for. Only a record that carries it
+		// has it, so the older records are written as they were.
+		if(istext(params["calls"]))
+			record["calls"] = log_field(params["calls"], CREW_NPC_LOG_FIELD_LENGTH)
 	rustg_log_write("[GLOB.log_directory]/crew_brain.log", json_encode(record), "true")
 
 /// Returns a text field from the client cut down to a safe length, or null if it was not text.

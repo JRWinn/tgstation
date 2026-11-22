@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: a173bf977a3
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: core
@@ -112,3 +113,9 @@ Checked by Opus 5.5, from the code. Confirmed.
 - Nothing in `LLM_CREW_CHANGELOG.md` or the plans mentions it.
 - Mended: the window's 12 seconds count from when the step was sent, not from when the target vanished (body text fixed). Effort raised to medium: the fix is an override, a new proc, a flag and a timer across the controller, `crew_npc_hands.dm` and `crew_npc_storage.dm`, well over 20 lines. Confidence raised to sure.
 - The fix is sound and keeps the rules (it only reports and moves on). A smaller-looking alternative, registering on the pawn for `COMSIG_AI_BLACKBOARD_KEY_CLEARED(BB_CREW_NPC_ERRAND_TARGET)` and checking on a 0-delay timer that `errand_tool` is set, `errand_serial` is unchanged and the key is still empty, does the same job without overriding a base proc; either is fine, but the `errand_serial` check alone does not stop a double report while `do_errand` is still sleeping after its own mess went, so the "doing right now" flag in step 2 is needed in both.
+
+## Fix so far
+
+Server, group m-hands (`crew_npc_hands.dm`, `crew_npc_storage.dm`), steps 1 to 5. `/datum/ai_controller/crew_npc/sig_remove_from_blackboard` notes whether the deleted thing was the errand target or the storage target, calls the parent, and starts a one-tick timer. The "doing it right now" flag is the existing `errand_in_flight` (set around `do_errand` in `crew_npc_do_errand/perform_async`): with it set nothing is done, as the run reports itself. `errand_target_gone(serial)` returns if the serial changed, `errand_tool` is null, the run is in flight or the key is set again; otherwise it logs "lost the target of its X errand: it was gone before it got there." and calls `finish_errand`: for `clean` with `list(null, "The mess you were making for is gone.")`, which counts neither cleaned nor failed and goes on to the next mess (`finish_errand` now passes over a null outcome); for every other tool `list(FALSE, "It is gone.")`. `storage_target_gone(set_at)` moves the search on (`next_storage()`) if `search_tool` is still set and the key is empty, logged "lost a container it was going to look in". This also covers a container deleted during the look itself, where `crew_npc_look_inside/perform_async` returns without calling `storage_done`.
+
+Not done: no window change (none needed). Security tools get the usual no-way details for "It is gone." (`security_details`), not a reason of their own.

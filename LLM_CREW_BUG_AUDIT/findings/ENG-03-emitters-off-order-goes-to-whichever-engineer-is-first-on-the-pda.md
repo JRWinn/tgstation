@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 41232bb3aa1, 2c2131a58fa
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering
@@ -101,3 +102,9 @@ Checked by Opus 5.5. Confirmed. Severity lowered to medium.
 - Nothing in the change log or `LLM_CREW_PLAN_ENGINEERING.md` decides who among several engineers is ordered. The plan assumes one.
 - Severity medium, not high. It needs a second engineer aboard who is not a working NPC (a player, or a dead or lost PDA), listed first or in the Chief Engineer's sight. Every round so far has had one engineer. Where it does happen it is the safety order that goes astray, so it should be fixed with ENG-01. Effort medium stands: window only, in `chiefengineer.ts`, `forcing.ts` and `types.ts`.
 - The fix is sound and keeps the senses-only rule: step 1 takes the name from who said the set words. One addition for step 1: the meeting's `lightStep` gives the engine to the first engineer present, who may be the player. The NPC then starts by itself after `STANDING_DS` and says "the engine is lit", so take the name from `LIT_WORDS` over `ENGINE_TAKEN_WORDS` when the two differ.
+
+## Fix so far
+
+Done in part (group m-heads, 41232bb3aa1): `engineerToOrder`, `engineerAnswered` and `engineerUnanswered` in `jobs/engineering.ts`; the Chief Engineer uses them for every order (steps 1 to 4; the state is kept in a WeakMap in `engineering.ts`, not in `ChiefWork`, since `types.ts` is not this group's). Left: step 5, in `jobs/forcing.ts` `forcingReads`, use `engineerToOrder(brain)` in place of `engineersAboard(brain)[0]` (both places), and call `engineerAnswered(brain, from)` on a forcing `DONE_WORDS`/`FAILED_WORDS`.
+
+Round M2 (group g-sec, 2c2131a58fa): step 5 built (`forcingReads` and `askEngineering` in `jobs/forcing.ts` use `engineerToOrder`; the forcing done and failed words call `engineerAnswered`). Table `tools/llm_crew/forcing-eng03.ts`. Not done: a forcing sent with no word back (`checkSent`) is not counted with `engineerUnanswered`.

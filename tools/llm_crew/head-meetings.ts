@@ -123,6 +123,8 @@ for (const [line, want] of [
     know(hop, ['Bar Lounge', 'Bridge']);
     hop.pdaPeople = [{ name: 'Jan Itor', job: 'Janitor' }, { name: 'Cap Tain', job: 'Captain' }];
     hop.location = 'Bridge';
+    // The server names its meeting room: there is no fallback to the Bar (HEAD-10).
+    hop.meetingRoom = 'Bar Lounge';
     hop.now = 5000;
     hop.nextMeetingAt = 4000;
     hop.metOnce = true;
@@ -148,13 +150,98 @@ for (const [line, want] of [
 }
 
 // KNB-10: at the counter, a technician telling its workmate something by name is no answer to the
-// head's order; said to the head, or to nobody, it is.
-for (const [saidTo, want] of [['other', false], ['me', true], ['nobody', true]] as [string, boolean][]) {
+// head's order. Since the technician says its set line once the order is in (TRA-04), only that
+// line is: said to the head, any other line is not either.
+for (const [saidTo, want] of [['other', false], ['me', false], ['nobody', false]] as [string, boolean][]) {
   const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
   hop.peopleInView = [{ handle: 't1', name: 'Sam Tech', job: 'Cargo Technician', distance: 2 }];
   hop.requisition = { lines: [], askedAt: 100, heardBack: false, startedAt: 100 };
   HEAD_OF_PERSONNEL.overhears(hop, { seq: 1, time: '', at: 150, kind: 'heard', text: '', details: { speaker: 'Sam Tech', message: 'Maria, the shuttle is in.', said_to: saidTo } });
   add(`a technician's line said to ${saidTo}: ${want ? '' : 'not '}taken for the answer`, hop.requisition.heardBack, want);
+}
+
+// KNB-09: a head that calls its meeting aloud reads its staff's "On my way" and a report sent by PDA.
+{
+  const { CHIEF_ENGINEER } = await import(ROOT + 'jobs/chiefengineer');
+  const ce: any = makeBrain('Fay Chief', 'Chief Engineer');
+  ce.pdaPeople = [{ name: 'Sam Rees', job: 'Station Engineer' }];
+  ce.meeting = { calledAt: 0, room: 'Engineering', calledIn: true, invited: ['Sam Rees'], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null };
+  CHIEF_ENGINEER.readsMessage(ce, 'Sam Rees', 'On my way to the Engineering.', 50, 'Station Engineer');
+  add('the Chief Engineer reads an engineer\'s "On my way"', ce.meeting.answers['Sam Rees'], 'coming');
+  CHIEF_ENGINEER.readsMessage(ce, 'Sam Rees', `Sorry I missed the meeting. ${workWords({ cleaned: 2 }, 0)}. I need nothing.`, 60, 'Station Engineer');
+  add('and a report it sends by PDA', [!!ce.meeting.reports['Sam Rees'], ce.meeting.answers['Sam Rees']], [true, 'cannot']);
+}
+
+// LOGA-06: a head that calls its meeting aloud keeps inside its room, books whoever it calls on,
+// and does not close a begun meeting the moment nobody is in view.
+{
+  const { QUARTERMASTER } = await import(ROOT + 'jobs/quartermaster');
+  const JADEN = { handle: 'j1', name: 'Jaden Prechtl', job: 'Cargo Technician', distance: 8, place: 'Cargo Lobby' };
+  const qm: any = makeBrain('Leo Johnson', 'Quartermaster');
+  know(qm, ['Cargo Bay', 'Cargo Lobby']);
+  qm.staffPost = 'Cargo Bay';
+  qm.location = 'Cargo Bay';
+  qm.pdaPeople = [{ name: JADEN.name, job: JADEN.job }];
+  qm.peopleInView = [JADEN];
+  qm.meeting = { calledAt: 0, room: 'Cargo Bay', calledIn: true, invited: [], copied: true, answers: {}, startedAt: null, turns: [], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  const task = { id: 1, kind: 'hold_meeting', urgency: 'asked', source: 'own', state: 'open' };
+  const step = QUARTERMASTER.plan(qm, task as any);
+  add('a technician in sight in the next room is not walked up to, nor sent a PDA: called aloud from the bay', [step?.act?.tool ?? null, !!step?.say && step.exact], [null, true]);
+  // Called on, then out of sight before the line goes out: the turn is still booked.
+  qm.meeting.invited = [JADEN.name];
+  qm.meeting.startedAt = 10;
+  qm.peopleInView = [];
+  meetingSaid(qm, 'Thank you for coming, everyone. Jaden, your report, please.');
+  add('called on while out of sight: the turn is booked', qm.meeting.turns.map((turn: any) => turn.who), [JADEN.name]);
+}
+{
+  const hop: any = makeBrain('Hop Kins', 'Head of Personnel');
+  know(hop, ['Bar Lounge']);
+  hop.meetingRoom = 'Bar Lounge';
+  hop.location = 'Bar Lounge';
+  hop.pdaPeople = [{ name: 'Jan Itor', job: 'Janitor' }];
+  hop.peopleInView = [];
+  hop.now = 2000;
+  hop.meeting = { calledAt: 1000, room: 'Bar Lounge', calledIn: true, invited: ['Jan Itor'], copied: true, answers: {}, startedAt: 1500, turns: [{ who: 'Jan Itor', askedAt: 1500, heard: true }], reports: {}, closedAt: null, orderedBy: null, wentIn: true };
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('a begun meeting with nobody in view is not closed at once', [!!hop.meeting, hop.meeting?.closedAt], [true, null]);
+  hop.now = 2200;
+  HEAD_OF_PERSONNEL.syncTasks(hop);
+  add('but after fifteen seconds empty, it is', hop.meeting, null);
+}
+
+// LOGB-02 step 2 and KNA-02 step 3: the staff side of a call while hauling, and while shut in.
+{
+  const { planMeetings } = await import(ROOT + 'jobs/meetings');
+  const called = (where: string) => {
+    const jan: any = makeBrain('Jan Itor', 'Janitor');
+    know(jan, ['Bar Lounge', 'Mining Office', 'Custodial Closet']);
+    jan.hasPda = true;
+    jan.location = where;
+    readSummons(jan, 'Hop Kins', 'Staff meeting in the Bar Lounge now, please.', 100, 'Head of Personnel');
+    return jan;
+  };
+  const meetingTask = { id: 'meeting', kind: 'meeting', place: 'Bar Lounge' } as any;
+  let jan = called('Custodial Closet');
+  jan.doing = 'hauling crate #7740 to the Custodial Closet';
+  let plan: any = planMeetings(jan, meetingTask);
+  add('hauling, not yet answered: the "On my way" waits for the crate to be set down', [plan?.ready, plan?.act ?? null], [false, null]);
+  jan.doing = null;
+  plan = planMeetings(jan, meetingTask);
+  add('the haul over: the "On my way" goes', [plan?.ready, plan?.act?.tool, plan?.act?.text], [true, 'message', 'On my way to the Bar Lounge.']);
+  jan.summons.answered = true;
+  jan.doing = 'hauling crate #7740 to the Custodial Closet';
+  plan = planMeetings(jan, meetingTask);
+  add('hauling, answered: the walk waits too', [plan?.ready, plan?.act ?? null], [false, null]);
+  jan = called('Mining Office');
+  jan.summons.answered = true;
+  jan.shutIn = true;
+  jan.doorOpen = false;
+  plan = planMeetings(jan, meetingTask);
+  add('shut in, no door open: no walk to the meeting, and it says why', [plan?.ready, plan?.act ?? null, plan?.step], [false, null, 'You are shut in the Mining Office and will go to the meeting when you are let out.']);
+  jan.doorOpen = true;
+  plan = planMeetings(jan, meetingTask);
+  add('shut in, a door standing open: the walk is tried', [plan?.ready, plan?.act?.tool, plan?.act?.place], [true, 'go_to', 'Bar Lounge']);
 }
 
 let failed = 0;

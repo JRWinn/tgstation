@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: dbcc4bdabad, db449a1fc76, 485dda6f826
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -100,3 +101,7 @@ Steps 1 to 4 are window-only (desk.ts and types.ts) and are the fix; step 5 is a
 ## Check
 
 Checked by Opus 5.5, read from the code, nothing run. Every quote matches desk.ts, arrests.ts and crew_npc_security.dm today. `officerAboard` (desk.ts:152) is asked afresh by `serving`, `tellOfficer` (desk.ts:202), `strike` (desk.ts:276) and `giveStep`; no desk warrant carries an officer name, so nothing ties a later line to the one who was given the warrant. In `syncDesk` a `'said'` give with no ack past `TAKEN_WAIT_DS` goes back to `'no'`, and the next `giveStep` uses `serving(brain)` again, so it can go to the other officer. `deskTakes` (desk.ts:335) marks every `'said'` warrant taken on any security member's ack, with no look at `from`. On the officer, `noteSeen` (arrests.ts:204) drops a sighting for a warrant it does not hold, and `giveWarrant` (arrests.ts:132) adds a second copy freely. On the server, `put_cuffs_on` returns TRUE at :1020 when anyone's cuffs are on, and base `/mob/living/start_pulling` (code/modules/mob/living/living.dm:417) pulls from another's grip. LLM_CREW_PLAN_SECURITY.md:392 lists a second officer as later work; nothing in the change log covers this. Severity medium stands: it needs two Security Officers, which test rounds do not have but a real round with a player officer will. Effort medium for the window part; added that step 5 is a separate server change.
+
+## Fix so far
+
+Steps 1 to 4 (the window) were built in dbcc4bdabad. Step 5 (server) is built in round M2: `put_cuffs_on` (`crew_npc_security.dm`) returns TRUE only when `person.handcuffed` is its own pair. When someone else's cuffs went on while it tried, `make_arrest` answers not ok with reason `other_cuffs` ("Someone else from security has put cuffs on X before you could."), puts its cuffs back in its bag and does not take them by the arm; `game.log` says "when someone else put cuffs on them". **Left:** `beatAfterActing` in `jobs/arrests.ts` does not know `other_cuffs`, so it counts it as a failed try (three such and it rests, telling the list "will not stand still"). It should return with no try, as for `down`; the next `serveStep` then sees them cuffed and leaves them to whoever holds them, or takes them by the arm if nobody does.

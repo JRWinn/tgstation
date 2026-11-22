@@ -46,6 +46,7 @@ import {
   isEngineer,
   LIGHT_WORDS,
   litLine,
+  machineFailKind,
   notOffLine,
   notOnLine,
   offLine,
@@ -83,6 +84,8 @@ const POST = 'engineer_post';
 const STANDING_DS = 1200;
 /** How many times a step is tried before the job stops there. */
 const STEP_TRIES = 2;
+/** How many times a step that failed for want of getting to the machine, or of a free hand, is tried before the job stops there (TRC-04). */
+const OTHER_TRIES = 5;
 /** How long (deciseconds) after saying a thing to the Chief Engineer it waits to hear that it was heard. */
 const HEARD_WAIT_DS = 250;
 /** How many times it says a thing to the Chief Engineer with no word back before it sends it by PDA. */
@@ -599,10 +602,35 @@ export const ENGINEER: Job = {
         return;
       }
       if (!ok) {
-        // A step that does not take is tried once more. After that the job stops here.
-        engine.tries[key] = (engine.tries[key] ?? 0) + 1;
-        if (engine.tries[key] >= STEP_TRIES) {
-          stick(brain, engine, step.fails);
+        // Why it did not take, from what the body was told (TRC-04). A machine that would not
+        // take is tried once more, and then the job stops here. A walk that came to nothing, or
+        // full hands, is nothing wrong with the machine: the driver backs it off and it is tried
+        // a few more times, and if it does stop, the true reason is what is passed on. Counted
+        // all alike, a player standing in the narrow way by a pump stopped the lighting for good
+        // and the Captain was told the pump would not turn on.
+        const kind = machineFailKind(text, details?.reason);
+        const machine = step.machine.name;
+        if (kind === 'unknown') {
+          stick(brain, engine, UNKNOWN_ENGINE);
+          return;
+        }
+        if (kind === 'machine') {
+          engine.tries[key] = (engine.tries[key] ?? 0) + 1;
+          if (engine.tries[key] >= STEP_TRIES) {
+            stick(brain, engine, step.fails);
+          }
+          return;
+        }
+        const other = `${key}:${kind}`;
+        engine.tries[other] = (engine.tries[other] ?? 0) + 1;
+        if (engine.tries[other] >= OTHER_TRIES) {
+          stick(
+            brain,
+            engine,
+            kind === 'unreached'
+              ? `I cannot get to the ${machine}`
+              : `my hands are full and I cannot work the ${machine}`,
+          );
         }
         return;
       }

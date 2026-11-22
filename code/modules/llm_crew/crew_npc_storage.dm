@@ -92,6 +92,17 @@
 	if(tool)
 		action_result(tool, FALSE, "You could not finish looking through the storage.")
 
+/**
+ * Moves a search on past a container that was deleted while the body walked to it or looked in it:
+ * the tree dropped the look, and nothing else would (RT-02). `set_at` is the storage_target_at of
+ * that container. See sig_remove_from_blackboard().
+ */
+/datum/ai_controller/crew_npc/proc/storage_target_gone(set_at)
+	if(QDELETED(src) || isnull(search_tool) || storage_target_at != set_at || blackboard_key_exists(BB_CREW_NPC_STORAGE_TARGET))
+		return
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) lost a container it was going to look in: it was gone. Moving the search on.")
+	next_storage()
+
 /// Ends the search and tells the brain how it went.
 /datum/ai_controller/crew_npc/proc/finish_search()
 	clear_blackboard_key(BB_CREW_NPC_STORAGE_TARGET)
@@ -197,6 +208,16 @@
 		for(var/item_name in inside)
 			item_names += item_name
 		storage_memory[REF(container)] = list("container" = WEAKREF(container), "items" = item_names)
+	else
+		// Found shut to it: what it held last time is still remembered, and still true as far as the body
+		// knows, but it is not gone to for that for a while. Each pick up walked back to a welded or locked
+		// locker and was told so again, and a janitor that had lost its mop never asked for another (HAND-05).
+		var/list/known = storage_memory[REF(container)]
+		var/datum/weakref/known_ref = known?["container"]
+		if(known && known_ref?.resolve() == container)
+			known["shut_at"] = world.time
+		else
+			storage_memory[REF(container)] = list("container" = WEAKREF(container), "items" = list(), "shut_at" = world.time)
 
 	var/text
 	switch(state)
@@ -238,6 +259,10 @@
 	var/time_limit = CREW_NPC_REACH_TIMEOUT
 	/// world.time this walk started.
 	var/started_at = 0
+	/// The square it is walking round to, when the target is one tile off but cut off from it. Null otherwise.
+	var/turf/stand_at
+	/// TRUE once this walk has had to go round to such a square.
+	var/walked_round = FALSE
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/setup(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
@@ -256,7 +281,80 @@
 		return AI_BEHAVIOR_DELAY
 	if(world.time - started_at > time_limit)
 		return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+	// The next square of the way has bad air: the same test as the walk leaf's (CHEAT-11). Spots far
+	// off are picked as if their air were fine, so this is what keeps an errand out of a vented room.
+	// Out of good air already, it walks on: that is the way out. The room is kept clear of for a while.
+	var/datum/move_loop/has_target/navmap_astar/loop = GLOB.move_manager.processing_on(controller.pawn, SSai_movement)
+	if(istype(loop) && length(loop.movement_path))
+		var/turf/standing = get_turf(controller.pawn)
+		var/turf/next_square = loop.movement_path[1]
+		if(isturf(next_square) && get_dist(standing, next_square) <= 1 && crew_npc_air_ok(standing) && !crew_npc_air_ok(next_square))
+			crew_controller.note_bad_air(next_square)
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) stopped its [crew_controller.errand_tool || "errand"] walk at [AREACOORD(standing)]: the air at [AREACOORD(next_square)] is bad.")
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		if(length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
+			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
+	var/atom/target = controller.blackboard[target_key]
+	// Walking round to a square the target can be touched from: done when it can be (HAND-08).
+	if(stand_at)
+		if(movement_failed || QDELETED(target))
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		if(crew_controller.can_reach_target_now(target))
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_SUCCEEDED
+		if(get_turf(controller.pawn) == stand_at)
+			// There, and still cut off from it: the thing has moved, or the way has changed. Look again.
+			stand_at = null
+		else
+			if(!controller.ai_movement.moving_controllers[controller])
+				controller.ai_movement.start_moving_towards(controller, stand_at, 0)
+			return AI_BEHAVIOR_INSTANT
+	// One tile off counts as there to the walk, but a windoor, a thin window, a shut border fire door
+	// or a corner between can be in the way. The body stood there, was told it could not get to it,
+	// and did the same on every try, where a player walks round (HAND-08). A thing thrown from a few
+	// tiles off, and someone being arrested, who will not stand still, are left to their own code.
+	if(required_dist == 1 && !QDELETED(target) && get_dist(controller.pawn, target) <= 1 && !crew_controller.can_reach_target_now(target) \
+		&& !(target_key == BB_CREW_NPC_ERRAND_TARGET && crew_controller.errand_tool == CREW_TOOL_ARREST))
+		stand_at = crew_controller.spot_to_reach(target)
+		if(isnull(stand_at))
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) is by the [target.name] at [AREACOORD(target)] but cut off from it, and there is nowhere beside it to reach it from.")
+			return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+		log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) is by the [target.name] at [AREACOORD(target)] but cut off from it: walking round to [AREACOORD(stand_at)].")
+		// The way round may be a long one: the first time, it has its own time to walk it in.
+		if(!walked_round)
+			walked_round = TRUE
+			started_at = world.time
+		controller.ai_movement.start_moving_towards(controller, stand_at, 0)
+		return AI_BEHAVIOR_INSTANT
 	return ..()
+
+/datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/finish_action(datum/ai_controller/controller, succeeded)
+	stand_at = null
+	walked_round = FALSE
+	return ..()
+
+/**
+ * Returns the open square nearest the body from which this can be touched, with no windoor, thin
+ * window or corner between, or null if there is none. The thing's own square counts if it can be
+ * stood on. A square someone is standing on counts: they can be asked or swapped past.
+ */
+/datum/ai_controller/crew_npc/proc/spot_to_reach(atom/target)
+	var/turf/target_turf = get_turf(target)
+	if(isnull(target_turf))
+		return null
+	// Not where it stands: it is cut off from there, or it would not be asking.
+	var/turf/here = get_turf(pawn)
+	var/turf/best
+	var/best_distance = INFINITY
+	for(var/turf/open/spot in range(1, target_turf))
+		if(spot == here || isspaceturf(spot) || isgroundlessturf(spot) || spot.is_blocked_turf(exclude_mobs = TRUE))
+			continue
+		if(spot != target_turf && !target_turf.Adjacent(spot, target = spot, mover = ismovable(target) ? target : null))
+			continue
+		var/distance = get_dist(pawn, spot)
+		if(distance < best_distance)
+			best_distance = distance
+			best = spot
+	return best
 
 /// Opens the container the body is standing by, looks inside and shuts it.
 /datum/bt_node/ai_behavior/crew_npc_look_inside

@@ -22,7 +22,14 @@
  */
 import { isHead } from '../hierarchy';
 import { addTask, findTask, finishTask, placeNamedIn } from '../tasks';
-import type { BeatWord, NpcBrain, Plan, SenseEvent, Task } from '../types';
+import type {
+  BeatWord,
+  NpcBrain,
+  Plan,
+  SecurityOutcome,
+  SenseEvent,
+  Task,
+} from '../types';
 import {
   arrestAgain,
   beatAfterActing,
@@ -38,6 +45,7 @@ import {
   planBeat,
   syncBeat,
   takeOutcomes,
+  waitingWith,
   warrantTalk,
 } from './arrests';
 import {
@@ -46,8 +54,8 @@ import {
   deskAfterSaying,
   deskCues,
   deskHears,
-  deskUnread,
   deskTakes,
+  deskUnread,
   planDesk,
   syncDesk,
 } from './desk';
@@ -58,11 +66,13 @@ import {
   AGAIN_WORDS,
   addressOf,
   cancelAsked,
+  closeIn,
   firstName,
   HEARD_WORDS,
   isHeadOfSecurity,
   isOfficer,
   LET_GO_WORDS,
+  nameIn,
   outcomeLine,
   PARDON_WORDS,
   REFUSALS,
@@ -70,7 +80,10 @@ import {
   readWarrant,
   SEEN_WORDS,
   SERVED_WORDS,
+  SIGHTING_WORDS,
   saidTo,
+  sameName,
+  sightLine,
   WARRANT_ACK,
   WARRANT_ACK_WORDS,
 } from './security';
@@ -88,6 +101,27 @@ const TELL_TRIES = 2;
 const TELL_DISTANCE = 2;
 /** How long (deciseconds) it waits at its post for the Head of Security to come into sight before it sends word by PDA. */
 const SOUGHT_DS = 200;
+/**
+ * How long (deciseconds) after a word would not send by PDA before it sends it again itself
+ * (ARR-05). The server keeps the text and sends it again by itself meanwhile, so sooner would
+ * only have the Head of Security told twice.
+ */
+const UNSENT_AGAIN_DS = 1800;
+
+/**
+ * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
+ * attacked or robbed of its baton stays true whatever comes after, and so does having had
+ * them in cuffs once they are in a cell or let go: the Captain is told of the cuffs.
+ */
+const STALE_AFTER: Partial<
+  Record<SecurityOutcome['what'], SecurityOutcome['what'][]>
+> = {
+  jailed: ['cannot', 'lost'],
+  freed: ['cannot', 'lost'],
+  lost: ['cuffed', 'cannot'],
+  cuffed: ['cannot', 'lost'],
+  cannot: ['cannot'],
+};
 
 /** The Head of Security aboard, as far as it can tell: one in view, or one its PDA lists. Null if there is none. */
 function headAboard(brain: NpcBrain): { name: string; job: string } | null {
@@ -132,6 +166,14 @@ function syncTasks(brain: NpcBrain): void {
   if (head) {
     // How its warrants have gone is word for the Head of Security.
     for (const outcome of takeOutcomes(brain)) {
+      // A word not yet sent that this one makes untrue is not sent (PLAY-02): "cannot get them
+      // into a cell" after they are in one, or "I have them in cuffs" after they got away.
+      const untrue = STALE_AFTER[outcome.what] ?? [];
+      beat.words = beat.words.filter(
+        (word) =>
+          !untrue.includes(word.outcome.what) ||
+          !sameName(word.outcome.name, outcome.name),
+      );
       beat.words.push({
         outcome,
         line: outcomeLine(firstName(head.name), outcome),
@@ -153,17 +195,36 @@ function syncTasks(brain: NpcBrain): void {
       finishTask(brain, task);
     }
   }
+  const waiting = waitingWith(brain);
   for (const word of beat.words) {
     // That it is hurt, or has been attacked, or has lost its baton, is said at once and by PDA
     // unless the Head of Security is standing there: it may not be on its feet much longer.
-    const urgent = ['hurt', 'attacked', 'baton'].includes(word.outcome.what);
+    // So is why it cannot get someone it has by the arm into a cell: else it waits in the brig
+    // behind the arrest, and goes out after they are in one (PLAY-02).
+    const holding = brain.security?.holding;
+    const urgent =
+      ['hurt', 'attacked', 'baton'].includes(word.outcome.what) ||
+      (word.outcome.what === 'cannot' &&
+        !!holding &&
+        sameName(word.outcome.name, holding));
     if (
       urgent &&
       !brain.peopleInView.some((person) => person.name === head?.name)
     ) {
       word.byPda = true;
     }
-    keep(brain, WORD, true, urgent ? 'emergency' : 'asked', word.line);
+    // While it waits in the brig with them for a cell, its other word on them goes out as well
+    // (ARR-04 follow-up): ranked below the wait, "I have them in cuffs" was never sent, and the
+    // Captain heard only that no cell would take them. Ranked with the wait, it goes first, as it
+    // can be got on with and the wait cannot.
+    const meanwhile = !!waiting && sameName(word.outcome.name, waiting);
+    keep(
+      brain,
+      WORD,
+      true,
+      urgent || meanwhile ? 'emergency' : 'asked',
+      word.line,
+    );
   }
   const inHand =
     legwork ||
@@ -185,7 +246,8 @@ function syncTasks(brain: NpcBrain): void {
 /**
  * Telling the Head of Security how a warrant went, face to face. Said is not told: it is passed
  * on only when the Head of Security says it has it. With no word back it walks up and says it
- * again, and after that, or if the Head of Security is not to be found, it goes by PDA.
+ * again, and after that, or if the Head of Security is not to be found, it goes by PDA. Word the
+ * PDA would not send, or with no PDA on it, it takes to its post to say there (ARR-05).
  */
 function tellHead(brain: NpcBrain, word: BeatWord): Plan {
   const head = headAboard(brain);
@@ -195,17 +257,60 @@ function tellHead(brain: NpcBrain, word: BeatWord): Plan {
       step: 'There is no Head of Security aboard to tell.',
     };
   }
+  const seen = brain.peopleInView.find((person) => person.name === head.name);
+  const pdaFails = !brain.hasPda || word.unsent !== undefined;
+  // In sight, word is said to their face, whatever sent it to the PDA before (ARR-05). Only word
+  // said twice and not heard stays on a PDA that works.
+  if (word.byPda && seen && (word.unheard < TELL_TRIES || pdaFails)) {
+    word.byPda = false;
+    if (word.unheard >= TELL_TRIES) {
+      word.unheard = 0;
+    }
+  }
+  // The PDA would not send it, or there is none: it is taken to its post, where the Head of
+  // Security works, unless it is after someone or has them by the arm. Out there it is told when
+  // they are next seen, and tried on the PDA again now and then.
+  const onFoot = (): Plan => {
+    const why = brain.hasPda
+      ? 'your PDA would not send it'
+      : 'you have no PDA on you';
+    if (
+      brain.post &&
+      brain.location !== brain.post &&
+      !brain.security?.holding &&
+      !onLead(brain) &&
+      !brain.shutIn
+    ) {
+      return {
+        ready: true,
+        step: `You have word for ${head.name}, the Head of Security, and ${why}. You are going to your post, the ${brain.post}, to tell them there.`,
+        act: { tool: 'go_to', place: brain.post },
+      };
+    }
+    if (brain.post && brain.location === brain.post) {
+      word.soughtAt ??= brain.now;
+      if (brain.now - word.soughtAt <= SOUGHT_DS) {
+        return {
+          ready: false,
+          wait: true,
+          step: `You have word for ${head.name}, the Head of Security, and ${why}. You are at your post, looking for them.`,
+        };
+      }
+    }
+    return {
+      ready: false,
+      step: `You have word for ${head.name}, the Head of Security, and ${why}. You will tell them when you see them.`,
+    };
+  };
   const byPda = (): Plan =>
-    brain.hasPda
+    brain.hasPda &&
+    (word.unsent === undefined || brain.now - word.unsent >= UNSENT_AGAIN_DS)
       ? {
           ready: true,
           step: `You have word for ${head.name}, the Head of Security, and cannot tell them to their face. You are sending it by PDA: "${word.line}"`,
           act: { tool: 'message', person: head.name, text: word.line },
         }
-      : {
-          ready: false,
-          step: `You have word for ${head.name}, the Head of Security, and no way to get it to them.`,
-        };
+      : onFoot();
   if (word.byPda) {
     return byPda();
   }
@@ -226,7 +331,6 @@ function tellHead(brain: NpcBrain, word: BeatWord): Plan {
     word.byPda = true;
     return byPda();
   }
-  const seen = brain.peopleInView.find((person) => person.name === head.name);
   if (
     seen &&
     word.unheard > 0 &&
@@ -410,6 +514,84 @@ function sendOn(
   });
 }
 
+/** How long (milliseconds) before the same sighting, of one person in one room, is read back again. */
+const SIGHTING_AGAIN_MS = 120000;
+/** Who said where, and when it last read that back: so a word said twice is not answered twice. */
+const sightingsReadBack = new WeakMap<NpcBrain, Record<string, number>>();
+/** A word for whoever it is after, said to its face with one warrant in hand. */
+const SOMEONE_WORDS = /\b(?:he|she|they|him|her|them)\b/i;
+/** Words that say where someone is not, or ask where they are. */
+const NOT_A_SIGHTING =
+  /\b(?:not|no longer|isn't|aren't|wasn't|never)\b|\?\s*$/i;
+
+/**
+ * With a Head of Security aboard, takes word of where someone it has a warrant on is, said to
+ * its face or sent it by anyone (PLAY-03). It goes there, says back in fixed words what it took,
+ * and sends the Head of Security the sighting so that its list stays true. With one warrant in
+ * hand, "he", "she" or "they" said to its face means that one. Returns TRUE if it took it.
+ */
+function takeSighting(
+  brain: NpcBrain,
+  from: string,
+  fromJob: string,
+  text: string,
+  aloud: boolean,
+): boolean {
+  const head = headAboard(brain);
+  if (!head || !SIGHTING_WORDS.test(text) || NOT_A_SIGHTING.test(text)) {
+    return false;
+  }
+  const place = placeNamedIn(brain, text.toLowerCase());
+  const warrants = beatOf(brain).warrants;
+  if (!place || warrants.length === 0) {
+    return false;
+  }
+  const names = warrants.map((it) => it.name);
+  const name =
+    nameIn(text, names) ??
+    closeIn(text, names) ??
+    (aloud && warrants.length === 1 && SOMEONE_WORDS.test(text)
+      ? names[0]
+      : undefined);
+  const warrant = warrants.find((it) => it.name === name);
+  if (!warrant || !name) {
+    return false;
+  }
+  const newPlace = warrant.lastSeen?.place !== place;
+  noteSeen(brain, name, place, brain.now);
+  const said = sightingsReadBack.get(brain) ?? {};
+  sightingsReadBack.set(brain, said);
+  const key = `${name}|${place}`;
+  if (said[key] === undefined || Date.now() - said[key] >= SIGHTING_AGAIN_MS) {
+    said[key] = Date.now();
+    const line = `${addressOf(from, fromJob)}, I have that: ${name}, the ${place}.`;
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: from,
+      line,
+      why: `${from} has told you where ${name}, whom you have a warrant on, is. You are saying back what you took, and going there.`,
+      byPda: !aloud,
+      exact: true,
+      whileBusy: aloud,
+      at: Date.now(),
+    });
+  }
+  // The Head of Security keeps the list, and is told of a place new to it.
+  if (newPlace && from !== head.name) {
+    const line = sightLine(name, place);
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: head.name,
+      line,
+      why: `${from} has told you where ${name} is. You are sending it on to ${head.name}, the Head of Security, who keeps the list.`,
+      byPda: true,
+      exact: true,
+      at: Date.now(),
+    });
+  }
+  return true;
+}
+
 export const OFFICER: Job = {
   is: isOfficer,
   // It works from the Security Office. It leaves it on a warrant, not to wander.
@@ -434,7 +616,7 @@ export const OFFICER: Job = {
   whenAsked: () => [
     'You arrest people on a warrant and on nothing else. There are no written laws yet. Asked to arrest someone, say that a warrant is for the Captain or a head of department to declare to the Head of Security.',
     'Who you have a warrant on, where they were last seen, and who is in the cells is told to you here: never say more about it than that. What your body does about a warrant it does by itself.',
-    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell the Head of Security where the person you are after is.',
+    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell you where the person you are after is when they see them.',
   ],
   cues,
   syncTasks,
@@ -459,7 +641,9 @@ export const OFFICER: Job = {
       }
       return;
     }
-    sendOn(brain, from, job, text, false);
+    if (!takeSighting(brain, from, job, text, false)) {
+      sendOn(brain, from, job, text, false);
+    }
   },
   // With the person it is after in sight, by the arm, or seen in the last two minutes, it does
   // not leave for a staff meeting.
@@ -480,7 +664,10 @@ export const OFFICER: Job = {
       deskHears(brain, event);
       return;
     }
-    if (event.details.said_to === 'me') {
+    if (
+      event.details.said_to === 'me' &&
+      !takeSighting(brain, speaker, job, heard, true)
+    ) {
       sendOn(brain, speaker, job, heard, true);
     }
   },
@@ -512,9 +699,14 @@ export const OFFICER: Job = {
     if (word && act.tool === 'approach') {
       word.walkedUp = true;
     }
-    // Sent by PDA, it is passed on. One that will not send is kept, and tried again later.
-    if (word && act.tool === 'message' && ok) {
-      beat.words = beat.words.filter((it) => it !== word);
+    // Sent by PDA, it is passed on. One that will not send is kept, taken to its post, and tried
+    // on the PDA again later (ARR-05).
+    if (word && act.tool === 'message') {
+      if (ok) {
+        beat.words = beat.words.filter((it) => it !== word);
+      } else {
+        word.unsent = brain.now;
+      }
     }
   },
 };

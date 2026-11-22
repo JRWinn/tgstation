@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 575029ccbcb
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
@@ -96,3 +97,14 @@ Read from the code on both sides: every use of `SEE_TO_WORDS`, `seeToUntil` and 
 ## Check
 
 Opus 5.5, 2026-11-19. Read the see-to branch of `overhears` (cargo.ts:2124), `leftTo` and `dutyOf` (cargo.ts:253-290), `syncHeld` and `planHeld` (cargo.ts:455, :540), `syncWontCome` and `wontComeStep` (cargo.ts:637-700), the `HANDOVER` part of `afterActing` (cargo.ts:1948), `ingest` setting `gaveUp` (brain.ts:715), the driver's back-off (driver.ts:52, :931), `crateHeldUp` and the `WONT_COME_WORDS` reader in quartermaster.ts (:1032, :1538), the words in supply.ts:196-238, and on the server `crate_released` (crew_npc_held.dm:343) and `gave_up_report` (crew_npc_grip.dm:318), which do send `gave_up` with tool `release`. Quotes match. The only `release` in the window is `planHeld`'s, fed only by this brain's own `pickupAsked`; `seeToUntil` only widens `leftTo` for shuttle and rooms work. So the technician sent has nothing to do with the crate. Confirmed. The change log (entry with `crateHeldUp`, lines 978-981) built the see-to for shuttle and rooms work and lists among known faults only that "try it again" changes nothing; release is not covered anywhere. Mended step 6, which is timing-dependent, added step 7 (the ask lapses and the crate is forgotten), and corrected fix step 1: writing into `pickupAsked` has side effects, and `syncHeld` would close any hand-over not drawn from it. Not seen in a round.
+
+## Fix so far
+
+Done on branch `m-cargo` (window only; new table `tools/llm_crew/cargo-seeto.ts`, 11 cases; simulator qmstuck, waiting, lost passed; not played):
+
+- Step 1: in `overhears` (`jobs/cargo.ts`), a see-to line to this technician naming "crate #N ... out to the lobby" is kept in `seeToCrates` (a map by brain id, as `letOutTries` is, so no new brain field), as well as setting `seeToUntil`. `syncHeld` takes a hand-over for that number when there is no counter ask, marked `via: 'see_to'`, until the crate is out or taken or `SEE_TO_DS` has gone by. `planHeld` gives it its own step and a `release` with no person.
+- Step 2: the first option, `person` left off; the lobby line then says "Someone". The Quartermaster's words are not changed.
+- Step 3: in `syncWontCome`, once the Quartermaster has the word of a `release` give-up, the technician who failed clears `pickupAsked` for that number and finishes its hand-over. The Quartermaster's `tryAgainLine` is now read (`TRY_CRATE_AGAIN_WORDS` in `supply.ts`): told to try crate #N again, it takes the hand-over up again the same way.
+- Step 4: the other three hauls are as before.
+
+Not done: a simulator scenario with the release given up (the stand-in server cannot give one up today).

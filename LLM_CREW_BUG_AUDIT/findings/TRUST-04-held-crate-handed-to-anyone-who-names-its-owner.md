@@ -84,3 +84,9 @@ Opus 5.5, 2026-11-19. Confirmed, as a gap with a design question in it.
 - Searched the change log and plans: "with the number to collect it" is the wording of cargo's PDA message (`LLM_CREW_PLAN_ROUND_0912.md:110`), and "Whoever the head sends collects the crate at the counter" (`LLM_CREW_PLAN_ENGINEERING.md:14`). Neither says that anyone at all may collect, nor that they may not. So it is not a chosen behaviour, but the rule wanted is the owner's call; the finding already asks it.
 - Severity medium stands: it needs a player who tries it, and the head's supplies are then lost to it. Effort medium: the refusal, the PDA question, and a head-side answer (which the fix left out; added to step 2).
 - Not checked: how far the held crates stand from the lobby on MetaStation, so whether the spoken reminder is heard at the counter.
+
+## Fix so far
+
+Step 3 only, on branch `m-cargo` (`jobs/cargo.ts` `crateMeant`; cases in `tools/llm_crew/cargo-pickups.ts`; simulator waiting and crew passed; not played): a crate asked for with no number is found by its owner's name or first name only, not by the owner's job. "Here for the crate for the Head of Personnel" no longer brings it out. Steps 1 and 2 (checking that the asker was sent, and a PDA to the owner) wait on the owner's question in this finding. Step 4 (`crew_npc_held.dm`) is held for its owner: in `tool_release`, log `release_for` against `entry.for_name` in game.log when they differ.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: step 4 built. `tool_release` (`crew_npc_held.dm`) writes "is bringing out held crate #N ordered by X for Y" to `game.log` when `release_for` is not `entry.for_name`. Steps 1 and 2 still wait on the owner's question.

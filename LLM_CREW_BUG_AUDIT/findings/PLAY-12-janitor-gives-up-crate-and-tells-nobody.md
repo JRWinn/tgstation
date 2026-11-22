@@ -5,7 +5,8 @@ kind: gap
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 4d718fbed84, 0f36456260d, 4fbb09364c1, dd840582052
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor
@@ -152,3 +153,20 @@ Checked by Opus 5.5 against the round logs and the code at 99f4d33dd0e. Confirme
 - The fix is sound and keeps the rules: fixed words written by code, no model needed, general to any job that collects. Step 1 (a `lies_in` from the server) is optional, as the body's `place` is close enough, so the fix can stay in the window and effort stays medium. One thing to watch in step 4: if the head has only the one collector, `sendFor` sends the same one again, which is right, but its new task must not be ended by the old one's `reported` flag.
 
 Not run: no build, type check or simulator. Not checked: a `take_back` give-up in this round. Hayden had three lost grips on `take_back` at 22:08:40 to 22:08:49 (game.log lines 1128 to 1140); whether that ended in a give-up was not followed.
+
+## Fix so far
+
+Done on branch `p-cargo` (window code only; table `tools/llm_crew/cargo-play.ts`; not played):
+
+- Step 3: `pickupsAfterActing` (`jobs/pickups.ts`), on a failed `collect_crate` with `brain.gaveUp` for `collect_crate`, a head who sent it and a PDA, queues the fixed PDA line "I could not get crate #N to the ROOM. It is left in the PLACE[, clear of the doors]. Could you send someone else for it, please?", ends the errand (`reported`, `finishTask`) and clears `brain.gaveUp`. PLACE is `leftIn` if it was put clear, else where the body is. With no head or no PDA it is left to try again, as before.
+- Step 4: the head (`jobs/head.ts`, `readsMessage`) reads those words (`GAVE_UP_WORDS`) from the one it sent for that number and calls `sendFor` with the give-up, which skips `SENT_GRACE_DS` and passes over the one who gave up when there is anyone else. The `why` names where it lies. The line sent (step 5) is kept as it is ("is waiting at cargo"), since the collector's `readPickup` knows the message by those words.
+
+Not done: step 1 (`lies_in` from `gave_up_report`, a .dm file) and step 2 (`brain.ts`), neither owned by this group; the body's place stands in for now. Step 6 (`take_back` give-ups) not done.
+
+Then on branch `m-cargosrv` (server, compile only, not played): step 1. `gave_up_report` (`crew_npc_grip.dm`) sends `lies_in` (the crate's room) when the crate could not be put clear, and the body is told "It lies in ROOM." `brain.ts` already keeps it as `brain.gaveUp.liesIn`.
+
+Still left: `pickupsAfterActing` (`jobs/pickups.ts`) names `gaveUp.leftIn ?? brain.location`; it should be `gaveUp.leftIn ?? gaveUp.liesIn ?? brain.location`. Step 6 (`take_back`) not done.
+Done on branch `m-cargo` (window only; table `tools/llm_crew/cargo-play.ts`, 47 cases; not played):
+
+- Step 2 use: `pickupsAfterActing` now tells the head `brain.gaveUp.liesIn` (the server's `lies_in`, read by `ingest`) when the crate was not put clear, and the body's room only when the server sends neither `left_in` nor `lies_in`.
+- Step 6: a failed `take_back` with a `take_back` give-up sends the head who sent it one PDA, "I could not get the empty crate from #N back to cargo. It is left in the PLACE[, clear of the doors]. I will try again." It is told once per errand (`task.toldAt`), `brain.gaveUp` is cleared, and the errand stands so the empty is tried again as before. The words do not match `GAVE_UP_WORDS`, so the head sends nobody. Cargo and the Quartermaster are still not told of a lost empty: that would want the Quartermaster to read the line, which is left.

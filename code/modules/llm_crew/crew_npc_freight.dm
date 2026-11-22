@@ -53,6 +53,45 @@
 			crates += crate
 	return crates
 
+/// The crates that were aboard the supply shuttle when it last docked at the station, as weak references. Only these came in on it (SUP-12).
+GLOBAL_LIST_EMPTY(crew_npc_shuttle_arrivals)
+/// TRUE while the supply shuttle is docked at the station and its arrivals have been noted.
+GLOBAL_VAR_INIT(crew_npc_shuttle_arrivals_noted, FALSE)
+
+/**
+ * Returns the crates aboard the docked supply shuttle that came in on it. Whoever is in the bay sees
+ * the shuttle dock with them, and sees anything put aboard after that being put aboard: a crate a
+ * player hauls on to be sold is going out, and was hauled straight back off (SUP-12).
+ *
+ * What is aboard is noted at the first look by anyone after it docks, and forgotten when it leaves.
+ * A crate that has come off is struck off, so one put back aboard in the same stay goes out with it.
+ * One shared list, so every look and every tool sees the same.
+ */
+/datum/ai_controller/crew_npc/proc/shuttle_arrivals()
+	var/list/arrived = list()
+	var/obj/docking_port/mobile/supply/shuttle = docked_supply_shuttle()
+	if(isnull(shuttle))
+		GLOB.crew_npc_shuttle_arrivals.Cut()
+		GLOB.crew_npc_shuttle_arrivals_noted = FALSE
+		return arrived
+	var/list/aboard = crates_aboard()
+	if(!GLOB.crew_npc_shuttle_arrivals_noted)
+		GLOB.crew_npc_shuttle_arrivals_noted = TRUE
+		GLOB.crew_npc_shuttle_arrivals.Cut()
+		for(var/obj/structure/closet/crate/crate as anything in aboard)
+			GLOB.crew_npc_shuttle_arrivals += WEAKREF(crate)
+	for(var/datum/weakref/crate_ref as anything in GLOB.crew_npc_shuttle_arrivals.Copy())
+		var/obj/structure/closet/crate/crate = crate_ref.resolve()
+		if(QDELETED(crate) || !(crate in aboard))
+			GLOB.crew_npc_shuttle_arrivals -= crate_ref
+			continue
+		arrived += crate
+	// The mail crate is made at the far dock with the orders: it always came in on it.
+	for(var/obj/structure/closet/crate/crate as anything in aboard)
+		if(!(crate in arrived) && crew_npc_crate_has_mail(crate))
+			arrived += crate
+	return arrived
+
 /// Returns the rooms that are cargo's to keep in order: the post, and the lobby where it serves the crew.
 /datum/ai_controller/crew_npc/proc/freight_rooms()
 	var/list/rooms = list()
@@ -103,7 +142,7 @@
 	var/nearest_distance = INFINITY
 	for(var/turf/square as anything in crew_npc_marked_squares(get_area(post_turf), post_turf.z))
 		// Not the body's own spot at the counter, nor beside it.
-		if(!crew_npc_safe_turf(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
+		if(!far_spot_safe(square) || square.is_blocked_turf(exclude_mobs = TRUE) || get_dist(square, post_turf) <= 1)
 			continue
 		// Nor one where a crate would wall another in, so nobody could stand beside it (SUP-15).
 		if(crew_npc_square_shuts_in(square))
@@ -142,12 +181,25 @@
 		return null
 	return recipient.current?.real_name || recipient.name
 
-/// Returns the things a crate holds: what is inside it if it is shut, what lies spilled around it if it is open.
+/**
+ * Returns the things a crate holds: what is inside it if it is shut, what lies spilled around it if
+ * it is open. Everything, not only what can be picked up: a crate with a wheeled filing cabinet or a
+ * janitorial cart in it was called empty, and sent back to be sold with the thing still inside (SUP-09).
+ */
 /proc/crew_npc_crate_holds(obj/structure/closet/crate/crate)
 	var/list/held = list()
-	for(var/obj/item/thing in (crate.opened ? crate.drop_location() : crate))
-		// The manifest is paperwork about the crate, not something that came in it.
-		if(!istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest))
+	if(!crate.opened)
+		for(var/atom/movable/thing as anything in crate)
+			// The manifest is paperwork about the crate, not something that came in it.
+			if(!istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest) && !iseffect(thing))
+				held += thing
+		return held
+	// Open: what lies on its square that shutting it would take back in. Not the crate itself, nor
+	// whoever is standing there, nor what is fixed to the floor.
+	for(var/obj/thing in crate.drop_location())
+		if(thing == crate || iseffect(thing) || istype(thing, /obj/item/paper/fluff/jobs/cargo/manifest))
+			continue
+		if(isitem(thing) || crate.insertion_allowed(thing))
 			held += thing
 	return held
 
@@ -195,7 +247,8 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 /datum/ai_controller/crew_npc/proc/crate_to_unload()
 	var/obj/structure/closet/crate/nearest
 	var/nearest_distance = INFINITY
-	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
+	// Only what came in on it: a crate put aboard since is going out (SUP-12).
+	for(var/obj/structure/closet/crate/crate as anything in shuttle_arrivals())
 		if(crate.anchored || crew_npc_crate_spent(crate) || crate_taken(crate))
 			continue
 		var/distance = get_dist(pawn, crate)
@@ -203,6 +256,19 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			nearest_distance = distance
 			nearest = crate
 	return nearest
+
+/**
+ * How many crates that came in on the docked shuttle still have something in them, whoever is going
+ * for them. What is this body's to unload leaves out a crate a workmate has set off for; whether the
+ * shuttle may go does not. A workmate called away after claiming the last full crate left it out of
+ * every count, and the shuttle was sent with it aboard and sold (SUP-05).
+ */
+/datum/ai_controller/crew_npc/proc/full_crates_aboard()
+	var/count = 0
+	for(var/obj/structure/closet/crate/crate as anything in shuttle_arrivals())
+		if(!crate.anchored && !crew_npc_crate_spent(crate))
+			count++
+	return count
 
 /// Returns the crates in cargo's rooms, off the shuttle, that are not fixed in place and that nobody else has in hand.
 /datum/ai_controller/crew_npc/proc/crates_in_hand()
@@ -294,11 +360,15 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		return freight_cache
 	var/to_unload = 0
 	var/empties_aboard = 0
+	var/list/arrived = shuttle_arrivals()
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
 		if(crate.anchored)
 			continue
 		if(crew_npc_crate_spent(crate))
 			empties_aboard++
+			continue
+		// Put aboard since it docked, with something in it: someone is sending it out to be sold (SUP-12).
+		if(!(crate in arrived))
 			continue
 		// It came in with something in it: when it is empty, it is one that goes back.
 		crate.crew_npc_came_by_shuttle = TRUE
@@ -313,6 +383,8 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	freight_cache = list(
 		"shuttle_docked" = !isnull(docked_supply_shuttle()),
 		"to_unload" = to_unload,
+		// Every full crate that came on it, a workmate's too: while any is aboard the shuttle is not sent (SUP-05).
+		"full_aboard" = full_crates_aboard(),
 		"empties_aboard" = empties_aboard,
 		"mail_crate" = !isnull(mail_crate()),
 		"mail_for" = mail_for,
@@ -347,7 +419,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/best_distance = INFINITY
 	var/fallback_distance = INFINITY
 	for(var/turf/candidate as anything in bay.get_turfs_by_zlevel(here.z))
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || get_dist(candidate, post_turf) <= 1)
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || get_dist(candidate, post_turf) <= 1)
 			continue
 		if((locate(/obj/machinery/conveyor) in candidate) || !crew_npc_clear_of_doors(candidate, 2))
 			continue
@@ -388,7 +460,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/turf/best
 	var/best_distance = INFINITY
 	for(var/turf/candidate as anything in deck)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || (locate(/obj/machinery/conveyor) in candidate))
 			continue
 		var/distance = get_dist(candidate, middle)
 		if(distance < best_distance)
@@ -649,11 +721,33 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 	var/datum/ai_controller/crew_npc/their_controller = person.ai_controller
 	if(istype(their_controller))
 		their_controller.being_handed_something()
+	var/mob/living/carbon/human/body = pawn
+	var/given = 0
 	for(var/obj/item/mail/letter as anything in theirs)
-		// What their hands cannot take ends up at their feet.
-		if(!person.put_in_hands(letter))
-			letter.forceMove(person.drop_location())
-	freight_changed()
+		// Into a hand of theirs that is empty and works. With none, the body keeps the rest: nobody can
+		// put a letter down at someone's feet from a tile off. It used to be moved there by code.
+		var/their_hand
+		for(var/index in person.get_empty_held_indexes())
+			if(person.can_put_in_hand(letter, index))
+				their_hand = index
+				break
+		if(isnull(their_hand))
+			break
+		var/was_held = body.is_holding(letter)
+		if(was_held && !body.temporarilyRemoveItemFromInventory(letter))
+			continue
+		if(person.put_in_hand(letter, their_hand))
+			given++
+			continue
+		// Not taken after all: back into the hand it came out of, as give_item does.
+		if(was_held && !QDELETED(letter))
+			body.put_in_hands(letter)
+	if(given)
+		freight_changed()
+	if(!given)
+		return list(FALSE, "[person.name] has no free hand to take the mail. You still have it.")
+	if(given < length(theirs))
+		return list(TRUE, "You hand [person.name] some of the mail that came for them. Their hands are full, so you still have the rest.")
 	return list(TRUE, "You hand [person.name] the mail that came for them.")
 
 /// Tool: send the supply shuttle back, with whatever empty crates are aboard. Cargo staff only.
@@ -674,7 +768,7 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 			return
 		start_errand(calling_from, CREW_TOOL_SEND, null)
 		return
-	if(supply_run_active || crate_to_unload())
+	if(supply_run_active || full_crates_aboard())
 		action_result(CREW_TOOL_SEND, FALSE, "There is still something aboard the supply shuttle that has to come off first.")
 		return
 	var/obj/machinery/computer/cargo/console = supply_console()
@@ -704,10 +798,16 @@ GLOBAL_LIST_EMPTY(crew_npc_crate_claims)
 		// The shuttle will not fly with anyone aboard, or with cargo it is not allowed to carry.
 		// Which, it can see for itself: a body told only "someone or something" tried the console fifteen times.
 		return list(FALSE, "The supply shuttle will not leave: [what_bars_shuttle(shuttle) || "someone is standing aboard it, or something aboard is not allowed to travel"].")
+	// Asked again here: the walk to the console took time, and something may have come up meanwhile (SUP-05).
+	if(full_crates_aboard())
+		return list(FALSE, "There is still something aboard the supply shuttle that has to come off first.")
+	var/aboard = 0
 	var/empties = 0
 	for(var/obj/structure/closet/crate/crate as anything in crates_aboard())
-		empties++
-	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) sent the supply shuttle away with [empties] crate\s aboard.")
+		aboard++
+		if(crew_npc_crate_spent(crate))
+			empties++
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) sent the supply shuttle away with [aboard] crate\s aboard.")
 	SSshuttle.moveShuttle("cargo", "cargo_away", TRUE)
 	freight_changed()
 	return list(TRUE, "You send the supply shuttle back[empties ? " with [empties] empty crate[empties == 1 ? "" : "s"] aboard" : ""].")

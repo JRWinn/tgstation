@@ -90,6 +90,17 @@ export type Job = {
   /** For each of those kinds, the words that mark speech as telling of it. A net for when the LLM does not say. */
   soundsLike?: Record<string, RegExp>;
   /**
+   * TRUE if work of this kind in this room is work its own code has just turned down, so it is
+   * not taken on by the model's say-so or from the words of a line: a call to a mess it said it
+   * cannot shift (LOGA-07). Read by takeToldWork in tasks.ts, which passes who told it.
+   */
+  refusesWork?: (
+    brain: NpcBrain,
+    kind: string,
+    place: string,
+    toldBy?: string,
+  ) => boolean;
+  /**
    * Makes out a request in what was just said to the NPC, without an LLM: the action to take, or
    * null. Only used when the LLM could not be asked, so that a dead LLM does not leave the crew deaf.
    */

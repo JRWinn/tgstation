@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 08dc71429b2, fde11247e0c, 56da8fb64a6, 444318f8cc1, 347a98bed24
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: logs
@@ -89,3 +90,12 @@ Seen in a round log: `data/logs/2026/11/19/round-19.33.50`, `pda.log` 01:44:31 a
 Read `readsMessage` in `jobs/janitor.ts` (the decline at the "I have no soap or rag" line returns with no task and no note), the `work` branch in `brain.ts` (it passes the model's `what` and `where` straight to `takeToldWork`), `takeToldWork` and `workInWords` in `tasks.ts` (no job is asked about the work beyond `takes` and `knowsPlace`), the `Job` interface in `jobs/job.ts` (no hook that could refuse it), and the CLEAN plan's `via` and walk. Read Penelope Alekseev's records in `round-19.33.50/crew_brain.log` from 01:44:02 to 01:46:53 and `game.log` lines 700 to 910: the decline at 01:44:47, the model's `work` for the Bitrunning Den at 01:45:11 (the prompt's own instruction tells it to name any mess it is told of "whether or not you can see to it now"), the `go_to("Bitrunning Den")` at 01:45:27, and the failed walks at 01:45:41 and 01:51:07 with the door "locked to it". No change log or plan entry covers it.
 
 Confirmed. The task the model made has neither `via` nor `wantsScrub`, so even let in it would try the cobweb with a space cleaner. Effort raised to medium: the fix touches `types.ts`, `brain.ts`, `jobs/job.ts`, `tasks.ts` and `jobs/janitor.ts`, though each by a few lines. Step 3 of the fix (leaving a handled message out of what the model may answer "work" for) is the general cure and keeps the rule that the code decides, but changes `readsMessage`'s return type for every job, so it is the larger piece. Severity medium kept: it needs a scrub-only call while the janitor has nothing to scrub with; the cost is a wasted walk and a task that sits blocked. Not run: nothing.
+
+## Fix so far
+
+Built on branch `m-janitor` in `jobs/janitor.ts` only (type check, tables, simulator `solo` and `crew` once each; not played). When `readsMessage` turns a scrub-only call down, it notes the room and the caller (`declinedCalls`, a note kept beside the brain like the water notes, so no new brain field). While that note stands (`DECLINED_DS`, five minutes) and the janitor still has no soap or rag to hand, a told CLEAN task for that room from that caller that the message itself did not make (`wantsScrub` unset: the model's `work`, or `workInWords`) is not planned (`plan` gives a not-ready step) and is dropped at the next `syncTasks`. Holding or knowing of soap or a rag clears the notes. A call to the same room from anyone else is taken as before. Table: `tools/llm_crew/janitor-declined.ts`.
+
+Held (not needed for this case, but the general cure, step 3): `readsMessage` returning whether it handled a message, and `brain.ts` leaving such a message out of what the model may answer "work" for; or the `refusesWork` hook in `jobs/job.ts` and `tasks.ts` (`takeToldWork`, `workInWords`).
+
+Round M2 (g-brain): step 3's type is in. `refusesWork?: (brain, kind, place) => boolean` is on `Job` (`jobs/job.ts`). `takeToldWork` (`tasks.ts`) still reads it through its own cast, which keeps compiling; g-tasks can drop the cast and call `jobFor(brain.job).refusesWork?.(brain, kind, room)` directly.
+Round M2 (g-tasks): `refusesWork(brain, kind, place, toldBy)` added to the janitor in `jobs/janitor.ts` (set with `Object.assign` so it compiles before `Job` types it), and `takeToldWork` in `tasks.ts` passes `toldBy`: a CLEAN in a room with a standing decline note from the same caller, while the janitor has no soap or rag to hand nor knows of one, is not taken at all (the model's `work` and `workInWords` both). A later call to that room that `readsMessage` takes clears the note. Table: `tools/llm_crew/janitor-declined.ts`. Not built: step 3 (`readsMessage` returning whether it handled a message).

@@ -256,7 +256,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/turf/best_turf
 	var/best_score = INFINITY
 	for(var/turf/candidate as anything in post_area.get_turfs_by_zlevel(here.z))
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf())
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf())
 			continue
 		var/nearest = INFINITY
 		var/total = 0
@@ -312,7 +312,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/turf/best_turf
 	var/best_distance = INFINITY
 	for(var/turf/candidate as anything in room_turfs)
-		if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate, 2))
+		if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || !crew_npc_clear_of_doors(candidate, 2))
 			continue
 		var/distance = get_dist(candidate, middle)
 		if(distance < best_distance)
@@ -354,6 +354,42 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 			visited_places[place_name] = list(spot.x, spot.y, spot.z)
 		return place_name
 	return null
+
+/// What the orders already in the supply cart will take out of the cargo budget when the shuttle loads: those no one pays for out of pocket, and that are not a department's own.
+/proc/crew_npc_cart_owed_by_cargo()
+	var/owed = 0
+	for(var/datum/supply_order/waiting as anything in SSshuttle.shopping_list)
+		if(waiting.paying_account || waiting.department_destination || !waiting.charge_on_purchase)
+			continue
+		owed += waiting.get_final_cost()
+	return owed
+
+/// world.time the supply shuttle last loaded at the far dock, as heard by this body's order run. An order still in the cart after that was not bought.
+/datum/ai_controller/crew_npc/var/supply_bought_at = 0
+
+/// Notes that the supply shuttle is loading. Whether the order on the go was bought is decided when the shuttle is home.
+/datum/ai_controller/crew_npc/proc/supply_shuttle_bought(datum/source)
+	SIGNAL_HANDLER
+	if(!supply_run_active)
+		UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+		return
+	supply_bought_at = world.time
+
+/// TRUE if the shuttle has loaded since the order on the go was placed, and left it in the cart: there was not the money for it.
+/datum/ai_controller/crew_npc/proc/order_unbought()
+	var/datum/supply_order/order = pending_order?.resolve()
+	return !isnull(order) && (order in SSshuttle.shopping_list) && supply_bought_at > supply_run_started_at
+
+/**
+ * world.time the supply shuttle docked at the station with the order on the go, or 0 until it has.
+ * From then the order has come, wherever the body was: the shuttle is not moved for it again and
+ * the run does not time out. It waits for the body to be back in the bay to see it. A workmate
+ * that unloaded the crates and sent the shuttle away was having it called straight back, and the
+ * order given up as held up with its crates in the bay (MULTI-02).
+ */
+/datum/ai_controller/crew_npc/var/supply_run_landed_at = 0
+/// Longest an order that has come waits for the body that placed it to be back in the bay to see it.
+#define CREW_NPC_SUPPLY_LANDED_WAIT (30 MINUTES)
 
 /// Reads how many crates were asked for from what the brain sent, which may be a number or text. At least one, and no more than cargo orders at once.
 /datum/ai_controller/crew_npc/proc/crates_wanted(count)
@@ -398,7 +434,10 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		action_result(CREW_TOOL_ORDER, FALSE, "You already have an order on the go. See that one through first.")
 		return
 	// An order the budget cannot cover is never loaded, and the shuttle would come back without it.
-	var/cost = 0
+	// What is already in the cart is paid for first, out of the same budget, in the order it was
+	// placed. Two orders that each fit but not together both passed, and the second flew to and fro
+	// unbought until it was called held up (SUP-11). The console shows the cart beside the budget.
+	var/cost = crew_npc_cart_owed_by_cargo()
 	for(var/kind in wanted)
 		var/datum/supply_pack/pack = SSshuttle.supply_packs[known[kind]]
 		cost += pack.get_cost() * wanted[kind]
@@ -478,7 +517,10 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	pending_order = WEAKREF(last_placed)
 	ordered_crate_name = placed_items[1]
 	supply_run_started_at = world.time
+	supply_run_landed_at = 0
 	supply_run_active = TRUE
+	// To know, when the shuttle is home with the order still in the cart, that it went and loaded without it.
+	RegisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY, PROC_REF(supply_shuttle_bought), override = TRUE)
 	addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 	return list(TRUE, "You order [ordered_words][order_for ? " for [order_for]" : ""] at the supply console and call the shuttle. It will be a few minutes. You will know when it docks.")
 
@@ -490,9 +532,31 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	if(!supply_run_active || QDELETED(pawn))
 		supply_run_active = FALSE
 		return
+	var/in_bay = isnull(post_turf) || get_area(pawn) == get_area(post_turf)
+	// It has come. All that is left is for the body to be back in the bay to see it (MULTI-02).
+	if(supply_run_landed_at)
+		var/mob/living/body = pawn
+		if(in_bay && body.stat != DEAD)
+			order_arrived()
+			return
+		// Not for ever: a body that is dead, or has not been back in half an hour, is not coming back for it.
+		if(body.stat == DEAD || world.time - supply_run_landed_at > CREW_NPC_SUPPLY_LANDED_WAIT)
+			supply_run_active = FALSE
+			pending_order = null
+			UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+			if(body.stat != DEAD)
+				action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle came in with what you ordered ([ordered_words]) a long while ago, while you were away from the bay, and you have not been back to see it since.")
+			return
+		addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
+		return
 	if(world.time - supply_run_started_at > CREW_NPC_SUPPLY_TIMEOUT)
+		var/no_money = order_unbought()
 		supply_run_active = FALSE
 		pending_order = null
+		UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
+		if(no_money)
+			action_result(CREW_TOOL_ORDER, FALSE, "What you ordered ([ordered_words]) has still not come: the supply shuttle came back without it, as there was not enough money in the cargo budget to pay for it. It is still in the supply cart.", list("no_money" = TRUE))
+			return
 		action_result(CREW_TOOL_ORDER, FALSE, "What you ordered ([ordered_words]) has still not come. Something is holding the supply shuttle up.")
 		return
 
@@ -501,19 +565,24 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// order that is gone is an order aboard, and once the shuttle is at the station it has been delivered.
 	var/datum/supply_order/order = pending_order?.resolve()
 	var/aboard = isnull(order) || !(order in SSshuttle.shopping_list)
+	// Loaded without it: the cargo budget could not pay. The shuttle coming home is the end of the
+	// run all the same, and it is not held up by anything (SUP-11).
+	var/came_home = aboard || order_unbought()
 	if(shuttle.mode == SHUTTLE_IDLE && !SSshuttle.supply_blocked)
 		var/docked_at = shuttle.getDockedId()
 		if(docked_at == "cargo_home")
 			// The body learns of it the way a person would: it is in the bay and sees the shuttle dock.
 			// Anywhere else, it finds out when it next gets back.
-			if(aboard && (isnull(post_turf) || get_area(pawn) == get_area(post_turf)))
+			if(came_home && in_bay)
 				order_arrived()
 				return
-			if(aboard)
+			if(came_home)
+				// Whatever happens to the shuttle now, the order has come.
+				supply_run_landed_at = world.time
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			// Something that came on it has yet to be hauled off. Sent now, it would go back with it.
-			if(crate_to_unload())
+			if(full_crates_aboard())
 				addtimer(CALLBACK(src, PROC_REF(supply_run_step)), CREW_NPC_SUPPLY_CHECK)
 				return
 			if(shuttle.canMove())
@@ -535,7 +604,13 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /datum/ai_controller/crew_npc/proc/order_arrived()
 	supply_run_active = FALSE
 	pending_order = null
+	UnregisterSignal(SSshuttle, COMSIG_SUPPLY_SHUTTLE_BUY)
 	var/list/known = orderable_crates()
+	// Those of its orders the shuttle loaded without, still in the cart: the budget could not pay for them (SUP-11).
+	var/list/unpaid = list()
+	for(var/datum/supply_order/waiting as anything in SSshuttle.shopping_list)
+		if(waiting.id in ordered_numbers)
+			unpaid += waiting.id
 	// The crates of the order are known by the numbers on their manifests. A workmate may have
 	// hauled one off the shuttle already, so the bay and the lobby are looked in as well.
 	var/list/aboard = crates_aboard()
@@ -575,9 +650,18 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 				unmatched -= number
 				break
 	ordered_numbers = list()
-	var/missing = length(unmatched) ? " [capitalize(crew_npc_numbers_written(unmatched))] did not come with it." : ""
+	var/list/not_come = unmatched - unpaid
+	var/missing = length(not_come) ? " [capitalize(crew_npc_numbers_written(not_come))] did not come with it." : ""
+	if(length(unpaid))
+		var/list/unpaid_written = list()
+		for(var/number in unpaid)
+			unpaid_written += "#[number]"
+		missing += " Order[length(unpaid) > 1 ? "s" : ""] [english_list(unpaid_written)] [length(unpaid) > 1 ? "are" : "is"] still in the supply cart: there was not enough money in the cargo budget to pay for [length(unpaid) > 1 ? "them" : "it"]."
 	if(!length(found))
-		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.")
+		if(length(unpaid) && !length(not_come))
+			action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle came back without [ordered_words]: there was not enough money in the cargo budget to pay for it.", list("no_money" = TRUE))
+			return
+		action_result(CREW_TOOL_ORDER, FALSE, "The supply shuttle has docked, but you cannot see what you ordered ([ordered_words]) aboard.[missing]")
 		return
 	// From here they are held for collection, whoever hauls them off the shuttle.
 	var/list/numbers = list()
@@ -621,7 +705,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// A small room may have nowhere two tiles from a door. One tile will do, and failing that anywhere to stand.
 	for(var/clearance in list(2, 1, 0))
 		for(var/turf/candidate as anything in room_turfs)
-			if(!crew_npc_safe_turf(candidate) || candidate.is_blocked_turf() || (clearance && !crew_npc_clear_of_doors(candidate, clearance)))
+			if(!far_spot_safe(candidate) || candidate.is_blocked_turf() || (clearance && !crew_npc_clear_of_doors(candidate, clearance)))
 				continue
 			var/distance = get_dist(candidate, middle)
 			if(distance < best_distance)
@@ -642,7 +726,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	var/mob/living/carbon/human/body = pawn
 	// What was in it, read before it is opened: once open, the tile is read, with whatever was lying there already.
 	var/list/names = list()
-	for(var/obj/item/thing as anything in crew_npc_crate_holds(crate))
+	for(var/atom/movable/thing as anything in crew_npc_crate_holds(crate))
 		names |= format_text(thing.name)
 	if(crate.opened)
 		return names
@@ -682,6 +766,9 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		destination = middle_of(/area/station/cargo/lobby)
 	if(isnull(place_name) || isnull(destination))
 		return list(FALSE, "You do not know where to take the crate.")
+	// Someone else has it in hand. Taking hold of it now would pull it out of their hands (MULTI-07).
+	if(crate.pulledby && crate.pulledby != body)
+		return list(FALSE, "[crate.pulledby.name] already has hold of the [format_text(crate.name)].")
 	body.start_pulling(crate)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on the [format_text(crate.name)].")
@@ -806,8 +893,25 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		return list("Your PDA has sending turned off.", FALSE)
 	return null
 
-/// Tool: send someone a PDA message.
-/datum/ai_controller/crew_npc/proc/tool_message(person_name, text)
+/**
+ * Returns the room a message is a janitor call to, or null if it is not one. The window says so with
+ * call_for, and only a room of the body's own post counts (MULTI-06): a mail notice or a lost-crate
+ * notice to a janitor is no call, and used to hold the workmates back from calling one for ten minutes.
+ */
+/datum/ai_controller/crew_npc/proc/janitor_call_room(call_for)
+	if(!istext(call_for) || !length(call_for) || isnull(post_place))
+		return null
+	// work_area holds the post and, for cargo staff, the Cargo Lobby, which leaves look_in_rooms for it.
+	if(call_for == post_place || (call_for in work_area) || (call_for in look_in_rooms))
+		return call_for
+	return null
+
+/**
+ * Tool: send someone a PDA message.
+ *
+ * call_for, when the window sends one, is the room the message calls a janitor to (MULTI-06).
+ */
+/datum/ai_controller/crew_npc/proc/tool_message(person_name, text, call_for)
 	var/mob/living/carbon/human/body = pawn
 	var/datum/computer_file/program/messenger/own_messenger = pda_messenger()
 	if(isnull(own_messenger))
@@ -852,7 +956,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		// reports, and nobody was called to a meeting.
 		var/already_kept = !isnull(unsent_messages[unsent_key])
 		if(!already_kept)
-			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time)
+			unsent_messages[unsent_key] = list("to" = to_name, "text" = text, "at" = world.time, "call_for" = janitor_call_room(call_for))
 			log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name], and its PDA would not send it[unusable ? " ([unusable[1]])" : ""]. Kept to send again: [text]")
 		if(!unsent_retry_due)
 			unsent_retry_due = TRUE
@@ -862,9 +966,11 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 	// The same words, kept from a try that failed, have now gone.
 	unsent_messages -= unsent_key
 	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was told by its brain to PDA [to_name]: [text]")
-	// A message to a janitor from a post is that post's call for one: the others there need not send their own.
-	if(findtext(target.computer.saved_job, "janitor"))
-		note_janitor_called()
+	// A call to a janitor from a post, to one of its rooms, is that post's call for one there: the others
+	// there need not send their own. Any other message to a janitor is not a call.
+	var/call_room = janitor_call_room(call_for)
+	if(call_room && findtext(target.computer.saved_job, "janitor"))
+		note_janitor_called(call_room)
 	action_result(CREW_TOOL_MESSAGE, TRUE, "You send [to_name] a PDA message.")
 
 /// Returns the messenger of the PDA that goes by this name (lower case), other than the body's own, or null.
@@ -907,8 +1013,9 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 			break
 		unsent_messages -= unsent_key
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) sent [to_name] the PDA message that would not go before: [text]")
-		if(findtext(target.computer.saved_job, "janitor"))
-			note_janitor_called()
+		var/call_room = janitor_call_room(kept["call_for"])
+		if(call_room && findtext(target.computer.saved_job, "janitor"))
+			note_janitor_called(call_room)
 		// One at a time: the PDA will not send two in the same moment. The next follows shortly.
 		went = TRUE
 		break
@@ -940,7 +1047,7 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 /// The body's PDA has received a message. It reads it if the PDA is still on it.
 /datum/ai_controller/crew_npc/proc/on_pda_message(obj/item/modular_computer/computer, datum/signal/subspace/messaging/tablet_message/signal, sender_job, sender_name)
 	SIGNAL_HANDLER
-	if(!can_sense() || !crew_npc_carries(computer))
+	if(!crew_npc_carries(computer))
 		return
 	// Someone who cannot read is not shown the message at all (receive_message in the messenger).
 	var/mob/living/carbon/human/body = pawn
@@ -948,8 +1055,16 @@ GLOBAL_DATUM(crew_npc_cargo_post_console, /datum/weakref)
 		return
 	var/message = html_decode("[signal.data["message"]]")
 	var/sender = "[sender_name || "Someone"]"
+	// A stunned body still sees its PDA buzz. One out cold misses it, and the message sits on the PDA
+	// until it comes to and reads it (CORE-02). A dead body, or one a player has, keeps nothing.
+	if(!can_perceive())
+		if(!QDELETED(body) && body.stat != DEAD && !body.client)
+			keep_missed_pda(computer, sender, "[sender_job]", message)
+		return
 	emit_sense(CREW_SENSE_PDA_MESSAGE, "Your PDA buzzes with a message from [sender][sender_job ? ", [sender_job]" : ""]: \"[message]\"", list(
 		"speaker" = sender,
 		"job" = "[sender_job]",
 		"message" = message,
 	))
+
+#undef CREW_NPC_SUPPLY_LANDED_WAIT

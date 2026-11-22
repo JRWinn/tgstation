@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 58234470a5a
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: doors
@@ -96,3 +97,11 @@ Opus 5.5, 2026-11-19. Confirmed.
 - The rounds: `grep` over `data/logs/2026/11/*/round-*/game.log` finds far more than five walks from the Custodial Closet to a square of (146..149, 98..104) with "no route could be found": also 06:43, 07:55, 14:28, 15:14, 16:48 (two), 17:10 (two) and 18:25 (three) in log time on 2026-11-18. In `round-13.32.16` the line "tested whether it is shut in Custodial Closet ... found no way out" follows 0.05 seconds after the second failure, as quoted.
 - Not checked: how often the second failed walk comes within the first minutes in other rounds; in some rounds the janitor had already stood elsewhere and the test found a way out.
 - The plan's guess ("people in the way") is wrong: the pathfinder plans on objects only. Fix step 1 widened to seed from open boundaries and use `LinkBlockedWithAccess`. Fix step 3 is DOOR-03's item 2; whoever builds one should build both.
+
+## Fix so far
+
+Built by group m-doors (2026-11-19, night), compile only, not played.
+
+- Steps 1 and 2: the flood fill is `open_part_of` (`crew_npc_doors.dm`), built under KNA-19. It is seeded from squares that can be stepped onto from another station room not locked to the body (open floor or a door that opens for it), so the abandoned surgery room in Lesser Starboard Maintenance, which no door or open floor reaches, is left out, and `place_spot` no longer picks a square in it.
+- Step 3 was already in the code: `check_shut_in` tries just outside each door of the room its ID opens first (DOOR-03), and "Nothing tested is no answer" (`else if(tested)`) sets no `shut_in` from zero routes.
+- Step 4: `log_no_route` now ends "That square is in a part of X it cannot get into from any door that opens for it (N squares of it can be got into)." when the goal square is outside the open part.

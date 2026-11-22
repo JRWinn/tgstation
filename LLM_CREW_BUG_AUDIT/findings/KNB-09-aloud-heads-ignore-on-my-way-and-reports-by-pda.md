@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 2338810bf4b, 9efd96e793a, 2436f5bc156
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: head
@@ -95,3 +96,9 @@ Checked by Opus 5.5. Every quote is still what the code says (line numbers drift
 - Listed and left in the change log's "Known and not fixed" (`LLM_CREW_CHANGELOG.md:811`) for the Quartermaster only; no later entry fixes it.
 
 Effort raised to medium: the helper and its four callers span `head.ts`, `quartermaster.ts`, `chiefengineer.ts` and `headofsecurity.ts`, plus a field on the meeting. Severity medium stands: the work goes on, a player sees a technician standing idle and a wrong head count.
+
+## Fix so far
+
+Done in part (group m-heads, 2338810bf4b): `staffMeetingWord` in `jobs/head.ts` reads "On my way" and a report by PDA; the Head of Personnel and the Chief Engineer call it. Step 3 was already in place (`endMeeting` tells those never called on, under an aloud way; LOGA-02). Left: call `staffMeetingWord(brain, from, text, at)` near the top of `readsMessage` in `jobs/quartermaster.ts` and `jobs/headofsecurity.ts` (the latter can drop its own copy, keeping `KEPT_AWAY`), and step 4 for the Quartermaster's needs.
+
+Round M2 (group g-cargo): `jobs/quartermaster.ts` `readsMessage` calls `staffMeetingWord(brain, from, text, at)` first, so a technician's "On my way to the ..." or report by PDA is read as the other heads read it. Step 4 (the Quartermaster's needs): a need in a PDA report goes to `noteAsk`, as a spoken one does through `hearReport`; `SUPPLIES` has nothing for a technician, so for the Quartermaster neither leads anywhere yet. Table case in `tools/llm_crew/cargo-deaddoor.ts`. Left: `jobs/headofsecurity.ts` (group g-sec this round).

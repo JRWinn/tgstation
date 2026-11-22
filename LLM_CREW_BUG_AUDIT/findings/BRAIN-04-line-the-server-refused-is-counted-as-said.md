@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: d8d8ce1120e, b03cbc91a52
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: brain
@@ -124,3 +125,9 @@ Checked by Opus 5.5, from the code on both sides and the round named.
 - Not in the change log or the plans (searched "only just spoke", "too many things", `say_cooldown`).
 - Severity medium is right: the job is not lost for good, because the driver asks again after `fail`'s wait, but the hooks mark asks as made that were never heard. Effort medium is right.
 - Fix: sound. One caution added to step 5 (BRAIN-03 depends on the ninth-call refusal today). For step 2, re-say an LLM answer that was dropped only if it carried `mustSay`. A dropped piece of small talk can simply be lost. That saves a second line nobody needs.
+
+## Fix so far
+
+Steps 1 to 4 are built in the window (`brain.ts`): `brain.sentSay` keeps the last line sent and whether it carried the line its work called for; a `say` refused by the server (`action_result` with `tool: say`, not ok, within 10 seconds) is taken back out of `saidLately` and the talk log, and a carried line is said again word for word after the cooldown (`sayRefused`, `resayIfDue`); a second refusal gives it up and writes `[line lost: ...]` to the brain log. The model-down path no longer sends "I will see to it." beside the line. The window counts each NPC's tool calls over 10 seconds (`callsLately`, `noteCall`): at 6 no `hold` is sent, at 8 no driver step is sent and a `say` is held back and treated as refused. Table: `tools/llm_crew/brain3-said.ts`.
+
+Held (step 5, server, `code/modules/llm_crew/crew_npc_tools.dm`, `tool_call_allowed`): give the dropped call's event its tool name every time it is a `say` (`action_result(CREW_TOOL_SAY, FALSE, ...)`), so the window's refusal reading catches it; and, only together with BRAIN-03's fixes 1 and 3, stop counting `CREW_TOOL_HOLD`. The window's own count should keep the limit from being met, so this is a second line.

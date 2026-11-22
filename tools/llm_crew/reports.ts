@@ -29,6 +29,11 @@ jan.workReported = { cleaned: 5 };
 add('work since the last report', reportWords(jan, null, 0), 'I have cleaned up 3 items and scrubbed 7 spots. I need nothing.');
 add('a total, as a head says it', totalWords({ put_away: 31, cleaned: 22 }), '31 items cleaned up and 22 spots scrubbed');
 add('talk that is not a report is not read as one', readReport('Lovely day for it, Walker.'), null);
+// HEAD-04: "I need" in passing is not a report.
+add('"I need a minute" is not a report', readReport('Hop, I need a minute to put my mop away.'), null);
+add('the step-aside line is not a report', readReport('Excuse me, Hop, could you step aside, please? I need to get this past you.'), null);
+add('a report with no work to count still is one', readReport('Hop, I have nothing to show yet. I need something to clean with.'), { counts: {}, need: true });
+add('and one that needs nothing', readReport('Hop, nothing done yet to speak of. I need nothing.'), { counts: {}, need: false });
 add('the end of a meeting is known by its words', OVER_WORDS.test('Between you, that is 9 spots scrubbed. Nobody needs anything. The meeting is over, thank you.'), true);
 
 // The remark: kept when it is only a remark, left off when it could be taken for anything else.

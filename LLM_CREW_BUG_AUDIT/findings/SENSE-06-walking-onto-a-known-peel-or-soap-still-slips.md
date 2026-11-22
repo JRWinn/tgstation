@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 82954ebe6a4
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: senses
@@ -78,3 +79,9 @@ Read from the code and the base slip procs. Not seen in a round. `LLM_CREW_CHANG
 ## Check
 
 Checked by Opus 5.5. The quotes at `crew_npc_senses.dm:29` and `:70` to `:83` are what the code says: `crew_npc_slippery_thing` asks only for a slippery component, and `mind_its_step` sets walk and nothing else. In the base, `handle_slip` (`_open.dm:589`) lets a walker off only when the lube flags hold `NO_SLIP_WHEN_WALKING`, and `/datum/component/slippery/Slip` (`slippery.dm:174`) checks walking nowhere else. Soap (`clown_items.dm:35`, no flags), the slip gene on peels (`plant_genes.dm:292`, `NONE`) and slippery foam (`effects_foam.dm:46`, no flags) all slip a walker, so a body that knows of one still falls on it. Nothing in the crew code steers the route off the tile; the changelog and `LLM_CREW_PLAN_NO_CHEATS.md` 4.1 list the way round as not built, which is the known gap, and the cause added here is new. Severity medium (a fall of a few seconds, the work goes on, rare things on the floor) and effort medium stand. Added the plan's accepted design to the write-up and the CORE-06 caution to the fix. Nothing was run.
+
+## Fix so far
+
+Group m-senses, 2026-11-19. Built in `crew_npc_senses.dm` only, as the way round the plan (NO_CHEATS 4.1) already accepted, at the walk's plan rather than by a side step: `crew_npc_walking_helps(thing)` reads the slippery component's `lube_flags & NO_SLIP_WHEN_WALKING`; `known_slippery_on(turf)` returns the known slippery thing on a tile (one walking does not help with first), and `knows_slippery` now wraps it. In `mind_its_step`, for a thing walking does not help with, the step is refused once per tile and the controller's PLAY-04 go-round slot is set (`avoid_ref` = the thing, `avoid_turf` = its tile), so the blocked step makes the move loop plan again and `repath_incoming` (`crew_npc_motor.dm`) leaves the tile out through `tile_to_go_round`. If the plan finds no way round (`avoid_gave_up`), the tile is the walk's goal, or the same tile is stepped on again (a move that plans no route), it walks on with care as before and may slip. Oil and blood are as before. A side step was not used: a `Move` from inside the pre-move signal would re-enter the move, and the next plan would as often as not lead back over the peel.
+
+Not done: the log line the go-round writes (`route_planned`, `crew_npc_motor.dm`) says "went round banana peel ... which will not move"; held for that file's owner to word it for a thing on the floor if wanted. The one go-round slot is shared with PLAY-04's blocker: a parked MULEbot and a peel on one walk overwrite each other. Picking the thing up (the other way) is not built. Compile only; not played.

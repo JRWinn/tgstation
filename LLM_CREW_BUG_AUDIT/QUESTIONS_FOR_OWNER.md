@@ -264,3 +264,57 @@ Step 2a of SENSE-11 (drop a name from the workmates whenever that person is seen
 - **MAP-06:** should a cargo post be the room with the counter window to the lobby, whatever console stands there? On MetaStation both answers are the Cargo Bay.
 - **JOBS-02 / CARGO-13 (round two):** open work that runs past its time limit is now given up and shown only in the window. Should whoever asked be sent word, as asked under MEM-11 for blocked work? One answer could serve both.
 - **DESK-10, step 3:** with a mop and soap in hand and a bucket known, should the janitor put the soap in its bag to carry water? As built it goes without the bucket.
+
+---
+
+# From the night fixes (2026-11-19 to 20, branch `crew-bug-fixes-night`)
+
+## PLAY-10: three choices about calling a janitor on an order
+
+Built: any crew member told by a superior to call or ask for a janitor sends one janitor a PDA for the room it stands in (or the room named), and tells whoever asked whom it sent for. A model answer the same as a line the NPC said in the last minute is not said.
+
+1. A model answer the same as one said in the last minute:
+   - A. Say nothing (as built).
+   - B. Ask the model once more, telling it "You said that just now", then say nothing.
+2. A superior's "I'll ask for a janitor myself" is taken as an order:
+   - A. Err towards taking it (as built).
+   - B. Take it only from an imperative or a line with the NPC's name.
+3. A janitor called on an order to a cargo room whose mess no technician has seen is refused at the door (`mayPass` needs `areaMesses`):
+   - A. Let that janitor in for a while.
+   - B. Keep it as built.
+
+## Round M1: the medium bugs marked "Medium fix"
+
+Each is answered "ID: letter". "As built" is what the code does now.
+
+- **SUP-11:** the shuttle loads without an order for want of money. A. the technician takes it out of the cart at the console and tells the asker to ask again; B. leave it in the cart, to be bought when money comes in (as built); C. leave it, but keep its numbers so a later crate is held for the asker (needs CARGO-01).
+- **CHEAT-12:** torn-off manifests. A. kept and handed to the Quartermaster; B. bagged or binned. (Also larger than its label: it moves the arrival word from the dock to the unload. Nothing built.)
+- **SUP-17 (1):** a held crate that leaves cargo's rooms in someone else's hands. A. taken, not lost; B. lost, as the secure-areas plan's table says (as built).
+- **SUP-17 (2):** the taker is not whoever ordered it. A. tell the orderer; B. say nothing.
+- **CORE-03:** a body walking up to someone who goes out of sight. A. walk to where they were last seen, look, then be told "You lost sight of X near ROOM"; B. stop where it lost sight of them; C. keep after them about 3 seconds, then A.
+- **KNB-01:** should cargo staff open the Warehouse shutters with the wall button? A. open and shut them again after; B. open only; C. no.
+- **DOOR-14:** a door with no power or stuck. A. the technician fetches a crowbar and pries it; B. send for engineering.
+- **DOOR-12:** should an engineer hold a fire door open with its crowbar while the other person walks through? A. yes; B. no, report it (as built).
+- **KNA-09:** may the Head of Security take warrants back from an officer it sees down, or that does not answer a fixed "any word on X?" (the 2026-11-18 ruling was that nothing is built for crew who are down)? A. both; B. only the officer seen down; C. leave it until there is medical.
+- **SECT-10:** should security's voice answer PDA talk that is no order (one model call a message)? A. no, nothing is sent (as built); B. the voice answers by PDA; C. a fixed "Captain, noted."
+- **TRB-06:** someone out of their cell early, seen by the officer. A. only tell the Captain (as built); B. arrest them again for the rest of their time.
+- **ARR-04:** how long does an officer hold a prisoner it has no cell for? A. let them go once the warrant's minutes are up in the Brig, and report "X is free"; B. hold them until told; C. hold them for good (as built).
+- **CHEAT-04:** should anyone who stood for a quiet arrest have the cuffs taken off in the cell? A. yes, players too; B. only crew (as built).
+- **SEC-07:** a crew member still in cuffs after its tries. A. it asks whoever stands next to it, who takes them off; B. only security takes them off; C. nobody: it keeps trying, as a player would (as built).
+- **CHEAT-02:** when an officer asks to be let in, should it leave out people no longer aboard? A. check the crew manifest; B. ask anyone on the PDA list (as built).
+- **CARGO-05:** more than four of one kind asked for. A. say "four is the most I can order at once"; B. quietly order four (as built).
+- **TRUST-04:** who may collect a held crate? A. anyone with the number (as built); B. only the owner or someone they sent, checked by PDA with the owner.
+- **QM-02:** a human technician never says an order came in. A. the Quartermaster asks "Has order N come in?"; B. it tells the head who it was given to; C. nothing.
+- **DRV-07:** should a shut-in body that nobody has come for ask and knock again? A. yes, after 2 minutes; B. yes, after another wait (say how long); C. no, once only (as built).
+- **DRV-12:** while its work is only held back, the body still explores. A. it stands still until the hold ends; B. it searches storage in view, otherwise stands still; C. it keeps exploring (as built).
+- **HEAD-10:** no meeting room found for the Head of Personnel. A. hold no meetings and tell the Captain (as built); B. meet in its own office; C. meet at its staff's post.
+- **TRC-04:** after a stop that is not the machine's fault (could not get to it, hands full), should the engineer A. wait for the Captain's word (as built), or B. try again by itself after a few minutes?
+- **ENG-03:** should a player engineer be given orders? A. yes, until it leaves two unanswered (as built); B. only engineers that have spoken the set words.
+- Still open from earlier and touched again in this round: CARGO-02 (with KNB-15: may word to a Quartermaster that cannot be found go by PDA?), CHEAT-15 step 5 (a PDA's flashlight), HAND-08 step 5, DOOR-15 steps 4 and 5 (insulated gloves), KNB-06, MEM-07 step 3.
+
+## Round M2: the held parts of round M1
+
+- **SENSE-08 / CHEAT-15:** a Captain with no card on, known by face and the PDA list. A. refuse to arrest them, with a new reason and words; B. no, the arrest stands; C. refuse with the existing `captain` reason, worded "carries a Captain's ID".
+- **CARGO-04:** should a cargo technician let a security officer in just for asking? A. yes (as built); B. only when it has heard of a warrant.
+- **HEAD-10:** should crew walk between decks? A. turn on multi-deck walking for crew and go through every same-deck test (large); B. keep crew to one deck (as built: no meeting room on its deck means no meeting, and the Captain is told once); C. meet in the head's own office when no room is on its deck.
+- PLAY-10's question 3 (a janitor called on a superior's order is turned away at the door when no technician has seen a mess) was seen in the new `callme` scenario. It still waits on the answer.

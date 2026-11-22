@@ -89,7 +89,7 @@ add('three: one each', dutiesFor(['Vik Hale', 'Cora Tech', 'Sam Rees']), { 'Cora
 add('a fourth helps with the shuttle', dutiesFor(['Vik Hale', 'Cora Tech', 'Sam Rees', 'Zed Ash'])['Zed Ash'], ['shuttle']);
 for (const duties of [['counter'], ['shuttle', 'rooms'], ['counter', 'shuttle', 'rooms']]) {
   const line = dutyLine('Cora Tech', duties);
-  add(`said and read back: "${line}"`, dutiesIn(`${line} Off you go.`), { first: 'Cora', duties });
+  add(`said and read back: "${line}"`, dutiesIn(`${line} Off you go.`), { to: 'Cora', duties });
 }
 add('talk about the work is not handing it out', dutiesIn('Cora, the counter is busy this shift.'), null);
 
@@ -335,6 +335,53 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   CARGO.overhears(kim, { kind: 'speech', details: { speaker: 'Ada Finch', message: sent?.line ?? '', said_to: 'other' } });
   add('a technician it was not said to takes no ask from it', kim.doorAsks ?? [], []);
   add('the crate line is still the see-to line', S.SEE_TO_WORDS.test(S.seeToLine('Sam', 'crate #12 is in the Supply Shuttle and Cora could not get it off the shuttle')), true);
+}
+
+// QM-03: two technicians with one first name are each called by the whole name, and each takes
+// only what is said to its own.
+{
+  const { CARGO } = await import(ROOT + 'jobs/cargo');
+  const S = await import(ROOT + 'jobs/supply');
+  const both = ['Sam Bell', 'Sam Cole'];
+  add('a first name nobody else has is enough', S.calledBy('Cora Tech', ['Cora Tech', 'Sam Bell']), 'Cora');
+  add('a shared first name is said whole', S.calledBy('Sam Cole', both), 'Sam Cole');
+  add('the duty line to a namesake says the whole name', S.dutyLine('Sam Cole', ['shuttle', 'rooms'], both), 'Sam Cole, the shuttle and the rooms are yours this shift.');
+  add('and is read back to the whole name', S.dutiesIn('Sam Cole, the shuttle and the rooms are yours this shift.')?.to, 'Sam Cole');
+  add('the see-to line read back to the whole name', S.seeToLine('Sam Cole', 'crate #12 is in the Supply Shuttle and Cora could not get it off the shuttle').match(S.SEE_TO_WORDS)?.[1], 'Sam Cole');
+  add('the try-again line too', S.tryAgainLine('Sam Cole', 'crate #12').match(S.TRY_CRATE_AGAIN_WORDS)?.[1], 'Sam Cole');
+  add('the let-out line too', S.letOutLine('Sam Cole', 'Sam Bell', 'Warehouse').match(S.SEND_TO_LET_OUT_WORDS)?.slice(1, 4), ['Sam Cole', 'Sam Bell', 'Warehouse']);
+  add('a whole name not its own is never its own', S.calledMe('Sam Cole', 'Sam Bell', []), false);
+  add('its first name alone, with no namesake known, is its own', S.calledMe('Sam', 'Sam Bell', ['Cora Tech']), true);
+  add('its first name alone, with a namesake known, is not', S.calledMe('Sam', 'Sam Bell', ['Sam Cole']), false);
+  add('its whole name is its own', S.calledMe('sam bell', 'Sam Bell', ['Sam Cole']), true);
+  // The Quartermaster writes the work against the one it was said to.
+  const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+  qm.peopleInView = [{ name: 'Sam Bell', job: 'Cargo Technician', handle: 'p2', distance: 1 }, { name: 'Sam Cole', job: 'Cargo Technician', handle: 'p3', distance: 1 }];
+  QUARTERMASTER.afterSaying(qm, 'Sam Bell, the counter is yours this shift.');
+  QUARTERMASTER.afterSaying(qm, 'Sam Cole, the shuttle and the rooms are yours this shift.');
+  add('two duty lines leave one entry each', qm.ledger?.duties, { 'Sam Bell': ['counter'], 'Sam Cole': ['shuttle', 'rooms'] });
+  // Each technician takes only the order said to it.
+  const tech = (name: string) => {
+    const brain: any = makeBrain(name, 'Cargo Technician');
+    brain.post = 'Cargo Bay'; brain.location = 'Cargo Bay'; brain.now = 5000;
+    brain.orderable = ['Replacement Lights'];
+    brain.peopleInView = [{ name: 'Ada Finch', job: 'Quartermaster', handle: 'p1', distance: 1 }, { name: name === 'Sam Bell' ? 'Sam Cole' : 'Sam Bell', job: 'Cargo Technician', handle: 'p9', distance: 2 }];
+    return brain;
+  };
+  const bell = tech('Sam Bell');
+  const cole = tech('Sam Cole');
+  const order = 'Sam Cole, order 3: I need to order a crate of replacement lights, for Hop Kins.';
+  for (const brain of [bell, cole]) {
+    CARGO.overhears(brain, { kind: 'speech', details: { speaker: 'Ada Finch', message: order, said_to: 'other' } });
+  }
+  add('the order to Sam Cole is taken by Sam Cole', cole.givenOrder?.n, 3);
+  add('and not by Sam Bell', bell.givenOrder ?? null, null);
+  const bare = tech('Sam Bell');
+  bare.peopleInView = bare.peopleInView.slice(0, 1);
+  CARGO.overhears(bare, { kind: 'speech', details: { speaker: 'Ada Finch', message: 'Sam, order 4: I need to order a crate of replacement lights, for Hop Kins.', said_to: 'me' } });
+  add('the first name alone, with no namesake known, is still taken', bare.givenOrder?.n, 4);
+  CARGO.overhears(bell, { kind: 'speech', details: { speaker: 'Ada Finch', message: 'Sam Cole, the shuttle and the rooms are yours this shift.', said_to: 'other' } });
+  add("a duty line to Sam Cole goes against Sam Cole in Sam Bell's book", bell.duties, { 'Sam Cole': ['shuttle', 'rooms'] });
 }
 
 let failed = 0;

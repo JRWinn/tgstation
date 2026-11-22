@@ -68,6 +68,23 @@ add('the keeper just knocked down, on their feet a moment ago: left to them a mi
   add('a workmate lying at the post: it just goes', going({ down: 1 }), 'go_to');
   add('a workmate in cuffs at the post: it just goes', going({ cuffed: 1 }), 'go_to');
 }
+// MULTI-02: an order waiting on the shuttle is no reason to stay away from its post.
+{
+  const post = (pending: boolean, given: boolean) => {
+    const b: any = makeBrain('Sam Tech', 'Cargo Technician');
+    b.id = `post-${at++}`;
+    b.post = 'Cargo Bay';
+    b.location = 'Cargo Lobby';
+    b.now = at;
+    b.orderPending = pending;
+    b.givenOrder = given ? { n: 2, items: [], for: 'Hop Kins', by: 'Ada Quarter', at: 0, placed: false } : null;
+    CARGO.syncTasks(b);
+    return b.tasks.some((t: any) => t.kind === 'post' && t.state !== 'done');
+  };
+  add('MULTI-02: in the lobby with only an order on the shuttle: it goes back to its post', post(true, false), true);
+  add('MULTI-02: with an order still to place: it does not', post(false, true), false);
+  add('MULTI-02: nothing in hand at all: it goes back, as before', post(false, false), true);
+}
 
 let failed = 0;
 for (const [label, got, want] of cases) {

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 323bdefcb35, 2634e8d4533
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: hands
@@ -94,3 +95,9 @@ Checked by Opus 5.5. Read `tool_pick_up` and `take_from_container` (`crew_npc_ha
 Ran a throwaway script (scratchpad, bun, `fixtures.ts` `janitor()`): `recordStorage` with `looked` (mop, soap) and then `locked` leaves `allKnownItems` as `["mop", "soap"]` with `locked` true, so `knownSupply` stays set and `needs` stays null. The server side was not run (the simulator stands in for it).
 
 Confirmed. Medium stands: it needs the janitor to lose its tool and its remembered locker to be shut, not every round, but then it never asks for supplies again. Effort raised to medium: a few lines in two server files and one window file (FORMAT would call any change on both sides large; this is not a design change, so medium).
+
+## Fix so far
+
+Server, steps 1 and 2 (group m-hands): `report_storage` (`crew_npc_storage.dm`), on `"locked"`, keeps the remembered items and adds `"shut_at" = world.time` to the `storage_memory` entry (a new entry with no items if it was never seen inside); a later `looked` or `open` writes a fresh entry without it. `tool_pick_up` (`crew_npc_hands.dm`) skips a container whose `shut_at` is under `CREW_NPC_STORAGE_RECHECK` (5 minutes) old, so the next nearest is gone to, or the tool fails with "You cannot see one, and you do not remember where one is kept." HAND-06 is not built, so a locker the body's own card opens is still found "locked" and now passed over for five minutes.
+
+Left (held): step 3, `memory.ts` `allKnownItems`: leave out the items of a container whose `locked` is set (keep them in `describeStorage`). Without it the window's `knownSupply` still names the thing, the server answers at once "You cannot see one, ...", and the janitor still does not tell its head it needs supplies.

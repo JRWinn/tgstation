@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: large
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 792bff54a84, 1d299d8c5fa, 16000d301c9, d8f4306ca83
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -188,3 +189,15 @@ The fix keeps the rules: no cheats, the code does the work, nothing waits on the
 This file holds two faults, the count and the stale words. They have one cause in the round but separate fixes. They can be fixed and marked one at a time.
 
 Not done: no build, no simulator, no tables. The driver order was read from the code, not run.
+
+## Fix so far
+
+Both halves are now built, compile, tables and simulator only, not played:
+
+- Server (group p-server, commit 792bff54a84): `hold_arrested` counts only when `arrested?.resolve() != person`, so one person brought in is one arrest however often the cuffs go on.
+- Step 5, changed (group p-secwin, 1d299d8c5fa, 16000d301c9): `syncTasks` in `jobs/officer.ts` drops waiting words on the same name by the table `STALE_AFTER`. "In a cell" and "let go" drop "cannot" and "lost", but not "in cuffs": having had them in cuffs stays true, and the warrant scenario checks that the Captain is told of the cuffs. "Lost" drops "in cuffs" and "cannot"; "in cuffs" drops "cannot" and "lost"; a new "cannot" drops an older one.
+- Step 6: a "cannot" on the person in `security.holding` is an emergency and goes by PDA unless the head is in sight.
+- Step 7: `deskOutcome`'s default case passes no "cannot" on for someone in `desk.held`.
+- Step 8 (d8f4306ca83): the words are now "no cell would take them".
+
+driver.ts was not needed.

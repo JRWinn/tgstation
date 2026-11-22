@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 645e2201228, a98b7612823
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: supply
@@ -102,3 +103,9 @@ Read from the code, both sides of the counter. Not seen in a round. HOLE-06 cove
 ## Check
 
 Read `offers` (`cargo.ts:1859`), the `hears` fallback (`cargo.ts:2344`), the cargo `overhears` block for someone come to collect (`cargo.ts:2216`, `crateMeant`, `pickupAsked`), the held-crate cue in `cues`, `itemsAskedFor` (`cargo.ts:1833`), and in `head.ts` the second asking in `syncTasks`, `overhears`, `readsMessage` and `afterSaying`; on the server `tool_order` (`crew_npc_cargo.dm`, guards `supply_run_active` and the budget only) and the notice strike-off in `tool_message`. The quotes are what the code says (the `offers` test is at 1873, as the write-up has it). Nothing on either side looks at `heldCrates` before an order is offered or placed, and the head reads a crate number only from a PDA. So when the has-come-in PDA is lost, the head's ten-minute second asking buys another crate. Confirmed; added that it repeats every ten minutes while PDAs are down, not only once. With a Quartermaster aboard, `offers` returns no order unless `qmSilent` names this head, so the counter path needs no Quartermaster or one the head has said did not answer, as the write-up says. Not a duplicate: HOLE-06 is PDAs going quiet, HEAD-05 the Quartermaster getting an order twice, TRA-08 a second asker while an order is on its way. Fix judged: the helpers named exist (`takeOrder` in `expected.ts`, `itemsAskedFor`, `crateNumberIn`); in step 2 the technician knows the held crate from its own state, which the server sends it, so it keeps the senses rule. The root cause (a lost PDA) is HOLE-06's; this fix mends only the counter. Severity medium stands, though in test rounds where PDAs go down about 26 minutes in it will come up often. Nothing was run.
+
+## Fix so far
+
+Head side done (group m-heads, 645e2201228): step 4. `crateWord` in `jobs/head.ts` reads "has come in" and "still waiting at cargo" for a PDA message and for a line a cargo worker says to the head (`said_to === 'me'`). Left, in `jobs/cargo.ts`: steps 1 to 3 (`heldFor`, the technician saying the has-come-in line at the counter when a held crate is asked for again, and no `order` option in `offers`/`hears` for a kind already held for the asker).
+
+Round M2 (group g-cargo): steps 1 to 3 built in `jobs/cargo.ts`. `heldFor` was already there; `heldAskedFor` keeps those of a kind asked for (a crate of unknown kind counts). In `overhears`, a head (or command) ordering at the counter for a kind held for them is told, by one technician (`takeOrder`), word for word: "Hal, your order has come in: crate #12 (Janitorial Supplies Crate). Send someone to the Cargo Lobby counter with the number to collect it." (the head's `crateWord` reads it), and nothing else is done with the line. `offers` gives no `order` for that head for `PICKUP_ASK_DS` after, and `agrees` and `hears` refuse an order for a kind held for the asker; another kind is still ordered. Table: `tools/llm_crew/cargo-counter.ts`.
