@@ -326,6 +326,9 @@ GLOBAL_DATUM(crew_npc_cargo_post_room, /area/station/cargo)
  * Getting back to the room from elsewhere on the station is the brain's decision, not this.
  */
 /datum/ai_controller/crew_npc/proc/return_to_post()
+	// Shutters it opened into a room it has come out of are shut again first (KNB-01).
+	if(shut_shutters_behind())
+		return TRUE
 	if(isnull(post_turf) || !COOLDOWN_FINISHED(src, post_return_cooldown))
 		return FALSE
 	// Under arrest, or in a brig cell, it goes nowhere of its own accord.
