@@ -345,20 +345,23 @@ export function syncWanted(brain: NpcBrain): void {
 
 /**
  * Notes how putting someone out of its room went. One who would not go, as against one it had no
- * right to put out, is word for its head. `text` is what the body said of how it went.
+ * right to put out, is word for its head. `text` is what the body said of how it went, and
+ * `details` what the server said of it: `would_not_go` is TRUE only when the hold was broken by
+ * them, FALSE when the body itself went down or they were down, cuffed or strapped (MULTI-08). A
+ * server that does not say is read by its words.
  */
 export function wantedAfterActing(
   brain: NpcBrain,
   act: Action,
   ok: boolean,
   text: string,
+  details: Record<string, unknown> = {},
 ): void {
-  if (
-    act.tool !== 'throw_out' ||
-    ok ||
-    isSecurity(brain.job) ||
-    !WOULD_NOT_GO.test(text)
-  ) {
+  const wouldNotGo =
+    details.would_not_go === undefined || details.would_not_go === null
+      ? WOULD_NOT_GO.test(text)
+      : !!details.would_not_go;
+  if (act.tool !== 'throw_out' || ok || isSecurity(brain.job) || !wouldNotGo) {
     return;
   }
   const name =
