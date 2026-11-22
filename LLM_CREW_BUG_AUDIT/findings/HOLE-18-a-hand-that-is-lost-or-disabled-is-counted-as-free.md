@@ -111,3 +111,5 @@ Left (held):
 - `crew_brain_link.dm` `ui_data`: `wants_bucket` uses `length(body.get_empty_held_indexes())`; use `length(npc.free_hands())`. Send `"working_hands" = npc.working_hand_count()` too, and in the window (`jobs/janitor.ts` water plan, `wants_bucket`) ask for a bucket only with two working hands (step 3, the simpler of its two choices).
 - `crew_npc_quartermaster.dm:94` loops over `get_empty_held_indexes()` to see if there is a hand free for the order book: use `free_hands()`.
 - For the event to come at the moment of the injury, `note_working_hands()` could be called from the sense tick (`crew_npc_senses.dm`), not only from hand use.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: `take_in_hand` (`crew_npc_quartermaster.dm`) takes the clipboard, pen or paper into one of `free_hands()` only, not any empty held slot.

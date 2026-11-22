@@ -246,6 +246,9 @@
 
 /// Sets the body walking to something in order to act on it. The errand leaves report back through finish_errand().
 /datum/ai_controller/crew_npc/proc/start_errand(atom/target, tool, wanted)
+	// A haul under way that this errand replaces lets go of its crate, or its person, and says so (SUP-06).
+	// Before the walk key is cleared below, or it would not be seen as under way.
+	break_off_haul(tool)
 	cancel_search()
 	clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	resting = FALSE
@@ -280,6 +283,15 @@
 
 /// Abandons the errand in progress without reporting on it. Used when the body is sent somewhere else.
 /datum/ai_controller/crew_npc/proc/cancel_errand()
+	// Its claim on a crate it set off for is given up with the errand: reached and in hand, the pull
+	// keeps workmates off it; dropped on the way, it held the crate out of everyone's count for 45 s,
+	// and the shuttle could be sent off with it aboard (SUP-05). A lost grip claims it again in go_back_for.
+	if(errand_tool == CREW_TOOL_UNLOAD || errand_tool == CREW_TOOL_STOW || errand_tool == CREW_TOOL_RECYCLE)
+		for(var/crate_ref in GLOB.crew_npc_crate_claims.Copy())
+			var/list/claim = GLOB.crew_npc_crate_claims[crate_ref]
+			var/datum/weakref/claimant_ref = length(claim) ? claim[1] : null
+			if(claimant_ref?.resolve() == src)
+				GLOB.crew_npc_crate_claims -= crate_ref
 	clean_queue = list()
 	errand_serial++
 	errand_tool = null
@@ -500,7 +512,9 @@
 		if(CREW_NPC_SECURITY_TOOL(tool))
 			details = security_details(tool, outcome)
 		// A fire alarm that would not reset says so, so the brain leaves that room alone (DOOR-11).
-		else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)
+		// A door that would not open says why (welded, bolted, no_power, no_access, fire_doors, stuck),
+		// so the window can tell a dead door from one it could not get to (DOOR-14).
+		else if((tool == CREW_TOOL_RESET_ALARM || tool == CREW_TOOL_DOOR) && length(outcome) >= 3 && islist(outcome[3]))
 			details = outcome[3]
 		// A machine that did not end as asked says why: a walk that came to nothing and a full hand are
 		// not the machine's fault, and the engineer stopped lighting the engine over them (TRC-04).

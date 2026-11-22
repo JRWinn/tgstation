@@ -91,7 +91,8 @@
 	var/mob/living/carbon/human/body = pawn
 	if(body.is_holding(thing))
 		return TRUE
-	for(var/index in body.get_empty_held_indexes())
+	// Only a hand that works: one lost or disabled is no use for it (HOLE-18).
+	for(var/index in free_hands())
 		if(body.can_put_in_hand(thing, index) && body.put_in_hand(thing, index))
 			return TRUE
 	return FALSE
@@ -262,7 +263,7 @@
 		if(WEAKREF(bin) in paper_bins_tried)
 			continue
 		var/area/room = get_area(bin)
-		if(!istype(room, /area/station) || locked_out_of(room) || !crew_npc_safe_turf(get_turf(bin)))
+		if(!istype(room, /area/station) || locked_out_of(room) || !far_spot_safe(get_turf(bin)))
 			continue
 		var/distance = get_dist(body, bin)
 		if(distance < nearest_distance)

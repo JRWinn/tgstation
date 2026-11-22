@@ -94,3 +94,5 @@ Held:
 - Window (steps 0, 1, 3): `tidyStep` (`jobs/cargo.ts`) adds `call_for: task.place` to its message act, and holds back only when `task.place` is in `workmate_called_rooms` (or `""` is, for a call from an old server path); step 0's stopgap if wanted. `types.ts`: `workmate_called_rooms?: string[]`.
 - Simulator (`sim.ts:725` and `:1196`): note a call only for a message with `call_for`, per room, and send `workmate_called_rooms`.
 Compile only; not played.
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: the `crew_npc_cargo.dm` part of step 1 built. `tool_message(person_name, text, call_for)` takes an optional third argument; new `janitor_call_room(call_for)` returns it only when it is text and is `post_place` or in `look_in_rooms`. `tool_message` and `resend_unsent` call `note_janitor_called(room)` only for such a message to a janitor's PDA, and the `unsent_messages` entry keeps `call_for`. Until `crew_npc_tools.dm` passes `arguments["call_for"]` and `tidyStep` sends it, no message is noted as a call at all, so `workmate_called` stays FALSE and workmates are not held back.

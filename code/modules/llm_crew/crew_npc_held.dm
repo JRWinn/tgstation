@@ -32,6 +32,10 @@
 	var/out = FALSE
 	/// Name of whoever is hauling it away, or null.
 	var/collected_by
+	/// world.time the crate was first seen with nobody pulling it while collected_by was set, or 0.
+	/// A claim left that way for CREW_NPC_CRATE_CLAIM lapses: its collector died, was gibbed, or let go
+	/// with no finisher run, and nobody else could ever take the crate (SUP-06).
+	var/loose_since = 0
 	/// How many times someone has gone to it and found they could not get there.
 	var/unreachable = 0
 	/// Why it can no longer be handed over, in words, once it cannot: it is lost.
@@ -75,6 +79,18 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 		// Whoever hauled it off the shuttle, it has been waiting since it left it.
 		if(!QDELETED(crate) && !entry.held_since && !istype(get_area(crate), /area/shuttle))
 			entry.held_since = world.time
+		// A claim on it with nobody pulling it lapses in a while, so it is there for the taking again.
+		if(entry.collected_by)
+			if(!QDELETED(crate) && crate.pulledby)
+				entry.loose_since = 0
+			else if(!entry.loose_since)
+				entry.loose_since = world.time
+			else if(world.time - entry.loose_since > CREW_NPC_CRATE_CLAIM)
+				log_game("Crew NPC held crate #[entry.number]: [entry.collected_by]'s claim on it lapsed, nobody has pulled it for [DisplayTimeText(world.time - entry.loose_since)].")
+				entry.collected_by = null
+				entry.loose_since = 0
+		else
+			entry.loose_since = 0
 		// One that can no longer be handed over is not held any more. It is kept apart until
 		// someone at the post has written it off and whoever ordered it has been told.
 		var/why = crew_npc_crate_lost(entry)
@@ -324,6 +340,10 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	var/datum/weakref/person_ref = istext(handle) ? handle_people[handle] : null
 	var/mob/living/carbon/human/person = person_ref?.resolve()
 	release_for = QDELETED(person) ? last_heard_speaker : person.name
+	// Brought out for someone other than whoever ordered it: written down, so a round shows who
+	// came for whose crate (TRUST-04).
+	if(entry.for_name && release_for != entry.for_name)
+		log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) is bringing out held crate #[entry.number] ordered by [entry.for_name] for [release_for || "someone unknown"][QDELETED(person) ? "" : " ([key_name(person)])"].")
 	begin_haul()
 	start_errand(crate, CREW_TOOL_RELEASE, "crate #[entry.number]")
 
@@ -417,6 +437,7 @@ GLOBAL_LIST_EMPTY(crew_npc_held_claims)
 	if(body.pulling != crate)
 		return list(FALSE, "You cannot get a grip on crate #[entry.number].")
 	entry.collected_by = body.real_name
+	entry.loose_since = 0
 	hauled_name = "crate #[entry.number]"
 	hauled_ref = WEAKREF(crate)
 	// From here it is a walk. Starting it ends this errand, and the walk reports when it is over.

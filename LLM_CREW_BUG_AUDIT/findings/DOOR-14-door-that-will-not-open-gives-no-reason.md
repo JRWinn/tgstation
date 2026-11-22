@@ -103,3 +103,5 @@ Left:
 - `crew_npc_hands.dm`, `finish_errand`: pass the details for this tool. Change `else if(tool == CREW_TOOL_RESET_ALARM && length(outcome) >= 3)` to `else if((tool == CREW_TOOL_RESET_ALARM || tool == CREW_TOOL_DOOR) && length(outcome) >= 3)`. Until then the window gets the new words but no `reason`.
 - `jobs/cargo.ts` (step 3): on `no_power`, `bolted`, `welded` or `fire_doors`, remember the door as dead for a few minutes, tell the person why (aloud in sight, else PDA) and the head. The owner's question in step 3 (crowbar or engineering) is still open.
 - Simulator: the stand-in `open_door` should give these refusals (SIM-04).
+
+Round M2, group g-srv-b (2026-11-20), compile only, not played: the `finish_errand` change built (b1413668a23), with an `islist(outcome[3])` guard. Left as above: the window's step 3 and the simulator.

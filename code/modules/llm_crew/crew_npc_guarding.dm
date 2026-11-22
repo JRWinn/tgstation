@@ -8,6 +8,11 @@
  * It never lays a hand on the Captain or a head of staff.
  */
 
+/// Whoever has this body by the arm to walk it out, as a weak reference, while in_hand_until runs (SUP-06).
+/datum/ai_controller/crew_npc/var/datum/weakref/in_hand_by
+/// How many looks in a row have found that hand no longer on it.
+/datum/ai_controller/crew_npc/var/in_hand_misses = 0
+
 /// Returns the doors into the body's post as weak references. They are found once and kept.
 /datum/ai_controller/crew_npc/proc/post_doors()
 	if(isnull(post_door_refs))
@@ -161,7 +166,7 @@
 		var/turf/spot
 		var/spot_off = INFINITY
 		for(var/turf/candidate as anything in RANGE_TURFS(CREW_NPC_EVICT_REACH, outside))
-			if(get_area(candidate) != beyond || !crew_npc_safe_turf(candidate) || candidate.is_blocked_turf(exclude_mobs = TRUE))
+			if(get_area(candidate) != beyond || !far_spot_safe(candidate) || candidate.is_blocked_turf(exclude_mobs = TRUE))
 				continue
 			if(!crew_npc_clear_of_doors(candidate))
 				continue
@@ -355,13 +360,50 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
 	clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	in_hand_until = world.time + CREW_NPC_EVICT_HOLD
 	in_hand_of = by.name
+	in_hand_by = WEAKREF(by)
+	in_hand_misses = 0
 	stand_still(CREW_NPC_EVICT_HOLD, by)
 	emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] takes you by the arm and starts walking you out of [place].", list("in_hand" = TRUE))
+	addtimer(CALLBACK(src, PROC_REF(check_arm_hold)), 1 SECONDS)
+
+/**
+ * Looks, once a second while it is being walked out by the arm, at whether whoever took hold of it
+ * still has it. If they died, were knocked out, broke off for something else without letting go
+ * through put_out, or the pull broke, nothing else would free it until the 40 s ran out, and every
+ * tool would be refused meanwhile (SUP-06, SENSE-07). Two looks in a row are needed, so a pull that
+ * only slips for a moment does not count. Security's custody keeps its own hold and is left alone.
+ */
+/datum/ai_controller/crew_npc/proc/check_arm_hold()
+	if(QDELETED(src) || QDELETED(pawn) || isnull(in_hand_by))
+		return
+	if(world.time >= in_hand_until || custody_phase)
+		in_hand_by = null
+		return
+	var/mob/living/carbon/human/body = pawn
+	var/mob/living/carbon/human/by = in_hand_by.resolve()
+	if(!QDELETED(by) && body.pulledby == by && by.stat == STABLE)
+		in_hand_misses = 0
+		addtimer(CALLBACK(src, PROC_REF(check_arm_hold)), 1 SECONDS)
+		return
+	if(++in_hand_misses < 2)
+		addtimer(CALLBACK(src, PROC_REF(check_arm_hold)), 1 SECONDS)
+		return
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) is no longer held by the arm by [QDELETED(by) ? (in_hand_of || "someone") : key_name(by)]: the hold lapsed at [AREACOORD(body)].")
+	if(!QDELETED(by))
+		let_go_of(by, null, FALSE)
+		return
+	var/was_held_by = in_hand_of || "Whoever had you by the arm"
+	in_hand_until = 0
+	in_hand_of = null
+	in_hand_by = null
+	talk_hold_until = min(talk_hold_until, world.time)
+	emit_sense(CREW_SENSE_KNOWLEDGE, "[was_held_by] lets go of you.", list("in_hand" = FALSE))
 
 /// Whoever had this body by the arm has let go of it.
 /datum/ai_controller/crew_npc/proc/let_go_of(mob/living/carbon/human/by, place, out)
 	in_hand_until = 0
 	in_hand_of = null
+	in_hand_by = null
 	// It may move again. The loop that kept it still sees this at its next turn and lets it go.
 	talk_hold_until = min(talk_hold_until, world.time)
 	if(!out)
