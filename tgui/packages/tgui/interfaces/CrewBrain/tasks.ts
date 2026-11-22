@@ -250,11 +250,24 @@ const CUFFS_TOLD_AGAIN_MS = 600000;
 
 /**
  * The server says the body is in handcuffs it cannot get off itself (`stuck_in_cuffs`). Whatever
- * its job, it tells its own head, once: face to face if the head is in view, else by PDA. Only
- * security takes the cuffs off (SEC-07, the owner's answer B); a head of staff tells the Captain.
- * With no head in view or on its PDA, nobody is told.
+ * its job, it tells its own head, once, face to face, and at once whatever it is held at (it is
+ * held the whole time it is in cuffs). Only security takes the cuffs off (SEC-07, the owner's
+ * answer B); a head of staff tells the Captain.
+ *
+ * Never by PDA: a player in handcuffs cannot work a PDA's screen (the game's UI goes view-only for
+ * a restrained body, shared_ui_interaction in tgui/states.dm). A head not in view, but known by
+ * name from the PDA's list, is told when it next comes into view, for as long as it is worth
+ * saying. With no head in view or known, nobody is told. Let go (`set_free`, which the server
+ * sends only once the cuffs are off), a word not yet said is dropped: it is no longer true.
  */
 export function noteStuckInCuffs(brain: NpcBrain, event: SenseEvent): void {
+  if (event.details.set_free === true || event.details.set_free === 1) {
+    brain.toTell = brain.toTell.filter(
+      (tell) => !tell.line.endsWith(STUCK_IN_CUFFS_LINE),
+    );
+    brain.cuffsToldAt = undefined;
+    return;
+  }
   const stuck = event.details.stuck_in_cuffs;
   if (stuck !== true && stuck !== 1) {
     return;
@@ -288,11 +301,14 @@ export function noteStuckInCuffs(brain: NpcBrain, event: SenseEvent): void {
   brain.cuffsToldAt = Date.now();
   brain.toTell.push({
     to,
-    line: seen ? `${to.split(' ')[0]}, ${STUCK_IN_CUFFS_LINE}` : STUCK_IN_CUFFS_LINE,
+    line: `${to.split(' ')[0]}, ${STUCK_IN_CUFFS_LINE}`,
     why: `You are in handcuffs and cannot get them off yourself. Only security can take them off. You are telling ${to}, your head, so.`,
-    byPda: !seen,
     exact: true,
+    // Said in passing while it is held: in cuffs, it is held until they are off.
+    whileBusy: true,
     at: Date.now(),
+    // A head not in view now may come by later: kept as long as it would not say it again.
+    keepMs: CUFFS_TOLD_AGAIN_MS,
   });
 }
 
