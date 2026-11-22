@@ -15,7 +15,9 @@ export type SenseEvent = {
     | 'action_result'
     | 'storage_seen'
     | 'pda_message'
-    | 'knowledge';
+    | 'knowledge'
+    /** A security body walked out of a room by its keeper: details.by, details.put_out_of (ARR-02). */
+    | 'walked_out';
   text: string;
   details: {
     handle?: string;

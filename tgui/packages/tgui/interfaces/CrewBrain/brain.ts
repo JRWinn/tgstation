@@ -1426,6 +1426,7 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
         )
       );
     case 'knowledge':
+    case 'walked_out':
       // Being walked out of a room by the arm is something to have a word about.
       return !!event.details.put_out_of && brain.peopleInView.length > 0;
     case 'speech_heard':
