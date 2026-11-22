@@ -625,7 +625,8 @@ function cratesWritten(numbers: number[]): string {
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
  * that name, and the name alone: not their job. With no number given, the one crate held
  * for whoever is asking comes first: "I'm here for my crate" from the one it is for (CARGO-08).
- * With several held for them and no number, it does not pick: they are asked which.
+ * With several held for them and no number, they are given them all, one after another, the one
+ * that has waited longest first (CARGO-08 A; the next ones come from `nextForCollector`).
  */
 function crateMeant(
   brain: NpcBrain,
@@ -642,8 +643,8 @@ function crateMeant(
   }
   // Only when no number was given: one who gave a wrong number is told so, not handed another.
   const theirs = number === null ? heldFor(brain, speaker) : [];
-  if (theirs.length === 1) {
-    return theirs[0];
+  if (theirs.length > 0) {
+    return longestWaiting(theirs);
   }
   const said = heard.toLowerCase();
   const says = (words: string) =>
@@ -659,6 +660,41 @@ function crateMeant(
     }
     return says(crate.for) || says(firstName(crate.for));
   });
+}
+
+/** Of some held crates, the one that has been off the shuttle longest. */
+function longestWaiting(crates: HeldCrate[]): HeldCrate | undefined {
+  return [...crates].sort((one, other) => other.waited - one.waited)[0];
+}
+
+/**
+ * For each NPC, someone who came for their crates with several held and gave no number: they are
+ * brought out one after another, and this is who the next is for (CARGO-08 A).
+ */
+const collectingAll = new Map<string, string>();
+
+/**
+ * Once a crate is out for someone collecting all theirs, the next held for them, if any: they are
+ * seen to as if they had come for it by number. Returns TRUE if there is a next one.
+ */
+function nextForCollector(
+  brain: NpcBrain,
+  name: string,
+  justOut: number,
+): boolean {
+  if (collectingAll.get(brain.id) !== name) {
+    return false;
+  }
+  // The one just brought out may not be marked out yet: the server says so in its next update.
+  const next = longestWaiting(
+    heldFor(brain, name).filter((crate) => crate.number !== justOut),
+  );
+  if (!next) {
+    collectingAll.delete(brain.id);
+    return false;
+  }
+  brain.pickupAsked = { name, number: next.number, at: brain.now };
+  return true;
 }
 
 /** The held crates for this person that are still in the bay, not brought out or taken. */
@@ -2923,7 +2959,10 @@ export const CARGO: Job = {
         // minutes, the line was said to a janitor walking back in with the crate empty.
         keepMs: LOBBY_LINE_KEPT_MS,
       });
-      if (brain.pickupAsked?.name === task.askedBy) {
+      if (
+        brain.pickupAsked?.name === task.askedBy &&
+        !nextForCollector(brain, task.askedBy, Number(task.item))
+      ) {
         brain.pickupAsked = null;
       }
     }
@@ -3416,15 +3455,27 @@ export const CARGO: Job = {
       };
       const first = firstName(speaker);
       const theirs = heldFor(brain, speaker);
-      if (!crate && number === null) {
-        // No number given: "by that number" would be untrue. Ask which (CARGO-08).
+      // Several held for them and no number: all of them, one after another (CARGO-08 A).
+      if (number === null && theirs.length > 1 && crate?.for === speaker) {
+        collectingAll.set(brain.id, speaker);
+        const line = `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. I will bring them out one after another.`;
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: speaker,
-          line:
-            theirs.length > 1
-              ? `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. Which number is it?`
-              : `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
-          why: `${speaker} has come to collect a crate and gave no number. ${theirs.length > 1 ? `You are holding ${theirs.length} for them, and are asking which one.` : 'You are holding none for them, nor one for anyone they named, and are asking for the number.'}`,
+          line,
+          why: `${speaker} has come to collect their crates and gave no number. You are holding ${theirs.length} for them, and are bringing each out to the lobby in turn.`,
+          needs: /\b(one after another|each|all|in turn)\b/i,
+          at: Date.now(),
+        });
+      } else if (number !== null) {
+        collectingAll.delete(brain.id);
+      }
+      if (!crate && number === null) {
+        // No number given, and none held for them: "by that number" would be untrue (CARGO-08).
+        brain.toTell.push({
+          to: speaker,
+          line: `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
+          why: `${speaker} has come to collect a crate and gave no number. You are holding none for them, nor one for anyone they named, and are asking for the number.`,
           needs: /\b(which|number)\b/i,
           at: Date.now(),
         });
