@@ -1183,13 +1183,10 @@ const onOrderListed = new Set<string>();
 /**
  * Puts a janitor it sent for on an order (planCall in jobs/orders.ts, kept in
  * brain.calledOnOrder) on the department's list, as a call it made to a mess is: the order is the
- * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A). Read
- * through a cast, so that this works with or without the field in types.ts.
+ * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A).
  */
 function listCallsOnOrder(brain: NpcBrain): void {
-  const calls =
-    (brain as { calledOnOrder?: { room: string; janitor: string; at: number }[] })
-      .calledOnOrder ?? [];
+  const calls = brain.calledOnOrder ?? [];
   if (!brain.post) {
     return;
   }
