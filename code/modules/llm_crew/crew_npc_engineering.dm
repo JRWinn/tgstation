@@ -99,8 +99,8 @@
  * crystal is, and the energy in it. Null if it has no reading.
  *
  * It knows the engine the way a player away from the engine room does: from the monitor
- * program, and that program needs the station's network. With no PDA, no such program on it, or
- * the network down, as it is when the power has gone, it knows nothing.
+ * program, and that program needs the station's network. With no PDA, no such program on it, the
+ * PDA switched off, or the network down, as it is when the power has gone, it knows nothing.
  */
 /datum/ai_controller/crew_npc/proc/engine_reading()
 	var/mob/living/carbon/human/body = pawn
@@ -110,8 +110,11 @@
 	for(var/obj/item/modular_computer/computer in body.get_equipped_items(INCLUDE_POCKETS | INCLUDE_HELD))
 		if(!(locate(/datum/computer_file/program/supermatter_monitor) in computer.stored_files))
 			continue
-		// The monitor is read on the screen, as a player does: the PDA whole, switched on and read.
-		if(!pda_screen_usable(computer))
+		// The monitor is read on the screen, as a player does: the PDA whole, read, and already
+		// switched on. Nothing here presses its power button: this runs at every update of the
+		// window, and a PDA switched on by itself drains its cell (CHEAT-14, the owner's answer B).
+		// It is switched on when the body uses it for something, such as sending a message.
+		if(!pda_readable(computer) || !computer.enabled)
 			continue
 		if(!computer.get_ntnet_status())
 			continue
