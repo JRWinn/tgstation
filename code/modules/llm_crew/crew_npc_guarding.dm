@@ -12,6 +12,29 @@
 /datum/ai_controller/crew_npc/var/datum/weakref/in_hand_by
 /// How many looks in a row have found that hand no longer on it.
 /datum/ai_controller/crew_npc/var/in_hand_misses = 0
+/// Security staff the body has lately heard (or read, by PDA) speak of a warrant or an arrest, by name: name = world.time (ARR-02).
+/datum/ai_controller/crew_npc/var/list/warrant_heard_from = list()
+
+/// How long someone from security heard to speak of a warrant is left to serve it, before they may be seen out like anyone (ARR-02). As the window's WARRANT_WELCOME_DS.
+#define CREW_NPC_WARRANT_STANDS (5 MINUTES)
+/// The kind of the event that tells someone from security it was walked out of a room, and by whom (ARR-02). The window reads it by this name.
+#define CREW_SENSE_WALKED_OUT "walked_out"
+
+/**
+ * Someone has said a line the body heard, or sent it a PDA message: `job_title` is the job they are
+ * known by (the ID they wear, or the job the PDA shows). Someone from security speaking of a warrant
+ * or an arrest is here on one, as anyone who heard them would take it, and is not walked out of the
+ * room for a while (ARR-02, the owner's words). The body knows nothing of security's list.
+ */
+/datum/ai_controller/crew_npc/proc/note_warrant_word(speaker_name, job_title, message)
+	if(!istext(speaker_name) || !length(speaker_name) || !istext(message))
+		return
+	if(!findtext(message, "warrant") && !findtext(message, "under arrest"))
+		return
+	var/datum/job/their_job = istext(job_title) ? SSjob.get_job(job_title) : null
+	if(isnull(their_job) || !(their_job.departments_bitflags & DEPARTMENT_BITFLAG_SECURITY))
+		return
+	warrant_heard_from[speaker_name] = world.time
 
 /// Returns the doors into the body's post as weak references. They are found once and kept.
 /datum/ai_controller/crew_npc/proc/post_doors()
@@ -269,6 +292,12 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
 /datum/ai_controller/crew_npc/proc/why_not_put_out(mob/living/carbon/human/person)
 	if(belongs_in_post(person))
 		return "[person.name] has every right to be in [post_place]."
+	// Someone from security it has heard speak of a warrant is serving it, and is not walked out (ARR-02).
+	var/heard_at = warrant_heard_from[person.name]
+	if(heard_at && world.time - heard_at < CREW_NPC_WARRANT_STANDS)
+		var/datum/job/their_job = crew_npc_job_of(person)
+		if(their_job && (their_job.departments_bitflags & DEPARTMENT_BITFLAG_SECURITY))
+			return "[person.name] is here on a warrant."
 	if(crew_npc_is_command(person))
 		return "[person.name] outranks you. You do not lay a hand on them."
 	// No head's card on them, but the face and the PDA list say who it is.
@@ -350,7 +379,11 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
 		// A hold lost because this body itself went down is its own trouble, not theirs: they did not get away.
 		if(why == "they got away from you" && (body.incapacitated || body.body_position == LYING_DOWN))
 			why = "you were knocked down"
-		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].")
+		// Only a hold they broke is their refusing to go (MULTI-08, the owner's answer B; API-01): the
+		// walk timing out, no way to the door, the body going down, or them being down, in cuffs or
+		// strapped to a seat is no refusal. The window needs that and the telling to leave before a warrant.
+		var/broke_hold = reason == "they got away from you" && why == reason && !crew_npc_person_down(person) && !person.handcuffed && !person.buckled
+		action_result(CREW_TOOL_EVICT, FALSE, "You could not get [person.name] out of [post_place]: [why].", list("would_not_go" = broke_hold, "person" = person.name))
 
 /// Someone has taken this body by the arm to walk it out of a room. It goes along with it.
 /datum/ai_controller/crew_npc/proc/taken_hold_of(mob/living/carbon/human/by, place)
@@ -411,6 +444,11 @@ GLOBAL_LIST_EMPTY(crew_npc_open_ways)
 		return
 	// It was not wanted in there, so it does not go straight back and try the door.
 	blocked_places[place] = world.time
+	// Security walked out by a room's keeper is told it as an event of its own, with who did it: if
+	// that is the one it has a warrant on, it is fighting back (ARR-02). The server knows no warrants.
+	if(works_in_security())
+		emit_sense(CREW_SENSE_WALKED_OUT, "[by.name] has walked you out of [place] and let go of you.", list("put_out_of" = place, "by" = by.name))
+		return
 	emit_sense(CREW_SENSE_KNOWLEDGE, "[by.name] has walked you out of [place] and let go of you. You had no business in there.", list("put_out_of" = place))
 
 /**
@@ -483,3 +521,6 @@ GLOBAL_LIST_EMPTY(crew_npc_janitor_calls)
 		if(windoor.dir == direction)
 			return TRUE
 	return FALSE
+
+#undef CREW_NPC_WARRANT_STANDS
+#undef CREW_SENSE_WALKED_OUT

@@ -263,6 +263,8 @@
 	var/turf/stand_at
 	/// TRUE once this walk has had to go round to such a square.
 	var/walked_round = FALSE
+	/// The square the person the errand is for was last seen on, once the body has lost sight of them (CORE-03). Null while it can see them.
+	var/turf/lost_at
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/setup(datum/ai_controller/controller)
 	var/datum/ai_controller/crew_npc/crew_controller = controller
@@ -295,6 +297,31 @@
 		if(length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
 			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
 	var/atom/target = controller.blackboard[target_key]
+	// Someone the errand is for who goes out of sight is not followed by their steps (CORE-03): the
+	// body walks to where they were last seen and looks. Seen again, it goes on; not, the errand ends.
+	if(target_key == BB_CREW_NPC_ERRAND_TARGET && ismob(target))
+		if(lost_at)
+			if(crew_controller.sees_again(target))
+				log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) saw [target.name] again at [AREACOORD(target)], and goes on with its [crew_controller.errand_tool || "errand"].")
+				lost_at = null
+				controller.ai_movement.start_moving_towards(controller, target, required_dist)
+				return AI_BEHAVIOR_INSTANT
+			if(movement_failed || get_dist(controller.pawn, lost_at) <= 1)
+				if(!movement_failed && crew_controller.sees_again(target, TRUE))
+					lost_at = null
+					controller.ai_movement.start_moving_towards(controller, target, required_dist)
+					return AI_BEHAVIOR_INSTANT
+				crew_controller.lost_sight_errand(target, lost_at)
+				return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+			if(!controller.ai_movement.moving_controllers[controller])
+				controller.ai_movement.start_moving_towards(controller, lost_at, 0)
+			return AI_BEHAVIOR_INSTANT
+		var/turf/last_spot = crew_controller.lost_sight_spot(target)
+		if(last_spot)
+			lost_at = last_spot
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) lost sight of [target.name] on its way to them ([crew_controller.errand_tool || "errand"]): walking to where they were last seen, [AREACOORD(last_spot)].")
+			controller.ai_movement.start_moving_towards(controller, last_spot, 0)
+			return AI_BEHAVIOR_INSTANT
 	// Walking round to a square the target can be touched from: done when it can be (HAND-08).
 	if(stand_at)
 		if(movement_failed || QDELETED(target))
@@ -330,7 +357,21 @@
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_reach/finish_action(datum/ai_controller/controller, succeeded)
 	stand_at = null
 	walked_round = FALSE
+	lost_at = null
 	return ..()
+
+/**
+ * Ends an errand for someone the body lost sight of on its way and did not find where they were
+ * last seen (CORE-03): "You lost sight of X near ROOM." An arrest's reason is "lost", as for someone
+ * it could not see when it got there, with `lost_sight` and `near` (the room) besides.
+ */
+/datum/ai_controller/crew_npc/proc/lost_sight_errand(atom/target, turf/spot)
+	var/near = get_area_name(spot || pawn, TRUE)
+	log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) lost sight of [target.name] near [AREACOORD(spot || pawn)], and gives up its [errand_tool || "errand"] on them.")
+	var/list/details = list("reason" = "lost", "lost_sight" = TRUE, "near" = near)
+	if(ishuman(target))
+		details["handle"] = handle_for(target)
+	finish_errand(list(FALSE, lost_sight_words(target, spot), details))
 
 /**
  * Returns the open square nearest the body from which this can be touched, with no windoor, thin

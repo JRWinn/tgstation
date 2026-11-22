@@ -230,6 +230,46 @@
 /datum/ai_controller/crew_npc/proc/person_key(mob/living/carbon/human/person)
 	return "[REF(person)]|[person.name]"
 
+/// How long someone being walked up to may be out of sight before the body stops following them by their steps (CORE-03): a corner is turned in a moment.
+#define CREW_NPC_LOST_SIGHT_GRACE (3 SECONDS)
+
+/// The square each person was last seen on, by person_key(), kept as long as last_seen_at keeps them (CORE-03).
+/datum/ai_controller/crew_npc/var/list/last_seen_spot = list()
+
+/**
+ * For a walk up to someone: the square they were last seen on, once they have been out of sight
+ * for longer than a moment, or null while they are still in sight, or are held by the body, or the
+ * target is no person (CORE-03). A body that loses sight of someone walks to where they were last
+ * seen and looks; it does not follow their steps unseen.
+ */
+/datum/ai_controller/crew_npc/proc/lost_sight_spot(atom/target)
+	var/mob/living/carbon/human/body = pawn
+	if(!ishuman(target) || QDELETED(body))
+		return null
+	var/mob/living/carbon/human/person = target
+	if(body.pulling == person || person.pulledby == body)
+		return null
+	var/key = person_key(person)
+	var/seen = last_seen_at[key]
+	if(!isnull(seen) && world.time - seen <= CREW_NPC_LOST_SIGHT_GRACE)
+		return null
+	var/turf/spot = last_seen_spot[key]
+	return isturf(spot) ? spot : get_turf(body)
+
+/// TRUE if someone lost from sight has been seen again since: by the look the body takes each second, or, with `look`, by looking now.
+/datum/ai_controller/crew_npc/proc/sees_again(atom/target, look = FALSE)
+	if(!ishuman(target) || QDELETED(pawn))
+		return FALSE
+	var/seen = last_seen_at[person_key(target)]
+	if(!isnull(seen) && world.time - seen <= CREW_NPC_LOST_SIGHT_GRACE)
+		return TRUE
+	return look && crew_npc_sees(target, pawn)
+
+/// The words for having lost sight of someone near a square: "You lost sight of X near ROOM." Not `whole`, the middle of a sentence: "you lost sight of X near ROOM".
+/datum/ai_controller/crew_npc/proc/lost_sight_words(atom/target, turf/spot, whole = TRUE)
+	var/words = "lost sight of [target.name] near [get_area_name(spot || pawn, TRUE)]"
+	return whole ? "You [words]." : "you [words]"
+
 /// TRUE if this person was in view within the last few seconds.
 /datum/ai_controller/crew_npc/proc/recently_saw(mob/living/carbon/human/person)
 	var/last_seen = last_seen_at[person_key(person)]
@@ -339,6 +379,7 @@
 		people_in_view += list(list("handle" = handle_for(person), "name" = person.name, "job" = person.get_assignment(if_no_id = "", if_no_job = ""), "place" = get_area_name(person, TRUE), "distance" = get_dist(body, person), "in_post" = !isnull(post_turf) && get_area(person) == get_area(post_turf), "belongs" = !isnull(post_turf) && belongs_in_post(person), "command" = command, "superior" = answers_to(person), "cuffed" = !isnull(person.handcuffed), "down" = crew_npc_person_down(person), "pulled_by" = person.pulledby?.name))
 		var/already_in_view = recently_saw(person)
 		last_seen_at[person_key(person)] = world.time
+		last_seen_spot[person_key(person)] = get_turf(person)
 		if(already_in_view)
 			continue
 
@@ -359,6 +400,7 @@
 	for(var/key in last_seen_at)
 		if(world.time - last_seen_at[key] > CREW_NPC_SIGHT_MEMORY)
 			last_seen_at -= key
+			last_seen_spot -= key
 
 /**
  * TRUE if the body has tried to leave the room it is in, failed, and then found no way to anywhere it knows.
@@ -566,6 +608,11 @@
 		heard_arrest_line(living_speaker, message)
 
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
+	// Someone from security, by the ID they wear, speaking of a warrant or an arrest is here on one (ARR-02).
+	if(ishuman(living_speaker))
+		var/datum/job/speaker_job = crew_npc_job_of(living_speaker)
+		if(speaker_job)
+			note_warrant_word(speaker_name, speaker_job.title, message)
 	var/whispered = !!message_mods[WHISPER_MODE]
 	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
 	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
@@ -619,3 +666,4 @@
 	emit_sense(CREW_SENSE_SPEECH_HEARD, "[speaker_name] [whispered ? "whispers" : "says"]: \"[message]\"", details)
 
 #undef CREW_NPC_MISSED_PDA_KEPT
+#undef CREW_NPC_LOST_SIGHT_GRACE

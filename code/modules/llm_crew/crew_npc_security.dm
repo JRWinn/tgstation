@@ -57,12 +57,18 @@
 #define CREW_CUSTODY_ARREST "arrest"
 #define CREW_CUSTODY_CELL "cell"
 #define CREW_CUSTODY_CUFFS "cuffs"
+/// Real tries at working its cuffs off before a body left in them says it cannot do it alone (SEC-07). It keeps trying after.
+#define CREW_NPC_CUFF_TRIES_ALONE 3
 
 /datum/ai_controller/crew_npc
 	/// How many arrests the body has made this shift. Its head hears of them at staff meetings.
 	var/work_arrests = 0
 	/// Whoever the body has arrested and not yet put in a cell, as a weak reference.
 	var/datum/weakref/arrested
+	/// TRUE if they stood for it: the cuffs alone went on, with no baton. Whoever did, player or crew,
+	/// has the cuffs taken off in the cell (CHEAT-04, the owner's answer A). Judged by what they did, not
+	/// by whether a crew controller drives them.
+	var/arrested_stood = FALSE
 	/// The cell the body is taking them to, and for how many minutes.
 	var/datum/crew_npc_brig_cell/jail_cell
 	var/jail_minutes = 0
@@ -102,6 +108,8 @@
 	var/custody_cell
 	/// How many times it has tried to work its cuffs off since it was left in them.
 	var/cuff_tries = 0
+	/// TRUE once it has been told it cannot get its cuffs off by itself (SEC-07), since it was left in them.
+	var/cuffs_stuck_told = FALSE
 
 /// TRUE if the body is the Head of Security, who heads the security staff.
 /datum/ai_controller/crew_npc/proc/is_head_of_security(mob/living/carbon/human/body = pawn)
@@ -373,9 +381,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * Lets go of whatever the body is holding that is not its own baton or cuffs, the way anyone
  * drops what they have in their hands to draw a weapon. It goes on the floor at its feet: there
  * is no time to find a table for it. The owner: "when they need to pull their weapon they should
- * probably drop whatever they are holding".
+ * probably drop whatever they are holding". The same before the cuffs (KNA-05, the owner's yes):
+ * `what` names what it is drawing, for the log.
  */
-/datum/ai_controller/crew_npc/proc/drop_for_weapon()
+/datum/ai_controller/crew_npc/proc/drop_for_weapon(what = "its baton")
 	var/mob/living/carbon/human/body = pawn
 	var/list/dropped = list()
 	for(var/obj/item/held in body.held_items.Copy())
@@ -385,7 +394,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(body.dropItemToGround(held))
 			dropped += held_name
 	if(length(dropped))
-		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw its baton.")
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) dropped [english_list(dropped)] at [AREACOORD(body)] to draw [what].")
 
 /// Puts something the body holds into the bag on its back, by a click on the bag. Returns FALSE if it is still in its hand.
 /datum/ai_controller/crew_npc/proc/stow_in_bag(obj/item/thing)
@@ -908,16 +917,39 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * where anyone is or what is on their card. A title that is no job (renamed, or one the Head of
  * Personnel made up) opens nothing, as someone reading it would take it. Someone far off or with
  * no card is written to all the same, and does not come; the wait then moves on to the next name.
+ * A name not on the crew manifest, which every PDA can show, is left out (CHEAT-02, the owner's
+ * answer A): PDAs in ruins and on other ships, and people who have left the station.
  */
 /proc/crew_npc_contacts_who_open(list/doors, datum/computer_file/program/messenger/own_messenger)
 	var/list/titles = list()
+	var/list/aboard = crew_npc_manifest_names()
 	for(var/messenger_ref in GLOB.pda_messengers)
 		var/datum/computer_file/program/messenger/candidate = GLOB.pda_messengers[messenger_ref]
 		// As the messenger's own list goes (get_messengers()): not itself, not hidden, with a computer.
 		if(candidate == own_messenger || candidate.invisible || isnull(candidate.computer) || !candidate.computer.saved_identification)
 			continue
+		if(!aboard[candidate.computer.saved_identification])
+			continue
 		titles[candidate.computer.saved_identification] = candidate.computer.saved_job
 	return crew_npc_keepers_by_title(doors, titles)
+
+/**
+ * The names on the crew manifest (GLOB.manifest.general, what the PDA's crew manifest shows), as a
+ * list keyed by name. Crew NPCs are spawned outside the job system and get no record, so each one's
+ * name stands in for the record it should have (they are crew aboard), until their spawn puts them
+ * on the manifest itself (CHEAT-02, held for crew_npc_spawn.dm).
+ */
+/proc/crew_npc_manifest_names()
+	var/list/names = list()
+	for(var/datum/record/crew/record as anything in GLOB.manifest.general)
+		names[record.name] = TRUE
+	for(var/owner in GLOB.crew_brain_links)
+		var/datum/crew_brain_link/link = GLOB.crew_brain_links[owner]
+		for(var/datum/ai_controller/crew_npc/controller as anything in link?.npcs)
+			var/mob/living/carbon/human/crew_body = controller?.pawn
+			if(!QDELETED(crew_body))
+				names[crew_body.real_name] = TRUE
+	return names
 
 /**
  * Of these people, by name with the job title each is known by, those whose job opens one of
@@ -981,9 +1013,17 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(istype(crew_npc_job_of(person), /datum/job/captain))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is the Captain. Nobody lays a hand on the Captain.", list("handle" = handle, "reason" = "captain"))
 		return
+	// With no Captain's card on them, still the Captain by their face and the PDA list (SENSE-08 /
+	// CHEAT-15, the owner's answer A): refused the same, with a reason of its own.
+	// Known by face even in a head's card: the face shows their own name, and the PDA lists that name as the Captain.
+	var/known_as = known_command_job(person)
+	var/face_known_as = person.get_face_name() == person.real_name ? command_on_pda()[person.real_name] : null
+	if(istype(SSjob.get_job(known_as), /datum/job/captain) || istype(SSjob.get_job(face_known_as), /datum/job/captain))
+		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is the Captain: you know their face.", list("handle" = handle, "reason" = "captain_known"))
+		return
 	// Stopping someone is the baton with no warrant, so it is no lawful arrest: never on a head of
 	// staff, known by the card they wear or, with none, by their face and the PDA list (SENSE-08).
-	if(how == CREW_ARREST_STOP && (crew_npc_is_command(person) || known_command_job(person)))
+	if(how == CREW_ARREST_STOP && (crew_npc_is_command(person) || known_as))
 		action_result(CREW_TOOL_ARREST, FALSE, "[person.name] is a head of staff. With no warrant you do not lay a hand on them.", list("handle" = handle, "reason" = "command"))
 		return
 	arrest_target = WEAKREF(person)
@@ -1030,7 +1070,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(errand_over(serial))
 			return broke_off(person_name, handle, 0)
 		if(cuffed_down)
-			return hold_arrested(person, 0, TRUE)
+			return hold_arrested(person, 0, TRUE, FALSE)
 		if(cuffed_by_other(person, cuffs))
 			stow_in_bag(cuffs)
 			return other_cuffs_outcome(person, handle, 0)
@@ -1077,7 +1117,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			if(knocked_down_itself())
 				return knocked_down_outcome(person_name, handle, hits)
 			return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = hits))
-		return hold_arrested(person, hits, TRUE)
+		return hold_arrested(person, hits, TRUE, FALSE)
 	// The cuffs alone.
 	var/cuffed_alone = put_cuffs_on(person, cuffs, serial)
 	if(errand_over(serial))
@@ -1091,7 +1131,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		if(knocked_down_itself())
 			return knocked_down_outcome(person_name, handle, 0)
 		return list(FALSE, "You could not get the cuffs on [person_name]: they would not stay still.", list("handle" = handle, "reason" = crew_npc_sees(person, body) ? "moved" : "lost", "hits" = 0))
-	return hold_arrested(person, hits, TRUE)
+	// The cuffs alone went on: a quiet arrest stood for, or someone down already when the baton came.
+	return hold_arrested(person, hits, TRUE, how == CREW_ARREST_QUIET)
 
 /**
  * What an arrest comes to when it was called off part way: nothing more is done, and nobody is
@@ -1206,7 +1247,13 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  */
 /datum/ai_controller/crew_npc/proc/put_cuffs_on(mob/living/carbon/human/person, obj/item/restraints/handcuffs/cuffs, serial = null)
 	var/mob/living/carbon/human/body = pawn
-	if(QDELETED(cuffs) || !draw_item(cuffs, CREW_NPC_KIT_GAP, serial))
+	if(QDELETED(cuffs))
+		return FALSE
+	// Whatever else it holds goes on the floor first, as before the baton (KNA-05): a thing pushed
+	// into its hand on the way up would otherwise go into its bag to free a hand, and stay there.
+	if(!body.is_holding(cuffs))
+		drop_for_weapon("its cuffs")
+	if(!draw_item(cuffs, CREW_NPC_KIT_GAP, serial))
 		return FALSE
 	// Twice, for someone who is down: they may be knocked a step off as the cuffs come up, and
 	// are down for long enough to go after once more. Someone on their feet who would not stay
@@ -1244,7 +1291,7 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	return list(FALSE, "Someone else from security has put cuffs on [person.name] before you could.", list("handle" = handle, "reason" = "other_cuffs", "hits" = hits))
 
 /// Takes someone who is in cuffs by the arm. `hits` and `counted` are for the report: how many baton hits it took, and whether this is an arrest the body made.
-/datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted)
+/datum/ai_controller/crew_npc/proc/hold_arrested(mob/living/carbon/human/person, hits, counted, stood = null)
 	var/mob/living/carbon/human/body = pawn
 	var/handle = handle_for(person)
 	// One arrest for one person brought in, however many times the cuffs had to go on. `arrested` is
@@ -1252,6 +1299,12 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	// not take them, or after they got away, it is the same arrest.
 	if(counted && arrested?.resolve() != person)
 		work_arrests++
+	// `stood` is whether they stood for the cuffs this time. Null (taken by the arm in cuffs someone
+	// put on) keeps what it knew of the same arrest, and knows nothing of anyone else's.
+	if(!isnull(stood))
+		arrested_stood = stood
+	else if(arrested?.resolve() != person)
+		arrested_stood = FALSE
 	arrested = WEAKREF(person)
 	// Sat in a chair or lying in a bed is being strapped to it: walked off by the arm, they stay where
 	// they are and the hold breaks on the first step. Got up first, by the click a player makes.
@@ -1520,7 +1573,8 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		cell_refuses(cell, prisoner_name, "it walked in and [prisoner_name] did not come all the way in behind it")
 		return list(FALSE, "You cannot get [prisoner_name] all the way into [cell.name].", list("reason" = "no_way", "prisoner" = prisoner_name, "cell" = cell.name))
 	body.stop_pulling()
-	if(istype(prisoner.ai_controller, /datum/ai_controller/crew_npc))
+	// Whoever stood for a quiet arrest, player or crew, has the cuffs taken off (CHEAT-04 A).
+	if(arrested_stood)
 		take_cuffs_off(prisoner, serial)
 	return null
 
@@ -1528,9 +1582,10 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
  * Puts the prisoner in the cell whose timer the body has walked up to. Sleeps while it does so.
  *
  * What a player does, in the order a player does it: set the time on the timer, walk the prisoner
- * in to the back of the cell, let go, step out, and start the timer, which shuts the door. One of
- * the crew has the cuffs taken off first, since it stands for that. Anyone else is left in them:
- * they are in a cell, and the four seconds it takes are four seconds with the door open.
+ * in to the back of the cell, let go, step out, and start the timer, which shuts the door. Whoever
+ * stood for a quiet arrest, player or crew, has the cuffs taken off first (CHEAT-04 A). Anyone who
+ * had the baton is left in them: they are in a cell, and the four seconds it takes are four seconds
+ * with the door open.
  * Back at the timer of a cell it left them in and could not get out of (jail_left_inside), only
  * the timer is left to start.
  *
@@ -2017,12 +2072,20 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				if(length(body.do_afters))
 					cuff_tries++
 					log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) begins try [cuff_tries] at working its cuffs off, at [AREACOORD(body)].")
+					// Three real tries have come to nothing. It keeps at them, and says so once: only
+					// security takes cuffs off one of the crew (SEC-07, the owner's answer B), and its brain
+					// may tell its head. Nobody else is asked to.
+					if(cuff_tries > CREW_NPC_CUFF_TRIES_ALONE && !cuffs_stuck_told)
+						cuffs_stuck_told = TRUE
+						log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) cannot get its cuffs off by itself after [CREW_NPC_CUFF_TRIES_ALONE] tries, at [AREACOORD(body)].")
+						emit_sense(CREW_SENSE_KNOWLEDGE, "You cannot get these handcuffs off by yourself. Only security can take them off you.", list("stuck_in_cuffs" = TRUE, "tries" = cuff_tries - 1))
 	if(!held && custody_phase != CREW_CUSTODY_CUFFS && body.handcuffed)
 		// Let go of, or the cell has opened, and still in cuffs. It sets about getting out of them.
 		custody_phase = CREW_CUSTODY_CUFFS
 		custody_timer = null
 		custody_cell = null
 		cuff_tries = 0
+		cuffs_stuck_told = FALSE
 		held = TRUE
 		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) was left in cuffs at [AREACOORD(body)], and is working them off.")
 		emit_sense(CREW_SENSE_KNOWLEDGE, "You are still in handcuffs, and nobody is taking them off. You start working them off.", list("working_off_cuffs" = TRUE))
@@ -2253,3 +2316,4 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 #undef CREW_CUSTODY_ARREST
 #undef CREW_CUSTODY_CELL
 #undef CREW_CUSTODY_CUFFS
+#undef CREW_NPC_CUFF_TRIES_ALONE

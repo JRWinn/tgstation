@@ -242,6 +242,8 @@
 	var/started_at = 0
 	/// Why the walk failed, in words the body could have noticed.
 	var/fail_reason
+	/// The square the person it walks to was last seen on, once it has lost sight of them (CORE-03). Null while it can see them.
+	var/turf/lost_at
 
 /datum/bt_node/ai_behavior/move_to_target/crew_npc_walk/setup(datum/ai_controller/controller)
 	// People are walked up to; places are walked into.
@@ -252,6 +254,7 @@
 	walking_to_ref = WEAKREF(controller.blackboard[target_key])
 	started_at = world.time
 	fail_reason = null
+	lost_at = null
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	if(istype(crew_controller))
 		crew_controller.blocked_by = null
@@ -333,6 +336,32 @@
 		// Standing in good air in a room it once found bad: the room is mended.
 		if(istype(crew_controller) && length(crew_controller.bad_air_seen) && crew_npc_air_ok(standing))
 			crew_controller.bad_air_seen -= get_area_name(standing, TRUE)
+	// Someone it walks up to who goes out of sight is not followed by their steps (CORE-03). It walks
+	// to where they were last seen and looks there: seen again, it goes on after them; not, it stops.
+	if(ismob(target))
+		if(lost_at)
+			if(crew_controller.sees_again(target))
+				log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) saw [target.name] again at [AREACOORD(target)], and goes on after them.")
+				lost_at = null
+				controller.ai_movement.start_moving_towards(controller, target, required_dist)
+				return AI_BEHAVIOR_INSTANT
+			if(movement_failed || get_dist(controller.pawn, lost_at) <= 1)
+				if(!movement_failed && crew_controller.sees_again(target, TRUE))
+					lost_at = null
+					controller.ai_movement.start_moving_towards(controller, target, required_dist)
+					return AI_BEHAVIOR_INSTANT
+				log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) lost sight of [target.name] near [AREACOORD(lost_at)], and stops walking to them.")
+				fail_reason = crew_controller.lost_sight_words(target, lost_at, FALSE)
+				return AI_BEHAVIOR_INSTANT | AI_BEHAVIOR_FAILED
+			if(!controller.ai_movement.moving_controllers[controller])
+				controller.ai_movement.start_moving_towards(controller, lost_at, 0)
+			return AI_BEHAVIOR_INSTANT
+		var/turf/last_spot = crew_controller.lost_sight_spot(target)
+		if(last_spot)
+			lost_at = last_spot
+			log_game("Crew NPC [key_name(controller.pawn)] (owner: [crew_controller.brain_link?.owner_ckey || "none"]) lost sight of [target.name] on its walk to them: walking to where they were last seen, [AREACOORD(last_spot)].")
+			controller.ai_movement.start_moving_towards(controller, last_spot, 0)
+			return AI_BEHAVIOR_INSTANT
 	if(movement_failed)
 		// The move loop gives up on steps the body is not let take, as well as on a way that is shut.
 		// A body held, strapped in or shut in something knows that is what stopped it (CORE-11).
@@ -356,6 +385,7 @@
 	var/reason = fail_reason
 	walking_to_ref = null
 	fail_reason = null
+	lost_at = null
 	. = ..()
 	var/datum/ai_controller/crew_npc/crew_controller = controller
 	// Ended from outside, by the body going down: it was stunned, knocked out or tackled, not stopped
