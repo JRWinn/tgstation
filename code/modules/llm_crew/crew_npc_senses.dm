@@ -566,6 +566,11 @@
 		heard_arrest_line(living_speaker, message)
 
 	var/speaker_name = message_mods[MODE_SPEAKER_NAME_OVERRIDE] || speaker.get_voice()
+	// Someone from security, by the ID they wear, speaking of a warrant or an arrest is here on one (ARR-02).
+	if(ishuman(living_speaker))
+		var/datum/job/speaker_job = crew_npc_job_of(living_speaker)
+		if(speaker_job)
+			note_warrant_word(speaker_name, speaker_job.title, message)
 	var/whispered = !!message_mods[WHISPER_MODE]
 	// One of the crew, a silicon, or anything with a player behind it is someone to answer. A
 	// parrot, a pet or a cleaning robot is not, whatever it says: the Chief Engineer answered Poly
