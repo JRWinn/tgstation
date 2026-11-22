@@ -1972,11 +1972,50 @@ export function beatAfterActing(
 }
 
 /**
+ * Who walked the body out of a room by the arm, from the server's word of it: an event of kind
+ * `walked_out` with `details.by` the keeper's name, or one with reason `walked_out_by_wanted`.
+ * Null for anything else.
+ */
+function walkedOutBy(event: SenseEvent): string | null {
+  const walked =
+    (event.kind as string) === 'walked_out' ||
+    event.details.reason === 'walked_out_by_wanted';
+  if (!walked) {
+    return null;
+  }
+  const by = event.details.by ?? event.details.struck_name;
+  return typeof by === 'string' && by ? by : null;
+}
+
+/**
+ * A room's keeper has walked the body out of its room (ARR-02 step 3, the owner's words). When the
+ * keeper is the one it has a warrant on, that is fighting back: five minutes more, as for anyone
+ * who resists. Anyone else walking it out is no attacker: the keeper was doing its job.
+ */
+function walkedOutByWanted(brain: NpcBrain, by: string): void {
+  const beat = brain.beat;
+  const warrant = beat?.warrants.find((it) => sameName(it.name, by));
+  if (!beat || !warrant) {
+    return;
+  }
+  beat.struckBy = by;
+  beat.struckAt = brain.now;
+  warrant.resisted = true;
+  warrant.force = true;
+  warrant.restUntil = 0;
+}
+
+/**
  * Takes in what has just happened to its body: someone has hit it, shoved it, taken hold of it or
  * taken something out of its hand. Someone it has a warrant on has fought back: they get the
  * baton, at once, and five minutes more. Anyone else is someone to stop.
  */
 export function securityFeels(brain: NpcBrain, event: SenseEvent): void {
+  const walker = walkedOutBy(event);
+  if (walker !== null) {
+    walkedOutByWanted(brain, walker);
+    return;
+  }
   const by = event.details.struck_name;
   if (typeof by !== 'string' || !brain.beat) {
     return;
