@@ -485,7 +485,8 @@ b = head();
 HOS.readsMessage(b, 'Zim Fire', 'How are things over there today', 0, 'Captain');
 add('a message from the Captain that code can make nothing of waits for the LLM to read it', [said(b), deskOf(b).unread.map((it: any) => it.text)], [[], ['How are things over there today']]);
 // SECT-10: talk is not answered "I did not follow that"; an order that could not be read is.
-add('and with no answer from the LLM and no order in it, nothing is sent (SECT-10)', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+// SECT-10, the owner's answer C: talk no reader takes is answered in fixed words, "Captain, noted."
+add('and with no answer from the LLM and no order in it, the Captain is told it was noted (SECT-10)', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Zim Fire is told it was noted.', ['PDA to Zim Fire: Captain, noted.']]);
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
 add('an order with no answer from the LLM is answered with how a warrant is worded', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['Not read. Zim Fire is told it was not followed.', ['PDA to Zim Fire: Captain, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.']]);
@@ -494,15 +495,22 @@ add('a second one straight after is not put to the LLM, and is not answered twic
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
 HOS.readsMessage(b, 'Zim Fire', 'Good work, Joan.', 0, 'Captain');
-add('SECT-10: thanks sent while an order waits on the reader is not answered "not followed"', said(b), []);
+add('SECT-10: thanks sent while an order waits on the reader is not answered "not followed", only noted', said(b), ['PDA to Zim Fire: Captain, noted.']);
 for (const line of ['Good work, Joan.', 'Where is Pun Pun now?', 'How many are in the cells?', 'Thanks', 'I wanted to say well done']) {
   b = head();
   HOS.readsMessage(b, 'Zim Fire', line, 0, 'Captain');
-  add(`SECT-10: "${line}" with no answer from the LLM: nothing sent`, [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+  add(`SECT-10: "${line}" with no answer from the LLM: noted`, [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Zim Fire is told it was noted.', ['PDA to Zim Fire: Captain, noted.']]);
 }
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'arest the clown pls', 0, 'Captain');
-add('SECT-10: the LLM saying "neither", even of a message with an order word: nothing sent', [deskRead(b, deskOf(b).unread[0], S.readReading('{"kind":"neither","name":"","minutes":0}', 'arest the clown pls')), said(b)], ['Read as no order. Nothing is sent to Zim Fire.', []]);
+add('SECT-10: the LLM saying "neither", even of a message with an order word: noted, not "not followed"', [deskRead(b, deskOf(b).unread[0], S.readReading('{"kind":"neither","name":"","minutes":0}', 'arest the clown pls')), said(b)], ['Read as no order. Zim Fire is told it was noted.', ['PDA to Zim Fire: Captain, noted.']]);
+b.toTell = [];
+deskOf(b).readingAt = 0;
+HOS.readsMessage(b, 'Zim Fire', 'Thanks', 0, 'Captain');
+add('SECT-10: noted once a minute at most for the one sender', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire: told it was noted within the minute.', []]);
+deskOf(b).readingAt = 0;
+HOS.readsMessage(b, 'Walker Wolfe', 'Thanks, Joan', 0, 'Head of Personnel');
+add('SECT-10: a head is noted by its first name, apart from the Captain', [deskRead(b, deskOf(b).unread[0], null), said(b)], ['No answer to go by, and no order in the words. Walker Wolfe is told it was noted.', ['PDA to Walker Wolfe: Walker, noted.']]);
 b = head();
 HOS.readsMessage(b, 'Zim Fire', 'see to Hale Stone for me', 0, 'Captain');
 add('SECT-10: a warrant read on one of security\'s own is still refused in so many words', [deskRead(b, deskOf(b).unread[0], { kind: 'warrant', name: 'Hale Stone', minutes: 0 }), said(b).length], ['Read as: "Warrant for Hale Stone." The body answers Zim Fire in the fixed words.', 1]);
@@ -512,7 +520,7 @@ add('SECT-10: a warrant read on one of security\'s own is still refused in so ma
   o.pdaPeople = [{ name: 'Zim Fire', job: 'Captain' }];
   at(o, 3000, 'Security Office');
   jobFor('Security Officer').readsMessage(o, 'Zim Fire', 'Thanks for that', 0, 'Captain');
-  add('SECT-10: an officer keeping the list: "Thanks for that" with no answer: nothing sent', [deskRead(o, deskOf(o).unread[0], null), said(o)], ['No answer to go by, and no order in the words. Nothing is sent to Zim Fire.', []]);
+  add('SECT-10: an officer keeping the list: "Thanks for that" with no answer: noted', [deskRead(o, deskOf(o).unread[0], null), said(o)], ['No answer to go by, and no order in the words. Zim Fire is told it was noted.', ['PDA to Zim Fire: Captain, noted.']]);
 }
 for (const line of ['Joan, do not arrest Dana Reyes, she is with me.', 'Is there a warrant for Dana Reyes?', 'Did your officer arrest Pun Pun yet?']) {
   b = head();

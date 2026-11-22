@@ -746,6 +746,11 @@ export function notFollowedLine(to: string): string {
   return `${to}, I did not follow that. To declare a warrant, say: Warrant for a name, for a reason. To pardon: Pardon a name. To take one back: Cancel the warrant on a name.`;
 }
 
+/** Security's answer to a PDA message from the Captain or a head that is no order: it has reached them (SECT-10). */
+export function notedLine(to: string): string {
+  return `${to}, noted.`;
+}
+
 /** How a report begins that is sent by PDA by someone whose own work keeps them from a staff meeting. */
 export const KEPT_AWAY = 'I cannot come to the meeting';
 
