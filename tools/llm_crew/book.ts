@@ -133,6 +133,70 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('a count of crates is no order number', orderAnswered(waiting, 'yes, 1 crate is fine')?.n, 2);
 }
 
+// QM-08 B: with two or more waiting on the Captain and none named, it asks which, and acts on neither until told.
+{
+  const twoWaiting = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.orderable = ['Janitorial Supplies Crate', 'Replacement Lights'];
+    qm.crateCosts = { 'Janitorial Supplies Crate': 400, 'Replacement Lights': 400 };
+    qm.budget = 700;
+    qm.now = 5000;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }, { name: 'Hop Kins', job: 'Head of Personnel' }, { name: 'Joan Marsh', job: 'Head of Security' }, { name: 'Cap Tain', job: 'Captain' }];
+    qm.ledger = { orders: readBook(['Order 1. From Hop Kins, Head of Personnel: 1 Janitorial Supplies Crate. 400 cr.', 'Order 1. Asked the Captain.', 'Order 2. From Joan Marsh, Head of Security: 1 Replacement Lights. 400 cr.', 'Order 2. Asked the Captain.'], 5000), next: 3, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+    qm.ledger.orders[0].askedAt = 1000;
+    qm.ledger.orders[1].askedAt = 4000;
+    return qm;
+  };
+  const states = (qm: any) => qm.ledger.orders.map((order: any) => `${order.n} ${order.state}${order.approved ? ` (${order.approved})` : ''}`);
+  const sent = (qm: any) => qm.toTell.map((tell: any) => tell.line);
+  const said = (qm: any, line: string) => QUARTERMASTER.readsMessage(qm, 'Cap Tain', line, qm.now, 'Captain');
+  {
+    const qm = twoWaiting();
+    said(qm, 'Yes.');
+    add('two waiting, a bare yes: neither is acted on', states(qm), ['1 asking', '2 asking']);
+    add('and the Captain is asked which, the one asked about last first', sent(qm), ['Captain, is that order 2 (1 Replacement Lights) or order 1 (1 Janitorial Supplies Crate)?']);
+    said(qm, 'Order 2.');
+    add('"Order 2." then: the yes is to order 2, and order 1 waits', states(qm), ['1 asking', '2 new (captain)']);
+    add('and nothing more is asked', sent(qm).length, 1);
+  }
+  {
+    const qm = twoWaiting();
+    said(qm, 'No.');
+    said(qm, '1');
+    add('a bare no, then "1": order 1 is refused, and Hop is told', [states(qm), sent(qm).some((line: string) => /^The Captain has said no to order 1/.test(line))], [['1 refused', '2 asking'], true]);
+  }
+  {
+    const qm = twoWaiting();
+    said(qm, 'Yes.');
+    said(qm, 'The lights.');
+    add('a bare yes, then "The lights.": the yes is to the lights order', states(qm), ['1 asking', '2 new (captain)']);
+  }
+  {
+    const qm = twoWaiting();
+    said(qm, 'Yes to order 1');
+    add('"Yes to order 1" is to order 1, nothing asked', [states(qm), sent(qm).length], [['1 new (captain)', '2 asking'], 0]);
+  }
+  {
+    const qm = twoWaiting();
+    said(qm, 'Yes, the janitorial one.');
+    add('"Yes, the janitorial one." picks order 1 by its kind', [states(qm), sent(qm).length], [['1 new (captain)', '2 asking'], 0]);
+  }
+  {
+    const qm = twoWaiting();
+    said(qm, 'Yes.');
+    said(qm, 'Yes.');
+    said(qm, 'Yes.');
+    add('asked which at most twice in a row; the orders wait', [states(qm), sent(qm).length], [['1 asking', '2 asking'], 2]);
+  }
+  {
+    const qm = twoWaiting();
+    qm.ledger.orders[0].state = 'cleared';
+    qm.ledger.orders[0].approved = 'self';
+    said(qm, 'Yes.');
+    add('with only one waiting, a bare yes is to it', states(qm), ['1 cleared (self)', '2 new (captain)']);
+  }
+}
+
 // QM-01: the Captain's answer about an order waiting on their say, read for both yes and no.
 {
   const waitingQm = () => {
@@ -382,6 +446,30 @@ add('talk about the work is not handing it out', dutiesIn('Cora, the counter is 
   add('the first name alone, with no namesake known, is still taken', bare.givenOrder?.n, 4);
   CARGO.overhears(bell, { kind: 'speech', details: { speaker: 'Ada Finch', message: 'Sam Cole, the shuttle and the rooms are yours this shift.', said_to: 'other' } });
   add("a duty line to Sam Cole goes against Sam Cole in Sam Bell's book", bell.duties, { 'Sam Cole': ['shuttle', 'rooms'] });
+}
+
+// QM-05 A: with no other technician about, the Quartermaster goes to the door itself.
+{
+  const shutInQm = () => {
+    const qm: any = makeBrain('Ada Finch', 'Quartermaster');
+    qm.staffPost = 'Cargo Bay'; qm.office = "Quartermaster's Office"; qm.location = "Quartermaster's Office"; qm.now = 5000;
+    qm.pdaPeople = [{ name: 'Cora Tech', job: 'Cargo Technician' }];
+    QUARTERMASTER.readsMessage(qm, 'Cora Tech', 'I am shut in the Warehouse and nobody has come to the door. Could you send someone to let me out to the Cargo Bay, please?', 5000, 'Cargo Technician');
+    QUARTERMASTER.syncTasks(qm);
+    return qm;
+  };
+  const qm = shutInQm();
+  const task = qm.tasks.find((t: any) => t.kind === 'qm_let_out' && t.state !== 'done');
+  add('nobody else to send: nobody is sent', qm.ledger.sendFor, null);
+  add('and it opens the Warehouse door for Cora itself', QUARTERMASTER.plan(qm, task)?.act, { tool: 'open_door', name: 'Cora Tech', place: 'Warehouse' });
+  QUARTERMASTER.afterActing(qm, { tool: 'open_door', name: 'Cora Tech', place: 'Warehouse' }, task, true, false, {}, 'You open the door.');
+  QUARTERMASTER.syncTasks(qm);
+  add('opened: it is done', task.state, 'done');
+  const twice = shutInQm();
+  const again = twice.tasks.find((t: any) => t.kind === 'qm_let_out' && t.state !== 'done');
+  for (let i = 0; i < 2; i++) QUARTERMASTER.afterActing(twice, { tool: 'open_door' }, again, false, false, {}, 'The door will not open.');
+  QUARTERMASTER.syncTasks(twice);
+  add('not opened twice: done, and Cora is told by PDA', [again.state, twice.toTell.filter((t: any) => t.byPda).map((t: any) => t.line)], ['done', ['Cora, I could not get the door of the Warehouse open for you.']]);
 }
 
 let failed = 0;

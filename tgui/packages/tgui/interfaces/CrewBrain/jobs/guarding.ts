@@ -17,6 +17,7 @@
  * in the NPC's own voice. Who is asked what, and what comes of the answer, is decided here.
  */
 import { expectedCall, forgetExpected, takeOrder } from '../expected';
+import { isHead } from '../hierarchy';
 import { knownPlaces } from '../memory';
 import { addTask, finishTask } from '../tasks';
 import type {
@@ -28,6 +29,24 @@ import type {
   Task,
 } from '../types';
 import { jobFor } from './index';
+import { isSecurity } from './security';
+
+/** The words a keeper asks the Captain or a head in, whether they sent a stranger in: "Did you send Jan Mopp to the Cargo Bay?" (SECT-08 B). */
+const ASKING_SENT = 'did you send';
+export function sentAskLine(name: string, room: string): string {
+  return `Did you send ${name} to the ${room}?`;
+}
+/** How long (deciseconds) a keeper waits for the Captain's or a head's yes before putting the stranger out (SECT-08 B). */
+const HEAD_ANSWER_DS = 1200;
+/** How long (deciseconds) someone told to leave is given to go of their own accord before being taken by the arm (MULTI-08 B). */
+const LEAVE_GRACE_DS = 100;
+/**
+ * A stranger who says the Captain or a head sent them: whom they named, and when that one was
+ * asked, by `brain id:stranger` (SECT-08 B). Kept here, not on `Stranger` in types.ts.
+ */
+type HeadAsk = { head: string; askedAt?: number; byPda?: boolean };
+const headAsks = new Map<string, HeadAsk>();
+const headKey = (brain: NpcBrain, name: string) => `${brain.id}:${name}`;
 
 /** Someone in the post who has to account for being there. The task's item is their name. */
 const STRANGER = 'stranger';
@@ -502,6 +521,95 @@ function workmateNamedIn(
   );
 }
 
+/**
+ * The Captain or a head of staff a stranger's answer, in lower case, says sent them, if it names
+ * one: by name, or by a title only one of them holds ("the Captain sent me", "the HoP asked me to
+ * come"). Not a workmate: those are asked in the usual way. Null if it names none, or says nothing
+ * of being sent.
+ */
+function headNamedIn(
+  brain: NpcBrain,
+  heard: string,
+  stranger: string,
+): string | null {
+  if (!/\b(sent|send|asked|told|wants?|wanted|ordered|called)\b/.test(heard)) {
+    return null;
+  }
+  const line = unaddressed(heard, brain.name);
+  const heads = [...brain.peopleInView, ...brain.pdaPeople].filter(
+    (person, index, all) =>
+      all.findIndex((other) => other.name === person.name) === index &&
+      person.name !== stranger &&
+      person.name !== brain.name &&
+      !brain.workmates.has(person.name) &&
+      (/captain/i.test(person.job) || isHead(person.job)),
+  );
+  return (
+    heads.find((person) => byName(line, person.name))?.name ??
+    heads.find(
+      (person) =>
+        jobWords(person.job).test(line) &&
+        heads.filter((other) => other.job === person.job).length === 1,
+    )?.name ??
+    null
+  );
+}
+
+/**
+ * The Captain's or a head's answer to "Did you send X to the Y?", face to face or by PDA: a reply
+ * beginning "Yes" lets X stay, one beginning "No" puts them out (SECT-08 B). With several asked
+ * of the same one, the reply that names a stranger is about that one.
+ */
+function headAnswer(
+  brain: NpcBrain,
+  from: string,
+  heard: string,
+  at: number,
+): boolean {
+  const asked = Object.keys(brain.strangers).filter((name) => {
+    const ask = headAsks.get(headKey(brain, name));
+    return (
+      ask?.head === from &&
+      ask.askedAt !== undefined &&
+      at >= ask.askedAt &&
+      !brain.strangers[name].verdict
+    );
+  });
+  if (asked.length === 0) {
+    return false;
+  }
+  const line = heard.toLowerCase();
+  const about =
+    asked.find((name) => namesPerson(line, name)) ??
+    (asked.length === 1 ? asked[0] : undefined);
+  const yes = /^\W*(?:[\w.]+,\s*)?yes\b/.test(line);
+  const no = /^\W*(?:[\w.]+,\s*)?no\b/.test(line);
+  if (!about || yes === no) {
+    return false;
+  }
+  headAsks.delete(headKey(brain, about));
+  const stranger = brain.strangers[about];
+  if (yes) {
+    stranger.verdict = 'stay';
+    stranger.voucher = from;
+  } else {
+    settle(brain, about, stranger, 'go');
+  }
+  return true;
+}
+
+/**
+ * Reads a PDA message for this duty: the Captain's or a head's answer to a keeper's "Did you send
+ * X to the Y?" (SECT-08 B). Returns TRUE if it was one. Called from the keeper's job.
+ */
+export function guardReadsMessage(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+): boolean {
+  return headAnswer(brain, from, text, brain.now);
+}
+
 /** Openers before a name that is only speaking to someone: "hi Donna", "sorry Donna". */
 const ADDRESS_OPENERS = 'hi|hey|hello|sorry|ok|okay|oh|yes|yeah|well|look';
 
@@ -630,11 +738,17 @@ export function syncGuarding(brain: NpcBrain): void {
       brain.now - stranger.lastSeenAt > GONE_DS
     ) {
       delete brain.strangers[name];
+      headAsks.delete(headKey(brain, name));
       continue;
     }
-    // Nobody who outranks the NPC is made to go, however the asking came out.
-    if (stranger.verdict === 'go' && seen?.command) {
+    // Nobody who outranks the NPC is made to go, however the asking came out. Nor is security
+    // with a warrant to serve in here, whoever orders it (ARR-02: the server refuses it too).
+    if (
+      stranger.verdict === 'go' &&
+      (seen?.command || warrantStands(brain, name))
+    ) {
       stranger.verdict = 'stay';
+      stranger.sent ||= warrantStands(brain, name);
     }
     // Sent for, they may stay for as long as what they were sent for lasts. Once the mess is
     // gone, with nothing further in left for them, their welcome is over. They are given a
@@ -664,6 +778,18 @@ export function syncGuarding(brain: NpcBrain): void {
     } else if (seen?.command && stranger.asks >= 1) {
       // Its betters are asked, out of duty. What they answer is their own affair.
       stranger.verdict = 'stay';
+    } else if (headAsks.has(headKey(brain, name))) {
+      // They say the Captain or a head sent them: that one is asked, and only a yes lets them
+      // stay. No answer in two minutes is no yes (SECT-08 B).
+      const ask = headAsks.get(headKey(brain, name));
+      if (
+        ask?.askedAt !== undefined &&
+        brain.now - ask.askedAt > HEAD_ANSWER_DS &&
+        !seen?.down
+      ) {
+        headAsks.delete(headKey(brain, name));
+        settle(brain, name, stranger, 'go');
+      }
     } else if (stranger.voucher) {
       // Whoever is said to have sent for them is not there to ask, or will not say. Their word is taken.
       if (
@@ -733,6 +859,37 @@ function reasonToBeHere(
   return brain.letInBy ? { who: brain.letInBy, what: null } : null;
 }
 
+/**
+ * TRUE if this body is security with a warrant it is serving on someone in this room, or in a room
+ * reached through it: seen here, last seen or shut out there, or forced open there for it. Read from
+ * its own list of warrants (`brain.beat`, jobs/arrests.ts), as it knows it.
+ */
+function onWarrantIn(brain: NpcBrain, room: string): boolean {
+  if (!isSecurity(brain.job) || !room) {
+    return false;
+  }
+  // Whether a room is this one, or further in through it.
+  const within = (place: string | undefined) => {
+    let at = place;
+    for (let step = 0; at && step < 8; step++) {
+      if (at === room) {
+        return true;
+      }
+      at = brain.reachedThrough[at];
+    }
+    return false;
+  };
+  return (brain.beat?.warrants ?? []).some(
+    (warrant) =>
+      brain.peopleInView.some(
+        (person) => person.name === warrant.name && !person.cuffed,
+      ) ||
+      within(warrant.lastSeen?.place) ||
+      within(warrant.shutOut?.place) ||
+      within(warrant.opened?.place),
+  );
+}
+
 /** Answering someone who has asked the NPC why it is in a room: the truth, as the code knows it. */
 function explainStep(brain: NpcBrain): Plan {
   const by = brain.challenged?.by;
@@ -747,6 +904,16 @@ function explainStep(brain: NpcBrain): Plan {
       step: `${by} has asked why you are in ${brain.location}. It is where you work. In "say", tell ${by} so, beginning with "I work here".`,
       say: 'I work here.',
       needs: has('work'),
+    };
+  }
+  // Security with a warrant to serve in here, or in a room reached through here, however it got
+  // in: it says so, and names nobody, since the one wanted may be in earshot (PLAY-14, ARR-02).
+  if (!why && onWarrantIn(brain, brain.location)) {
+    return {
+      ready: true,
+      step: `${by} has asked why you are in ${brain.location}. The truth is that you are here on security business, to serve a warrant. Do not say on whom. In "say", tell ${by} so, beginning with "I am here on a warrant".`,
+      say: 'I am here on a warrant.',
+      needs: has('warrant'),
     };
   }
   if (!why) {
@@ -832,6 +999,18 @@ export function planGuarding(brain: NpcBrain, task: Task): Plan | null {
         needs: has(eitherName(name)),
       };
     }
+    // Told to go, they are given a moment to go of their own accord, and one asking for the door
+    // is on their way. Only one who stays is taken by the arm (MULTI-08 B).
+    if (
+      brain.now - stranger.toldOutAt < LEAVE_GRACE_DS ||
+      askingOut(brain, name)
+    ) {
+      return {
+        ready: false,
+        wait: true,
+        step: `You have told ${name} to leave ${room}, and are giving them a moment to go of their own accord.`,
+      };
+    }
     return {
       ready: true,
       step: stranger.seenOut
@@ -842,6 +1021,44 @@ export function planGuarding(brain: NpcBrain, task: Task): Plan | null {
   }
   const waiting = (since: number | undefined) =>
     since !== undefined && brain.now - since < ANSWER_WAIT_DS;
+  // They say the Captain or a head sent them. That one is asked: face to face if in sight, else by
+  // PDA. They wait for a yes (SECT-08 B).
+  const headAsk = headAsks.get(headKey(brain, name));
+  if (headAsk) {
+    const head = headAsk.head;
+    if (headAsk.askedAt !== undefined) {
+      return {
+        ready: false,
+        wait: true,
+        step: `${name} says ${head} sent them. You have asked ${head}${headAsk.byPda ? ' by PDA' : ''} whether they did, and are waiting for a yes. They stay until then.`,
+      };
+    }
+    if (brain.peopleInView.some((seen) => seen.name === head)) {
+      return {
+        ready: true,
+        step: `${name} says ${head} sent them, and ${head} is here. In "say", ask ${head} outright, with respect, "${sentAskLine(name, brain.post ?? '')}"`,
+        say: `${titleOf(brain, head)}, ${sentAskLine(name, brain.post ?? '').replace(/^D/, 'd')}`,
+        exact: true,
+      };
+    }
+    // Not in sight: by PDA. With no PDA it cannot ask, and no yes will come.
+    headAsk.askedAt = brain.now;
+    if (brain.hasPda) {
+      headAsk.byPda = true;
+      brain.toTell.push({
+        to: head,
+        line: sentAskLine(name, brain.post ?? ''),
+        why: `${name} is in the ${brain.post}, which is locked to them, and says ${head} sent them. You are asking ${head} whether that is so.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+    return {
+      ready: false,
+      wait: true,
+      step: `${name} says ${head} sent them. You are asking ${head} by PDA whether they did.`,
+    };
+  }
   if (stranger.voucher) {
     if (waiting(stranger.verifyAskedAt)) {
       return {
@@ -1046,10 +1263,26 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
   // checked. Owning up to having none, or naming the NPC itself, which knows it did not send for
   // them, settles it the other way.
   const asked = brain.strangers[speaker];
+  // Security in the post saying it is here on a warrant: the warrant is the permission, whoever
+  // asked and however it got in, and its welcome lasts while it is served (PLAY-14, ARR-02). Read
+  // before owning up, since "nobody" may be in the same line.
   if (
+    asked &&
+    asked.verdict !== 'stay' &&
+    /\bwarrant\b/.test(heard) &&
+    isSecurity(jobOf(brain, speaker))
+  ) {
+    noteSentFor(brain, speaker, { warrant: true });
+    asked.verdict = 'stay';
+    asked.sent = true;
+    asked.toldOutAt = undefined;
+    asked.orderedBy = undefined;
+    headAsks.delete(headKey(brain, speaker));
+  } else if (
     asked &&
     !asked.verdict &&
     !asked.voucher &&
+    !headAsks.has(headKey(brain, speaker)) &&
     asked.askedAt !== undefined &&
     event.at >= asked.askedAt
   ) {
@@ -1059,13 +1292,20 @@ export function guardOverhears(brain: NpcBrain, event: SenseEvent): void {
       (/\byou (?:let me in|asked me|sent for me|sent me)\b/.test(heard)
         ? brain.name
         : null);
-    if (voucher && voucher !== brain.name) {
+    // The Captain or a head named as having sent them: asked, and a yes waited for (SECT-08 B).
+    const head = voucher ? null : headNamedIn(brain, heard, speaker);
+    if (head) {
+      headAsks.set(headKey(brain, speaker), { head });
+    } else if (voucher && voucher !== brain.name) {
       asked.voucher = voucher;
     } else if (voucher || NO_REASON_WORDS.test(heard)) {
       settle(brain, speaker, asked, 'go');
     }
     // Anything else is no answer yet. They are asked once more before it is taken for none.
   }
+
+  // The Captain or a head answering, face to face, whether they sent a stranger in.
+  headAnswer(brain, speaker, heard, event.at);
 
   // Whoever was said to have sent for a stranger answers the NPC's question.
   for (const [name, stranger] of Object.entries(brain.strangers)) {
@@ -1146,7 +1386,10 @@ export function guardAfterSaying(brain: NpcBrain, called: string | null): void {
     if (!said.includes(firstName(name).toLowerCase())) {
       continue;
     }
-    if (said.includes(ASKING_WHY)) {
+    const headAsk = headAsks.get(headKey(brain, name));
+    if (headAsk && said.includes(ASKING_SENT)) {
+      headAsk.askedAt = brain.now;
+    } else if (said.includes(ASKING_WHY)) {
       stranger.askedAt = brain.now;
       stranger.asks++;
     } else if (said.includes(ASKING_WHO)) {

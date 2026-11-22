@@ -93,6 +93,27 @@ const hear = (b: any, who: any, message: string) =>
   add('"ok" after the minute: not taken', order.taken, false);
 }
 
+// QM-02 A: taken, and no word it came in ten minutes on: the technician is asked after it, once.
+{
+  const { b, order } = qm([CORA]);
+  Object.assign(order, { state: 'given', givenTo: CORA.name, givenAt: 10_000, taken: true });
+  b.now = 10_000 + 5000;
+  QUARTERMASTER.syncTasks(b);
+  add('QM-02 A: under ten minutes, nothing asked', b.toTell.length, 0);
+  b.now = 10_000 + 6100;
+  QUARTERMASTER.syncTasks(b);
+  add('QM-02 A: ten minutes on, Cora is asked to her face', b.toTell.map((t: any) => [t.line, !!t.byPda]), [['Cora, has order 1 come in?', false]]);
+  b.now += 6000;
+  QUARTERMASTER.syncTasks(b);
+  add('QM-02 A: asked once only', b.toTell.length, 1);
+  const away = qm([]);
+  Object.assign(away.order, { state: 'given', givenTo: CORA.name, givenAt: 10_000, taken: true });
+  away.b.pdaPeople = [{ name: CORA.name, job: CORA.job }];
+  away.b.now = 10_000 + 6100;
+  QUARTERMASTER.syncTasks(away.b);
+  add('QM-02 A: out of sight, asked by PDA', away.b.toTell.map((t: any) => [t.line, !!t.byPda]), [['Cora, has order 1 come in?', true]]);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

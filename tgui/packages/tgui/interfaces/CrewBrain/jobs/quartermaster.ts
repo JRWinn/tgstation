@@ -39,7 +39,12 @@ import type {
   SenseEvent,
   Task,
 } from '../types';
-import { itemsAskedFor, PAPER_WORDS } from './cargo';
+import {
+  asksOverTheMost,
+  itemsAskedFor,
+  MOST_AT_ONCE,
+  PAPER_WORDS,
+} from './cargo';
 import {
   captainName,
   hearReport,
@@ -101,6 +106,21 @@ const UNPACK = 'qm_unpack';
 const SEND = 'qm_send';
 /** How long (deciseconds) such a sending is worth making. After that the trouble is over, or someone has told it again. */
 const SEND_STANDS_DS = 3000;
+/** Letting one of its technicians out of a room it is shut in, itself, with nobody else to send (QM-05 A). */
+const LET_OUT = 'qm_let_out';
+/** How long (deciseconds) word that a technician is shut in is acted on by going to the door itself. */
+const LET_OUT_STANDS_DS = 3000;
+/** How many times it tries the door before telling them it could not let them out. */
+const LET_OUT_TRIES = 2;
+/**
+ * A technician it is going to let out itself: who, the room, when it was told (server time), and
+ * how many times the door has not opened. Kept on the ledger, reached through `letOutOf`:
+ * `types.ts`'s Ledger has no field for it yet.
+ */
+type LetOut = { who: string; room: string; at: number; tries: number };
+function letOutOf(ledger: Ledger): { letOut?: LetOut | null } {
+  return ledger as Ledger & { letOut?: LetOut | null };
+}
 /** Coming out of its office to a knock at the door. */
 const KNOCK = 'qm_knock';
 /** Going back to its office when there is nothing to see to. */
@@ -494,7 +514,16 @@ function takeOrder(
   sendWord(
     brain,
     from,
-    `${NOTED} ${order.n}: ${orderWritten(items)}, ${credits(order.cost)} credits. I will send you the crate numbers when it comes in.`,
+    // More than four of a kind asked for: four are taken down, and they are told so (CARGO-05 A).
+    `${NOTED} ${order.n}: ${orderWritten(items)}, ${credits(order.cost)} credits. ${
+      asksOverTheMost(
+        said.toLowerCase(),
+        brain.orderable,
+        brain.pdaPeople.map((person) => person.name),
+      )
+        ? `${MOST_AT_ONCE} `
+        : ''
+    }I will send you the crate numbers when it comes in.`,
     `${from} has sent you an order. You have taken it down as order ${order.n} and are sending word back that it is noted.`,
   );
 }
@@ -581,7 +610,15 @@ function readAnswer(
   aloud: boolean,
 ): boolean {
   const ledger = ledgerOf(brain);
-  const order = orderAnswered(ledger, text);
+  // The Captain's reply to "is that order 2 or order 1?": the yes or no they gave before is to
+  // the order they name now (QM-08 B).
+  const chosen = whichChosen(brain, ledger, text);
+  if (chosen) {
+    whichOf(ledger).which = null;
+    actOnAnswer(brain, chosen.order, chosen.answer);
+    return true;
+  }
+  let order = orderAnswered(ledger, text);
   // "Is order 2 approved?" asks; it does not answer.
   if (!order || sortLine(text) === 'question') {
     return false;
@@ -589,15 +626,31 @@ function readAnswer(
   const namesIt = new RegExp(`(?:\\border\\s*#?|#)\\s*${order.n}\\b`, 'i').test(
     text,
   );
+  let picked = namesIt;
   const words = text.split(/\s+/).filter(Boolean).length;
   // A crate named is a new order, unless it is only the kind the order asked about is for, in a
   // line that orders nothing: "yes, the paper one" is a yes to the paper order (PARSE-06).
   const named = kindsAskedFor(brain, text);
+  // With several waiting, the kind named may pick one out: "yes, the lights" (QM-08 B).
+  const waiting = waitingOnCaptain(ledger);
+  if (!namesIt && waiting.length > 1 && named.length > 0) {
+    const byKind = waiting.filter((one) =>
+      named.every((item) =>
+        one.items.some((theirs) => theirs.crate === item.crate),
+      ),
+    );
+    if (byKind.length === 1) {
+      order = byKind[0];
+      picked = true;
+    }
+  }
+  const answering = order;
   const newKind =
     named.length > 0 &&
     (sortLine(text) === 'order' ||
       named.some(
-        (item) => !order.items.some((theirs) => theirs.crate === item.crate),
+        (item) =>
+          !answering.items.some((theirs) => theirs.crate === item.crate),
       ));
   if ((!namesIt && words >= ANSWER_WORDS) || newKind) {
     return false;
@@ -611,6 +664,145 @@ function readAnswer(
     askWhatWasMeant(brain, captain, text, aloud, true);
     return true;
   }
+  // With two or more waiting on their say and none named, a bare yes or no is to neither until
+  // they say which (QM-08 B).
+  if (!picked && waiting.length > 1) {
+    askWhichOrder(brain, captain, answer, aloud);
+    return true;
+  }
+  whichOf(ledger).which = null;
+  actOnAnswer(brain, answering, answer);
+  return true;
+}
+
+/** Orders waiting on the Captain's say, the one asked about last first. */
+function waitingOnCaptain(ledger: Ledger): LedgerOrder[] {
+  return ledger.orders
+    .filter((order) => order.state === 'asking' && order.approved === null)
+    .sort((one, other) => (other.askedAt ?? -1) - (one.askedAt ?? -1));
+}
+
+/**
+ * The Captain's yes or no it is holding until they say which order it is to. Kept on the ledger,
+ * reached through `whichOf`: `types.ts`'s Ledger has no field for it yet.
+ */
+type WhichAsked = {
+  answer: 'yes' | 'no';
+  /** The orders it named in the question, by number. */
+  orders: number[];
+  /** Server time it last asked, and how many times in a row. */
+  at: number;
+  asks: number;
+};
+function whichOf(ledger: Ledger): { which?: WhichAsked | null } {
+  return ledger as Ledger & { which?: WhichAsked | null };
+}
+/** How long a yes or no is held for the Captain to say which order it was to. */
+const WHICH_MS = 10 * 60 * 1000;
+
+/**
+ * Asks the Captain which of the orders waiting on them a bare yes or no was to: "Captain, is that
+ * order 2 (1 Replacement Lights) or order 1 (1 Janitorial Supplies Crate)?", the one asked about
+ * last first. Nothing is done about any of them until they say. Asked at most twice in a row;
+ * after that the line is let go and the orders wait.
+ */
+function askWhichOrder(
+  brain: NpcBrain,
+  captain: string,
+  answer: 'yes' | 'no',
+  aloud: boolean,
+): void {
+  const ledger = ledgerOf(brain);
+  const waiting = waitingOnCaptain(ledger);
+  const held = whichOf(ledger);
+  const asks =
+    held.which && brain.now - held.which.at < WHICH_MS ? held.which.asks : 0;
+  held.which = {
+    answer,
+    orders: waiting.map((order) => order.n),
+    at: brain.now,
+    asks: asks + 1,
+  };
+  if (asks >= UNCLEAR_ASKS) {
+    return;
+  }
+  const named = waiting.map(
+    (order) => `order ${order.n} (${orderWritten(order.items)})`,
+  );
+  const choice = `${named.slice(0, -1).join(', ')} or ${named[named.length - 1]}`;
+  const why = `${captain} has said ${answer} about an order, and ${waiting.length} orders are waiting on the Captain's say. They did not say which, so you are asking before doing anything about any of them.`;
+  if (aloud) {
+    const line = `${firstName(captain)}, is that ${choice}?`;
+    brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
+    brain.toTell.push({
+      to: captain,
+      line,
+      why,
+      exact: true,
+      whileBusy: true,
+      at: Date.now(),
+    });
+  } else {
+    sendWord(brain, captain, `Captain, is that ${choice}?`, why);
+  }
+}
+
+/**
+ * The order the Captain's reply picks out, with the yes or no held from before, when it was asked
+ * which order that was to: "Order 2.", "2", "#2", "the lights". A reply with a yes or no of its
+ * own is read as an answer in the usual way; one that picks out no single waiting order, none.
+ */
+function whichChosen(
+  brain: NpcBrain,
+  ledger: Ledger,
+  text: string,
+): { order: LedgerOrder; answer: 'yes' | 'no' } | null {
+  const held = whichOf(ledger).which;
+  if (
+    !held ||
+    brain.now - held.at >= WHICH_MS ||
+    yesOrNo(text) !== null ||
+    sortLine(text) === 'question' ||
+    sortLine(text) === 'cancel' ||
+    text.split(/\s+/).filter(Boolean).length >= ANSWER_WORDS
+  ) {
+    return null;
+  }
+  const waiting = waitingOnCaptain(ledger).filter((order) =>
+    held.orders.includes(order.n),
+  );
+  // A number is an order's after "order" or "#", or as the whole reply: "2." ("send 2 crates" is none).
+  const bare = text.match(/^\W*(?:the\s+)?(\d+)\W*$/i);
+  const numbers = [
+    ...[...text.matchAll(/(?:\border\s*#?|#)\s*(\d+)\b/gi)].map((found) =>
+      Number(found[1]),
+    ),
+    ...(bare ? [Number(bare[1])] : []),
+  ];
+  const byNumber = waiting.filter((order) => numbers.includes(order.n));
+  if (byNumber.length === 1) {
+    return { order: byNumber[0], answer: held.answer };
+  }
+  // A crate named in a line that orders it is a new order, not a pick: "the lights" is a pick.
+  if (numbers.length > 0 || sortLine(text) !== 'talk') {
+    return null;
+  }
+  const kinds = kindsAskedFor(brain, text).map((item) => item.crate);
+  const byKind = waiting.filter((order) =>
+    kinds.every((kind) => order.items.some((item) => item.crate === kind)),
+  );
+  return kinds.length > 0 && byKind.length === 1
+    ? { order: byKind[0], answer: held.answer }
+    : null;
+}
+
+/** Does as the Captain has said about one order: clears it, or refuses it and tells whoever ordered. */
+function actOnAnswer(
+  brain: NpcBrain,
+  order: LedgerOrder,
+  answer: 'yes' | 'no',
+): void {
+  const ledger = ledgerOf(brain);
   if (answer === 'no') {
     order.state = 'refused';
     ledger.toWrite.push(BOOK.no(order));
@@ -622,12 +814,11 @@ function readAnswer(
         `The Captain has refused order ${order.n}, which ${order.from} sent you. You are sending ${order.from} word of it.`,
       );
     }
-    return true;
+    return;
   }
   order.approved = 'captain';
   order.state = 'new';
   ledger.toWrite.push(BOOK.yes(order));
-  return true;
 }
 
 /**
@@ -1076,6 +1267,10 @@ function unfit(brain: NpcBrain, name: string): boolean {
 const unanswered = new Map<string, number>();
 /** How many times an order goes unanswered by one technician before it is given to another. */
 const UNANSWERED_MAX = 2;
+/** How long (deciseconds) after giving an order it waits for word that it has come in before asking after it: as long as a head waits (QM-02 A). */
+const CAME_IN_WAIT_DS = 6000;
+/** The orders it has asked a technician about, "Has order N come in?", by `brain id:order number`. It asks once. */
+const askedCameIn = new Set<string>();
 /** A short "I have it" in someone's own words, at the start of what they say (QM-02). */
 const SHORT_OK_WORDS =
   /^(ok(ay)?|on it|got it|will do|right away|sure|yes|yep|aye|roger)\b/i;
@@ -1227,6 +1422,30 @@ function syncTasks(brain: NpcBrain): void {
       const key = `${brain.id}:${order.n}`;
       unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
     }
+    // Taken, and no word that it has come in long after: a technician who never says so, a player
+    // in the job most likely, is asked after it once, face to face if in sight (QM-02 A).
+    const key = `${brain.id}:${order.n}`;
+    if (
+      order.state === 'given' &&
+      order.taken &&
+      order.givenTo &&
+      order.givenAt !== null &&
+      brain.now - order.givenAt > CAME_IN_WAIT_DS &&
+      !askedCameIn.has(key)
+    ) {
+      askedCameIn.add(key);
+      const line = `${techCalled(brain, order.givenTo)}, has order ${order.n} come in?`;
+      const inSight = brain.peopleInView.some(
+        (person) => person.name === order.givenTo,
+      );
+      brain.toTell.push({
+        to: order.givenTo,
+        line,
+        why: `You gave ${order.givenTo} order ${order.n} a while ago, and they have not said it has come in. You are asking after it.`,
+        ...(inSight ? { exact: true } : { byPda: true }),
+        at: Date.now(),
+      });
+    }
   }
   clearOrders(brain, ledger);
   // Its staff meeting. Not called while it is in the middle of handing an order over.
@@ -1297,6 +1516,25 @@ function syncTasks(brain: NpcBrain): void {
     finishTask(brain, sending);
   }
 
+  // A technician shut in, with nobody else to send: it goes to the door itself (QM-05 A).
+  const held = letOutOf(ledger);
+  const lettingOut = brain.tasks.find(
+    (task) => task.kind === LET_OUT && task.state !== 'done',
+  );
+  const toLetOut =
+    !!held.letOut && brain.now - held.letOut.at < LET_OUT_STANDS_DS;
+  if (toLetOut && !lettingOut) {
+    addTask(brain, {
+      kind: LET_OUT,
+      item: held.letOut?.who,
+      urgency: 'asked',
+      source: 'own',
+    });
+  } else if (!toLetOut && lettingOut) {
+    held.letOut = null;
+    finishTask(brain, lettingOut);
+  }
+
   // A knock at its office door, while it is in there: one of its technicians has word for it.
   const knock = brain.knockAt;
   const atDoor =
@@ -1330,7 +1568,7 @@ function syncTasks(brain: NpcBrain): void {
   const busy = brain.tasks.some(
     (task) =>
       task.state !== 'done' &&
-      [WRITE, GIVE, SEND, KNOCK, UNPACK, MEET].includes(task.kind),
+      [WRITE, GIVE, SEND, LET_OUT, KNOCK, UNPACK, MEET].includes(task.kind),
   );
   const stayingOut =
     ledger.cameOutAt > 0 && brain.now - ledger.cameOutAt < STAY_OUT_DS;
@@ -1583,6 +1821,23 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   if (task.kind === SEND) {
     return sendStep(brain);
   }
+  if (task.kind === LET_OUT) {
+    const out = letOutOf(ledger).letOut;
+    return out
+      ? {
+          ready: true,
+          step: `${out.who} has sent word that they are shut in the ${out.room}, and there is no other technician to send. You are going to the door of the ${out.room} to let them out yourself.`,
+          act: {
+            tool: 'open_door',
+            ...(brain.handles[out.who]
+              ? { person: brain.handles[out.who] }
+              : {}),
+            name: out.who,
+            place: out.room,
+          },
+        }
+      : { ready: false, step: 'There is nobody to let out.' };
+  }
   if (task.kind === PAPER) {
     return {
       ready: true,
@@ -1647,6 +1902,8 @@ function describeTask(task: Task): string | null {
       return `give order ${task.item} to one of your technicians`;
     case SEND:
       return 'send a technician to see to a crate that would not come';
+    case LET_OUT:
+      return `let ${task.item} out of the room they are shut in`;
     case UNPACK:
       return `open the crate that came on order ${task.item}`;
     case KNOCK:
@@ -1813,6 +2070,82 @@ function crateLost(
 }
 
 /**
+ * A technician's word about a crate or an order, other than that one has come in: a crate that
+ * would not come, one lost, crates still waiting, an order that could not be placed. Said to its
+ * face, or sent by PDA when the technician looked for it a long while and did not find it
+ * (CARGO-02 C). `heardIt` says back that it has it, when it was said aloud. Returns TRUE if the
+ * line was one of these.
+ */
+function techWord(
+  brain: NpcBrain,
+  speaker: string,
+  heard: string,
+  heardIt: () => void,
+): boolean {
+  const ledger = ledgerOf(brain);
+  // A crate that would not go where it was meant to. It says what is to be done about it.
+  const stuck = heard.match(WONT_COME_WORDS);
+  if (stuck) {
+    heardIt();
+    crateHeldUp(brain, speaker, stuck[1].trim(), stuck[2], stuck[3] ?? null);
+    return true;
+  }
+  const lost = heard.match(LOST_TOLD_WORDS);
+  if (lost) {
+    heardIt();
+    crateLost(
+      brain,
+      cratesTold(lost[1]).map((crate) => crate.number),
+      lost[2].trim(),
+      lost[3].trim(),
+    );
+    return true;
+  }
+  const waiting = heard.match(WAITING_TOLD_WORDS);
+  if (waiting) {
+    heardIt();
+    const whose = waiting[2].trim();
+    // A crate of its own, still waiting: if its book has no word of that order coming in, this
+    // is that word. It goes and opens it.
+    if (whose === brain.name) {
+      noteOwnCrate(brain, speaker, waiting[1]);
+    }
+    if (whose !== brain.name) {
+      sendWord(
+        brain,
+        whose,
+        `Still waiting at cargo: ${waiting[1]} from your order. Send someone to the Cargo Lobby counter with the number, please.`,
+        `One of your technicians has told you that ${waiting[1]}, which ${whose} ordered, ${/crates/.test(waiting[1]) ? 'are' : 'is'} still waiting to be collected. You are sending ${whose} a PDA message to remind them.`,
+      );
+    }
+    return true;
+  }
+  const failed = heard.match(NOT_PLACED_WORDS);
+  if (failed) {
+    // Said to its face like the rest, and answered like the rest: the technician goes on
+    // saying it until it hears this (CARGO-03).
+    heardIt();
+    const order = ledger.orders.find((it) => it.n === Number(failed[1]));
+    // Only from whoever has the order: from anyone else it would be given again while it is
+    // being placed, and bought twice.
+    if (order && order.state === 'given' && order.givenTo === speaker) {
+      order.state = 'new';
+      order.givenTo = null;
+      order.pick = null;
+      order.shortTold = false;
+      // Refused for want of money, it is not sent back to the console in two minutes: the
+      // budget seldom fills that fast (CARGO-03).
+      order.retryAt =
+        brain.now +
+        (/not enough money/i.test(heard) ? PLACE_AGAIN_DS * 5 : PLACE_AGAIN_DS);
+      ledger.toWrite.push(BOOK.failed(order));
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Takes a technician's word that an order has come in: the order is marked so in the book, and
  * whoever ordered is sent the crate numbers. Its own order is nobody's to tell, and with it marked
  * as come in the Quartermaster goes to open the crate. The word may come to its face or, when the
@@ -1932,6 +2265,12 @@ export const QUARTERMASTER: Job = {
         noteOwnCrate(brain, from, arrived[1]);
         return;
       }
+      // The rest of a technician's word, sent by PDA after it looked for it a long while and did
+      // not find it (CARGO-02 C, KNB-15): read as if said to its face. Nothing is said back: the
+      // PDA going through is the technician's proof it was sent.
+      if (techWord(brain, from, text, () => {})) {
+        return;
+      }
     }
     // One of its technicians is shut in and cannot walk to it: the one time word between them
     // goes by PDA. It sends another technician to see what is shutting the way.
@@ -1957,6 +2296,15 @@ export const QUARTERMASTER: Job = {
           ),
           why: `${from} has sent word that they are shut in the ${shutIn[1].trim()}. You are sending ${other} to let them out.`,
           at: brain.now,
+        };
+      } else {
+        // With no other technician about, it goes to the door and lets them out itself (QM-05 A).
+        // Whether the room's door is its to open is the server's to say.
+        letOutOf(ledgerOf(brain)).letOut = {
+          who: from,
+          room: shutIn[1].trim(),
+          at: brain.now,
+          tries: 0,
         };
       }
     }
@@ -2007,71 +2355,7 @@ export const QUARTERMASTER: Job = {
         noteDocked(brain, speaker, Number(docked[1]), docked[2]);
         return;
       }
-      // A crate that would not go where it was meant to. It says what is to be done about it.
-      const stuck = heard.match(WONT_COME_WORDS);
-      if (stuck) {
-        heardIt();
-        crateHeldUp(
-          brain,
-          speaker,
-          stuck[1].trim(),
-          stuck[2],
-          stuck[3] ?? null,
-        );
-        return;
-      }
-      const lost = heard.match(LOST_TOLD_WORDS);
-      if (lost) {
-        heardIt();
-        crateLost(
-          brain,
-          cratesTold(lost[1]).map((crate) => crate.number),
-          lost[2].trim(),
-          lost[3].trim(),
-        );
-        return;
-      }
-      const waiting = heard.match(WAITING_TOLD_WORDS);
-      if (waiting) {
-        heardIt();
-        const whose = waiting[2].trim();
-        // A crate of its own, still waiting: if its book has no word of that order coming in, this
-        // is that word. It goes and opens it.
-        if (whose === brain.name) {
-          noteOwnCrate(brain, speaker, waiting[1]);
-        }
-        if (whose !== brain.name) {
-          sendWord(
-            brain,
-            whose,
-            `Still waiting at cargo: ${waiting[1]} from your order. Send someone to the Cargo Lobby counter with the number, please.`,
-            `One of your technicians has told you that ${waiting[1]}, which ${whose} ordered, ${/crates/.test(waiting[1]) ? 'are' : 'is'} still waiting to be collected. You are sending ${whose} a PDA message to remind them.`,
-          );
-        }
-        return;
-      }
-      const failed = heard.match(NOT_PLACED_WORDS);
-      if (failed) {
-        // Said to its face like the rest, and answered like the rest: the technician goes on
-        // saying it until it hears this (CARGO-03).
-        heardIt();
-        const order = ledger.orders.find((it) => it.n === Number(failed[1]));
-        // Only from whoever has the order: from anyone else it would be given again while it is
-        // being placed, and bought twice.
-        if (order && order.state === 'given' && order.givenTo === speaker) {
-          order.state = 'new';
-          order.givenTo = null;
-          order.pick = null;
-          order.shortTold = false;
-          // Refused for want of money, it is not sent back to the console in two minutes: the
-          // budget seldom fills that fast (CARGO-03).
-          order.retryAt =
-            brain.now +
-            (/not enough money/i.test(heard)
-              ? PLACE_AGAIN_DS * 5
-              : PLACE_AGAIN_DS);
-          ledger.toWrite.push(BOOK.failed(order));
-        }
+      if (techWord(brain, speaker, heard, heardIt)) {
         return;
       }
       const taken = heard.match(TAKEN_WORDS);
@@ -2156,7 +2440,7 @@ export const QUARTERMASTER: Job = {
       ledger.toWrite.push(BOOK.given(order, order.pick));
     }
   },
-  afterActing: (brain, act, task, ok, looped, details) => {
+  afterActing: (brain, act, task, ok, looped, details, text) => {
     const ledger = ledgerOf(brain);
     meetingActed(brain, act, ok, looped);
     // What it wrote is written. What it could not write waits for paper.
@@ -2184,6 +2468,23 @@ export const QUARTERMASTER: Job = {
     // Likewise one it means to send somewhere.
     if (task?.kind === SEND && act.tool === 'approach' && ledger.sendFor) {
       ledger.sendFor.walkedUp = true;
+    }
+    // The door of the room its technician is shut in (QM-05 A). Opened, or they are not inside
+    // after all, it is done. Not opened twice, it tells them so by PDA.
+    const out = letOutOf(ledger).letOut;
+    if (task?.kind === LET_OUT && act.tool === 'open_door' && out) {
+      out.tries++;
+      if (ok || details?.not_inside) {
+        letOutOf(ledger).letOut = null;
+      } else if (out.tries >= LET_OUT_TRIES) {
+        letOutOf(ledger).letOut = null;
+        sendWord(
+          brain,
+          out.who,
+          `${techCalled(brain, out.who)}, I could not get the door of the ${out.room} open for you.`,
+          `You went to let ${out.who} out of the ${out.room} yourself, and the door would not open for you: ${String(text ?? '')}. You are telling them so.`,
+        );
+      }
     }
     // Its own crate is open, and what was in it is out where it can be got at.
     if (task?.kind === UNPACK && act.tool === 'open_own_crate' && ok) {

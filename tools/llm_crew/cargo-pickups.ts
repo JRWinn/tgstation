@@ -57,10 +57,22 @@ const hear = (b: any, message: string) => CARGO.overhears(b, { seq: 1, time: '',
   add('and nothing to tell him', b.toTell.map((it: any) => it.line), []);
 }
 {
-  const b = tech([{ number: 37, for: CAPTAIN.name }, { number: 41, for: CAPTAIN.name }]);
+  // CARGO-08 A: several held for him and no number: all of them, one after another.
+  const b = tech([{ number: 37, for: CAPTAIN.name, waited: 100 }, { number: 41, for: CAPTAIN.name, waited: 900 }]);
   hear(b, "I'm here for my crate.");
-  add('two held for him, no number: none picked', b.pickupAsked?.number ?? null, null);
-  add('and he is asked which', b.toTell.map((it: any) => it.line), ['Hedley, I am holding crates #37 and #41 for you. Which number is it?']);
+  add('two held for him, no number: the one waiting longest first', b.pickupAsked?.number ?? null, 41);
+  add('and he is told both are coming, one after another', b.toTell.map((it: any) => it.line), ['Hedley, I am holding crates #37 and #41 for you. I will bring them out one after another.']);
+  CARGO.syncTasks(b);
+  const first = b.tasks.find((t: any) => t.kind === 'handover' && t.state !== 'done');
+  add('a handover for #41', first?.item, '41');
+  CARGO.afterActing(b, { tool: 'release', number: 41 }, first, true, false, {}, 'You bring it out.');
+  add('#41 out: the next is #37, for him', [b.pickupAsked?.name, b.pickupAsked?.number], [CAPTAIN.name, 37]);
+  b.heldCrates[1].out = true;
+  CARGO.syncTasks(b);
+  const second = b.tasks.find((t: any) => t.kind === 'handover' && t.state !== 'done');
+  add('and a handover for #37', second?.item, '37');
+  CARGO.afterActing(b, { tool: 'release', number: 37 }, second, true, false, {}, 'You bring it out.');
+  add('#37 out too: nothing more is asked for', b.pickupAsked, null);
 }
 {
   const b = tech([{ number: 37, for: 'Hop Kins' }]);
