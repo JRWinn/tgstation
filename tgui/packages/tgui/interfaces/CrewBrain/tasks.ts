@@ -259,16 +259,7 @@ export function takeToldWork(
   // words of the line: a call to a mess it said it cannot shift (LOGA-07). The job says so
   // through refusesWork, if it has one; who told it is passed too, since a call turned down is
   // turned down for whoever made it.
-  const refuses = (
-    jobFor(brain.job) as {
-      refusesWork?: (
-        brain: NpcBrain,
-        kind: string,
-        place: string,
-        toldBy?: string,
-      ) => boolean;
-    }
-  ).refusesWork;
+  const refuses = jobFor(brain.job).refusesWork;
   if (own && refuses?.(brain, kind, room, toldBy)) {
     return null;
   }

@@ -447,34 +447,8 @@ function headSpared(brain: NpcBrain, warrant: BeatWarrant): boolean {
 }
 
 /** The cell it left this warrant's person in, let go, and could not get out of past them (PLAY-01). */
-type StuckInside = { cell: string; at: number; tries: number };
+type StuckInside = NonNullable<BeatWarrant['stuckInside']>;
 
-/**
- * What a warrant keeps beyond BeatWarrant's own fields (types.ts is not this file's): the cell it
- * is stuck in (PLAY-01), and how many tries at arresting them it has made in all, which numbers
- * each try so that the driver does not hold the next one back (ARR-01).
- */
-type WarrantMore = {
-  stuckInside?: StuckInside;
-  arrestAttempts?: number;
-  /** How many times in a row no cell would do, and why the last time: no_cell or no_power (ARR-04). */
-  noCellTries?: number;
-  noCellWhy?: string;
-  /** Walks through the door it asked at, found standing open, that came to nothing (ARR-06). */
-  openWalks?: number;
-  /**
-   * Its look round the room of a sighting (KNA-23): the sighting it is for (its time), which leg
-   * it is on (0 by the door it came in by, 1 walking to the middle, 2 looking from the middle),
-   * when the last leg began, and how many walks to the middle it has sent.
-   */
-  lookFor?: number;
-  lookLeg?: number;
-  lookLegAt?: number;
-  lookWalks?: number;
-  /** The door it last knocked at, asking to be let in, and whom it is asking aloud (KNA-26). */
-  knockedAt?: string;
-  sayingTo?: string;
-};
 /** How long (deciseconds) it looks from the middle of the room of a sighting (KNA-23). */
 const LOOK_MIDDLE_DS = 100;
 /** How many walks through a door found open may come to nothing before it waits as before (ARR-06). */
@@ -482,26 +456,21 @@ const OPEN_WALKS = 3;
 
 /**
  * TRUE if the door the body stands at, the one it wants through, is open: what its eyes tell it
- * (ARR-06). The server sends it as at_door_open, copied to brain.atDoorOpen; until it does, this
- * is always FALSE and nothing changes.
+ * (ARR-06). The server sends it as at_door_open, copied to brain.atDoorOpen.
  */
 function atDoorOpen(brain: NpcBrain): boolean {
-  return !!(brain as NpcBrain & { atDoorOpen?: boolean }).atDoorOpen;
+  return !!brain.atDoorOpen;
 }
 /** How many times no cell will do before whoever keeps the list is told (ARR-04). */
 const NO_CELL_TELL = 2;
 
-function more(warrant: BeatWarrant): WarrantMore {
-  return warrant as BeatWarrant & WarrantMore;
-}
-
 /** The warrant's StuckInside, if any. Kept on the warrant beside its other cell counts. */
 function stuckOf(warrant: BeatWarrant): StuckInside | undefined {
-  return more(warrant).stuckInside;
+  return warrant.stuckInside;
 }
 
 function setStuck(warrant: BeatWarrant, stuck: StuckInside | undefined): void {
-  more(warrant).stuckInside = stuck;
+  warrant.stuckInside = stuck;
 }
 
 /** TRUE if it has this warrant's person by the arm. */
@@ -708,11 +677,11 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // In cuffs and by the arm, and no cell will do: all in use, or dark (ARR-04).
     if (
       holds(brain, warrant) &&
-      (more(warrant).noCellTries ?? 0) >= NO_CELL_TELL
+      (warrant.noCellTries ?? 0) >= NO_CELL_TELL
     ) {
       cannot(
         warrant.name,
-        more(warrant).noCellWhy === 'no_power'
+        warrant.noCellWhy === 'no_power'
           ? 'the cells have no power'
           : 'every cell is in use',
       );
@@ -935,7 +904,7 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
   // only once it has asked: a locked room's door someone else happens to open is no invitation.
   // Numbered, so that a walk that just missed it shutting is not held back; three that came to
   // nothing, and it waits as before.
-  const openWalks = more(warrant).openWalks ?? 0;
+  const openWalks = warrant.openWalks ?? 0;
   if (
     atDoor &&
     atDoorOpen(brain) &&
@@ -985,7 +954,7 @@ function letInStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     ...listed.filter((keeper) => !inSight(keeper)),
   ];
   const next = keepers.find((keeper) => !shut.asked.includes(keeper));
-  const extra = more(warrant);
+  const extra = warrant;
   // At the door, it knocks first, once, for whoever is inside: as a janitor does, and a player.
   if (atDoor && extra.knockedAt !== door) {
     return {
@@ -1093,7 +1062,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
       warrant.noCellAt !== undefined &&
       brain.now - warrant.noCellAt < NO_CELL_WAIT_DS
     ) {
-      const dark = more(warrant).noCellWhy === 'no_power';
+      const dark = warrant.noCellWhy === 'no_power';
       const brig = brigPlace(brain);
       if (brig && brain.location !== brig) {
         return {
@@ -1216,7 +1185,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
           tool: 'arrest',
           person: seen.handle,
           how: 'quiet',
-          attempt: (more(warrant).arrestAttempts ?? 0) + 1,
+          attempt: (warrant.arrestAttempts ?? 0) + 1,
         },
       };
     }
@@ -1290,7 +1259,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         tool: 'arrest',
         person: seen.handle,
         how: force ? 'force' : 'quiet',
-        attempt: (more(warrant).arrestAttempts ?? 0) + 1,
+        attempt: (warrant.arrestAttempts ?? 0) + 1,
       },
       dropsWalk: true,
     };
@@ -1351,7 +1320,7 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     }
     // It looks in two legs (KNA-23): from where it came in, then from the middle of the room, each
     // timed from its own arrival. Stood by the door, it saw seven tiles of a room twice as long.
-    const look = more(warrant);
+    const look = warrant;
     if (look.lookFor !== sighting.at) {
       look.lookFor = sighting.at;
       look.lookLeg = 0;
@@ -1558,7 +1527,7 @@ export function beatAfterSaying(brain: NpcBrain, called: string | null): void {
   // from here.
   if (called && LET_IN_WORDS.test(called)) {
     for (const warrant of beatOf(brain).warrants) {
-      const extra = more(warrant);
+      const extra = warrant;
       const shut = warrant.shutOut;
       if (shut && extra.sayingTo && called.includes(warrant.name)) {
         shut.asked.push(extra.sayingTo);
@@ -1688,13 +1657,13 @@ export function beatAfterActing(
   }
   // A knock at the door it asks at (KNA-26): once a door, whether or not anyone heard it.
   if (warrant?.shutOut && act.tool === 'knock') {
-    more(warrant).knockedAt = warrant.shutOut.door ?? warrant.shutOut.place;
+    warrant.knockedAt = warrant.shutOut.door ?? warrant.shutOut.place;
     return;
   }
   // The walk to the middle of the room of a sighting (KNA-23): the look from there starts now. One
   // that came to nothing is tried once more, then it looks from where it stands.
   if (warrant && act.tool === 'go_to' && act.middle && act.attempt !== undefined) {
-    const look = more(warrant);
+    const look = warrant;
     if (look.lookLeg === 1) {
       look.lookWalks = (look.lookWalks ?? 0) + 1;
       if (ok || look.lookWalks >= 2) {
@@ -1711,7 +1680,7 @@ export function beatAfterActing(
     act.tool === 'go_to' &&
     act.attempt !== undefined
   ) {
-    more(warrant).openWalks = ok ? 0 : (more(warrant).openWalks ?? 0) + 1;
+    warrant.openWalks = ok ? 0 : (warrant.openWalks ?? 0) + 1;
     return;
   }
   // A walk into a room engineering opened that came to nothing is counted.
@@ -1776,7 +1745,7 @@ export function beatAfterActing(
     warrant.walkedUp = false;
     // Each try that came to nothing is numbered afresh, whatever stopped it (ARR-01).
     if (!ok) {
-      more(warrant).arrestAttempts = (more(warrant).arrestAttempts ?? 0) + 1;
+      warrant.arrestAttempts = (warrant.arrestAttempts ?? 0) + 1;
     }
     // Someone else from security put their cuffs on them first (MULTI-01): no try at them, and
     // not its own cuffs, so it does not say it has them. The next look sees them cuffed and
@@ -1942,11 +1911,11 @@ export function beatAfterActing(
     // is told why there is no cell for them (syncBeat).
     if (reason === 'no_cell' || reason === 'no_power') {
       warrant.noCellAt = brain.now;
-      more(warrant).noCellTries = (more(warrant).noCellTries ?? 0) + 1;
-      more(warrant).noCellWhy = reason;
+      warrant.noCellTries = (warrant.noCellTries ?? 0) + 1;
+      warrant.noCellWhy = reason;
       return;
     }
-    more(warrant).noCellTries = 0;
+    warrant.noCellTries = 0;
     // The cell would not take them, and it still has them by the arm: the next cell, at once. (Only
     // on the walk in does it still hold them; the walk out after letting go is stuck_inside.)
     if (reason === 'no_way' || reason === 'timer') {

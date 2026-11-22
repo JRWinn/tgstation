@@ -109,12 +109,6 @@ const SOUGHT_DS = 200;
 const UNSENT_AGAIN_DS = 1800;
 
 /**
- * A word for the Head of Security, with when its PDA last would not send it (ARR-05).
- * `unsent` belongs on BeatWord in types.ts; it is kept here until that file is free to change.
- */
-type Word = BeatWord & { unsent?: number };
-
-/**
  * What a new word on someone makes untrue of the words on them not yet sent. Being hurt,
  * attacked or robbed of its baton stays true whatever comes after, and so does having had
  * them in cuffs once they are in a cell or let go: the Captain is told of the cuffs.
@@ -255,7 +249,7 @@ function syncTasks(brain: NpcBrain): void {
  * again, and after that, or if the Head of Security is not to be found, it goes by PDA. Word the
  * PDA would not send, or with no PDA on it, it takes to its post to say there (ARR-05).
  */
-function tellHead(brain: NpcBrain, word: Word): Plan {
+function tellHead(brain: NpcBrain, word: BeatWord): Plan {
   const head = headAboard(brain);
   if (!head) {
     return {
@@ -711,7 +705,7 @@ export const OFFICER: Job = {
       if (ok) {
         beat.words = beat.words.filter((it) => it !== word);
       } else {
-        (word as Word).unsent = brain.now;
+        word.unsent = brain.now;
       }
     }
   },

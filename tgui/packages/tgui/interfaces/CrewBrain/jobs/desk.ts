@@ -131,27 +131,10 @@ const SAID_MAX = 200;
 const SAME_WORD_DS = 6000;
 
 /**
- * What the desk keeps beyond DeskWork in types.ts. These belong on DeskWork, Warrant and the
- * held list there, and are kept here until that file is free to change.
+ * What the desk keeps beyond DeskWork in types.ts: the officer that broke off hurt, so that "try
+ * again" goes to that one. It belongs on DeskWork there.
  */
 type DeskMore = DeskWork & {
-  /** Each word from its staff on how a warrant went, by "what|name|from|cell|why", and when it came (ARR-05). */
-  lately?: Record<string, number>;
-  /**
-   * Prisoners its officer put in a cell and has been told to let go, until it says they are free
-   * (TRB-11): the cell, when the word went, whether it was a pardon, which officer was told, and
-   * whether it has gone to do it itself.
-   */
-  toRelease?: {
-    name: string;
-    cell: string;
-    until: number;
-    pardoned: boolean;
-    at: number;
-    officer: string | null;
-    going?: boolean;
-  }[];
-  /** The officer that broke off hurt, so that "try again" goes to that one. */
   hurtOfficer?: string;
 };
 
@@ -160,10 +143,8 @@ function moreOf(brain: NpcBrain): DeskMore {
   return deskOf(brain) as DeskMore;
 }
 
-/** A warrant, with the officer it was given to (MULTI-01). */
-type WarrantMore = Warrant & { officer?: string };
 /** Someone in a cell, with the officer who put them there (MULTI-01) and when (TRB-06). */
-type HeldMore = DeskWork['held'][string] & { by?: string; at?: number };
+type HeldMore = DeskWork['held'][string];
 
 /** How long (deciseconds) after someone is put in a cell before seeing them out of one counts: what it sees of the cells may be a moment behind. */
 const SEEN_OUT_AFTER_DS = 150;
@@ -201,7 +182,7 @@ function officerKnown(brain: NpcBrain, name: string): boolean {
  */
 function officerFor(brain: NpcBrain, warrant: Warrant): string | null {
   const officer = serving(brain);
-  const holder = (warrant as WarrantMore).officer;
+  const holder = warrant.officer;
   return officer && holder && officerKnown(brain, holder) ? holder : officer;
 }
 
@@ -421,9 +402,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   }
   // Whoever may have them lets them go: the officer it gave the warrant to, or who put them in
   // the cell, if it is still aboard (MULTI-01), else any officer aboard; and itself.
-  const theirs =
-    (warrant as WarrantMore | undefined)?.officer ??
-    (heldBy as HeldMore | undefined)?.by;
+  const theirs = warrant?.officer ?? heldBy?.by;
   const officer =
     theirs && officerKnown(brain, theirs) ? theirs : officerAboard(brain);
   if (officer && (held || (warrant && warrant.given !== 'no'))) {
@@ -440,7 +419,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   more.toRelease = (more.toRelease ?? []).filter(
     (it) => !sameName(who, it.name),
   );
-  if (held && heldBy && (heldBy as HeldMore).by !== brain.name) {
+  if (held && heldBy && heldBy.by !== brain.name) {
     more.toRelease.push({
       name: held,
       cell: heldBy.cell,
@@ -514,7 +493,7 @@ export function deskTakes(
     if (WARRANT_ACK_WORDS.test(text)) {
       // Only the warrants given to whoever says it (MULTI-01).
       for (const warrant of desk.warrants) {
-        const to = (warrant as WarrantMore).officer;
+        const to = warrant.officer;
         if (warrant.given === 'said' && (!to || to === from)) {
           warrant.given = 'taken';
         }
@@ -1054,7 +1033,7 @@ export function deskOutcome(
       } else if (warrant && officerAboard(brain)) {
         // Its officer may have it still: given it before it broke off hurt, or given it and
         // then outrun to the arrest. The one it was given to, if it knows which (MULTI-01).
-        const to = (warrant as WarrantMore).officer;
+        const to = warrant.officer;
         const officer =
           to && officerKnown(brain, to) ? to : (officerAboard(brain) ?? '');
         tellOfficer(
@@ -1258,7 +1237,7 @@ export function syncDesk(brain: NpcBrain): void {
   for (const [name, held] of Object.entries(desk.held)) {
     if (brain.now > held.until) {
       delete desk.held[name];
-    } else if (seenOut(brain, name, held as HeldMore)) {
+    } else if (seenOut(brain, name, held)) {
       // Seen out of the cells before their time: let out by someone, or broken out (TRB-06).
       delete desk.held[name];
       tellCaptain(
@@ -1315,9 +1294,9 @@ export function syncDesk(brain: NpcBrain): void {
   for (const warrant of desk.warrants) {
     // The officer it was given to is gone from sight and PDA: it is given afresh to another
     // (MULTI-01).
-    const holder = (warrant as WarrantMore).officer;
+    const holder = warrant.officer;
     if (holder && !officerKnown(brain, holder)) {
-      (warrant as WarrantMore).officer = undefined;
+      warrant.officer = undefined;
       if (officer && warrant.given !== 'no') {
         giveAgain(warrant);
       }
@@ -1460,7 +1439,7 @@ function giveStep(brain: NpcBrain, warrant: Warrant): Plan {
   if (!officer) {
     return { ready: false, step: 'You have no officer to give it to.' };
   }
-  (warrant as WarrantMore).officer = officer;
+  warrant.officer = officer;
   const line = giveLine(
     officer,
     warrant.name,
