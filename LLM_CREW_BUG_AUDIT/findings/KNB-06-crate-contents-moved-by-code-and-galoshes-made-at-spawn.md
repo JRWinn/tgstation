@@ -91,3 +91,7 @@ Not a duplicate: it holds two faults with two separate changes; GAP-02 and GAP-0
 - `clean_mess` (`crew_npc_cleaning.dm`) notes the tile a mop was used on, at the click and again when the scrub ends (`note_mopped`, list `mopped_tiles`, turf REF to world.time, pruned past a minute). `knows_mopped(turf)` is TRUE for a tile it mopped itself in the last minute.
 - **Left (held, `crew_npc_senses.dm`, a-secsrv's file):** `mind_its_step` must read it. Where it has `if(isnull(slippery))`, before setting the run intent, add: if the shoes do not grip and `knows_mopped(new_loc)`, treat the tile as one where walking helps (water: `NO_SLIP_WHEN_WALKING`): return if already walking, else `set_move_intent(MOVE_INTENT_WALK)` and `return COMPONENT_MOVABLE_BLOCK_PRE_MOVE`. Until that is in, the janitor in ordinary shoes slips on its own mopping.
 - Compile only. Not played.
+
+## Fix so far (round A2, a2-server, compile only)
+
+The held part is in: `mind_its_step` (`crew_npc_senses.dm`), for a tile with nothing slippery seen on it, checks `knows_mopped(new_loc)` when the shoes do not grip (neither `TRAIT_NO_SLIP_WATER` nor `TRAIT_NO_SLIP_ALL`): already walking, it steps on; running, it slows to a walk and that one step is not taken (`COMPONENT_MOVABLE_BLOCK_PRE_MOVE`), as for oil. Water (`TURF_WET_WATER`) carries `NO_SLIP_WHEN_WALKING`, so a walker keeps its feet. Floors others wetted are still unknown to it. Not played.
