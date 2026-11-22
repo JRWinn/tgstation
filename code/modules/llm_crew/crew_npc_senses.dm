@@ -131,7 +131,8 @@
  *
  * It goes by sight alone. A thing it has seen, or can see on the tile in front of it, it knows of.
  * A floor that is only wet from a mop it does not: there is nothing lying there to see, and it
- * slips on that like anyone, unless its shoes grip. A body that runs over the oil by the mail
+ * slips on that like anyone, unless its shoes grip, or it mopped that floor itself in the last
+ * minute (knows_mopped), when it walks over it. A body that runs over the oil by the mail
  * chute is thrown down the chute and comes out behind doors it cannot open.
  */
 /datum/ai_controller/crew_npc/proc/mind_its_step(mob/living/carbon/human/body, atom/new_loc)
@@ -143,8 +144,16 @@
 	if(body.moving_from_pull || body.throwing || body.pulledby || body.buckled)
 		return
 	// Shoes that grip need no care taken.
-	var/atom/movable/slippery = (HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) || HAS_TRAIT(body, TRAIT_NO_SLIP_ALL)) ? null : known_slippery_on(new_loc)
+	var/grips = HAS_TRAIT(body, TRAIT_NO_SLIP_WATER) || HAS_TRAIT(body, TRAIT_NO_SLIP_ALL)
+	var/atom/movable/slippery = grips ? null : known_slippery_on(new_loc)
 	if(isnull(slippery))
+		// A floor it mopped itself in the last minute is wet, though nothing lies there to see. Water
+		// does not throw a walker (NO_SLIP_WHEN_WALKING), so it slows to a walk on it (KNB-06).
+		if(!grips && knows_mopped(new_loc))
+			if(body.move_intent == MOVE_INTENT_WALK)
+				return
+			body.set_move_intent(MOVE_INTENT_WALK)
+			return COMPONENT_MOVABLE_BLOCK_PRE_MOVE
 		body.set_move_intent(MOVE_INTENT_RUN)
 		return
 	// Walking will not save it: it keeps off the tile. Asked once a walk for each tile: a second step
