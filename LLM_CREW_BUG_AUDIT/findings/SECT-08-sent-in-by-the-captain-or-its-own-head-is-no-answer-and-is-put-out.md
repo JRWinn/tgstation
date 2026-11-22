@@ -79,3 +79,7 @@ Read `guardOverhears` (`guarding.ts:663` to 830), `workmateNamedIn` (294), `sync
 Commits: none.
 
 - SECT-08: waits on the owner (QUESTIONS_FOR_OWNER.md). 
+
+## Fix so far (round A1, owner's answer B)
+
+Heads' side, group a-heads (2026-11-22): a head notes whom it sends where (`noteSending`, `noteSaidSending` in `jobs/head.ts`): any PDA message it sends someone, or line it says opening with someone's name in view, that names a room, kept an hour. Lines to someone it answers to are not noted. Asked "Did you send <name> to the <room>?" (`SENT_ASK_WORDS`), aloud to it or by PDA, it answers word for word "Yes, I sent <name>." or "No, I did not send <name>." (`answerSentAsk`, `sentAnswerLine`), by PDA if asked by PDA. With nothing noted, no. Wired into the Head of Personnel (`jobs/head.ts`) and the Chief Engineer (`jobs/chiefengineer.ts`). Held: the Quartermaster (`jobs/quartermaster.ts`) and the Head of Security (`jobs/headofsecurity.ts`) need the same four hooks. The keeper's side is a-cargo's (`jobs/guarding.ts`). Table `tools/llm_crew/head-sent.ts`.

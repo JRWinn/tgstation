@@ -74,6 +74,7 @@ import {
   syncForcing,
 } from './forcing';
 import {
+  answerSentAsk,
   captainName,
   hearReport,
   MEET,
@@ -82,6 +83,8 @@ import {
   meetingActed,
   meetingSaid,
   meetStep,
+  noteSaidSending,
+  noteSending,
   present,
   staffMeetingWord,
   syncMeeting,
@@ -927,6 +930,10 @@ export const CHIEF_ENGINEER: Job = {
   // Word from its engineer that could not be said to its face, or the Captain telling it to
   // find out how its staff are doing, or to have the engine lit again.
   readsMessage: (brain, from, text, at, job) => {
+    // A keeper asking whether it sent someone to a room (SECT-08).
+    if (answerSentAsk(brain, from, text, true)) {
+      return;
+    }
     // Security asking for a door to be forced, or its engineer saying how that went.
     if (forcingReads(brain, from, job, text)) {
       return;
@@ -959,6 +966,13 @@ export const CHIEF_ENGINEER: Job = {
     if (!speaker) {
       return;
     }
+    // A keeper asking whether it sent someone to a room (SECT-08).
+    if (
+      event.details.said_to !== 'other' &&
+      answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
     if (isEngineer(jobOf(brain, speaker))) {
       // At its meeting, a report is a report, whoever's turn it is.
       if (!hearReport(brain, speaker, heard)) {
@@ -989,6 +1003,7 @@ export const CHIEF_ENGINEER: Job = {
     }
     const chief = chiefOf(brain);
     meetingSaid(brain, called);
+    noteSaidSending(brain, called);
     // Having given an order in so many words, it is given.
     if (SHUT_WORDS.test(called)) {
       chief.shutGivenAt = brain.now;
@@ -1005,6 +1020,10 @@ export const CHIEF_ENGINEER: Job = {
     const chief = chiefOf(brain);
     meetingActed(brain, act, ok);
     forcingAfterActing(brain, act, ok, details);
+    // Whom a PDA message of its sends where (SECT-08).
+    if (ok && act.tool === 'message') {
+      noteSending(brain, String(act.person ?? ''), String(act.text ?? ''));
+    }
     if (task?.kind === SELF_SHUT && act.tool === 'work_machine') {
       selfShutActed(brain, act, ok, details, text);
       return;
