@@ -222,6 +222,8 @@ export type Npc = {
   at_door_of: string | null;
   /** What that door is called, to tell it from the room's other doors: the name on it, or where it opens from. */
   at_door_label?: string | null;
+  /** TRUE if the door it stands at, wanting through, is standing open: opened by hand, say (ARR-06). */
+  at_door_open?: BooleanLike;
   /** TRUE if it is standing in a doorway or right beside a door, where it is in the way of anyone coming through. */
   in_doorway?: BooleanLike;
   /** How many messes a cleaner grenade would reach if thrown now. 0 if it holds none, or it would be a waste. */
@@ -269,6 +271,8 @@ export type Npc = {
     empty_crates: number;
     /** Crates left within a tile of a door, where they are in the way. */
     misplaced?: number;
+    /** Crates aboard the shuttle with something in them, claimed by a workmate or not (SUP-05). */
+    full_aboard?: number;
   } | null;
   /** Messes it remembers in the rooms that are its to keep fit to work in: room name -> what they are. */
   work_area_messes: Record<string, string[]> | null;
@@ -294,6 +298,10 @@ export type Npc = {
   in_hand?: BooleanLike;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from (MAP-07). */
   floating?: BooleanLike;
+  /** TRUE when there is no light where it stands and it has no night vision: it sees only what is right beside it (CHEAT-15). */
+  dark?: BooleanLike;
+  /** How many of its hands work: 2 unless one is hurt or gone (HOLE-18). */
+  working_hands?: number;
   /** TRUE if the room it is in is locked to it: none of its doors open for it. */
   out_of_bounds?: BooleanLike;
   /** Names of the rooms it lately found no way into. */
@@ -432,6 +440,8 @@ export type Warrant = {
   lastSeen: { place: string; at: number; by: string } | null;
   /** The sighting it last passed to its officer: the room and when. */
   passed: { place: string; at: number } | null;
+  /** The officer it was given to (MULTI-01). */
+  officer?: string;
 };
 
 /** What whoever keeps security's list knows: see jobs/desk.ts. Times are server time. */
@@ -451,8 +461,11 @@ export type DeskWork = {
       failed?: boolean;
     }
   >;
-  /** Who is in a cell, which, and when their time is up. */
-  held: Record<string, { cell: string; until: number }>;
+  /** Who is in a cell, which, and when their time is up; the officer who put them there (MULTI-01) and when (TRB-06). */
+  held: Record<
+    string,
+    { cell: string; until: number; by?: string; at?: number }
+  >;
   /** Why its officer is making no arrests, if it is not: "hurt". Null while it is. */
   officerOut: string | null;
   /** How many arrests have been made on its warrants. */
@@ -479,6 +492,22 @@ export type DeskWork = {
   servedBy?: string | null;
   /** Warrants it kept in its own hands when its officer came to serve, being mid-arrest or holding them (ARR-13): given to the officer once it lets go of them. */
   keptBack?: string[];
+  /** Each word from its staff on how a warrant went, by "what|name|from|cell|why", and when it came (ARR-05). */
+  lately?: Record<string, number>;
+  /**
+   * Prisoners its officer put in a cell and has been told to let go, until it says they are free
+   * (TRB-11): the cell, when the word went, whether it was a pardon, which officer was told, and
+   * whether it has gone to do it itself.
+   */
+  toRelease?: {
+    name: string;
+    cell: string;
+    until: number;
+    pardoned: boolean;
+    at: number;
+    officer: string | null;
+    going?: boolean;
+  }[];
 };
 
 /** What an NPC keeps of doors forced for security: see jobs/forcing.ts. Times are server time. */
@@ -547,6 +576,27 @@ export type BeatWarrant = {
   };
   /** Whom the server would not let it arrest (a Captain's ID), by handle, and when: passed over a while. */
   refused?: { handle: string; at: number }[];
+  /** The cell it left this warrant's person in, let go, and could not get out of past them (PLAY-01). */
+  stuckInside?: { cell: string; at: number; tries: number };
+  /** How many tries at arresting them it has made in all. It numbers each try, so the driver does not hold the next back (ARR-01). */
+  arrestAttempts?: number;
+  /** How many times in a row no cell would do, and why the last time: no_cell or no_power (ARR-04). */
+  noCellTries?: number;
+  noCellWhy?: string;
+  /** Walks through the door it asked at, found standing open, that came to nothing (ARR-06). */
+  openWalks?: number;
+  /**
+   * Its look round the room of a sighting (KNA-23): the sighting it is for (its time), which leg
+   * it is on (0 by the door it came in by, 1 walking to the middle, 2 looking from the middle),
+   * when the last leg began, and how many walks to the middle it has sent.
+   */
+  lookFor?: number;
+  lookLeg?: number;
+  lookLegAt?: number;
+  lookWalks?: number;
+  /** The door it last knocked at, asking to be let in, and whom it is asking aloud (KNA-26). */
+  knockedAt?: string;
+  sayingTo?: string;
 };
 
 /** A word the officer has for the Head of Security, and how far it has got with passing it on. */
@@ -558,6 +608,8 @@ export type BeatWord = {
   walkedUp?: boolean;
   soughtAt?: number;
   byPda?: boolean;
+  /** When its PDA last would not send it (ARR-05). */
+  unsent?: number;
 };
 
 /** What whoever serves warrants knows of its own work: see jobs/arrests.ts. Times are server time. */
@@ -928,6 +980,11 @@ export type Freight = {
   emptyCrates: number;
   /** Crates in cargo's rooms left within a tile of a door, where they are in the way. */
   misplaced: number;
+  /**
+   * Crates aboard the shuttle with something in them, claimed by a workmate or not (SUP-05).
+   * Unset while the server does not send it: toUnload is read in its place.
+   */
+  fullAboard?: number;
 };
 
 /** What doing a task comes down to right now. */
@@ -1118,6 +1175,12 @@ export type NpcBrain = {
   /** What that door is called, to tell it from the room's other doors, or null. Said when it asks for the door. */
   atDoorLabel: string | null;
   /**
+   * TRUE while the door it stands at, wanting through, stands open: opened by hand by someone who
+   * holds no door for it, the Captain swiping their own ID, say (ARR-06). Its walk through is not
+   * held back by an earlier failure: the door will not stay open.
+   */
+  atDoorOpen: boolean;
+  /**
    * The door the body last reported reaching: the room it is the door of, the room the body was
    * in, and when (this window's clock). Kept so that a body told it has arrived is not sent to the
    * same door again because the server has yet to say it is standing there.
@@ -1132,6 +1195,8 @@ export type NpcBrain = {
    * which is locked to it as well. It asks to be let into that one first.
    */
   reachedThrough: Record<string, string>;
+  /** When each of those was learnt (this window's clock, milliseconds). Each lapses after a while (LOGB-05). */
+  reachedThroughAt?: Record<string, number>;
   /** Those of its rooms that are behind doors the crew at large cannot open. */
   closedRooms: string[];
   /** When someone last came into its view, in this window's clock (milliseconds). */
@@ -1597,6 +1662,10 @@ export type NpcBrain = {
   droppedArrest?: { task?: number; person: string; at: number } | null;
   /** TRUE while it floats with the gravity off and nothing within a tile to push off from, so it cannot walk (MAP-07). */
   floating?: boolean;
+  /** TRUE while it stands in the dark, seeing only what is right beside it (CHEAT-15). */
+  dark?: boolean;
+  /** How many of its hands work: 2 unless one is hurt or gone, and 2 when the server does not say (HOLE-18). */
+  workingHands: number;
   /**
    * What the line now waiting to be said is for, when it is word for someone face to face or an
    * ask for the door (ASYNC-05, DRV-07): the step's key, the person, and the tell or the ask. The

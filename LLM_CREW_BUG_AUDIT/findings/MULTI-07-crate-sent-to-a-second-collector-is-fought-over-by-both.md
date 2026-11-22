@@ -95,3 +95,5 @@ Not done: step 3 (`jobs/pickups.ts`, not this group's). The errand's own refusal
 Window part on branch `m-cargo` (`jobs/pickups.ts`; cases in `tools/llm_crew/cargo-pickups.ts`; not played): `pickupsAfterActing` now takes the result's details and text as optional arguments, and a failed `collect_crate` whose text says "already has hold of" or "has taken hold of", or whose details carry `held_by`, ends the COLLECT task with nothing said.
 
 Held: `driver.ts`, in `noteResult`, must pass `event.details` and `event.text` to `pickupsAfterActing` (add them as the 5th and 6th arguments). Until then this does nothing in a round.
+
+Round M2 (g-brain): the held part is built. `settleResult` (`driver.ts`, reached from `noteResult`) passes `event.details` and `event.text` to `pickupsAfterActing`. Table `tools/llm_crew/driver4-results.ts` (fed through `noteResult`). Steps 4 and 5 still not done.

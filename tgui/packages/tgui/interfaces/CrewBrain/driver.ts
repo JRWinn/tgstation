@@ -253,6 +253,21 @@ function nextToWrite(
 const LEAVES_THE_DOOR = new Set(['search', 'find_supplies']);
 
 /**
+ * TRUE if this step is aimed at someone in view in the room the body stands in (an arrest, an
+ * approach): done there, not a walk off to work elsewhere. A task with no room of its own (a
+ * warrant) is held at the door only when its step would take the body out (KNA-02 follow-up).
+ */
+function aimsInThisRoom(brain: NpcBrain, act: Action): boolean {
+  if (typeof act.person !== 'string') {
+    return false;
+  }
+  const seen = brain.peopleInView.find(
+    (person) => person.handle === act.person || person.name === act.person,
+  );
+  return !!seen && (!seen.place || seen.place === brain.location);
+}
+
+/**
  * TRUE if a shut-in NPC waiting for the door has something left to do about it: a knock not yet
  * made, word not yet sent to whoever let it in, or someone it will write to once it has waited for
  * the last (KNA-02).
@@ -336,7 +351,11 @@ function inBackoff(brain: NpcBrain, key: string, act?: Action | null): boolean {
   // Likewise while someone is holding a door for it: that will not last, and a walk that failed
   // a moment before the door opened says nothing about one made now. A clean that came to nothing
   // in the room it stands in is no more worth trying for a door being opened across the room.
-  if (brain.doorHeld && (act === undefined || (!!act && WALKS.has(act.tool)))) {
+  // The same for the door it stands at, opened by hand by someone holding none for it (ARR-06).
+  if (
+    (brain.doorHeld || brain.atDoorOpen) &&
+    (act === undefined || (!!act && WALKS.has(act.tool)))
+  ) {
     return false;
   }
   const failure = brain.failures.get(key);
@@ -653,11 +672,20 @@ export function nextStep(brain: NpcBrain): Step | null {
     if (!plan.ready || (!plan.act && !plan.say)) {
       continue;
     }
-    // Waiting at the door, only what is done where it stands (KNA-02).
+    // Waiting at the door, only what is done where it stands (KNA-02). Not an emergency in the
+    // room it is shut in, though, nor one that breaks in to get it out of harm's way: an officer
+    // shut in with the person it has a warrant on beside it arrests them, it does not stand at
+    // the door while they walk about (KNA-02 follow-up).
     if (
       holdAtDoor &&
       plan.act &&
-      (!STAYS.has(plan.act.tool) || LEAVES_THE_DOOR.has(plan.act.tool))
+      (!STAYS.has(plan.act.tool) || LEAVES_THE_DOOR.has(plan.act.tool)) &&
+      !(
+        task.urgency === 'emergency' &&
+        (plan.breaksIn ||
+          task.place === brain.location ||
+          aimsInThisRoom(brain, plan.act))
+      )
     ) {
       continue;
     }
@@ -681,6 +709,7 @@ export function nextStep(brain: NpcBrain): Step | null {
       task.urgency !== 'emergency' &&
       !wayOutOpen(brain) &&
       !brain.doorHeld &&
+      !(brain.atDoorOpen && act.place === brain.atDoorOf) &&
       heldAt(brain, act.place)
     ) {
       heldBack = true;
@@ -1375,6 +1404,8 @@ function settleResult(
     last.act,
     brain.tasks.find((task) => task.id === last.task),
     !!event.details.ok,
+    event.details,
+    event.text,
   );
   if (event.details.ok && looped) {
     fail(brain, last.key);

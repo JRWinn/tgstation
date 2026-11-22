@@ -15,6 +15,7 @@ import {
   meetingsAfterSaying,
   meetingsOverhear,
   readSummons,
+  withoutMeetingOrder,
 } from './jobs/meetings';
 import { ordersAfterSaying } from './jobs/orders';
 import {
@@ -62,10 +63,12 @@ import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
+  placeNamedIn,
   syncTasks,
   takeToldWork,
   workInOrder,
   workInWords,
+  workOverheard,
 } from './tasks';
 import type {
   Action,
@@ -156,6 +159,12 @@ const DOOR_REACHED_MS = 30000;
 const LET_IN_FIRST_TRY_MS = 120000;
 /** How long (milliseconds) an NPC keeps out of a room it was walked out of by the arm. */
 const PUT_OUT_KEEPS_MS = 600000;
+/**
+ * How long (milliseconds) it goes on taking a room to be got to only through another. Learnt by a
+ * body that could reach no door at all, the note can be wrong; and doors are opened, rooms
+ * re-keyed. Kept for good, a wrong one had a janitor asking at the public Cargo Lobby (LOGB-05).
+ */
+const REACHED_THROUGH_MS = 600000;
 /** How many lines of talk, heard and said, an NPC keeps. */
 const TALK_LOG_KEPT = 16;
 /** How many remarks an NPC passes of its own accord before it waits for someone to say something back. */
@@ -355,6 +364,8 @@ export function ingest(npcs: Npc[], now: number): void {
         doorKeepers: [],
         atDoorOf: null,
         atDoorLabel: null,
+        atDoorOpen: false,
+        workingHands: 2,
         doorReached: null,
         lookInRooms: [],
         roomsThrough: {},
@@ -558,6 +569,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.wantsOut = !!npc.wants_out;
     brain.wayOutTo = npc.way_out_to ?? null;
     brain.doorKeepers = npc.door_keepers ?? [];
+    lapseReachedThrough(brain);
     // The server says which door it is standing at. If it has just reported reaching one and the
     // server does not yet say so, the report is taken at its word for a little while: sent back to
     // the same door, it would be told it had arrived, over and over, and never get round to asking.
@@ -572,6 +584,7 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.atDoorOf =
       npc.at_door_of ?? (stillThere && reached ? reached.place : null);
     brain.atDoorLabel = npc.at_door_of ? (npc.at_door_label ?? null) : null;
+    brain.atDoorOpen = !!npc.at_door_open;
     brain.lookInRooms = npc.look_in_rooms ?? [];
     brain.closedRooms = npc.closed_rooms ?? [];
     brain.roomsThrough = npc.rooms_through ?? {};
@@ -603,6 +616,10 @@ export function ingest(npcs: Npc[], now: number): void {
           mailFor: npc.freight.mail_for ?? [],
           emptyCrates: npc.freight.empty_crates ?? 0,
           misplaced: npc.freight.misplaced ?? 0,
+          fullAboard:
+            typeof npc.freight.full_aboard === 'number'
+              ? npc.freight.full_aboard
+              : undefined,
         }
       : null;
     brain.areaMesses = npc.work_area_messes ?? {};
@@ -614,6 +631,9 @@ export function ingest(npcs: Npc[], now: number): void {
     brain.workmateCalled = !!npc.workmate_called;
     brain.inHand = !!npc.in_hand;
     brain.floating = !!npc.floating;
+    brain.dark = !!npc.dark;
+    brain.workingHands =
+      typeof npc.working_hands === 'number' ? npc.working_hands : 2;
     brain.outOfBounds = !!npc.out_of_bounds;
     brain.blockedPlaces = npc.blocked_places ?? [];
     // What a Quartermaster has written in its order book, and the money every order is paid from.
@@ -746,6 +766,9 @@ export function ingest(npcs: Npc[], now: number): void {
       }
       if (event.kind === 'speech_heard' && event.details.source === 'person') {
         jobFor(brain.job).overhears?.(brain, event);
+        // Work of its own job said to nobody in particular, or to everyone there: "someone threw
+        // up in the bar" is the janitor's, whoever answers it (PARSE-17).
+        workOverheard(brain, event);
         guardOverhears(brain, event);
         asideOverhears(brain, event);
         pickupsOverhear(brain, event);
@@ -786,7 +809,11 @@ export function ingest(npcs: Npc[], now: number): void {
         typeof event.details.door_of === 'string' &&
         typeof event.details.door_through === 'string'
       ) {
-        brain.reachedThrough[event.details.door_of] = event.details.door_through;
+        noteReachedThrough(
+          brain,
+          event.details.door_of,
+          event.details.door_through,
+        );
       }
       // Walked out of a room by the arm: it was not wanted in there, and keeps out of it a while
       // whatever work it still has there.
@@ -931,6 +958,45 @@ export function ingest(npcs: Npc[], now: number): void {
 }
 
 /**
+ * Notes that the door of one room opens from another that is locked to it too: a locked room
+ * inside a locked room (LOGB-05). Not a note that makes a loop: followed outwards from the outer
+ * room, the notes must not come back to the inner one. Rooms that each open only from the other
+ * are what a body shut in elsewhere, reaching no door at all, is told, and are wrong.
+ */
+function noteReachedThrough(
+  brain: NpcBrain,
+  room: string,
+  through: string,
+): void {
+  let outer: string | undefined = through;
+  for (let depth = 0; outer !== undefined && depth < 8; depth++) {
+    if (outer === room) {
+      return;
+    }
+    outer = brain.reachedThrough[outer];
+  }
+  brain.reachedThrough[room] = through;
+  brain.reachedThroughAt = {
+    ...brain.reachedThroughAt,
+    [room]: Date.now(),
+  };
+}
+
+/** Forgets the notes of a room got to only through another once they are REACHED_THROUGH_MS old (LOGB-05). */
+function lapseReachedThrough(brain: NpcBrain): void {
+  const at = brain.reachedThroughAt ?? {};
+  for (const room of Object.keys(brain.reachedThrough)) {
+    // A note with no time (from before the times were kept) is given one now, and lapses in turn.
+    at[room] ??= Date.now();
+    if (Date.now() - at[room] >= REACHED_THROUGH_MS) {
+      delete brain.reachedThrough[room];
+      delete at[room];
+    }
+  }
+  brain.reachedThroughAt = at;
+}
+
+/**
  * Says a line its work calls for as it stands, with no word from the LLM, and does all that comes
  * of having said it. Not to an empty room, and not when whoever it was for has gone (ASYNC-05).
  * Returns TRUE if it was said. Used when the LLM is down and when it is too slow (BRAIN-02).
@@ -957,8 +1023,25 @@ function sayPlainly(
   roundsAfterSaying(brain, line);
   pickupsAfterSaying(brain, line);
   afterSaying(brain, [line]);
+  sayingCounted(brain, line);
   lineSaid(brain, sayFor);
   return true;
+}
+
+/**
+ * A line its work called for has been said word for word: that is no step that failed. The
+ * driver holds a line back a while once it is sent, longer each time it is sent again; said, the
+ * count starts afresh, so a line said again after each rest (an arrest's, say) is held back no
+ * longer the fifth time than the first (ARR-01). The hold already set stands, so the same line is
+ * not said twice in a breath.
+ */
+export function sayingCounted(brain: NpcBrain, line: string): void {
+  const end = `:say:${line}`;
+  for (const [key, failure] of brain.failures) {
+    if (key.endsWith(end) && failure.count > 0) {
+      brain.failures.set(key, { count: 0, until: failure.until });
+    }
+  }
 }
 
 /**
@@ -2158,12 +2241,15 @@ async function think(brain: NpcBrain): Promise<void> {
         continue;
       } else if (action.tool === 'work') {
         // A head told to find out how its staff are doing calls a meeting for it. It has not been
-        // sent to look at a room, whatever the LLM makes of "find out".
+        // sent to look at a room, whatever the LLM makes of "find out". Unless the rest of what
+        // was said names a room: "Call a meeting, and check the Bar first" sends it to the Bar
+        // as well (PARSE-15).
+        const joined = report
+          .filter((line) => line.includes(' says: '))
+          .join(' ');
         if (
-          isMeetingOrder(
-            brain,
-            report.filter((line) => line.includes(' says: ')).join(' '),
-          )
+          isMeetingOrder(brain, joined) &&
+          !placeNamedIn(brain, withoutMeetingOrder(brain, joined.toLowerCase()))
         ) {
           continue;
         }
@@ -2289,6 +2375,16 @@ async function think(brain: NpcBrain): Promise<void> {
       pickupsAfterSaying(brain, mustSay);
       // The word it was for is told, the ask for the door made.
       if (mustSay) {
+        const line = mustSay;
+        if (
+          exact ||
+          actions.some(
+            (action) =>
+              action.tool === 'say' && String(action.text ?? '').includes(line),
+          )
+        ) {
+          sayingCounted(brain, line);
+        }
         lineSaid(brain, sayFor);
         lineSettled = true;
       }
