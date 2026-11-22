@@ -803,6 +803,12 @@ export function nextStep(brain: NpcBrain): Step | null {
   if (holdAtDoor && moreToTryAtDoor(brain, atDoor, cannotReachDoor)) {
     return null;
   }
+  // Work that is only being left a while is not left for a walk round the station: it stands
+  // where it is until the hold is up, and then gets on with it (DRV-12, the owner's answer A).
+  // Shut in, its walk is its try at a way out, which drive rations, and is kept.
+  if (heldBack && !holdAtDoor) {
+    return null;
+  }
   const idle: Action | null =
     brain.storageHere > 0 && !holdAtDoor
       ? { tool: 'search' }
