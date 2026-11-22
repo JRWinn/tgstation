@@ -279,9 +279,18 @@ export function officerAboard(brain: NpcBrain): string | null {
   );
 }
 
-/** The officer its warrants go to, or null if it serves them itself: there is none, or the one there is has broken off. */
+/**
+ * The officer whoever keeps the list works through: null for an officer that keeps the list itself,
+ * there being no Head of Security aboard. Each officer then serves the warrants declared to it, and
+ * hands nothing to another officer, who would not take it (DESK-05, the owner's answer A).
+ */
+function listOfficer(brain: NpcBrain): string | null {
+  return isOfficer(brain.job) ? null : officerAboard(brain);
+}
+
+/** The officer its warrants go to, or null if it serves them itself: there is none, the one there is has broken off, or it is an officer itself. */
 function serving(brain: NpcBrain): string | null {
-  return deskOf(brain).officerOut ? null : officerAboard(brain);
+  return deskOf(brain).officerOut ? null : listOfficer(brain);
 }
 
 /** Says or sends something to someone, in so many words: to their face if that is how they spoke, by PDA if not. */
@@ -328,7 +337,7 @@ function tellOfficer(
   why: string,
   to?: string | null,
 ): void {
-  const officer = to ?? officerAboard(brain);
+  const officer = to ?? listOfficer(brain);
   if (!officer) {
     return;
   }
@@ -404,7 +413,7 @@ function strike(brain: NpcBrain, name: string, pardoned: boolean): void {
   // the cell, if it is still aboard (MULTI-01), else any officer aboard; and itself.
   const theirs = warrant?.officer ?? heldBy?.by;
   const officer =
-    theirs && officerKnown(brain, theirs) ? theirs : officerAboard(brain);
+    theirs && officerKnown(brain, theirs) ? theirs : listOfficer(brain);
   if (officer && (held || (warrant && warrant.given !== 'no'))) {
     tellOfficer(
       brain,
@@ -636,7 +645,7 @@ export function deskTakes(
     const hurt = more.hurtOfficer;
     delete more.hurtOfficer;
     const officer =
-      hurt && officerKnown(brain, hurt) ? hurt : officerAboard(brain);
+      hurt && officerKnown(brain, hurt) ? hurt : listOfficer(brain);
     if (officer) {
       tellOfficer(
         brain,
@@ -1030,12 +1039,12 @@ export function deskOutcome(
       // would arrest them again once the cell opens. Nobody is let go by this.
       if (!own) {
         forgetWarrant(brain, warrant?.name ?? outcome.name);
-      } else if (warrant && officerAboard(brain)) {
+      } else if (warrant && listOfficer(brain)) {
         // Its officer may have it still: given it before it broke off hurt, or given it and
         // then outrun to the arrest. The one it was given to, if it knows which (MULTI-01).
         const to = warrant.officer;
         const officer =
-          to && officerKnown(brain, to) ? to : (officerAboard(brain) ?? '');
+          to && officerKnown(brain, to) ? to : (listOfficer(brain) ?? '');
         tellOfficer(
           brain,
           servedLine(officer, warrant.name),

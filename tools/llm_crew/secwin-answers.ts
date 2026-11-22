@@ -44,6 +44,21 @@ const open = (o: any, kind: string) => o.tasks.find((task: any) => task.kind ===
   add('ARR-02: walked out by a keeper with no warrant on them: no resisting, nobody to stop', [A.beatOf(o).warrants[0].resisted, A.beatOf(o).attacker ?? null], [false, null]);
 }
 
+// ---- DESK-05 A: with no Head of Security, each officer serves the warrants declared to it
+{
+  const D = await import(ROOT + 'jobs/desk');
+  const OFFICER = (await import(ROOT + 'jobs/index')).jobFor('Security Officer');
+  const o = officer([{ name: 'Dana Reyes', job: 'Security Officer' }, { name: 'Zim Fire', job: 'Captain' }]);
+  at(o, 5000, 'Security Office');
+  D.deskTakes(o, 'Zim Fire', 'Captain', 'Warrant for Pun Pun, for wrecking the Custodial Closet.', false);
+  OFFICER.syncTasks(o);
+  D.syncDesk(o);
+  add('DESK-05: the officer that was told keeps the warrant in its own hands', A.beatOf(o).warrants.map((w: any) => w.name), ['Pun Pun']);
+  add('DESK-05: and gives it to no other officer', o.toTell.filter((t: any) => t.to === 'Dana Reyes').map((t: any) => t.line), []);
+  OFFICER.syncTasks(o);
+  add('DESK-05: it has a warrant to serve', !!o.tasks.find((t: any) => t.kind === 'serve_warrant' && t.state !== 'done'), true);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
