@@ -54,6 +54,34 @@ const NOT_ITS_TO_DO =
   /\b(i'll|i will|i'm going to|i am going to|i'm gonna|myself|don'?t|do not|no need|never mind)\b/;
 
 /**
+ * A clause that is an order to send for a janitor in the imperative: "call a janitor", "then ask
+ * for a janitor", "please get a janitor in here", "could you send for a janitor".
+ */
+const CALL_IMPERATIVE =
+  /^(?:(?:ok|okay|right|now|then|so|just|please|go and|go|could you|can you|would you|will you|you need to|you should|you can)\s+)*(?:call|ask for|send for|fetch|get)\b[^.?!]*\bjanitors?\b/;
+
+/**
+ * TRUE if what a superior said gives the order to send for a janitor (PLAY-10 2, the owner's
+ * answer B): a clause with the words for it that is in the imperative, or a line that names this
+ * NPC. Never a clause where the speaker says they will do it, or that it is not to be done: "I'll
+ * ask for a janitor myself" is no order, to this NPC or anyone.
+ */
+export function callOrderIn(npcName: string, heard: string): boolean {
+  const text = heard.toLowerCase();
+  const first = npcName.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  const named = !!first && new RegExp(`\\b${first}\\b`).test(text);
+  return text
+    .split(/[.!?;,"]| but | and then /)
+    .map((clause) => clause.trim())
+    .some(
+      (clause) =>
+        ORDER_SOUNDS[CALL].test(clause) &&
+        !NOT_ITS_TO_DO.test(clause) &&
+        (named || CALL_IMPERATIVE.test(clause)),
+    );
+}
+
+/**
  * TRUE if these clauses of a superior's (orderClauses in tasks.ts: no questions, nothing said
  * not to do) give this order for this room. Sending for a janitor goes by its words anywhere in
  * them. A look is an order only with the look word right before the room, with nothing but "at",
@@ -67,7 +95,14 @@ export function orderIn(
   clauses: string,
   room: string,
   heard: string,
+  /** The NPC's own name: an order to send for a janitor is taken only in the imperative or with it named (PLAY-10 2). */
+  npcName = '',
 ): boolean {
+  if (kind === CALL) {
+    return (
+      ORDER_SOUNDS[CALL].test(clauses) && callOrderIn(npcName, clauses)
+    );
+  }
   if (kind !== LOOK) {
     return ORDER_SOUNDS[kind]?.test(clauses) ?? false;
   }

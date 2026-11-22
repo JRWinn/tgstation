@@ -20,6 +20,7 @@ import {
 } from './jobs/guarding';
 import {
   CALL,
+  callOrderIn,
   describeOrders,
   noteOrdered,
   orderIn,
@@ -285,13 +286,22 @@ export function takeToldWork(
   toldBy: string | undefined,
   /** TRUE if whoever told it is someone the NPC answers to. */
   fromSuperior = false,
+  /**
+   * What they said, where it is to hand. An order to send for a janitor is taken only if it is in
+   * the imperative or names the NPC (PLAY-10 2, the owner's answer B), whatever the model made of it.
+   */
+  heard?: string,
 ): Task | null {
   const takes = jobFor(brain.job).takes ?? {};
   const own = Object.keys(takes).find((key) => takes[key] === what);
   // An order is only an order from someone it answers to.
-  const order = fromSuperior
+  const found = fromSuperior
     ? Object.keys(ORDERS).find((key) => ORDERS[key] === what)
     : undefined;
+  const order =
+    found === CALL && heard !== undefined && !callOrderIn(brain.name, heard)
+      ? undefined
+      : found;
   const kind = own ?? order;
   // An order that may be given with no room named is for the room whoever gave it is standing in,
   // if it can see where that is, else the room it stands in itself: "Then ask for a janitor"
@@ -409,8 +419,8 @@ export function workInWords(
       return null;
     }
     const asOrder = orderClauses(heard);
-    for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
-      if (orderTakesHere(kind) && words.test(asOrder)) {
+    for (const kind of Object.keys(ORDER_SOUNDS)) {
+      if (orderTakesHere(kind) && orderIn(kind, asOrder, '', heard, brain.name)) {
         // No room named: takeToldWork takes the speaker's room, or its own.
         return takeToldWork(brain, ORDERS[kind], WORK_NOWHERE, toldBy, true);
       }
@@ -432,7 +442,7 @@ export function workInWords(
     // janitor for the bar" sends for nobody. A look needs the look word right before the room
     // (orderIn): any other line with "check" or "look" in it is left to the model (MEM-08).
     for (const kind of Object.keys(ORDER_SOUNDS)) {
-      if (orderIn(kind, asWork, place, heard)) {
+      if (orderIn(kind, asWork, place, heard, brain.name)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
     }

@@ -2254,12 +2254,25 @@ async function think(brain: NpcBrain): Promise<void> {
         ) {
           continue;
         }
+        // What whoever told it said to it, lately: an order to send for a janitor has to be in
+        // the imperative or name it (PLAY-10 2), whatever the model made of it.
+        const toldWords = report
+          .filter(
+            (line) =>
+              line.includes(' says: ') &&
+              forMe.has(line) &&
+              (!toldBy || line.includes(`] ${toldBy} says: `)),
+          )
+          .slice(-2)
+          .map((line) => (line.match(/"[^"]*"/g) ?? []).join(' '))
+          .join(' ');
         const task = takeToldWork(
           brain,
           action.what,
           action.where,
           toldBy,
           !!superior,
+          toldWords,
         );
         // Work that is not this job's, or is not in any room aboard, is not taken on.
         if (task) {
