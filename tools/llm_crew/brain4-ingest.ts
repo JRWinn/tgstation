@@ -37,6 +37,11 @@ add('SUP-05: full_aboard sent: read as fullAboard', ingested('Cargo Bay', freigh
 add('SUP-05: full_aboard 0 is kept as 0, not dropped', ingested('Cargo Bay', freight({ full_aboard: 0 })).freight?.fullAboard, 0);
 add('SUP-05: not sent: unset, so toUnload is read in its place', ingested('Cargo Bay', freight()).freight?.fullAboard === undefined, true);
 
+// ---- MULTI-06: the rooms a workmate called a janitor to
+add('MULTI-06: workmate_called_rooms sent: read as workmateCalledRooms', ingested('Cargo Bay', { workmate_called: 1, workmate_called_rooms: ['Cargo Bay'] }).workmateCalledRooms, ['Cargo Bay']);
+add('MULTI-06: an empty list is kept as empty: no workmate call to any room', ingested('Cargo Bay', { workmate_called_rooms: [] }).workmateCalledRooms, []);
+add('MULTI-06: not sent: unset, so workmateCalled is gone by', ingested('Cargo Bay', {}).workmateCalledRooms === undefined, true);
+
 // ---- ARR-06: the door it stands at, opened by hand
 add('ARR-06: a fresh brain: atDoorOpen false', ingested('Central Primary Hallway', {}).atDoorOpen, false);
 add('ARR-06: at_door_open sent: read as atDoorOpen', ingested('Central Primary Hallway', { at_door_of: 'Bar', at_door_open: 1 }).atDoorOpen, true);
