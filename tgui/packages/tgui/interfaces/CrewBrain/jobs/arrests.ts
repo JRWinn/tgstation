@@ -510,6 +510,38 @@ function holds(brain: NpcBrain, warrant: BeatWarrant): boolean {
   return !!holding && sameName(warrant.name, holding);
 }
 
+/**
+ * TRUE if it has this warrant's person by the arm and no cell will do for now: every cell is in
+ * use or dark (ARR-04), or every one has refused them. serveStep has it wait in the brig.
+ */
+function waitsForCell(brain: NpcBrain, warrant: BeatWarrant): boolean {
+  if (!holds(brain, warrant)) {
+    return false;
+  }
+  if (
+    warrant.noCellAt !== undefined &&
+    brain.now - warrant.noCellAt < NO_CELL_WAIT_DS
+  ) {
+    return true;
+  }
+  const cells = Math.max(brain.security?.cells.length ?? 0, 1);
+  return (
+    (warrant.cellTries ?? 0) >= cells &&
+    brain.now - (warrant.cellFailedAt ?? 0) < CELL_AGAIN_DS
+  );
+}
+
+/**
+ * The name of the person it holds while it waits in the brig for a cell, or null. Word for the
+ * Head of Security goes out meanwhile: the wait is no reason to hold it back (ARR-04).
+ */
+export function waitingWith(brain: NpcBrain): string | null {
+  return (
+    beatOf(brain).warrants.find((warrant) => waitsForCell(brain, warrant))
+      ?.name ?? null
+  );
+}
+
 /** The main hallways it walks when it has nobody's whereabouts to go on, in a fixed order. */
 function hallways(brain: NpcBrain): string[] {
   return allPlaces(brain)

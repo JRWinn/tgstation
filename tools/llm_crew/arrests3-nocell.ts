@@ -75,6 +75,27 @@ const cannots = (o: any) => A.takeOutcomes(o).filter((it: any) => it.what === 'c
   add('no_cell, a refusal, no_cell: not told yet', cannots(f.o), []);
 }
 
+{
+  // ARR-04 follow-up: waiting in the brig with no cell, its word that it has them in cuffs is
+  // ranked with the wait and goes out, rather than waiting behind it (OFFICER.syncTasks).
+  const { OFFICER } = await import(ROOT + 'jobs/officer');
+  const T = await import(ROOT + 'tasks');
+  const f = officer();
+  A.beatOf(f.o).outcomes.push({ what: 'cuffed', name: 'Pun Pun' });
+  OFFICER.syncTasks!(f.o);
+  const word = () => open(f.o, 'word_for_security_head');
+  add('not yet waiting: the cuffs word is ordinary', [A.waitingWith(f.o), word()?.urgency], [null, 'asked']);
+  answer(f, 'no_cell');
+  at(f.o, 5050, 'Brig', [{ ...PUN, place: 'Brig' }]);
+  OFFICER.syncTasks!(f.o);
+  add('waiting in the brig: waitingWith names them', A.waitingWith(f.o), 'Pun Pun');
+  add('and the cuffs word is ranked with the wait', word()?.urgency, 'emergency');
+  const first = T.workInOrder(f.o).find((w: any) => w.plan.ready || w.plan.wait);
+  add('the first thing it does is send the word, not wait', [first?.task.kind, first?.plan.act?.tool], ['word_for_security_head', 'message']);
+  at(f.o, 5400, 'Brig', [{ ...PUN, place: 'Brig' }]);
+  add('30 seconds on, trying the cells again: not waiting', A.waitingWith(f.o), null);
+}
+
 let failed = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;
