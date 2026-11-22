@@ -1285,9 +1285,10 @@ export type NpcBrain = {
   mustSayExact: boolean;
   /**
    * What it has done about being shut in the room it is in: who it has asked, and whether it has
-   * knocked and sent word. It asks each person once, and again only when someone new turns up.
-   * If nobody comes, it sends word further afield, once each: to someone else whose ID opens the
-   * door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
+   * knocked and sent word. It asks each person, and knocks, again only once ASK_AGAIN_MS has gone
+   * by with nobody come (DRV-07): `askedAt` is when each was asked, `knockedAt` when it last
+   * knocked. If nobody comes, it sends word further afield, once each: to someone else whose ID
+   * opens the door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
    */
   outAsks: {
     room: string;
@@ -1296,6 +1297,8 @@ export type NpcBrain = {
     messaged: boolean;
     wrote: string[];
     wroteAt: number;
+    askedAt?: Record<string, number>;
+    knockedAt?: number;
   } | null;
   /** Fire doors that stopped it: the room whose alarm shut them, whether that alarm was only pulled, and when (this window's clock). */
   fireDoors: { place: string; pulled: boolean; at: number } | null;

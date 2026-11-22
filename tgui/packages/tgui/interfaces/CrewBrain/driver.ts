@@ -30,7 +30,12 @@ import { ordersAfterActing } from './jobs/orders';
 import { pickupsAfterActing } from './jobs/pickups';
 import { wantedAfterActing } from './jobs/wanted';
 import { knownPlaces } from './memory';
-import { describeShutIn, SHUT_IN_KEY, whoToAskForTheDoor } from './situation';
+import {
+  ASK_AGAIN_MS,
+  describeShutIn,
+  SHUT_IN_KEY,
+  whoToAskForTheDoor,
+} from './situation';
 import { wordOwed, workInOrder } from './tasks';
 import type { Action, NpcBrain, SayFor, SenseEvent, Task } from './types';
 
@@ -279,9 +284,22 @@ function moreToTryAtDoor(
 ): boolean {
   const asks = brain.outAsks;
   return (
-    (atDoor && !asks?.knocked) ||
+    (atDoor && !knockedLately(brain)) ||
     (!asks?.messaged && !!brain.letInBy && brain.hasPda) ||
     nextToWrite(brain, cannotReachDoor, true) !== null
+  );
+}
+
+/**
+ * TRUE if it has knocked at the door it is shut in by less than ASK_AGAIN_MS ago. With nobody
+ * come by then, it knocks again: someone may be passing now who was not then (DRV-07). A knock
+ * with no time noted counts as just made.
+ */
+function knockedLately(brain: NpcBrain): boolean {
+  const asks = brain.outAsks;
+  return (
+    !!asks?.knocked &&
+    (asks.knockedAt === undefined || Date.now() - asks.knockedAt < ASK_AGAIN_MS)
   );
 }
 
@@ -455,7 +473,7 @@ export function nextStep(brain: NpcBrain): Step | null {
   }
 
   // Shut in, with someone there: asking for the door comes before anything else. Each person is
-  // asked once, one at a time. It asks again only when someone new turns up.
+  // asked one at a time, and again only once ASK_AGAIN_MS has gone by with nobody come (DRV-07).
   const stuck = brain.shutIn && !wayOutOpen(brain);
   const helper = stuck ? whoToAskForTheDoor(brain) : null;
   // Where it is trying to get back to, said in the asking, so that whoever opens the door can see
@@ -476,8 +494,9 @@ export function nextStep(brain: NpcBrain): Step | null {
       asks: helper,
     };
   }
-  // Nobody in sight to ask, or nobody left it has not asked. A voice does not carry through a
-  // shut door, so it knocks, once, and sends word, once, to whoever let it in. A PDA needs no
+  // Nobody in sight to ask, or nobody it has not asked lately. A voice does not carry through a
+  // shut door, so it knocks, and sends word, once, to whoever let it in. With nobody come after
+  // ASK_AGAIN_MS it knocks again (DRV-07). A PDA needs no
   // door: one it has failed to get to twice (bad air beyond every door, crates in the doorway)
   // is no reason not to send word, worded for where it is.
   const atDoor = brain.atDoorOf === brain.location;
@@ -489,7 +508,7 @@ export function nextStep(brain: NpcBrain): Step | null {
     ? `am at the ${doorCalled(brain, brain.location)}door`
     : 'cannot get to its door';
   if (stuck && !helper && (atDoor || cannotReachDoor)) {
-    if (atDoor && !brain.outAsks?.knocked && !inBackoff(brain, KNOCK_OUT_KEY)) {
+    if (atDoor && !knockedLately(brain) && !inBackoff(brain, KNOCK_OUT_KEY)) {
       return {
         key: KNOCK_OUT_KEY,
         text: `You are shut in ${brain.location} with nobody in sight to ask. You are knocking at the door, for anyone on the other side of it.`,
@@ -1146,6 +1165,14 @@ export function drive(
   return step;
 }
 
+/** Notes that this person has been asked for the door, and when: they are asked again later (DRV-07). */
+function noteAsked(asks: NonNullable<NpcBrain['outAsks']>, name: string): void {
+  if (!asks.asked.includes(name)) {
+    asks.asked.push(name);
+  }
+  asks.askedAt = { ...asks.askedAt, [name]: Date.now() };
+}
+
 /** The record of what it has done about being shut in, made if it has none yet. */
 function outAsksOf(brain: NpcBrain): NonNullable<NpcBrain['outAsks']> {
   brain.outAsks ??= {
@@ -1191,10 +1218,7 @@ export function lineSaid(brain: NpcBrain, sayFor: SayFor | null): void {
     brain.toTell = brain.toTell.filter((tell) => tell.line !== sayFor.tells);
   }
   if (sayFor.asks && brain.shutIn) {
-    const asks = outAsksOf(brain);
-    if (!asks.asked.includes(sayFor.asks)) {
-      asks.asked.push(sayFor.asks);
-    }
+    noteAsked(outAsksOf(brain), sayFor.asks);
   }
 }
 
@@ -1215,7 +1239,8 @@ export function lineNotSaid(
 
 /**
  * Notes what a step that has just been taken settles: who has now been asked for the door, that
- * it has knocked or sent word, and what it has now told someone. Each of these is done once.
+ * it has knocked or sent word, and what it has now told someone. Word is sent once to each; an
+ * ask and a knock are made again after ASK_AGAIN_MS with nobody come (DRV-07).
  * For a spoken step (`spoken`), the ask and the tell are settled only once the line is said: they
  * are kept in brain.mustSayFor until then (ASYNC-05, DRV-07).
  */
@@ -1231,12 +1256,16 @@ function noteDone(brain: NpcBrain, step: Step, spoken = false): void {
   ) {
     const asks = outAsksOf(brain);
     if (step.asks && !spoken) {
-      asks.asked.push(step.asks);
+      noteAsked(asks, step.asks);
     }
     if (step.key === KNOCK_OUT_KEY) {
+      // The wait for someone to come runs from the first knock, and again from each word sent
+      // after it. A knock made again later does not put off the word still to send (DRV-07).
+      if (!asks.knocked) {
+        asks.wroteAt = Date.now();
+      }
       asks.knocked = true;
-      // The wait for someone to come runs from the knock, and again from each word sent after it.
-      asks.wroteAt = Date.now();
+      asks.knockedAt = Date.now();
     }
     if (step.key === WORD_OUT_KEY) {
       asks.messaged = true;
