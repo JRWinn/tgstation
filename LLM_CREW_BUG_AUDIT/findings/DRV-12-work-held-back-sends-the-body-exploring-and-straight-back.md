@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 26a85fd6748, 88788e3df83, fde2b19ab7d
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: driver

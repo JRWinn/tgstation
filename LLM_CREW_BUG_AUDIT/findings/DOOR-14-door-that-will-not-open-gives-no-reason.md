@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 0ec4c3c272b, b1413668a23, 5d3dfa388ac
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: doors

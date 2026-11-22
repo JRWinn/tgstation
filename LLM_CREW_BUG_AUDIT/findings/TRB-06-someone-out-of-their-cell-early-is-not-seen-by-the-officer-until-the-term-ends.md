@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: bef1060ac5d, 6f94ce5b9c9
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

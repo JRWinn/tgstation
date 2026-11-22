@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: 42bf94ca235, 5a06095969f, 5fa1b7cf212, e4cae62344f
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: supply

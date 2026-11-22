@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 08dc71429b2, fde11247e0c, 56da8fb64a6, 444318f8cc1, 347a98bed24
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: logs

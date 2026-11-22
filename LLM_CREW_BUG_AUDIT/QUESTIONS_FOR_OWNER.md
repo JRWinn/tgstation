@@ -311,3 +311,10 @@ Each is answered "ID: letter". "As built" is what the code does now.
 - **TRC-04:** after a stop that is not the machine's fault (could not get to it, hands full), should the engineer A. wait for the Captain's word (as built), or B. try again by itself after a few minutes?
 - **ENG-03:** should a player engineer be given orders? A. yes, until it leaves two unanswered (as built); B. only engineers that have spoken the set words.
 - Still open from earlier and touched again in this round: CARGO-02 (with KNB-15: may word to a Quartermaster that cannot be found go by PDA?), CHEAT-15 step 5 (a PDA's flashlight), HAND-08 step 5, DOOR-15 steps 4 and 5 (insulated gloves), KNB-06, MEM-07 step 3.
+
+## Round M2: the held parts of round M1
+
+- **SENSE-08 / CHEAT-15:** a Captain with no card on, known by face and the PDA list. A. refuse to arrest them, with a new reason and words; B. no, the arrest stands; C. refuse with the existing `captain` reason, worded "carries a Captain's ID".
+- **CARGO-04:** should a cargo technician let a security officer in just for asking? A. yes (as built); B. only when it has heard of a warrant.
+- **HEAD-10:** should crew walk between decks? A. turn on multi-deck walking for crew and go through every same-deck test (large); B. keep crew to one deck (as built: no meeting room on its deck means no meeting, and the Captain is told once); C. meet in the head's own office when no room is on its deck.
+- PLAY-10's question 3 (a janitor called on a superior's order is turned away at the door when no technician has seen a mess) was seen in the new `callme` scenario. It still waits on the answer.

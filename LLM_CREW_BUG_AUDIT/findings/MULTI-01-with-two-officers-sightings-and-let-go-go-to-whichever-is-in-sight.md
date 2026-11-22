@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: dbcc4bdabad, db449a1fc76, 485dda6f826
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security

@@ -328,3 +328,31 @@ Cargo, Quartermaster, heads:
 - TRA-08: one "I need to order" per batch of asks.
 - TRC-04: game.log "could not work the X ... (reason)" against "I cannot light the engine:" in pda.log.
 - ENG-03: pda.log, whom "Emitters off, now" went to.
+
+## From the night fixes, round M2: the held parts of round M1
+
+- KNA-02: a shut-in officer arrests someone in the same room rather than standing at the door; crew_brain.log "will go to the meeting when you are let out" and no failed walk to the meeting room from a shut-in body.
+- ARR-06: an officer or janitor at a door someone opened by hand walks in at once (crew_brain.log "has been opened for you, and you are going through").
+- ARR-01: an arrest line after a rest is said within about 20 s of being due, not held back longer each time.
+- MULTI-01: game.log "when someone else put cuffs on them"; the officer does not report "cuffed" for someone else's cuffs.
+- CHEAT-02: "Could you let me in" goes to people by their job title.
+- CHEAT-04: game.log "is being arrested by ... and stands still" comes before any "cuffed" line.
+- CHEAT-15: crew_brain.log prompts carry "It is dark here" once the power fails; arrests two squares off in the dark come back "lost"; fire-door lines name only doors right beside the body.
+- CORE-02: a stunned body still gets knocks, PDA messages and its looks; one out cold gets "While you were out, your PDA got a message from".
+- HAND-02, HAND-05: a janitor whose only known mop is in a locked locker asks its head for supplies.
+- BRAIN-04: crew_brain.log "that went unsaid", then the line said once more.
+- MEM-07: after a mess told in the janitor's own room, "I found no mess in the X" or a clean, never an instant "cleaned up".
+- LOGA-07: no "walk failed (go_to, X)" from a janitor within 5 minutes of "I have no soap or rag".
+- PARSE-17: a janitor takes a mess called out to the room, not just one said to it.
+- DRV-12: filling a bucket or wetting a mop that fails no longer holds back the clean itself.
+- SUP-06: game.log "broke off", "claim on it lapsed", "is no longer held by the arm".
+- CHEAT-11: game.log "stopped its ... walk ... the air at ... is bad".
+- hand_mail_over (no finding; it was a cheat): "has no free hand to take the mail. You still have it."
+- QM-03: two cargo staff with one first name are called by whole name ("Sam Bell, order").
+- TRA-02: "your order has come in: crate #" said at the counter when a head asks for a kind already held for them.
+- TRA-04: "I have put your order in" after each counter order.
+- DOOR-14: pda.log "The door of the X will not open"; the person and the head told once.
+- KNB-09: an officer's or technician's "On my way" by PDA is read as a meeting answer.
+- TRB-06: the officer sees someone it jailed out early and tells its head ("before their time").
+- ENG-03: a door to force goes to the engineer the Chief Engineer orders.
+- KNA-23: an officer told of a sighting in a big room walks to its far side to look.
