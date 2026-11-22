@@ -1267,6 +1267,10 @@ function unfit(brain: NpcBrain, name: string): boolean {
 const unanswered = new Map<string, number>();
 /** How many times an order goes unanswered by one technician before it is given to another. */
 const UNANSWERED_MAX = 2;
+/** How long (deciseconds) after giving an order it waits for word that it has come in before asking after it: as long as a head waits (QM-02 A). */
+const CAME_IN_WAIT_DS = 6000;
+/** The orders it has asked a technician about, "Has order N come in?", by `brain id:order number`. It asks once. */
+const askedCameIn = new Set<string>();
 /** A short "I have it" in someone's own words, at the start of what they say (QM-02). */
 const SHORT_OK_WORDS =
   /^(ok(ay)?|on it|got it|will do|right away|sure|yes|yep|aye|roger)\b/i;
@@ -1417,6 +1421,30 @@ function syncTasks(brain: NpcBrain): void {
       // Counted: after UNANSWERED_MAX, it goes to someone else (QM-02).
       const key = `${brain.id}:${order.n}`;
       unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
+    }
+    // Taken, and no word that it has come in long after: a technician who never says so, a player
+    // in the job most likely, is asked after it once, face to face if in sight (QM-02 A).
+    const key = `${brain.id}:${order.n}`;
+    if (
+      order.state === 'given' &&
+      order.taken &&
+      order.givenTo &&
+      order.givenAt !== null &&
+      brain.now - order.givenAt > CAME_IN_WAIT_DS &&
+      !askedCameIn.has(key)
+    ) {
+      askedCameIn.add(key);
+      const line = `${techCalled(brain, order.givenTo)}, has order ${order.n} come in?`;
+      const inSight = brain.peopleInView.some(
+        (person) => person.name === order.givenTo,
+      );
+      brain.toTell.push({
+        to: order.givenTo,
+        line,
+        why: `You gave ${order.givenTo} order ${order.n} a while ago, and they have not said it has come in. You are asking after it.`,
+        ...(inSight ? { exact: true } : { byPda: true }),
+        at: Date.now(),
+      });
     }
   }
   clearOrders(brain, ledger);
