@@ -409,3 +409,5 @@ Janitor and others:
 - DRV-12: no `explore()` while a step is held back, except from a shut-in body.
 - MEM-11: pda.log "I could not get to the" / "I could not collect crate" when asked-for work is given up.
 - CHEAT-14: an engineer's reading empty until its PDA is used; no false integrity alarm.
+- SEC-07 (round A3): say "I am in handcuffs and cannot get them off" aloud from the cuffed body; pda.log has no message from a cuffed body.
+- mixed (simulator, 1 failure in 5 on crew-answers, none in 13 on master): in a round, a technician's "Still waiting ... I will send word." should be followed by the PDA to the orderer.

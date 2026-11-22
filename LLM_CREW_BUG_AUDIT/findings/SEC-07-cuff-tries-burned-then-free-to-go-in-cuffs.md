@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: cdaebf183ee, 4981043753e, a25b30f0e9b, c62704a0fa3, 0363c1597e6, ed0f1d555e8
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
