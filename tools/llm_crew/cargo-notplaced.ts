@@ -7,6 +7,7 @@
 const { ROOT, makeBrain } = await import('./fixtures');
 const { CARGO } = await import(ROOT + 'jobs/cargo');
 const { QUARTERMASTER } = await import(ROOT + 'jobs/quartermaster');
+const { WONT_COME_WORDS } = await import(ROOT + 'jobs/supply');
 
 const cases: [string, string, string][] = [];
 const add = (label: string, got: unknown, want: unknown) => cases.push([label, JSON.stringify(got), JSON.stringify(want)]);
@@ -117,9 +118,43 @@ const notPlaced = (b: any) => b.tasks.find((t: any) => t.kind === 'not_placed' &
   b.now += 1300;
   CARGO.syncTasks(b);
   add('KNB-15: the wait over, it goes to the door again', [task.state, CARGO.plan(b, task)?.act?.tool], ['open', 'go_to_door']);
+  // CARGO-02 C: the word is kept past five minutes, and at ten goes by PDA to the Quartermaster.
   b.now = 10_000 + 3100;
+  b.hasPda = true;
   CARGO.syncTasks(b);
-  add('KNB-15: five minutes on, the word is stale and let go', [task.state, b.gaveUp], ['done', null]);
+  add('CARGO-02 C: five minutes on, the word is still kept', [task.state, b.gaveUp?.what], ['open', 'crate #7']);
+  b.now = 10_000 + 6100;
+  CARGO.syncTasks(b);
+  CARGO.afterActing(b, { tool: 'go_to_door', place: 'Quartermaster\'s Office' }, task, false, false, {}, 'You could not get there.');
+  CARGO.afterActing(b, { tool: 'go_to_door', place: 'Quartermaster\'s Office' }, task, false, false, {}, 'You could not get there.');
+  const pda = CARGO.plan(b, task);
+  add('CARGO-02 C: ten minutes on, not found: it goes by PDA to the Quartermaster, in the words it would have said', [pda?.act?.tool, pda?.act?.person, WONT_COME_WORDS.test(pda?.act?.text ?? '')], ['message', QM.name, true]);
+  CARGO.afterActing(b, pda.act, task, true, false, {}, 'You send a message.');
+  CARGO.syncTasks(b);
+  add('CARGO-02 C: sent is passed on: the task is done and the crate marked told', [task.state, !!b.wontComeTold['crate #7']], ['done', true]);
+}
+{
+  const b: any = makeBrain(SAM.name, SAM.job);
+  b.id = 'knb15b';
+  b.now = 10_000;
+  b.pdaPeople = [{ name: QM.name, job: QM.job }];
+  b.peopleInView = [];
+  b.headOffice = 'Quartermaster\'s Office';
+  b.gaveUp = { tool: 'unload', what: 'crate #7', leftIn: 'Supply Shuttle', at: 10_000 };
+  CARGO.syncTasks(b);
+  const task = b.tasks.find((t: any) => t.kind === 'wont_come' && t.state !== 'done');
+  b.now = 10_000 + 9100;
+  CARGO.syncTasks(b);
+  add('CARGO-02 C: with no PDA, fifteen minutes on, the word is stale and let go', [task.state, b.gaveUp], ['done', null]);
+}
+{
+  // The Quartermaster reads the same words by PDA.
+  const b: any = makeBrain(QM.name, QM.job);
+  b.now = 10_000;
+  b.pdaPeople = [{ name: SAM.name, job: SAM.job }, { name: 'Zim Fire', job: 'Head of Personnel' }];
+  b.ledger = { orders: [], next: 1, toWrite: [], read: true, paperRetryAt: 0, cameOutAt: 0, duties: {}, heldUp: {}, sendFor: null };
+  QUARTERMASTER.readsMessage(b, SAM.name, `${QM.name.split(' ')[0]}, still waiting to be collected: crate #9 for Zim Fire.`, 10_000, SAM.job);
+  add('CARGO-02 C: the Quartermaster reads "still waiting" by PDA and reminds whoever ordered, saying nothing back', b.toTell.map((t: any) => [t.to, !!t.byPda]), [['Zim Fire', true]]);
 }
 
 // The Quartermaster's side.

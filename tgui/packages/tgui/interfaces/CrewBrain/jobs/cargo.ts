@@ -184,8 +184,14 @@ const NOT_PLACED_KEPT_DS = 18000;
 const DOOR_MISSES = 2;
 /** For each NPC and task (`id:task`), how many times running the walk to the Quartermaster's office door has failed. */
 const doorMisses = new Map<string, number>();
-/** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of. */
+/** For each NPC and task (`id:task`), when (server time) it first came to owe the Quartermaster the word it is taking to it. */
+const wordSince = new Map<string, number>();
+/** How long (deciseconds) word for the Quartermaster is kept, it having looked and not found it, before it goes by PDA (CARGO-02 C). */
+const QM_PDA_AFTER_DS = 6000;
+/** How long (deciseconds) before word of the same haul given up on is told the Quartermaster again. */
 const WONT_COME_DS = 3000;
+/** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of: past the wait before word goes by PDA. */
+const WONT_COME_KEPT_DS = QM_PDA_AFTER_DS + 3000;
 /** How long (deciseconds) the shuttle and the rooms are its to see to as well, once the Quartermaster has sent it to help a workmate. */
 const SEE_TO_DS = 3000;
 /** How long (deciseconds) a head's word at the counter that the Quartermaster has not answered stands. */
@@ -444,13 +450,17 @@ function heldInHand(brain: NpcBrain): boolean {
 /**
  * Word this NPC owes someone about their crates, taken to the Quartermaster face to face where
  * there is one: that an order has come in, that crates are still waiting, or that one is lost.
- * Nothing between a technician and the Quartermaster goes by PDA. If the Quartermaster is in
+ * Face to face first, by PDA only after a long while (below). If the Quartermaster is in
  * sight it is told, in so many words. If not, the technician goes to its office door, knocks, and
  * waits. Said is not told: the Quartermaster answers by name that it has it, and only then is the
  * server told that word has been passed on, and the Quartermaster sends it to whoever the crates
- * are for. With no answer, it walks up and says it once more. Returns the step, or null if word
- * goes by PDA as it always did: there is no Quartermaster, it is not to be found, or it has twice
- * not answered.
+ * are for. With no answer, it walks up and says it once more.
+ *
+ * Not found, or twice not answering, the word is kept: it is left a while and taken to the
+ * Quartermaster again, and said at once if the Quartermaster comes into sight. Only once the word
+ * is ten minutes old (QM_PDA_AFTER_DS) does it go by PDA, to the Quartermaster, in the same words
+ * (CARGO-02 C, KNB-15). `whose` is whom the word is about, if it is a notice the server holds.
+ * Returns the step, or null if there is no Quartermaster: then word goes by PDA as it always did.
  */
 function tellQuartermaster(
   brain: NpcBrain,
@@ -459,15 +469,42 @@ function tellQuartermaster(
   line: string,
   about: string,
   passed: Action,
+  whose?: string,
 ): Plan | null {
-  if (!quartermaster || task.byPda) {
+  if (!quartermaster) {
     return null;
   }
+  const key = `${brain.id}:${task.id}`;
+  if (!wordSince.has(key)) {
+    wordSince.set(key, brain.now);
+  }
   if (task.passedOn) {
+    wordSince.delete(key);
     return {
       ready: true,
       step: `You have told ${quartermaster.name} ${about}, and they have said they have it. They will send word to whoever it concerns.`,
       act: passed,
+    };
+  }
+  const inSight = brain.peopleInView.some(
+    (person) => person.name === quartermaster.name,
+  );
+  // Left a while after it was not found: taken to it again later, or at once if it is seen.
+  if (task.retryAt !== undefined && brain.now < task.retryAt) {
+    if (!inSight) {
+      return {
+        ready: false,
+        step: `You could not find ${quartermaster.name} to tell them ${about}. You will try again shortly.`,
+      };
+    }
+    task.retryAt = undefined;
+  }
+  // The word has been sent by PDA, and the result is not back yet.
+  if (task.byPda) {
+    return {
+      ready: false,
+      wait: true,
+      step: `You have sent ${quartermaster.name} word by PDA ${about}.`,
     };
   }
   // Said, and not yet answered. Being in sight is not being in earshot, so word is only passed on
@@ -485,10 +522,9 @@ function tellQuartermaster(
     task.walkedUp = false;
     task.knockedAt = undefined;
   }
-  // Said more than once with no word back: it stops trying to say it, and sends it on by PDA.
+  // Said more than once with no word back: it stops trying to say it for now (see notFound).
   if ((task.unheard ?? 0) >= TELL_TRIES) {
-    task.byPda = true;
-    return null;
+    return notFound(brain, task, quartermaster, line, about, whose);
   }
   const seen = brain.peopleInView.find(
     (person) => person.name === quartermaster.name,
@@ -518,8 +554,7 @@ function tellQuartermaster(
   const cannotReach =
     (doorMisses.get(`${brain.id}:${task.id}`) ?? 0) >= DOOR_MISSES;
   if (!office || waitedAtDoor || cannotReach) {
-    task.byPda = true;
-    return null;
+    return notFound(brain, task, quartermaster, line, about, whose);
   }
   if (brain.atDoorOf !== office) {
     return {
@@ -539,6 +574,44 @@ function tellQuartermaster(
     ready: false,
     wait: true,
     step: `You have knocked at the door of the ${office}, and are waiting for ${quartermaster.name} to come out: you have word ${about}.`,
+  };
+}
+
+/**
+ * Word for the Quartermaster that could not be got to it this time: it was not found, not at its
+ * office, or twice did not answer. The word is kept. Under ten minutes old it is left a while and
+ * taken to it again; from then on it goes by PDA, to the Quartermaster, in the words it would have
+ * said (CARGO-02 C). Not while another word of the server's for the Quartermaster is owed: a PDA
+ * to it would be taken as that word passed on, and that one dropped unsent.
+ */
+function notFound(
+  brain: NpcBrain,
+  task: Task,
+  quartermaster: { name: string },
+  line: string,
+  about: string,
+  whose?: string,
+): Plan {
+  const since = wordSince.get(`${brain.id}:${task.id}`) ?? brain.now;
+  const otherOwed =
+    whose !== quartermaster.name &&
+    brain.notices.some((notice) => notice.to === quartermaster.name);
+  if (
+    brain.hasPda &&
+    brain.now - since >= QM_PDA_AFTER_DS &&
+    !otherOwed
+  ) {
+    task.telling = line;
+    return {
+      ready: true,
+      step: `You have looked for ${quartermaster.name}, the Quartermaster, a long while with word ${about}, and not found them. You are sending it by PDA, in the words you would have said.`,
+      act: { tool: 'message', person: quartermaster.name, text: line },
+    };
+  }
+  tellAgainLater(brain, task);
+  return {
+    ready: false,
+    step: `You could not find ${quartermaster.name} to tell them ${about}. You will try again shortly.`,
   };
 }
 
@@ -763,6 +836,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${written} for ${notice.to} ${notice.numbers.length === 1 ? 'is' : 'are'} lost: ${why}.`,
       `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost`,
       { tool: 'word_passed', person: notice.to, kind: 'lost' },
+      notice.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
@@ -794,6 +868,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${WAITING_TOLD} ${written} for ${notice.to}.`,
       `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'is' : 'are'} still waiting to be collected`,
       { tool: 'word_passed', person: notice.to, kind: 'waiting' },
+      notice.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
@@ -827,12 +902,12 @@ function syncWontCome(brain: NpcBrain): void {
   const owed =
     !!gaveUp &&
     !!how &&
-    brain.now - gaveUp.at < WONT_COME_DS &&
+    brain.now - gaveUp.at < WONT_COME_KEPT_DS &&
     brain.now - (brain.wontComeTold[gaveUp.what] ?? -Infinity) > WONT_COME_DS &&
     !!quartermasterAboard(brain);
   // Told and heard, or no longer worth telling: done with. Not found, or not answered, it is not
   // dropped: wontComeStep leaves it a while and takes it to the Quartermaster again, while it is
-  // still owed. Whether it may go by PDA instead is the owner's to say (KNB-15, CARGO-02).
+  // still owed, and after ten minutes it goes by PDA (KNB-15, CARGO-02 C).
   if (telling && (telling.passedOn || !owed)) {
     if (telling.passedOn && telling.item) {
       brain.wontComeTold[telling.item] = brain.now;
@@ -1382,7 +1457,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
         : `${written}${(arrived.what ?? kinds[0]) ? ` (${arrived.what ?? kinds[0]})` : ''}`;
     // An order the Quartermaster gave it: word that it has come goes back to the Quartermaster,
     // face to face, and the Quartermaster tells whoever ordered. If the Quartermaster is not to
-    // be found, in the bay or behind its office door, word is sent on by PDA as it always was.
+    // be found, in the bay or behind its office door, the word is kept, and after a long while
+    // goes to the Quartermaster by PDA in the same words, its own order's too (CARGO-02 C). Only
+    // with no Quartermaster to go through is whoever ordered sent the numbers themselves.
     const quartermaster = toldThrough(brain, arrived.via);
     const order =
       typeof arrived.ref === 'number' ? `order ${arrived.ref}` : 'the order';
@@ -1393,27 +1470,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${order} ${DOCKED} ${itemised}.`,
       `that ${order}, for ${arrived.to}, has come in`,
       { tool: 'word_passed', person: arrived.to, kind: 'arrived' },
+      arrived.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
-    }
-    // The Quartermaster's own order, and the Quartermaster not to be found. The PDA says what would
-    // have been said to its face, in the same words: those are the words its order book goes by.
-    // Sent the line meant for whoever ordered, it never took its own crate to have come in.
-    if (
-      quartermaster &&
-      arrived.to === quartermaster.name &&
-      typeof arrived.ref === 'number'
-    ) {
-      return {
-        ready: true,
-        step: `Order ${arrived.ref}, which ${quartermaster.name} ordered for themselves, has come in: ${itemised}. You could not find ${quartermaster.name} to tell them, so you are sending them a PDA message.`,
-        act: {
-          tool: 'message',
-          person: quartermaster.name,
-          text: `${firstName(quartermaster.name)}, ${order} ${DOCKED} ${itemised}.`,
-        },
-      };
     }
     return {
       ready: true,
@@ -2819,6 +2879,21 @@ export const CARGO: Job = {
         doorMisses.delete(key);
       } else {
         doorMisses.set(key, (doorMisses.get(key) ?? 0) + 1);
+      }
+    }
+    // Word for the Quartermaster sent by PDA after a long look for it (CARGO-02 C): sent is passed
+    // on. Not sent, it is kept and taken to it again a little later.
+    if (
+      task &&
+      act.tool === 'message' &&
+      task.telling !== undefined &&
+      act.text === task.telling
+    ) {
+      task.telling = undefined;
+      if (ok) {
+        task.passedOn = true;
+      } else {
+        tellAgainLater(brain, task);
       }
     }
     if (task && act.tool === 'word_passed') {

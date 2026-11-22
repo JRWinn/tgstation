@@ -1975,6 +1975,82 @@ function crateLost(
 }
 
 /**
+ * A technician's word about a crate or an order, other than that one has come in: a crate that
+ * would not come, one lost, crates still waiting, an order that could not be placed. Said to its
+ * face, or sent by PDA when the technician looked for it a long while and did not find it
+ * (CARGO-02 C). `heardIt` says back that it has it, when it was said aloud. Returns TRUE if the
+ * line was one of these.
+ */
+function techWord(
+  brain: NpcBrain,
+  speaker: string,
+  heard: string,
+  heardIt: () => void,
+): boolean {
+  const ledger = ledgerOf(brain);
+  // A crate that would not go where it was meant to. It says what is to be done about it.
+  const stuck = heard.match(WONT_COME_WORDS);
+  if (stuck) {
+    heardIt();
+    crateHeldUp(brain, speaker, stuck[1].trim(), stuck[2], stuck[3] ?? null);
+    return true;
+  }
+  const lost = heard.match(LOST_TOLD_WORDS);
+  if (lost) {
+    heardIt();
+    crateLost(
+      brain,
+      cratesTold(lost[1]).map((crate) => crate.number),
+      lost[2].trim(),
+      lost[3].trim(),
+    );
+    return true;
+  }
+  const waiting = heard.match(WAITING_TOLD_WORDS);
+  if (waiting) {
+    heardIt();
+    const whose = waiting[2].trim();
+    // A crate of its own, still waiting: if its book has no word of that order coming in, this
+    // is that word. It goes and opens it.
+    if (whose === brain.name) {
+      noteOwnCrate(brain, speaker, waiting[1]);
+    }
+    if (whose !== brain.name) {
+      sendWord(
+        brain,
+        whose,
+        `Still waiting at cargo: ${waiting[1]} from your order. Send someone to the Cargo Lobby counter with the number, please.`,
+        `One of your technicians has told you that ${waiting[1]}, which ${whose} ordered, ${/crates/.test(waiting[1]) ? 'are' : 'is'} still waiting to be collected. You are sending ${whose} a PDA message to remind them.`,
+      );
+    }
+    return true;
+  }
+  const failed = heard.match(NOT_PLACED_WORDS);
+  if (failed) {
+    // Said to its face like the rest, and answered like the rest: the technician goes on
+    // saying it until it hears this (CARGO-03).
+    heardIt();
+    const order = ledger.orders.find((it) => it.n === Number(failed[1]));
+    // Only from whoever has the order: from anyone else it would be given again while it is
+    // being placed, and bought twice.
+    if (order && order.state === 'given' && order.givenTo === speaker) {
+      order.state = 'new';
+      order.givenTo = null;
+      order.pick = null;
+      order.shortTold = false;
+      // Refused for want of money, it is not sent back to the console in two minutes: the
+      // budget seldom fills that fast (CARGO-03).
+      order.retryAt =
+        brain.now +
+        (/not enough money/i.test(heard) ? PLACE_AGAIN_DS * 5 : PLACE_AGAIN_DS);
+      ledger.toWrite.push(BOOK.failed(order));
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Takes a technician's word that an order has come in: the order is marked so in the book, and
  * whoever ordered is sent the crate numbers. Its own order is nobody's to tell, and with it marked
  * as come in the Quartermaster goes to open the crate. The word may come to its face or, when the
@@ -2094,6 +2170,12 @@ export const QUARTERMASTER: Job = {
         noteOwnCrate(brain, from, arrived[1]);
         return;
       }
+      // The rest of a technician's word, sent by PDA after it looked for it a long while and did
+      // not find it (CARGO-02 C, KNB-15): read as if said to its face. Nothing is said back: the
+      // PDA going through is the technician's proof it was sent.
+      if (techWord(brain, from, text, () => {})) {
+        return;
+      }
     }
     // One of its technicians is shut in and cannot walk to it: the one time word between them
     // goes by PDA. It sends another technician to see what is shutting the way.
@@ -2169,71 +2251,7 @@ export const QUARTERMASTER: Job = {
         noteDocked(brain, speaker, Number(docked[1]), docked[2]);
         return;
       }
-      // A crate that would not go where it was meant to. It says what is to be done about it.
-      const stuck = heard.match(WONT_COME_WORDS);
-      if (stuck) {
-        heardIt();
-        crateHeldUp(
-          brain,
-          speaker,
-          stuck[1].trim(),
-          stuck[2],
-          stuck[3] ?? null,
-        );
-        return;
-      }
-      const lost = heard.match(LOST_TOLD_WORDS);
-      if (lost) {
-        heardIt();
-        crateLost(
-          brain,
-          cratesTold(lost[1]).map((crate) => crate.number),
-          lost[2].trim(),
-          lost[3].trim(),
-        );
-        return;
-      }
-      const waiting = heard.match(WAITING_TOLD_WORDS);
-      if (waiting) {
-        heardIt();
-        const whose = waiting[2].trim();
-        // A crate of its own, still waiting: if its book has no word of that order coming in, this
-        // is that word. It goes and opens it.
-        if (whose === brain.name) {
-          noteOwnCrate(brain, speaker, waiting[1]);
-        }
-        if (whose !== brain.name) {
-          sendWord(
-            brain,
-            whose,
-            `Still waiting at cargo: ${waiting[1]} from your order. Send someone to the Cargo Lobby counter with the number, please.`,
-            `One of your technicians has told you that ${waiting[1]}, which ${whose} ordered, ${/crates/.test(waiting[1]) ? 'are' : 'is'} still waiting to be collected. You are sending ${whose} a PDA message to remind them.`,
-          );
-        }
-        return;
-      }
-      const failed = heard.match(NOT_PLACED_WORDS);
-      if (failed) {
-        // Said to its face like the rest, and answered like the rest: the technician goes on
-        // saying it until it hears this (CARGO-03).
-        heardIt();
-        const order = ledger.orders.find((it) => it.n === Number(failed[1]));
-        // Only from whoever has the order: from anyone else it would be given again while it is
-        // being placed, and bought twice.
-        if (order && order.state === 'given' && order.givenTo === speaker) {
-          order.state = 'new';
-          order.givenTo = null;
-          order.pick = null;
-          order.shortTold = false;
-          // Refused for want of money, it is not sent back to the console in two minutes: the
-          // budget seldom fills that fast (CARGO-03).
-          order.retryAt =
-            brain.now +
-            (/not enough money/i.test(heard)
-              ? PLACE_AGAIN_DS * 5
-              : PLACE_AGAIN_DS);
-          ledger.toWrite.push(BOOK.failed(order));
-        }
+      if (techWord(brain, speaker, heard, heardIt)) {
         return;
       }
       const taken = heard.match(TAKEN_WORDS);
