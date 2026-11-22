@@ -8,7 +8,11 @@ import { buildChoice, readChoice } from './choice';
 import { clearExpected } from './expected';
 import { clearRounds, roundsAfterSaying } from './jobs/rounds';
 import { asideOverhears } from './jobs/aside';
-import { guardAfterSaying, guardOverhears } from './jobs/guarding';
+import {
+  guardAfterSaying,
+  guardOverhears,
+  guardReadsMessage,
+} from './jobs/guarding';
 import {
   inMeeting,
   isMeetingOrder,
@@ -683,6 +687,9 @@ export function ingest(npcs: Npc[], now: number): void {
         // means what it means to whoever's PDA it is.
         // So is being sent by its head to collect a crate from cargo.
         if (
+          // And the Captain's or a head's yes or no to a keeper of any post who asked whether
+          // they sent a stranger in (SECT-08 B).
+          !guardReadsMessage(brain, from, text) &&
           !readSummons(brain, from, text, event.at, theirJob) &&
           !readPickup(brain, from, text, theirJob) &&
           // So is word of who security is looking for.
