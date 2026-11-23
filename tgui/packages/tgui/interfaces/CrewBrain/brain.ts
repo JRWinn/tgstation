@@ -8,7 +8,11 @@ import { buildChoice, readChoice } from './choice';
 import { clearExpected } from './expected';
 import { clearRounds, roundsAfterSaying } from './jobs/rounds';
 import { asideOverhears } from './jobs/aside';
-import { guardAfterSaying, guardOverhears } from './jobs/guarding';
+import {
+  guardAfterSaying,
+  guardOverhears,
+  guardReadsMessage,
+} from './jobs/guarding';
 import {
   inMeeting,
   isMeetingOrder,
@@ -63,6 +67,7 @@ import { buildTalk, type Speaker, soundsLikeOrder, speakerHeard } from './talk';
 import {
   afterSaying,
   describeTask,
+  noteStuckInCuffs,
   placeNamedIn,
   syncTasks,
   takeToldWork,
@@ -385,6 +390,7 @@ export function ingest(npcs: Npc[], now: number): void {
         handles: {},
         inTalkWith: null,
         toTell: [],
+        calledOnOrder: [],
         outAsks: null,
         fireDoors: null,
         alarmResets: {},
@@ -603,6 +609,11 @@ export function ingest(npcs: Npc[], now: number): void {
       place: crate.place,
       out: !!crate.out,
       takenBy: crate.taken_by ?? null,
+      // Unset when not sent, so that the window's own guess is used in its place (SUP-17).
+      takenAway:
+        crate.taken_away === undefined || crate.taken_away === null
+          ? undefined
+          : !!crate.taken_away,
       waited: crate.waited ?? 0,
     }));
     brain.heldCheckDue = !!npc.held_check_due;
@@ -681,6 +692,9 @@ export function ingest(npcs: Npc[], now: number): void {
         // means what it means to whoever's PDA it is.
         // So is being sent by its head to collect a crate from cargo.
         if (
+          // And the Captain's or a head's yes or no to a keeper of any post who asked whether
+          // they sent a stranger in (SECT-08 B).
+          !guardReadsMessage(brain, from, text) &&
           !readSummons(brain, from, text, event.at, theirJob) &&
           !readPickup(brain, from, text, theirJob) &&
           // So is word of who security is looking for.
@@ -822,6 +836,8 @@ export function ingest(npcs: Npc[], now: number): void {
         brain.keptOut[event.details.put_out_of] = Date.now() + PUT_OUT_KEEPS_MS;
         brain.toldToLeave = null;
       }
+      // Stuck in handcuffs it cannot get off: its head is told, once (SEC-07).
+      noteStuckInCuffs(brain, event);
       if (event.details.in_the_way) {
         brain.inTheWay = {
           handle: String(event.details.in_the_way),
@@ -1425,6 +1441,7 @@ function shouldWake(event: SenseEvent, brain: NpcBrain, line: string): boolean {
         )
       );
     case 'knowledge':
+    case 'walked_out':
       // Being walked out of a room by the arm is something to have a word about.
       return !!event.details.put_out_of && brain.peopleInView.length > 0;
     case 'speech_heard':
@@ -2254,12 +2271,25 @@ async function think(brain: NpcBrain): Promise<void> {
         ) {
           continue;
         }
+        // What whoever told it said to it, lately: an order to send for a janitor has to be in
+        // the imperative or name it (PLAY-10 2), whatever the model made of it.
+        const toldWords = report
+          .filter(
+            (line) =>
+              line.includes(' says: ') &&
+              forMe.has(line) &&
+              (!toldBy || line.includes(`] ${toldBy} says: `)),
+          )
+          .slice(-2)
+          .map((line) => (line.match(/"[^"]*"/g) ?? []).join(' '))
+          .join(' ');
         const task = takeToldWork(
           brain,
           action.what,
           action.where,
           toldBy,
           !!superior,
+          toldWords,
         );
         // Work that is not this job's, or is not in any room aboard, is not taken on.
         if (task) {

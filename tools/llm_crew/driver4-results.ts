@@ -41,6 +41,24 @@ function collecting() {
   add('MULTI-07: a lost grip is not that: the errand stands', task.state, 'open');
 }
 
+// MULTI-08 (answer B): the server's would_not_go reaches wantedAfterActing, and is read before the words.
+const { at } = await import('./fixtures');
+function walkingOut(wouldNotGo: number | undefined) {
+  const b: any = makeBrain('Cora Tech', 'Cargo Technician');
+  b.toTell = [];
+  b.post = 'Cargo Bay';
+  at(b, 4000, 'Cargo Bay', [{ handle: 'p3', name: 'Tolly Field', job: 'Janitor', place: 'Cargo Bay', distance: 1, in_post: 1 }]);
+  b.strangers['Tolly Field'] = { seenAt: 4000, lastSeenAt: 4000, asks: 0, verifyAsks: 0, verdict: 'go', toldOutAt: 3990 };
+  const act = { tool: 'throw_out', person: 'p3' };
+  b.lastAct = { key: 'stranger:1', tool: 'throw_out', at: Date.now(), act, task: 1 };
+  const details = wouldNotGo === undefined ? {} : { would_not_go: wouldNotGo, person: 'Tolly Field' };
+  noteResult(b, result('throw_out', false, 'You could not get Tolly Field out of Cargo Bay: they got away from you.', details));
+  return b.wanted.couldNot.map((it: any) => it.name);
+}
+add('MULTI-08: would_not_go 1 from the server: reported', walkingOut(1), ['Tolly Field']);
+add('MULTI-08: would_not_go 0 from the server, though the words say got away: not reported', walkingOut(0), []);
+add('MULTI-08: no would_not_go: the words are read, as before', walkingOut(undefined), ['Tolly Field']);
+
 let bad = 0;
 for (const [label, got, want] of cases) {
   const ok = got === want;

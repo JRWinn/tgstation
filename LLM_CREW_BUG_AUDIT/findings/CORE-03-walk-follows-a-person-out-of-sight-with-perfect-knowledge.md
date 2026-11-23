@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 63e39e3b704, bd31c16cbb6
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -98,3 +99,12 @@ Confirmed, by reading the code; nothing was run.
 - So a body walked at a person who goes through a door and round two corners is routed after them step by step, with no sense behind it. Nothing in `LLM_CREW_CHANGELOG.md` or the plans chooses this; the security entries talk of the chase only in sight.
 
 Changes made: severity lowered to medium (it gives the body knowledge it should not have, but it does no act a player could not, and it needs the person to leave sight mid-walk; the no-cheats line in FORMAT's "high" is about acting outside the game's rules). Fix step 1 now uses the existing `last_seen_at` that `look_around` writes rather than a `view()` call every tick, adds the last-seen turf, and says why switching off the moving-target flag would not be enough. Effort medium stands: both leaves, a new walk to a turf after the leaf ends, a new reason the window must read (security's "lost" reason already exists for the arrest). The question for the owner (how far to keep after someone lost from sight) is still open.
+
+## Fix so far (round A1, a-secsrv, compile only)
+
+On the owner's answer A (to where they were last seen, look, then "You lost sight of X near ROOM"):
+- `look_around` (`crew_npc_senses.dm`) keeps the square each person was last seen on (`last_seen_spot`, pruned with `last_seen_at`). New procs there: `lost_sight_spot(target)` (that square once a person has been out of sight more than `CREW_NPC_LOST_SIGHT_GRACE`, 3 s; null while seen, while held by the body, or for anything not a human), `sees_again(target, look)`, `lost_sight_words(target, spot, whole)`.
+- The walk leaf (`crew_npc_walk/perform`, `crew_npc_motor.dm`) and the errand's reach leaf (`crew_npc_reach/perform`, `crew_npc_storage.dm`), walking to a person, point the move loop at that square instead of the person once they are lost (so their steps no longer re-plan it), go on after them if they are seen again on the way, and on arrival look once more (`crew_npc_sees`). Not found: the walk fails with the reason "you lost sight of X near ROOM" (`walk_finished` words it "You stop walking to X: you lost sight of X near ROOM."), and the errand ends by `lost_sight_errand` with "You lost sight of X near ROOM." and details `reason: "lost"`, `lost_sight: TRUE`, `near` (the room) and `handle`. Every walk and errand at a person is covered (walk_to, arrest, give, hand mail, throw_out's walk up, free).
+- Not changed: the base `move_to_target`, the time limits. `walk_finished` (`crew_npc_tools.dm`) could pass `lost_sight`/`near` in its details too (held, a-srv's file).
+
+Round A2 (a2-server, compile only): `walk_finished` (`crew_npc_tools.dm`) adds `lost_sight: TRUE` and `near` (the room) to a walk_to's failed result when the reason is the lost-sight words (`you lost sight of X near ROOM`, read back from the reason). No `reason` key is added there, as the walk_to result never had one. Not played.

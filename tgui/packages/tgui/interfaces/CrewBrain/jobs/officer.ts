@@ -43,6 +43,7 @@ import {
   noteSeen,
   onLead,
   planBeat,
+  stuckInCuffsAsk,
   syncBeat,
   takeOutcomes,
   waitingWith,
@@ -629,6 +630,10 @@ export const OFFICER: Job = {
     if (forcingReads(brain, from, job, text)) {
       return;
     }
+    // A crew member stuck in handcuffs: security takes them off (SEC-07).
+    if (stuckInCuffsAsk(brain, from, text)) {
+      return;
+    }
     if (isHeadOfSecurity(job)) {
       takeWord(brain, from, text, false);
       return;
@@ -653,6 +658,9 @@ export const OFFICER: Job = {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
     if (!speaker) {
+      return;
+    }
+    if (stuckInCuffsAsk(brain, speaker, heard)) {
       return;
     }
     const job = jobOf(brain, speaker);

@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: a1ef28d2779
+fixed_in: a1ef28d2779, f2c1d5d51db
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: memory
@@ -78,3 +78,7 @@ Checked by Opus 5.5. Read `syncTasks`, `blockTask` and `addTask` (`tasks.ts`; `G
 Ran a throwaway script (scratchpad, bun, `fixtures.ts` `janitor()` and `at()`, which calls `syncTasks`): a told `clean` task in the Library with `blockedPlaces = ['Library']` was blocked "you could not find a way in" at t=3100 and still kept at t=27000; with `blockedPlaces` emptied, the next `at()` left it open and off the list. Confidence raised to sure.
 
 One precision: what matters is the task's age from when it was made, not how long it was blocked. A task made 31 minutes ago and blocked for only the last five is dropped the same way when it is unblocked. Medium stands: told work silently lost in a case that needs a long wait, but locked rooms are common. Effort small: the filter and two fields, in `tasks.ts` and `types.ts`.
+
+## Fix so far
+
+Round A1 (a-brain, owner's answer A to MEM-11): built in f2c1d5d51db. When the give-up filter in `syncTasks` (`tasks.ts`) drops work someone asked for (blocked an hour, or open past its time), whoever asked is sent word once: "<first>, I could not get to the mess in the Bar." (worded for the kind in `givenUpWhat`), face to face if in view, else by PDA (`tellGivenUp`). Table: `tools/llm_crew/brain5-givenup.ts`. Not played.

@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: ad839de2022
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor
@@ -114,3 +115,11 @@ Nothing in `LLM_CREW_CHANGELOG.md` fixes it. The "(16) A dry mop is not only a r
 Commits: none.
 
 - DESK-03: waits on the owner (QUESTIONS_FOR_OWNER.md). 
+
+## Fix so far (round A1, answer B, branch a-janitor)
+
+- The walk to a sink is now `sinkWalk(brain, forMess?)` in `jobs/janitor.ts`, shared by `supplyStep` (which still explores when it knows of no sink) and `plan`.
+- In `plan`, the wetting step (`mopNeedsWater`) is taken only with water in sight (`sinkInView` or `waterFrom`), so it no longer says "there is a sink right here" with none.
+- After it, with a dry mop and no water in sight (`dryMop`) and the mess in another room, the mess task's step is the walk to a sink it knows of ("... to wet it before you set off for the mess in X"). At the sink the existing wetting step runs, then the walk to the mess. A mess in the room it stands in is cleaned with the rag. Knowing of no sink it can get to, it sets off for the mess with the rag (the answer says "a sink it knows of").
+- Step 6 (in the sink room with the sink out of view, go to the middle) was not built: the code since treats a remembered sink in the room it stands in, with no water to hand, as one it cannot get to (`noWaterHere`, JAN-04), and goes to another.
+- Table `tools/llm_crew/janitor-drymop.ts` (7 cases); `janitor-water.ts`'s two wetting cases now set `sinkInView` as the server would. Type check, lint no worse, tables, simulator; not played.

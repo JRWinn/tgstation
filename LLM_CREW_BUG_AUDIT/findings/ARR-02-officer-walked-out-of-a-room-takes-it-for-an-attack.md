@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9b3ba456b48, 45be421d6c1
+fixed_in: 9b3ba456b48, 45be421d6c1, a21fd388736, 39499e933ba, 2656f69bbf7, 822b93df5f6, d4723638009
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -155,3 +155,18 @@ Built on branch `r2-cargo`. Step 2 only: step 1 (the baton, `crew_npc_security.d
 - New table `tools/llm_crew/cargo-warrant.ts`: an officer let in on a warrant is not seen out after a minute or after four, and is after five and a minute more; seen out a minute after the one the warrant is on is seen cuffed, or seen gone to the hallway; not while that one is seen in a room inside the post; a workmate who did not open the door leaves the officer to it too; a janitor with no mess left is still seen out after a minute.
 
 Not done: security let in by someone who is not a keeper (the Captain opening it, as in round-15.52.18), are plain strangers to a keeper who did not open the door, as before. Not played.
+
+## Fix so far (round A1, a-secsrv, server part of step 3, compile only)
+
+On the owner's words (an officer with a warrant to serve in a room is not walked out of it; a wanted keeper who walks it out is fighting back). The server knows no warrants, so the keeper goes by what it heard:
+- `note_warrant_word` (`crew_npc_guarding.dm`), called from `on_pre_hear` (`crew_npc_senses.dm`) for every line a human says that the body hears: someone whose worn ID is a security job saying "warrant" or "under arrest" is noted by name (`warrant_heard_from`).
+- `why_not_put_out` refuses to walk out someone in security noted in the last five minutes (`CREW_NPC_WARRANT_STANDS`, as the window's `WARRANT_WELCOME_DS`): "X is here on a warrant." So `throw_out` is refused with those words, and a walk already begun stops at `take_hold_of`.
+- `let_go_of`, for a security body walked out of a room, sends an event of its own kind, `walked_out` (`CREW_SENSE_WALKED_OUT`), with `details.put_out_of` = the room and `details.by` = the keeper's name, in place of the knowledge line "You had no business in there." The window counts it as fighting back when `by` is the one its warrant is on.
+Left (held, `crew_npc_cargo.dm`): `on_pda_message` should call `note_warrant_word(sender, "[sender_job]", message)`, so that an ask for the door by PDA ("with a warrant for X") counts as heard.
+## Fix so far (step 3, the owner's words, window part)
+
+Built on branch `a-secwin`, `securityFeels` in `jobs/arrests.ts`: word from the server that the body was walked out of a room by its keeper (an event of kind `walked_out` with `details.by` the keeper's name, or any event with reason `walked_out_by_wanted`) is read by `walkedOutBy`. When the keeper is someone the officer has a warrant on, it is fighting back (`walkedOutByWanted`): the warrant is marked resisted (five more minutes), served at once, as for a hit. A keeper with no warrant on them is not taken for an attacker. A hit or grab by the wanted keeper still takes the old path. The server side (not walking out an officer on a warrant, and sending the event) is a-secsrv's. Table `tools/llm_crew/secwin-answers.ts`. Not played; the event kind `walked_out` is not in `SenseEvent.kind` in `types.ts` (read with a cast), and `describeEvent` in `brain.ts` will show it by its text.
+
+## Fix so far (round A2, a2-server, compile only)
+
+The held part is in: `on_pda_message` (`crew_npc_cargo.dm`) calls `note_warrant_word(sender, "[sender_job]", message)` before the PDA event, and `read_missed_pda` (`crew_npc_senses.dm`) does the same for a message read on coming to. The sender is the PDA's name and the job the PDA shows. Not played. Left as found: speech is noted under the voice name (`get_voice()`) and `why_not_put_out` looks up the shown name (`person.name`); with a mask or someone else's card the two differ and the warrant is not matched.

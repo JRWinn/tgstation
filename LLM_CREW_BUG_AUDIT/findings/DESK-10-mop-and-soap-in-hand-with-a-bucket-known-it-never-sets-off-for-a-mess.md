@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: 44493665320, 2b1a0d353be
+fixed_in: 44493665320, 2b1a0d353be, 09348441855
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: janitor
@@ -101,3 +101,11 @@ Commits: 44493665320.
 - DESK-10 (window part): part done. - **DESK-10, window part: a bucket that could not be picked up is not tried again before setting off.** A failed `pick_up` of a bucket for a mess sets `task.noBucket` and `plan` skips the bucket step for that task, so the janitor goes to the mess (`afterActing`, `plan` in `jobs/janitor.ts`; new optional `noBucket` on `Task` in `types.ts`). Cases in `tools/llm_crew/janitor-hands.ts`. Left: code/modules/llm_crew/crew_npc_hands.dm: split the choosing loop of free_a_hand into spare_held_item() (returns what free_a_hand would give up, moving nothing) and have free_a_hand call it. code/modules/llm_crew/crew_brain_link.dm: "wants_bucket" = mop held, no bucket held, and (length(body.get_empty_held_indexes()) || spare_held_item()). sim.ts: scenario as in not_tested.
 
 Round two (branch crew-bug-fixes-medium): 2b1a0d353be. This finishes the parts left above, apart from any step that waits on the owner.
+
+## Fix so far (round A1, step 3, the owner's yes, branch a-janitor)
+
+- `spare_held_item(for_bucket)` (`crew_npc_hands.dm`): with `for_bucket`, and nothing else spare, soap held beside a mop is spare if the bag on its back will take it (`can_insert`, moving nothing). `free_a_hand(for_bucket)` puts it in the bag, never on the floor (soap that is a trade tool is bag only). `tool_pick_up` passes `for_bucket` when the thing wanted names a bucket.
+- `wants_bucket` (`crew_brain_link.dm`) asks `spare_held_item(TRUE)`, so the window offers the bucket step to a janitor holding a mop and soap with room in its bag.
+- The bucket step's words in `plan` (`jobs/janitor.ts`) say the soap is put away in the bag for it. The soap is in `stowed` after, so `changeForScrubbing` takes it out again for a cobweb.
+- Only soap, as the answer says: a full spray beside a mop is still kept in hand and the bucket is not fetched (the existing `noBucket` guard sends it on to the mess).
+- Compile, tables (`janitor-hands.ts`, 2 new cases), simulator; the server part is compile only. Not played.

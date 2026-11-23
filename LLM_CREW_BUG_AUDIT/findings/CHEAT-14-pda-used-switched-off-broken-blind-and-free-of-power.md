@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: b2802ed8b07
+fixed_in: b2802ed8b07, 5ae2bd74066
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -107,3 +107,7 @@ Checked by Opus 5.5. The quotes are what the code says: `pda_messenger` at `crew
 Built on branch `fix-supply`. One correction found while fixing: a blind body is **not** kept from its PDA's screen in the base game. `can_read` (`mob.dm:1360`) tests literacy and light only, and `computer_ui.dm` asks it for literacy only; tgui windows have no blindness test (`shared_ui_interaction`, `states.dm:62`). So the fix refuses an illiterate body ("You cannot make out the words on your PDA's screen."), not a blind one, and case 1 above is not a fault. Steps 6 (`has_pda` in `crew_brain_link.dm`) and 7 for the engine monitor (`crew_npc_engineering.dm`) and the custodial locator (`crew_npc_cleaning.dm`) were not built: those files belong to other workers in this sitting. The budget program (`has_budget_program`, `crew_npc_quartermaster.dm`) is gated on a broken PDA and literacy, with no switching on.
 
 Steps 6 and 7, second round (branch `r2-server`). `has_pda` in `ui_data` (`crew_brain_link.dm`) is now `pda_readable()` of the messenger's PDA: false for a broken PDA or a body that cannot read, with nothing switched on. Two helpers in `crew_npc_engineering.dm`: `pda_readable()` (no side effect) and `pda_screen_usable()` (that, and the power button pressed if the PDA is off, as `pda_unusable` does). The engine monitor (`engine_reading`) uses `pda_screen_usable()`; since `engine_reading` is called from `ui_data`, an engineer's PDA with the monitor is switched on at the first update of its window and draws on its cell from then on, as a player watching the monitor would. The custodial locator: `has_custodial_locator()` (in `ui_data`) is gated on `pda_readable()` only, and `tool_locate` presses the power button too, answering "Your PDA will not turn on: it has no charge." if it stays off. A PDA off with a flat cell still shows as `has_pda` true: that is found when a message is tried. Compile-checked only.
+
+## Fix so far (answer B, 2026-11-22)
+
+`engine_reading` (`crew_npc_engineering.dm`) now reads the monitor only on a PDA that is whole, readable and already switched on (`pda_readable(computer) && computer.enabled`); it no longer presses the power button. A crew PDA is switched on when the body uses it: sending a PDA message (`pda_unusable` in `tool_message`) or the custodial locator (`tool_locate`). So an engineer or Chief Engineer has no reading (`reading: null` in the window) until it has sent its first PDA message, and from then on it has one for as long as the PDA stays on. Not built: a tool for "looking at the monitor" on purpose, which would switch the PDA on when the body means to look. Compile only.

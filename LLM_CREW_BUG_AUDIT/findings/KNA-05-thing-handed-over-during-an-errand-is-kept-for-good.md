@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 6cbf2eeb8e8
+fixed_in: 6cbf2eeb8e8, 64afbbe6e12
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: hands
@@ -69,3 +69,7 @@ Keeps the rules: the body puts the thing down with a click on a table or drops i
 Confirmed. `on_item_in_hand` (`crew_npc_hands.dm:567`) and `put_down_unasked_item` (`:587`) are as quoted: the first returns on any `errand_tool` or errand/storage blackboard key before the `unasked_item` timer is set, and nothing else in `code/modules/llm_crew/` ever sets `unasked_item`, so a thing that lands during an errand is never looked at again. `put_down_unasked_item` already waits while `errand_tool` is set, so moving the test later does not disturb an errand, as the write-up says. The chain to the bag holds: `put_cuffs_on` (`crew_npc_security.dm:1001`) calls `draw_item`, which calls `empty_clicking_hand` (`crew_npc_machines.dm:296`), which calls `free_a_hand`. `drop_for_weapon` (`crew_npc_security.dm:342`) is the baton's mend. The change log lists the fault as known and not fixed (top entry, 2026-11-18 20:53 to 21:05, the line "Things that land in its hand during an errand are still taken for its own doing"), and no later entry mends it; the finding adds the cause and a fix, so it stands under rule 4.
 
 On the fix: the allow-list in step 1 would work but is fragile. Cuffs, batons and crowbars drawn during an arrest or a forced door are trade tools for security and engineering and so kept, but a non-trade thing the body takes during another errand kind (a book, a prisoner's things, a crate's contents) would be put straight down if its tool is missed. I added a flag-based way, which marks the body's own takes instead of guessing from the errand. Severity medium and effort small stand for step 1; the flag way is closer to medium in lines but still one part of the code. Not run: nothing here can be checked without a round.
+
+## Fix so far (round A1, a-secsrv, compile only)
+
+On the owner's yes to step 4's question: `put_cuffs_on` (`crew_npc_security.dm`) calls `drop_for_weapon("its cuffs")` before it draws the cuffs, unless they are already in its hand, as `baton_hits` does before the baton. Whatever else is in its hands goes on the floor at its feet; `game.log` says "dropped X at ... to draw its cuffs."

@@ -120,12 +120,22 @@ const counter = (b: any, now: number, people: any[] = [], arrived = false) => {
 }
 {
   // Told to hold a meeting with no room to hold it in: it does not say one is being called.
+  // No meeting room and no office of its own (HEAD-10: with an office, it meets there).
   const b = hop();
   b.meetingRoom = null;
+  b.office = null;
+  b.post = null;
   const { departmentHeadedBy } = await import(ROOT + 'hierarchy');
   const roomless = !departmentHeadedBy('Head of Personnel')?.meetsIn;
   const lines = HEAD_OF_PERSONNEL.whenAsked(b, 'Hop, find out how your staff are doing.');
   if (roomless) add('no room: it does not say a meeting is being called', lines.some((line: string) => /cannot call a staff meeting/.test(line)), true);
+}
+{
+  // HEAD-10: no meeting room on its deck, but its own office: it says one is being called.
+  const b = hop();
+  b.meetingRoom = null;
+  const lines = HEAD_OF_PERSONNEL.whenAsked(b, 'Hop, find out how your staff are doing.');
+  add('no meeting room, its own office: it does not say it cannot call one', lines.some((line: string) => /cannot call a staff meeting/.test(line)), false);
 }
 
 // HEAD-02: a crate lost at cargo, or not to be had, does not leave the asker noted as ordered for good.
@@ -224,10 +234,25 @@ for (const [line, saidTo, want] of [
   add('order sent by PDA: a technician\'s word is not its Noted', b.requisition.heardBack, false);
 }
 
-// HEAD-10: no room named by the server: no meeting in the Bar, and the Captain told once.
+// HEAD-10 (answer): no room named by the server: the meeting is held in the head's own office,
+// not the Bar, and the Captain is not told there is nowhere.
 {
   const b = hop();
   b.meetingRoom = null;
+  b.requisition = null;
+  b.asks = [];
+  b.nextMeetingAt = b.now;
+  b.meetingOrderedBy = 'Cap Tain';
+  HEAD_OF_PERSONNEL.syncTasks(b);
+  add('no room on its deck: the meeting is called in its own office', b.meeting?.room, "Head of Personnel's Office");
+  add('no room on its deck: the Captain is not told there is nowhere', b.toTell.filter((t: any) => /nowhere I can call my staff together/.test(t.line)).length, 0);
+}
+// HEAD-10: no room named and no office either: no meeting in the Bar, and the Captain told once.
+{
+  const b = hop();
+  b.meetingRoom = null;
+  b.office = null;
+  b.post = null;
   b.requisition = null;
   b.asks = [];
   b.nextMeetingAt = b.now;

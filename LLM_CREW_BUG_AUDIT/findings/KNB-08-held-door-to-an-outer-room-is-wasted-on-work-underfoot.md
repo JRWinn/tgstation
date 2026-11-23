@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: likely
 status: fixed
-fixed_in: 7be2e1630f1
+fixed_in: 7be2e1630f1, 958f33cbc65
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: driver
@@ -125,3 +125,7 @@ Checked by Opus 5.5, 2026-11-19. Confirmed.
 - No later change log entry touches `doorHeldFor`, `through` or the back-off on a held door. Items (8) and (11) of the 13:30 entry are still open.
 - Severity high stands: a janitor loops for good, and calls to nested cargo rooms come in most rounds on MetaStation. Effort raised to medium: step 1 is a few lines, but steps 3 and 4 change `inBackoff`'s callers and `brain.ts` as well.
 - No script was run.
+
+## Fix so far (round A1, step 5, answer A, branch a-janitor)
+
+Step 5 built as the owner answered. When a janitor drops a call because what is left will not come off with what it holds (`beyondIt` in `syncTasks`, `jobs/janitor.ts`), it notes the room as closed with the tool it held and the words it sent (`closedCalls`). A later call to that room, by message, by the model's "work" or by anyone telling it, is dropped at the next look at the list and the caller is sent the same words by PDA, at most once a minute per caller. The note goes (`reopenCalls`) when the janitor's cleaning tool changes, it has soap or a rag about it to take up, the room's mess is no longer remembered, or something remembered there is now one it could shift. What it could not get to (`leftUnreached`) is not closed. Table `tools/llm_crew/janitor-closed.ts` (12 cases). Type check, lint no worse, tables and simulator; not played.

@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: bc5dda1b405
+fixed_in: bc5dda1b405, fb28056030a
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -107,3 +107,7 @@ The change log's H10 entry (`LLM_CREW_CHANGELOG.md:317`) built the walk back and
 Group m-secsrv, commit bc5dda1b405, built with CHEAT-03 (compile, tables and simulator; not played). Steps 1 to 4: the officer walks to the brig to look (CHEAT-03), answers `no_power` there when every cell on the level is dark, else `no_cell` (`no_cell_answer`); the window takes the prisoner to the brig to wait, the step says which, and the second answer in a row tells the list once ("every cell is in use" / "the cells have no power"). Table: `tools/llm_crew/arrests3-nocell.ts`. Left: step 5, the owner's question of how long a prisoner with no cell is held.
 
 Round M3 (group m3-window, 7d0f4503c52; tables and simulator, not played): the fault the `nocell` scenario found is fixed. While the officer waits in the brig with its prisoner for a cell (`waitingWith` in `jobs/arrests.ts`), its other word on them is ranked with the wait (`syncTasks`, `jobs/officer.ts`), so "Joan, I have Pun Pun in cuffs." goes out and the Captain is told. Step 5 is still the owner's question.
+
+## Fix so far (step 5, owner's answer A, window part)
+
+Built on branch `a-secwin`. `serveTimeInBrig` in `jobs/arrests.ts`, run from `syncBeat`: the clock starts when the officer first waits with its prisoner in the brig for a cell (`waitsForCell`, standing in `brigPlace`), and runs while it holds them (kept as `brigSince` on the warrant, a local type; it belongs on `BeatWarrant` in `types.ts`). Once the warrant's minutes are up (with five more for resisting, `minutesFor`), the warrant is dropped from its beat as served and the prisoner put on `toFree` (marked `served`), so the usual let-go step lets them go ("there was no cell for them, and they have served their time with you in the brig"), and the existing "freed" outcome sends "Joan, X is free." to whoever keeps the list. The desk (`deskOutcome`, `jobs/desk.ts`), told "free" of someone whose warrant is still on its list, strikes the warrant off, as for a cell that has run out (nothing more is passed to the Captain, as for a cell that ran out). Table `tools/llm_crew/secwin-answers.ts`. Not played.

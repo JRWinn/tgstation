@@ -367,3 +367,47 @@ Cargo, Quartermaster, heads:
 - LOGB-03: game.log for each "opened X to let Y into Z", the brain books Y; crew_brain.log door results carry "for":"<name>"; no run of "You do not know who that is" for someone never let in.
 - SUP-06 (seen in the merged code): a technician asked to step aside while it pulls a crate now lets go of it, "you were called away".
 - pardoncell (seen once in 9 simulator runs): after a pardon the officer ignores, the Head of Security holds its staff meeting and never goes to the Brig. In a round, after a pardon nobody acts on, look for "has not let ... out. I am going to do it" in pda.log, and whether a meeting fell in the two minutes after.
+
+## From building the owner's answers of 2026-11-22 (branch `crew-answers`)
+
+**Big changes to watch first:** janitors have no galoshes now (KNB-06): watch attack.log for "slipped on" by a janitor; it should walk on tiles it just mopped. Crew NPCs are on the crew manifest (CHEAT-02): check the manifest lists them, and that door asks between NPCs still go out. A cargo post is the room with the counter window (MAP-06): on DeltaStation, IceBox and Tramstation it is now the Cargo Office, and crates are hauled there (not checked). An engineer's engine reading is empty until its PDA is first used (CHEAT-14).
+
+Security:
+- API-01, MULTI-08: pda.log "trespass" only after "out you go", a 10 s wait, a "took hold of" and a broken hold in game.log.
+- ARR-02, PLAY-14: game.log "is here on a warrant." and "I am here on a warrant."; no "took hold of <officer> to walk them out of" while it serves a warrant; a wanted keeper who walks the officer out gets 5 more minutes.
+- ARR-03: an officer hit by a head of staff with no warrant walks to its post; no baton.
+- ARR-04: "served their time with you in the brig" and "Joan, X is free." after a no-cell wait.
+- ARR-08: a STOP on an attacker breaks in on an arrest under way.
+- CHEAT-04: a player who stood for a quiet arrest is put in the cell with no ", still in cuffs".
+- DESK-05: with no Head of Security, each officer serves its own warrants and sends the other nothing.
+- KNA-05: game.log "dropped ... to draw its cuffs."
+- SEC-07: "cannot get its cuffs off by itself after 3 tries"; pda.log or say "I am in handcuffs and cannot get them off"; a head passing it on to security; an officer's free on that name.
+- SECT-10: "Captain, noted." (once a minute at most) after PDA talk to security that is no order; never after "Did you send".
+- SENSE-08: "they are the Captain: I know their face" for a Captain with no card.
+- CORE-03: game.log "lost sight of ... walking to where they were last seen", "lost sight of X near".
+
+Cargo and heads:
+- QM-08: pda.log "Captain, is that order"; nothing done until the Captain names one.
+- CARGO-02, KNB-15: a technician's word to a Quartermaster it cannot find goes by PDA about 10 minutes later.
+- QM-02: pda.log "has order N come in?".
+- QM-05: game.log "opened ... to let <technician> out of" from the Quartermaster.
+- CARGO-05: "Four is the most I can order at once."
+- CARGO-08: "I will bring them out one after another." and each crate released.
+- SUP-17: game.log "was taken out of cargo by"; pda.log "has taken crate #".
+- SECT-08: pda.log "Did you send", then "Yes, I sent" or "No, I did not send"; the stranger stays or is put out accordingly.
+- PLAY-10: a call-a-janitor order only from an imperative or a line naming the NPC; the janitor sent is let in with no mess seen.
+- KNB-01: game.log "goes to press Warehouse Shutters Control", "pressed ... to open/shut the shutters of Warehouse".
+- HEAD-10: "Staff meeting in the Head of Personnel's Office" where no meeting room is on the deck; staff shut out of a command-locked office report by PDA.
+- ENG-01: pda.log "switch the emitters off myself".
+- TRC-04: two "could not work the X (unreached)" runs about 5 minutes apart, then the engine lit.
+
+Janitor and others:
+- KNB-08: a second call to a room it closed gets the same words back and no walk, until its tool changes.
+- DESK-03: crew_brain.log "to wet it before you set off for the mess in".
+- DESK-10: game.log "put away its soap to free a hand".
+- DRV-07: a second "knocking at the door" about 2 minutes after the first, for a body shut in with nobody coming.
+- DRV-12: no `explore()` while a step is held back, except from a shut-in body.
+- MEM-11: pda.log "I could not get to the" / "I could not collect crate" when asked-for work is given up.
+- CHEAT-14: an engineer's reading empty until its PDA is used; no false integrity alarm.
+- SEC-07 (round A3): say "I am in handcuffs and cannot get them off" aloud from the cuffed body; pda.log has no message from a cuffed body.
+- mixed (simulator, 1 failure in 5 on crew-answers, none in 13 on master): in a round, a technician's "Still waiting ... I will send word." should be followed by the PDA to the orderer.

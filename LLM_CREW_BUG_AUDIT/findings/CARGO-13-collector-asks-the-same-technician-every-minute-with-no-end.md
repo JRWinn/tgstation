@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: d403dbf015f, 07fa697a1f8
+fixed_in: d403dbf015f, 07fa697a1f8, f2c1d5d51db
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: supply
@@ -110,3 +110,5 @@ Commits: d403dbf015f.
 - CARGO-13: part done. A collector at the counter asks only a technician who is neither down nor cuffed, and asks a different one than last time when one is there. After three asks with nothing brought out, it sends whoever sent it 'Cargo has not brought out crate #N: I asked 3 times at the counter. I will try again later.' and puts the errand off (retryAt, blocked with its own reason). On the counter side, a collecting line said to a technician who is down, cuffed or gone is taken by the technician who heard it. Look in jobs/pickups.ts (planPickups, pickupsAfterSaying, syncPickups) and jobs/cargo.ts (overhears, toUnableWorkmate). Left: tasks.ts, syncTasks give-up filter: (MEM-11) count age from when a task was last opened, not from createdAt; and for a dropped task with askedBy, at least log it (brain.lastJob). sim.ts: a pickup scenario with two technicians, the first marked down, checking the crate is asked of the second; and one where the technician never answers, checking for a PDA to the head after the third ask.
 
 Round two (branch crew-bug-fixes-medium): 07fa697a1f8. This finishes the parts left above, apart from any step that waits on the owner.
+
+Round A1 (a-brain, owner's answer A to MEM-11): built in f2c1d5d51db. When the give-up filter in `syncTasks` (`tasks.ts`) drops work someone asked for (blocked an hour, or open past its time), whoever asked is sent word once: "<first>, I could not get to the mess in the Bar." (worded for the kind in `givenUpWhat`), face to face if in view, else by PDA (`tellGivenUp`). Table: `tools/llm_crew/brain5-givenup.ts`. Not played.

@@ -392,6 +392,57 @@ function declinedCall(brain: NpcBrain, task: Task): boolean {
   );
 }
 
+/** What the janitor noted of a room where what is left will not come off with what it holds. */
+type ClosedCall = { tool: string; line: string; told: Map<string, number> };
+
+/**
+ * The rooms where a janitor has done what it can and what is left will not come off with what it
+ * holds, by room (lower case): the tool it held, the words it sent, and when it last sent them to
+ * each caller. A call to such a room is closed on its side until it holds a different tool, as a
+ * call it turned down for want of soap or a rag is (KNB-08, the owner's answer A). Without this, a
+ * janitor let out of a room asked to be let straight back in to the same mess.
+ */
+const closedNotes = new WeakMap<NpcBrain, Map<string, ClosedCall>>();
+
+/** How long (deciseconds) before the same caller is told again that a room is closed to it. */
+const CLOSED_TOLD_DS = 600;
+
+/** The rooms this janitor has closed its calls to, by room. */
+function closedCalls(brain: NpcBrain): Map<string, ClosedCall> {
+  let notes = closedNotes.get(brain);
+  if (!notes) {
+    notes = new Map();
+    closedNotes.set(brain, notes);
+  }
+  return notes;
+}
+
+/**
+ * Lets go of the closed rooms that no longer are: it holds a different tool (or has soap or a rag
+ * about it to take up), the mess there is gone from what it remembers, or something it remembers
+ * there is now one it could shift.
+ */
+function reopenCalls(brain: NpcBrain): void {
+  const notes = closedCalls(brain);
+  if (notes.size === 0) {
+    return;
+  }
+  const messy = new Set(brain.messPlaces.map((name) => name.toLowerCase()));
+  const workable = new Set(
+    brain.workablePlaces.map((name) => name.toLowerCase()),
+  );
+  for (const [room, note] of [...notes]) {
+    if (
+      brain.cleaningTool !== note.tool ||
+      !!scrubberToHand(brain) ||
+      !messy.has(room) ||
+      workable.has(room)
+    ) {
+      notes.delete(room);
+    }
+  }
+}
+
 /** TRUE if the body remembers a sink among the things of this room. */
 function remembersSinkIn(brain: NpcBrain, name: string): boolean {
   const place = brain.places.get(name);
@@ -457,34 +508,53 @@ function mindPutDown(brain: NpcBrain): void {
  * janitor equips itself, in the order a person would try things: use what it knows of, look where
  * the gear is kept, and only then go and ask cargo.
  */
+/**
+ * With a dry mop and no water in sight (`dryMop`), the walk to a room it knows has a sink, to wet
+ * the mop there. Null if its mop is not dry, or it knows of no sink it could get to. Shared by the
+ * step for getting something to clean with and, for a mess elsewhere, the mess task itself: a
+ * janitor with a dry mop and a rag wets the mop first, as a person would before walking to the
+ * mess (DESK-03, the owner's answer B). `forMess` names that mess's room, for the words.
+ */
+function sinkWalk(brain: NpcBrain, forMess?: string): Plan | null {
+  if (!brain.dryMop) {
+    return null;
+  }
+  // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
+  // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
+  // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
+  // it from elsewhere, to find again that it could not get to it.
+  const noWater = noWaterHere(brain);
+  if (remembersSinkIn(brain, brain.location)) {
+    noWater.set(brain.location, brain.now);
+  }
+  const sinkRoom = [...brain.places.keys()].find(
+    (name) =>
+      name !== brain.location &&
+      remembersSinkIn(brain, name) &&
+      brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+  );
+  if (!sinkRoom) {
+    return null;
+  }
+  return {
+    ready: true,
+    step: forMess
+      ? `Your mop is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it before you set off for the mess in ${forMess}.`
+      : `You are holding a mop, but it is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it.`,
+    act: { tool: 'go_to', place: sinkRoom },
+  };
+}
+
 function supplyStep(brain: NpcBrain): Plan {
   // A dry mop is a tool once it is wet.
   if (brain.dryMop) {
-    // Standing in a room it remembers a sink in, and still told its mop is dry with no water to
-    // hand: that sink is one it cannot get to, seen through glass most often. Everything in view is
-    // filed under the room it stands in, so the room keeps its sink, and the body was sent back to
-    // it from elsewhere, to find again that it could not get to it.
-    const noWater = noWaterHere(brain);
-    if (remembersSinkIn(brain, brain.location)) {
-      noWater.set(brain.location, brain.now);
-    }
-    const sinkRoom = [...brain.places.keys()].find(
-      (name) =>
-        name !== brain.location &&
-        remembersSinkIn(brain, name) &&
-        brain.now - (noWater.get(name) ?? -Infinity) >= NO_WATER_DS,
+    return (
+      sinkWalk(brain) ?? {
+        ready: true,
+        step: 'You are holding a mop, but it is dry, and you do not know where there is a sink to wet it at. You are looking for one.',
+        act: { tool: 'explore' },
+      }
     );
-    return sinkRoom
-      ? {
-          ready: true,
-          step: `You are holding a mop, but it is dry and there is no sink in sight. There is a sink in ${sinkRoom}, so you are going there to wet it.`,
-          act: { tool: 'go_to', place: sinkRoom },
-        }
-      : {
-          ready: true,
-          step: 'You are holding a mop, but it is dry, and you do not know where there is a sink to wet it at. You are looking for one.',
-          act: { tool: 'explore' },
-        };
   }
   const supply = knownSupply(brain);
   if (supply) {
@@ -630,6 +700,40 @@ function syncTasks(brain: NpcBrain): void {
       dropTask(brain, task);
     }
   }
+  // A call to a room where it has done what it can, and what is left will not come off with what
+  // it holds, is closed until it holds something else (KNB-08). Whoever calls is told so, and it
+  // does not go.
+  reopenCalls(brain);
+  const closed = closedCalls(brain);
+  for (const task of closed.size > 0 ? [...brain.tasks] : []) {
+    const note =
+      task.kind === CLEAN &&
+      task.state !== 'done' &&
+      task.source === 'told' &&
+      task.place
+        ? closed.get(task.place.toLowerCase())
+        : undefined;
+    if (!note) {
+      continue;
+    }
+    const caller = task.askedBy;
+    const toldAt = caller ? note.told.get(caller) : undefined;
+    if (
+      caller &&
+      brain.hasPda &&
+      (toldAt === undefined || brain.now - toldAt >= CLOSED_TOLD_DS)
+    ) {
+      note.told.set(caller, brain.now);
+      brain.toTell.push({
+        to: caller,
+        line: note.line,
+        why: `${caller} has called you to the mess in the ${task.place}. You have done what you can there, and what is left will not come off with your ${note.tool}. You are sending ${caller} a PDA message to say so, and not going back until you hold something else.`,
+        byPda: true,
+        at: Date.now(),
+      });
+    }
+    dropTask(brain, task);
+  }
   // The body keeps track of the messes it has seen and not yet seen gone. A room wants cleaning
   // for as long as it remembers one there: not seeing a mess from where it stands proves nothing.
   const messy = new Set(brain.messPlaces);
@@ -733,13 +837,23 @@ function syncTasks(brain: NpcBrain): void {
     ) {
       // One thing is said of the room, and it is true of all of it: that none of it would shift,
       // or that some is done and the rest would not.
+      const line = leftUnreached
+        ? `I have done what I can in the ${task.place}. I could not get to the rest.`
+        : task.cleanedSome
+          ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
+          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`;
+      // What is left will not come off: the room is closed to calls until it holds something
+      // else (KNB-08). What it could not get to is another matter, tried again later.
+      if (beyondIt && brain.cleaningTool) {
+        closedCalls(brain).set(task.place.toLowerCase(), {
+          tool: brain.cleaningTool,
+          line,
+          told: new Map([[task.askedBy, brain.now]]),
+        });
+      }
       brain.toTell.push({
         to: task.askedBy,
-        line: leftUnreached
-          ? `I have done what I can in the ${task.place}. I could not get to the rest.`
-          : task.cleanedSome
-          ? `I have done what I can in the ${task.place}. ${whatIsLeft(brain)}`
-          : `I cannot shift the mess in the ${task.place} with my ${brain.cleaningTool}.${brain.beyondKinds.length > 0 ? ` ${whatIsLeft(brain)}` : ''}`,
+        line,
         why: leftUnreached
           ? `${task.askedBy} called you to a mess in the ${task.place}. You have cleaned what you could get to, and could not get to the rest. You are sending ${task.askedBy} a PDA message to say so.`
           : task.cleanedSome
@@ -866,7 +980,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
     };
   }
   // A dry mop with water to hand: its own bucket, a mop bucket or cart with water in, or a sink.
-  if (brain.mopNeedsWater) {
+  // Only with water in sight: the server says the mop wants water wherever the body is, and with
+  // none here the "wetting" was a clean with the rag where it stood, failed, and tried again, and
+  // the janitor never set off (DESK-03).
+  if (brain.mopNeedsWater && (brain.sinkInView || !!brain.waterFrom)) {
     const water = brain.waterFrom ?? 'sink';
     const from = /^bucket$/i.test(water)
       ? 'you have water in your bucket'
@@ -885,6 +1002,15 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
           : { tool: 'clean', wet: true },
     };
   }
+  // A dry mop, no water in sight, and the mess somewhere else: it goes to a sink it knows of to wet
+  // the mop first (DESK-03, the owner's answer B). A mess in the room it stands in is cleaned with
+  // what else it holds, a rag most often. Knowing of no sink, it sets off with the rag.
+  if (task.place !== brain.location) {
+    const toSink = sinkWalk(brain, task.place);
+    if (toSink) {
+      return toSink;
+    }
+  }
   // A mop and nothing to carry water in: every few messes it is a walk back to a sink. A bucket
   // it knows the whereabouts of is worth going for once, before it sets off. Only for a mess
   // somewhere else: one in the room it stands in is cleaned first. A mop and a bucket take two
@@ -897,9 +1023,14 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
   ) {
     const bucket = allKnownItems(brain).find((item) => /^bucket$/i.test(item));
     if (bucket) {
+      // Both hands full, one of them with soap: the soap goes in its bag for the bucket (DESK-10).
+      const soap =
+        brain.holding.length >= 2
+          ? brain.holding.find((item) => /soap/i.test(item))
+          : undefined;
       return {
         ready: true,
-        step: `You have a mop and nothing to carry water in, and you know where there is a bucket. You are going to get it before you set off for the mess in ${task.place}${toldBy}.`,
+        step: `You have a mop and nothing to carry water in, and you know where there is a bucket. ${soap ? `You are putting your ${soap} away in your bag to have a hand for it, and going` : 'You are going'} to get it before you set off for the mess in ${task.place}${toldBy}.`,
         act: { tool: 'pick_up', item: bucket },
       };
     }

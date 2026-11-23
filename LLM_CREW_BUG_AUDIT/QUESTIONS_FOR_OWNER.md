@@ -318,3 +318,89 @@ Each is answered "ID: letter". "As built" is what the code does now.
 - **CARGO-04:** should a cargo technician let a security officer in just for asking? A. yes (as built); B. only when it has heard of a warrant.
 - **HEAD-10:** should crew walk between decks? A. turn on multi-deck walking for crew and go through every same-deck test (large); B. keep crew to one deck (as built: no meeting room on its deck means no meeting, and the Captain is told once); C. meet in the head's own office when no room is on its deck.
 - PLAY-10's question 3 (a janitor called on a superior's order is turned away at the door when no technician has seen a mess) was seen in the new `callme` scenario. It still waits on the answer.
+
+
+---
+
+# The owner's answers (2026-11-22)
+
+Answered in one message. "Build" means branch `crew-answers` builds what the answer unblocks; "as built" means the code already does it and nothing changes. Where an answer turned out larger than expected, or needed a further decision, the new question is at the end.
+
+| Question | Answer | What it means |
+| --- | --- | --- |
+| API-01 | B | Build: only a broken hold earns a trespass warrant; "cannot get a hold of" does not. |
+| ENG-01 | B | Build: once its engineer says it cannot get the emitters off, the Chief Engineer goes to the engine room and tries itself. |
+| HAND-12 | A | As built: large wooden crates are left alone. |
+| QM-08 | B | Build: with two or more orders waiting on the Captain and none named, it asks which and acts on neither until told. |
+| SECT-03 | B | As built: only the cut-word rule. |
+| SECT-07 | A | As built: a keeper puts out only someone the head names. |
+| MULTI-08 | B | Build: a trespass warrant takes being told to leave, refusing, and breaking the hold. |
+| ARR-02 | (words) | Build: an officer with a warrant to serve in a room is not walked out of it; a wanted keeper who walks the officer out is fighting back. |
+| QM-10 | B | As built: a cancel does not call back an order already with a technician. A placed order cannot be cancelled at the console. |
+| KNB-06 | A | Build: the galoshes at spawn go, and a janitor remembers the tiles it has just mopped as slippery. |
+| CARGO-02 | C | Build: face to face when the Quartermaster is seen; by PDA only after a long wait (KNB-15's word too). |
+| KNB-08 | A | Build: a janitor's call closes when what is left will not come off, until it holds a different tool. |
+| TRUST-11 | 1 A, 2 B | As built: warrants come only from players; the prompt rule stays out. |
+| CHEAT-01 | A | As built: crew NPCs do not pass through each other. |
+| CHEAT-14 | B | Build: the engine is read only when the PDA is already on. |
+| DESK-05 | A | Build: with no Head of Security, each officer keeping the list serves the warrants declared to it. |
+| DESK-03 | B | Build: a janitor with a dry mop walks to a sink it knows of to wet it first. |
+| SECT-08 | B | Build: a stranger who says a head sent them is asked about, face to face or by PDA, and waits for a yes; heads note whom they send. |
+| ARR-10 | B | As built: it stays and calls. |
+| ARR-09 | A | As built: 15 and 20. |
+| ARR-08 | A | Build: stopping an attacker breaks in on an arrest. |
+| ARR-03 | B | Build: an officer gets away from a head of staff who keeps hitting it. |
+| MAP-04 | A | As built: checkpoint cells are used. |
+| QM-05 | A | Build: with no other technician about, the Quartermaster goes to let its shut-in technician out itself. |
+| CARGO-08 | A | Build: a head with several crates waiting and no number gets them all, one after another. |
+| JOBS-04 | C | As built. |
+| ASYNC-07 | B | As built: remarks are offered while walking, and never stop the walk. |
+| BRAIN-09 | A | As built: the second call. |
+| KNA-06 | B | As built: no greeting after an arrest. |
+| MEM-11 | A | Build: whoever asked is sent word when blocked work is given up; the same for open work given up past its time (JOBS-02, CARGO-13). |
+| MULTI-03 | A | As built. |
+| TRC-03 | A | As built: only the head's set words call a meeting. |
+| ENG-06 | B | As built. |
+| SENSE-11 | A | As built: MULTI-03 kept. |
+| HAND-07 step 4 | no | As built: no alarm for someone out cold in a locker, until there is medical. |
+| KNA-05 | yes | Build: an officer puts down what it holds for the cuffs too. |
+| CHEAT-10 | as now | As built. |
+| MAP-06 | yes | Build: a cargo post is the room with the counter window to the lobby, whatever console stands there. |
+| DESK-10 step 3 | yes | Build: with a mop and soap in hand and a bucket known, the janitor puts the soap in its bag to carry the bucket. |
+| PLAY-10 | 1 A, 2 B, 3 A | 1 as built (silence). Build 2: a call-a-janitor order is taken only from an imperative or a line with the NPC's name. Build 3: a janitor called on such an order is let in, the call noted in the department's list. |
+| SUP-11 | B | As built: the unpaid order stays in the cart. |
+| CHEAT-12 | A | Manifests kept and handed to the Quartermaster, but left unbuilt until the large fixes. |
+| SUP-17 | 1 A, 2 A | Build: a held crate leaving cargo in someone else's hands is taken, not lost; the orderer is told. |
+| CORE-03 | A | Build: a body that loses sight of someone walks to where they were last seen, looks, then is told "You lost sight of X near ROOM". |
+| KNB-01 | A | Build: cargo staff open the Warehouse shutters with the wall button, and shut them again after. |
+| DOOR-14 | B | Build: a dead door is sent to engineering. |
+| DOOR-12 | B | As built: fire doors are reported, not held. |
+| KNA-09 | C | As built: left until there is medical. |
+| SECT-10 | C | Build: a fixed "Captain, noted." when nothing else answers PDA talk to security. |
+| TRB-06 | A | As built: only the Captain is told. |
+| ARR-04 | A | Build: a prisoner with no cell is let go once the warrant's minutes are up in the Brig, and "X is free" is reported. |
+| CHEAT-04 | A | Build: anyone who stood for a quiet arrest, player or crew, has the cuffs taken off in the cell. |
+| SEC-07 | B | Build: only security takes cuffs off a crew member stuck in them. |
+| CHEAT-02 | A | Build: people no longer aboard are left out by the crew manifest. |
+| CARGO-05 | A | Build: asked for more than four of a kind, it says "four is the most I can order at once". |
+| TRUST-04 | A | As built: anyone with the number. |
+| QM-02 | A | Build: the Quartermaster asks a silent human technician "Has order N come in?". |
+| DRV-07 | A | Build: a shut-in body nobody has come for asks and knocks again after 2 minutes. |
+| DRV-12 | A | Build: while its work is only held back, the body stands still. |
+| HEAD-10 | (words) | Build: with no meeting room on its deck, the head meets in its own office. No multi-deck walking. |
+| TRC-04 | B | Build: after a stop that is not the machine's fault, the engineer tries again by itself after a few minutes. |
+| ENG-03 | A | As built. |
+| SENSE-08 / CHEAT-15 | A | Build: a Captain known by face and the PDA list is refused like one with the card, with its own reason and words. |
+| CARGO-04 | A | As built: an officer is let in on asking. |
+
+## Still open: no answer yet
+
+- **CHEAT-15 step 5:** should a body in the dark use its PDA's flashlight (a click on the PDA, `toggle_flashlight`)? A. yes, switched on whenever it stands in the dark; B. yes, only for work that needs sight (cleaning, an arrest); C. no.
+- **HAND-08 step 5:** walking up to someone to talk across a window. A. walk round to their side; B. in earshot is enough (as built).
+- **DOOR-15 steps 4 and 5:** A. before going into the wires of a door that has shocked it once, the body checks its own gloves and refuses without insulated ones (getting gloves goes through cargo); B. that, and the Chief Engineer is told at spawn whether its gloves are insulated; C. neither (as built).
+- **MEM-07 step 3:** should "where" carry a hint inside a big room ("by the Bridge")? A. yes, the window is told roughly where in the room; B. no, the room name is enough (as built).
+
+## New questions from building the answers (2026-11-22, branch `crew-answers`)
+
+- **DOOR-14 (engineering side):** the forcing job takes a door ask only from security, and only "on a warrant", so a technician cannot hand a dead door to engineering without claiming a false warrant. Nothing was sent to engineering. A. new set words any crew may use ("the door of the X will not open: it has no power. Could you send an engineer, please?"); engineering forces only a door with no power, and says back that a bolted, welded or stuck door cannot be done; B. only through the technician's head: the Quartermaster asks the Chief Engineer; C. engineering takes it as word only (the person and the head are told, as now).
+- **MAP-06:** on MetaStation the counter with the desk bell and a table under its window belongs to the Delivery Office; the Cargo Bay's window is the ore machine's, and the bay wins only on a tie-break. A. keep the Cargo Bay as the post (as built); B. count only windows with a table under them, which makes MetaStation's post the Delivery Office, a room with no supply console.

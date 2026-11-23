@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: 9f42272152a, 07fa697a1f8
+fixed_in: 9f42272152a, 07fa697a1f8, f2c1d5d51db
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: cargo
@@ -96,3 +96,5 @@ Commits: 9f42272152a.
 - JOBS-02: part done. A crate errand sets Task.keepUntil to half an hour on, both when the crate is first seen put out (syncPickups) and when collect_crate works (pickupsAfterActing). Nothing reads it yet. Look in jobs/pickups.ts (KEEP_HAULING_DS). Left: tasks.ts, syncTasks give-up filter: keep a task while `brain.now < (task.keepUntil ?? task.createdAt + GIVE_UP_DS) || task.state === 'blocked'`. Build it with MEM-11. sim.ts: a pickup scenario where the head's message is 29 minutes old when the crate is put out, checking for the haul, an 'is unpacked in' message and a take_back.
 
 Round two (branch crew-bug-fixes-medium): 07fa697a1f8. This finishes the parts left above, apart from any step that waits on the owner.
+
+Round A1 (a-brain, owner's answer A to MEM-11): built in f2c1d5d51db. When the give-up filter in `syncTasks` (`tasks.ts`) drops work someone asked for (blocked an hour, or open past its time), whoever asked is sent word once: "<first>, I could not get to the mess in the Bar." (worded for the kind in `givenUpWhat`), face to face if in view, else by PDA (`tellGivenUp`). Table: `tools/llm_crew/brain5-givenup.ts`. Not played.

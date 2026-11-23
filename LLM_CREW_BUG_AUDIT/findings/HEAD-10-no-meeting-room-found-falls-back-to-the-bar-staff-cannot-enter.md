@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: likely
-status: confirmed
+status: fixed
+fixed_in: cdcda46f592
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: head
@@ -79,3 +80,5 @@ Read the Head of Personnel branch of `learn_starting_places` and `crew_npc_room_
 ## Fix so far
 
 Round M2, group g-srv-b (2026-11-20): step 1 not built; larger than its label. Crew bodies cannot walk between decks: `/datum/ai_movement/navmap_astar/crew_npc` (`crew_npc_motor.dm`) leaves `allow_multiz` FALSE (the base game's bots and monkeys set it TRUE), and the crew code assumes one deck throughout (consoles, bins, lockers, cell timers, alarms and route checks all pass over anything with `z != body.z`, e.g. `crew_npc_tools.dm:670`, `crew_npc_grip.dm:411`). So a meeting room learnt on another deck would be one neither the head nor its staff can get to, and a `learn_place` that looks on other decks would hand every caller (offices, posts, the lobby) rooms it cannot walk to. Step 1 waits on multi-deck walking (an owner choice: turn on `allow_multiz` for crew and go through the one-deck tests, or keep crew to one deck). A tried version of step 1 (own deck first, then the other station decks, in `learn_place`, `middle_of` and the Head of Personnel branch) was compiled clean and not committed. Steps 2 and 3 (window) still stand alone and stop the wrong room. Step 1a (`spawn_test_crew`, `crew_npc_spawn.dm`) is in nobody's files this round and has the same question.
+
+Round A1, group a-heads (2026-11-22), on the owner's answer (meet in its own office; no multi-deck walking): `HOP_WAY.room` in `jobs/head.ts` now falls back from the server's meeting room to the department's `meetsIn` (none for Service), then to the head's own office (`brain.office`), then its post. Only a head with none of these tells the Captain it holds no meetings, as before. Step 1 (other decks) and 1a are not built, by the answer. Not checked: whether its staff can get through the office door (the Head of Personnel's Office is command-locked on most maps; nothing in `head.ts` opens it for them).

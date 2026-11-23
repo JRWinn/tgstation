@@ -12,6 +12,7 @@
  *
  * What a kind of task takes to do is known by the job that owns that kind (see jobs/).
  */
+import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
 import {
   describeGuarding,
@@ -19,6 +20,8 @@ import {
   syncGuarding,
 } from './jobs/guarding';
 import {
+  CALL,
+  callOrderIn,
   describeOrders,
   noteOrdered,
   orderIn,
@@ -159,13 +162,65 @@ export function syncTasks(brain: NpcBrain): void {
     }
     const kept = keepsGoing(brain, task);
     if (!kept && task.askedBy) {
-      // Work someone asked for and never got: at least the window shows it was given up on.
+      // Work someone asked for and never got: the window shows it was given up on, and whoever
+      // asked is sent word, once (MEM-11, JOBS-02, CARGO-13: the owner's answer A).
       brain.lastJob = {
         time: new Date().toLocaleTimeString(),
         what: `Gave up on, not done: ${describeTask(brain, task)}`,
       };
+      tellGivenUp(brain, task);
     }
     return kept;
+  });
+}
+
+/**
+ * What it could not do, as it tells whoever asked for it: "get to the mess in the Bar". Worded
+ * for the kinds of work people ask for, and any other plainly by its room.
+ */
+function givenUpWhat(task: Task): string {
+  const room = task.place ? ` in the ${task.place}` : '';
+  switch (task.kind) {
+    case 'clean':
+      return `get to the mess${room}`;
+    case 'collect':
+      return `collect crate #${task.item} from cargo`;
+    case 'handover':
+      return `bring crate #${task.item} out to the lobby`;
+    case 'force_door':
+      return `get the door of the ${task.item} open`;
+    case 'look':
+      return `get to the ${task.place} to look at it`;
+    case CALL:
+      return `send for a janitor to the ${task.place}`;
+    default:
+      return task.place
+        ? `get to the work in the ${task.place}`
+        : 'get to what you asked of me';
+  }
+}
+
+/**
+ * Sends word to whoever asked for a piece of work that it has been given up on, not done: said
+ * face to face if they are in view, else by PDA (if it has none, said when they are next seen).
+ */
+function tellGivenUp(brain: NpcBrain, task: Task): void {
+  const to = task.askedBy;
+  if (!to || to === brain.name) {
+    return;
+  }
+  const line = `${to.split(' ')[0]}, I could not ${givenUpWhat(task)}.`;
+  if (brain.toTell.some((tell) => tell.to === to && tell.line === line)) {
+    return;
+  }
+  const here = brain.peopleInView.some((person) => person.name === to);
+  brain.toTell.push({
+    to,
+    line,
+    why: `You have given up on what ${to} ${task.source === 'told' ? 'told you of' : 'asked for'} (${describeTask(brain, task)}): it could not be done for too long. You are telling ${to} so.`,
+    byPda: !here && brain.hasPda,
+    exact: true,
+    at: Date.now(),
   });
 }
 
@@ -185,6 +240,76 @@ function keepsGoing(brain: NpcBrain, task: Task): boolean {
   task.blockedSince = undefined;
   const openLimit = (task.openSince ?? task.createdAt) + GIVE_UP_DS;
   return brain.now < Math.max(openLimit, task.keepUntil ?? 0);
+}
+
+/** What a crew member stuck in handcuffs says to its head (SEC-07, the owner's answer B). */
+export const STUCK_IN_CUFFS_LINE =
+  'I am in handcuffs and cannot get them off. Can someone from security take them off?';
+/** How long (milliseconds) before it says so again, if the server says again that it is still stuck. */
+const CUFFS_TOLD_AGAIN_MS = 600000;
+
+/**
+ * The server says the body is in handcuffs it cannot get off itself (`stuck_in_cuffs`). Whatever
+ * its job, it tells its own head, once, face to face, and at once whatever it is held at (it is
+ * held the whole time it is in cuffs). Only security takes the cuffs off (SEC-07, the owner's
+ * answer B); a head of staff tells the Captain.
+ *
+ * Never by PDA: a player in handcuffs cannot work a PDA's screen (the game's UI goes view-only for
+ * a restrained body, shared_ui_interaction in tgui/states.dm). A head not in view, but known by
+ * name from the PDA's list, is told when it next comes into view, for as long as it is worth
+ * saying. With no head in view or known, nobody is told. Let go (`set_free`, which the server
+ * sends only once the cuffs are off), a word not yet said is dropped: it is no longer true.
+ */
+export function noteStuckInCuffs(brain: NpcBrain, event: SenseEvent): void {
+  if (event.details.set_free === true || event.details.set_free === 1) {
+    brain.toTell = brain.toTell.filter(
+      (tell) => !tell.line.endsWith(STUCK_IN_CUFFS_LINE),
+    );
+    brain.cuffsToldAt = undefined;
+    return;
+  }
+  const stuck = event.details.stuck_in_cuffs;
+  if (stuck !== true && stuck !== 1) {
+    return;
+  }
+  if (
+    brain.cuffsToldAt !== undefined &&
+    Date.now() - brain.cuffsToldAt < CUFFS_TOLD_AGAIN_MS
+  ) {
+    return;
+  }
+  const own = headOf(brain.job);
+  const headJob =
+    own && own.toLowerCase() !== brain.job.toLowerCase() ? own : 'Captain';
+  if (headJob.toLowerCase() === brain.job.toLowerCase()) {
+    return;
+  }
+  const isHeadJob = (job: string) =>
+    job.toLowerCase().includes(headJob.toLowerCase());
+  const seen = brain.peopleInView.find(
+    (person) => person.name !== brain.name && isHeadJob(person.job),
+  );
+  const onPda = brain.hasPda
+    ? brain.pdaPeople.find(
+        (person) => person.name !== brain.name && isHeadJob(person.job),
+      )
+    : undefined;
+  const to = seen?.name ?? onPda?.name;
+  if (!to) {
+    return;
+  }
+  brain.cuffsToldAt = Date.now();
+  brain.toTell.push({
+    to,
+    line: `${to.split(' ')[0]}, ${STUCK_IN_CUFFS_LINE}`,
+    why: `You are in handcuffs and cannot get them off yourself. Only security can take them off. You are telling ${to}, your head, so.`,
+    exact: true,
+    // Said in passing while it is held: in cuffs, it is held until they are off.
+    whileBusy: true,
+    at: Date.now(),
+    // A head not in view now may come by later: kept as long as it would not say it again.
+    keepMs: CUFFS_TOLD_AGAIN_MS,
+  });
 }
 
 /**
@@ -232,13 +357,22 @@ export function takeToldWork(
   toldBy: string | undefined,
   /** TRUE if whoever told it is someone the NPC answers to. */
   fromSuperior = false,
+  /**
+   * What they said, where it is to hand. An order to send for a janitor is taken only if it is in
+   * the imperative or names the NPC (PLAY-10 2, the owner's answer B), whatever the model made of it.
+   */
+  heard?: string,
 ): Task | null {
   const takes = jobFor(brain.job).takes ?? {};
   const own = Object.keys(takes).find((key) => takes[key] === what);
   // An order is only an order from someone it answers to.
-  const order = fromSuperior
+  const found = fromSuperior
     ? Object.keys(ORDERS).find((key) => ORDERS[key] === what)
     : undefined;
+  const order =
+    found === CALL && heard !== undefined && !callOrderIn(brain.name, heard)
+      ? undefined
+      : found;
   const kind = own ?? order;
   // An order that may be given with no room named is for the room whoever gave it is standing in,
   // if it can see where that is, else the room it stands in itself: "Then ask for a janitor"
@@ -356,8 +490,8 @@ export function workInWords(
       return null;
     }
     const asOrder = orderClauses(heard);
-    for (const [kind, words] of Object.entries(ORDER_SOUNDS)) {
-      if (orderTakesHere(kind) && words.test(asOrder)) {
+    for (const kind of Object.keys(ORDER_SOUNDS)) {
+      if (orderTakesHere(kind) && orderIn(kind, asOrder, '', heard, brain.name)) {
         // No room named: takeToldWork takes the speaker's room, or its own.
         return takeToldWork(brain, ORDERS[kind], WORK_NOWHERE, toldBy, true);
       }
@@ -379,7 +513,7 @@ export function workInWords(
     // janitor for the bar" sends for nobody. A look needs the look word right before the room
     // (orderIn): any other line with "check" or "look" in it is left to the model (MEM-08).
     for (const kind of Object.keys(ORDER_SOUNDS)) {
-      if (orderIn(kind, asWork, place, heard)) {
+      if (orderIn(kind, asWork, place, heard, brain.name)) {
         return takeToldWork(brain, ORDERS[kind], place, toldBy, true);
       }
     }

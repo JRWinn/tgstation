@@ -6,7 +6,7 @@ severity: high
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9a5a1f96b62
+fixed_in: 9a5a1f96b62, 51cfeb1a3e7, 2cedd6710a4
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: cargo
@@ -84,3 +84,14 @@ Not a duplicate: it holds two faults with two separate changes; GAP-02 and GAP-0
 ## Fix notes, second round
 
 `crate_collected` (`crew_npc_held.dm`, branch `r2-server`): when `tip_out` returns null the crate was hauled but would not open. It now fails with "You haul the crate #N to X, but you cannot unpack it." and why: "It is a wooden crate: it wants prying open with a crowbar." for a large wooden crate, "it is welded shut", "it is locked", or "The crate will not open for you." `crate_to_return` is not set, so there is no empty crate to take back, and the window does not mark the collection unpacked (it does that only on success), so it does not tell the head "crate #N is unpacked in". The held entry is still dropped, as the crate has left the counter. Compile-checked only.
+
+## Fix so far (round A1, answer A, branch a-janitor)
+
+- The galoshes block is gone from `create_crew_npc` (`crew_npc_spawn.dm`): a janitor starts in its outfit's shoes.
+- `clean_mess` (`crew_npc_cleaning.dm`) notes the tile a mop was used on, at the click and again when the scrub ends (`note_mopped`, list `mopped_tiles`, turf REF to world.time, pruned past a minute). `knows_mopped(turf)` is TRUE for a tile it mopped itself in the last minute.
+- **Left (held, `crew_npc_senses.dm`, a-secsrv's file):** `mind_its_step` must read it. Where it has `if(isnull(slippery))`, before setting the run intent, add: if the shoes do not grip and `knows_mopped(new_loc)`, treat the tile as one where walking helps (water: `NO_SLIP_WHEN_WALKING`): return if already walking, else `set_move_intent(MOVE_INTENT_WALK)` and `return COMPONENT_MOVABLE_BLOCK_PRE_MOVE`. Until that is in, the janitor in ordinary shoes slips on its own mopping.
+- Compile only. Not played.
+
+## Fix so far (round A2, a2-server, compile only)
+
+The held part is in: `mind_its_step` (`crew_npc_senses.dm`), for a tile with nothing slippery seen on it, checks `knows_mopped(new_loc)` when the shoes do not grip (neither `TRAIT_NO_SLIP_WATER` nor `TRAIT_NO_SLIP_ALL`): already walking, it steps on; running, it slows to a walk and that one step is not taken (`COMPONENT_MOVABLE_BLOCK_PRE_MOVE`), as for oil. Water (`TURF_WET_WATER`) carries `NO_SLIP_WHEN_WALKING`, so a walker keeps its feet. Floors others wetted are still unknown to it. Not played.

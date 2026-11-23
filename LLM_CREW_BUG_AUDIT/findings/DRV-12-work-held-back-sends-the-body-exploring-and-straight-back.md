@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 26a85fd6748, 88788e3df83, fde2b19ab7d
+fixed_in: 26a85fd6748, 88788e3df83, fde2b19ab7d, e5faa6b71d7
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: driver
@@ -114,3 +114,5 @@ Steps 2 and 3 are built in `driver.ts`. A clean that fails in its task's room ho
 Not built: step 1 (no idle `explore` while work is only held back), which is the owner's question in step 5; while held back the body still explores, but it no longer walks back and forth every few seconds. Step 4 (a key of its own for wetting the mop) is in `jobs/janitor.ts`, not this group's, and is optional once step 2 is in.
 
 Round M2 (g-tasks): step 4 built in `jobs/janitor.ts`: a bucket fill, and wetting the mop for a mess in another room, send `{ tool: 'clean', wet: true }` (the server reads no `wet`), a failure key of their own; wetting in the mess's own room stays `{ tool: 'clean' }`, since that call also cleans. Table: `tools/llm_crew/janitor-water.ts`. Step 1 is still the owner's question.
+
+Round A1 (a-brain, owner's answer A): step 1 built in e5faa6b71d7. `nextStep` gives no step at all (no `explore`, no `search`) while a step of its work is held back, unless it is shut in at the door, where the walk is its rationed try at a way out. Table: `tools/llm_crew/driver5-again.ts`. Not played.

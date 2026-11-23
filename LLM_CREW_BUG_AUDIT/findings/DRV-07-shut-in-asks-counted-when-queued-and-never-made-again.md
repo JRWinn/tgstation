@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 060922308c3
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: driver
@@ -107,3 +108,5 @@ Ran a throwaway script with bun against the real `driver.ts` and the fixture bra
 Half 1 is built, with ASYNC-05 in the same commit (one cause): a spoken ask for the door is kept beside the line (`brain.mustSayFor`, set by `noteDone(..., spoken)` in `driver.ts`) and the helper is put in `outAsks.asked` only when the line goes out with them in view (`lineSaid`, called from `think` and its `catch` in `brain.ts`). If they have gone, nothing is said, they stay unasked and the step's hold is let off (`lineNotSaid`), so they are asked as soon as they are back. Table: `tools/llm_crew/brain3-said.ts`.
 
 Not built: halves 2 and 3 (asking again, and knocking again, after about two minutes with nobody come). The checker's note leaves the interval to the owner, and the code states "each person is asked once" on purpose: asked as an owner question in the m-driver report.
+
+Round A1 (a-brain, owner's answer A): halves 2 and 3 built in 060922308c3. `whoToAskForTheDoor` (`situation.ts`) offers again anyone asked more than `ASK_AGAIN_MS` (120000) ago (`outAsks.askedAt`); `nextStep` knocks again once the last knock is two minutes old (`knockedLately`, `outAsks.knockedAt`); the wait before word goes further still runs from the first knock. Between knocks, with nothing else to try, the body still makes its rationed try at another way out (KNA-02) and comes back to the door. Table: `tools/llm_crew/driver5-again.ts`. Not played.

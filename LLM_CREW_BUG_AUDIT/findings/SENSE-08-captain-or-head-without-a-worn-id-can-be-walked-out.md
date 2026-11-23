@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: 60427e427ab, 7ee5888956e
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: senses
@@ -94,3 +95,8 @@ Group m-senses, 2026-11-19. Server steps 1, 2 and 6 done, by the PDA list (step 
 Left: step 3 (the window remembering a name once seen as command, `guarding.ts`), held for the window's owner, and needed only for a head with no PDA either. `answers_to` (orders aloud) still goes by the worn card only, as the fix did not ask; and the security stop of a head with no warrant (`crew_npc_security.dm`, `how == CREW_ARREST_STOP && crew_npc_is_command(person)`) could use `known_command_job` too (held). Compile only; not played.
 
 Round M2 (g-srv-c, compile only): `tool_arrest`'s refusal to stop a head with the baton and no warrant (`crew_npc_security.dm`) now also goes by `known_command_job(person)`, so a head with no card on them, whose face shows and whom the body's PDA lists as a head, is refused with reason `command` as one with the card is. **Not changed:** the Captain check just above it still goes by the worn card only (reason `captain`; the window words that as "carries a Captain's ID", so a by-face Captain would need its own reason and window words). Left: step 3 (window), and `answers_to`.
+
+Round A1 (a-secsrv, compile only), on the owner's answer A: `tool_arrest` (`crew_npc_security.dm`) refuses an arrest of someone known as the Captain by their face and the PDA list (by `known_command_job`, or by face alone when they wear a head's card), whatever card they wear, with "X is the Captain: you know their face." and `reason: "captain_known"`. The window gives that reason its own words (a-secwin).
+## Fix so far (SENSE-08 / CHEAT-15, owner's answer A, window part)
+
+Built on branch `a-secwin`, `beatAfterActing` in `jobs/arrests.ts`: an arrest the server refuses with reason `captain_known` (a Captain known by face, card or no card; the server part is a-secsrv's) is taken as reason `captain` is: no try counted, the person passed over a while by handle, and whoever keeps the list told once, in its own words: "Joan, I cannot bring in X: they are the Captain: I know their face, and nobody lays a hand on the Captain." (`CAPTAIN_FACE`; no full stop inside, so the Head of Security reads it back whole and passes it on). A stop refused so is still word for the list. Table `tools/llm_crew/secwin-answers.ts`. Not played.

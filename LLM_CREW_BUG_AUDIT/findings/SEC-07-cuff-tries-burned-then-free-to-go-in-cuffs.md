@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: medium
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: cdaebf183ee, 4981043753e, a25b30f0e9b, c62704a0fa3, 0363c1597e6, ed0f1d555e8
 found_by: Fable 5.2
 checked_by: Opus 5.5
 area: security
@@ -114,3 +115,14 @@ Severity kept at medium: the body is useless for the rest of the round, but only
 ## Fix so far
 
 Group m-secsrv, commit cdaebf183ee (compile only; not played). Steps 1 and 3 in their simplest form: held while the cuffs are on, a try counted only when `execute_resist` left a `do_after` running, and no cap (`CREW_NPC_CUFF_TRIES` removed). Left: the "cannot get these handcuffs off" sense line and the window's ask for help (steps 3 and 4), which need the owner's word.
+
+Round A1 (a-secsrv, compile only), on the owner's answer B (only security takes cuffs off a crew member stuck in them): `custody_tick` (`crew_npc_security.dm`) keeps trying with no cap, and once three real tries have come to nothing (`CREW_NPC_CUFF_TRIES_ALONE`) tells the brain once, "You cannot get these handcuffs off by yourself. Only security can take them off you.", with `stuck_in_cuffs: TRUE` and `tries`. The server already lets only security take cuffs off (`tool_free` refuses anyone else; it frees someone seen standing in cuffs). Left (window): on `stuck_in_cuffs`, a plain line to its own head, face to face if in view, else by PDA ("I am in handcuffs and cannot get them off. Can someone from security take them off?"), and an officer or the Head of Security who is told so sends `free` on that name; nobody else offers.
+## Fix so far (owner's answer B, security's window part)
+
+Built on branch `a-secwin` (the server's `stuck_in_cuffs` event is a-secsrv's; the crew member's own line is the job's/a-brain's). `stuckInCuffsAsk` in `jobs/arrests.ts`, called first from `readsMessage` and `overhears` in `jobs/officer.ts` and `jobs/headofsecurity.ts`: a crew member saying they are in handcuffs and cannot get them off ("I am in handcuffs and cannot get them off", or "stuck in cuffs") is taken as an ask to an officer or the Head of Security. Not when it has a warrant on them, holds them, or put them in a cell. In sight and still cuffed, they go on `toFree` (marked `stuck`) and the usual let-go step sends `free` on that name; sent from out of sight, the ask stands ten minutes (`CUFF_ASK_DS`) and is acted on once they are seen still in cuffs (`freeStuck`, run from `syncBeat`). The officer does not go looking for them. Table `tools/llm_crew/secwin-answers.ts`. Not played.
+
+## Fix so far (round A3, a3-cuffs: the crew member's own line)
+
+`stuckcuffs` failed: the server keeps `in_hand` set the whole time a body is in cuffs, and the driver sends nothing while `inHand`. `noteStuckInCuffs` (`tasks.ts`) now marks its word `whileBusy`, so the quick-tell path in `drive` (`driver.ts`) says it face to face though the body is held. It is never sent by PDA: in the base game a body in handcuffs gets `TRAIT_RESTRAINED`, so `incapacitated` is set and `shared_ui_interaction` (`code/modules/tgui/states.dm`) makes every UI view-only (`UI_UPDATE`); a cuffed player cannot work a PDA's screen. A head not in view, known by name from the PDA list, is told face to face when it next comes into view, for up to ten minutes (`keepMs`). On `set_free` (sent only once the cuffs are off) a word not yet said is dropped. The driver's `inHand` return is left as it is. Table `tools/llm_crew/brain5-cuffs.ts`. Not played.
+
+Left (server): `pda_unusable` (`crew_npc_cargo.dm`) does not refuse a restrained body, so the server would send a PDA from a body in cuffs if the window asked. It should refuse as the screen would, e.g. `if(body.incapacitated || !(body.mobility_flags & MOBILITY_UI)) return list("You cannot work your PDA with your hands bound.", TRUE)`.

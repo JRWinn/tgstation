@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: likely
 status: fixed
-fixed_in: bd93759d5eb
+fixed_in: bd93759d5eb, 7a0d9c3eb5c, 0389480d858, 283027d0591, 2656f69bbf7, fcdb41a2fbe
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -92,3 +92,12 @@ Checked by Opus 5.5, from the code. Not run, not seen in a round.
 - Not checked: whether a slip on a wet floor ends the pull or the walk leaf in this build (`on_pull_blocked_trait_gain` in `code/modules/mob/living/init_signals.dm` stops pulling when `TRAIT_PULL_BLOCKED` is added; whether a knockdown adds it was not traced). The timeout and no-way cases do not depend on it.
 - Not in the change log or plans as known; the change log's trespass section (`LLM_CREW_CHANGELOG.md` near line 601) describes the report as meant for someone who would not go.
 - Severity kept high: the wrong person is arrested. How often a seeing-out walk fails is not known, which is why confidence stays `likely`. Effort small for step 3, which is enough on its own; step 1 shares the details field with API-01 (confirmed). Changed the fix to test `seenOut` without `orderedBy` instead of `sent`, since an order from a superior leaves `sent` set.
+
+Round A1 (a-secsrv, compile only), the server step for the owner's answer B (told to leave, refused, broke the hold): `put_out` (`crew_npc_guarding.dm`) adds `would_not_go` and `person` to a failed `throw_out`'s details. `would_not_go` is TRUE only when the walk leaf lost the pull ("they got away from you", not a null reason), the body itself was not down, and the person was not down, cuffed or strapped to a seat. The window's part (told to leave and refused, and the warrant only on `would_not_go`) is a-secwin's and a-cargo's.
+## Fix so far
+
+Owner's answer B (2026-11-22), the window part (`jobs/wanted.ts`, branch `a-secwin`): `wantedAfterActing` now reports someone as one who would not go only when all three hold: they were told to leave (their stranger record has `toldOutAt`, set when the NPC said its "out you go" line), they were still in the room to be taken by the arm, and they broke the hold (the "they got away from you" line only, API-01 B). Someone never told, or with no stranger record, is not reported however the walk ended. Tables `security.ts` and `guarding-wanted.ts` changed to match.
+
+Left for `jobs/guarding.ts` (a-cargo): "refused" rests on the keeper giving them a chance to go after the told line. Today `planGuarding` takes them by the arm on the very next step. It should wait a short while after `toldOutAt` and take hold only if they are still in the post. Not played.
+
+Later on `a-secwin`: `wantedAfterActing` takes the server's details as an optional fifth argument and tests `details.would_not_go` (a-secsrv: TRUE only when the pull was lost to them, FALSE when the body went down or they were down, cuffed or strapped) in place of the English when it is there; a server that does not say is read by its words as before. Held for `driver.ts` (a-brain): the one call, `wantedAfterActing(brain, last.act, !!event.details.ok, event.text)` in `noteResult`, should pass `event.details` as a fifth argument. Until it does, the words are what is read.

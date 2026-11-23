@@ -177,6 +177,61 @@ for (const [told, tries, stuck] of [
   add(`"${told}": tried ${tries} time(s), then stops with the true reason`, [failed, it.engine.stuck], [tries, stuck]);
 }
 
+// TRC-04 (answer B): a stop that is not the machine's fault is tried again by itself five minutes
+// on, at most twice; then it waits to be told. One that is the machine's is not.
+{
+  /** Fails every step it is sent to with these words, until it stops. Returns how many it tried. */
+  const failAll = (it: any, told: string) => {
+    let failed = 0;
+    for (let turn = 0; turn < 10; turn++) {
+      ENGINEER.syncTasks(it);
+      const task = open(it, 'light_engine');
+      const plan = task ? ENGINEER.plan(it, task) : null;
+      if (!task || !plan?.act) break;
+      failed++;
+      ENGINEER.afterActing(it, plan.act, task, false, false, {}, told);
+    }
+    return failed;
+  };
+  const it = engineer();
+  it.now = 100;
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  failAll(it, 'You could not get to it.');
+  const stoppedAt = it.now;
+  add('unreached: stopped, and word owed to the Chief Engineer', [it.engine.stuck, it.engine.words.some((w: any) => w.what === 'stuck')], ['I cannot get to the nitrogen canister', true]);
+  it.now = stoppedAt + 2900;
+  ENGINEER.syncTasks(it);
+  add('unreached: not tried again before five minutes', [it.engine.stuck, !!open(it, 'light_engine')], ['I cannot get to the nitrogen canister', false]);
+  it.now = stoppedAt + 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: five minutes on, it tries again by itself', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+  add('unreached: the stop not yet passed on is dropped', it.engine.words.some((w: any) => w.what === 'stuck'), false);
+  add('unreached: given five more tries', failAll(it, 'You could not get to it.'), 5);
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: stopped again, it tries again a second time', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+  failAll(it, 'You have no free hand to take your wrench out with.');
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('unreached: after two tries again it waits to be told', [it.engine.stuck, !!open(it, 'light_engine')], ['my hands are full and I cannot work the nitrogen canister', false]);
+  it.now += 30000;
+  ENGINEER.syncTasks(it);
+  add('unreached: and goes on waiting', !!open(it, 'light_engine'), false);
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  failAll(it, 'You could not get to it.');
+  it.now += 3000;
+  ENGINEER.syncTasks(it);
+  add('given the engine afresh, it may try again by itself as before', [it.engine.stuck, !!open(it, 'light_engine')], [null, true]);
+}
+{
+  const it = engineer();
+  said(it, 'Ada Volt', lightLine('Sam Rees'));
+  work(it, 'light_engine', (act) => act.how !== 'connect');
+  it.now += 30000;
+  ENGINEER.syncTasks(it);
+  add('a machine that will not take: never tried again by itself', [it.engine.stuck, !!open(it, 'light_engine')], ['the nitrogen canister will not connect', false]);
+}
+
 // Nobody gives it the engine.
 sam = engineer(false);
 sam.now = 1300;
@@ -349,6 +404,50 @@ add('nothing heard of it in a minute and a half: it is given again', ada.chief.o
   copy.toTell = [];
   heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
   add('told again, the Captain is not told twice', copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').length, 0);
+}
+// ENG-01 (answer B): told its engineer cannot get the emitters off, the Chief Engineer goes to the
+// engine room and tries them itself, and tells the Captain how it went.
+for (const locked of [false, true]) {
+  const copy = structuredClone(ada);
+  copy.toTell = [];
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'its controls are locked'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  const self = () => openOf(copy, 'chief_emitters_off');
+  const label = locked ? 'one locked' : 'none locked';
+  add(`${label}: told they will not go off, it takes the emitters itself, as an emergency`, self()?.urgency, 'emergency');
+  const tried: string[] = [];
+  for (let turn = 0; turn < 10 && self(); turn++) {
+    const plan = CHIEF_ENGINEER.plan(copy, self());
+    if (!plan?.act) break;
+    tried.push(`${plan.act.machine} ${plan.act.how}`);
+    const fails = locked && tried[0].startsWith(`${plan.act.machine} `);
+    CHIEF_ENGINEER.afterActing(copy, plan.act, self(), !fails, false, fails ? { reason: 'machine' } : {}, fails ? 'The emitter will not switch off: its controls are locked.' : 'You switch the emitter off.');
+    CHIEF_ENGINEER.syncTasks(copy);
+  }
+  add(`${label}: it works each emitter off${locked ? ', the locked one twice' : ''}`, tried.length, locked ? 4 : 3);
+  add(`${label}: every switch it tries is a switch-off`, tried.length > 0 && tried.every((it) => it.endsWith('switch_off')), true);
+  add(`${label}: it does not go again`, !!self(), false);
+  const toCaptain = copy.toTell.filter((tell: any) => tell.to === 'Cap Tain').map((tell: any) => tell.line);
+  if (locked) {
+    add('one locked: the Captain is told it could not either, and why', toCaptain.filter((line: string) => line === 'I went to switch the emitters off myself and could not: its controls are locked. The engine is still firing.').length, 1);
+    add('one locked: the emitters are not taken as off', copy.chief.emittersOff, false);
+  } else {
+    add('none locked: the Captain is told it switched them off itself', toCaptain.filter((line: string) => /^I have switched the emitters off myself\./.test(line)).length, 1);
+    add('none locked: the emitters are taken as off, and no order is left to give', [copy.chief.emittersOff, copy.chief.order], [true, null]);
+    copy.now += 9000;
+    CHIEF_ENGINEER.syncTasks(copy);
+    add('none locked: and none is given a long while on either', copy.chief.order, null);
+  }
+}
+{
+  // Its engineer says they are off while it is on its way: it stops.
+  const copy = structuredClone(ada);
+  heardBy(copy, 'Sam Rees', notOffLine('Ada Volt', 'I cannot reach the emitter to switch it off'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('on its way to the emitters itself: it has the task', !!openOf(copy, 'chief_emitters_off'), true);
+  heardBy(copy, 'Sam Rees', offLine('Ada Volt'));
+  CHIEF_ENGINEER.syncTasks(copy);
+  add('its engineer then says they are off: it does not go on', !!openOf(copy, 'chief_emitters_off'), false);
 }
 heardBy(ada, 'Sam Rees', offLine('Ada Volt'));
 CHIEF_ENGINEER.syncTasks(ada);

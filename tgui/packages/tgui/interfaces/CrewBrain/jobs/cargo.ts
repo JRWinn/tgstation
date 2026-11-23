@@ -184,8 +184,14 @@ const NOT_PLACED_KEPT_DS = 18000;
 const DOOR_MISSES = 2;
 /** For each NPC and task (`id:task`), how many times running the walk to the Quartermaster's office door has failed. */
 const doorMisses = new Map<string, number>();
-/** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of. */
+/** For each NPC and task (`id:task`), when (server time) it first came to owe the Quartermaster the word it is taking to it. */
+const wordSince = new Map<string, number>();
+/** How long (deciseconds) word for the Quartermaster is kept, it having looked and not found it, before it goes by PDA (CARGO-02 C). */
+const QM_PDA_AFTER_DS = 6000;
+/** How long (deciseconds) before word of the same haul given up on is told the Quartermaster again. */
 const WONT_COME_DS = 3000;
+/** How long (deciseconds) a haul it gave up on is worth telling the Quartermaster of: past the wait before word goes by PDA. */
+const WONT_COME_KEPT_DS = QM_PDA_AFTER_DS + 3000;
 /** How long (deciseconds) the shuttle and the rooms are its to see to as well, once the Quartermaster has sent it to help a workmate. */
 const SEE_TO_DS = 3000;
 /** How long (deciseconds) a head's word at the counter that the Quartermaster has not answered stands. */
@@ -444,13 +450,17 @@ function heldInHand(brain: NpcBrain): boolean {
 /**
  * Word this NPC owes someone about their crates, taken to the Quartermaster face to face where
  * there is one: that an order has come in, that crates are still waiting, or that one is lost.
- * Nothing between a technician and the Quartermaster goes by PDA. If the Quartermaster is in
+ * Face to face first, by PDA only after a long while (below). If the Quartermaster is in
  * sight it is told, in so many words. If not, the technician goes to its office door, knocks, and
  * waits. Said is not told: the Quartermaster answers by name that it has it, and only then is the
  * server told that word has been passed on, and the Quartermaster sends it to whoever the crates
- * are for. With no answer, it walks up and says it once more. Returns the step, or null if word
- * goes by PDA as it always did: there is no Quartermaster, it is not to be found, or it has twice
- * not answered.
+ * are for. With no answer, it walks up and says it once more.
+ *
+ * Not found, or twice not answering, the word is kept: it is left a while and taken to the
+ * Quartermaster again, and said at once if the Quartermaster comes into sight. Only once the word
+ * is ten minutes old (QM_PDA_AFTER_DS) does it go by PDA, to the Quartermaster, in the same words
+ * (CARGO-02 C, KNB-15). `whose` is whom the word is about, if it is a notice the server holds.
+ * Returns the step, or null if there is no Quartermaster: then word goes by PDA as it always did.
  */
 function tellQuartermaster(
   brain: NpcBrain,
@@ -459,15 +469,42 @@ function tellQuartermaster(
   line: string,
   about: string,
   passed: Action,
+  whose?: string,
 ): Plan | null {
-  if (!quartermaster || task.byPda) {
+  if (!quartermaster) {
     return null;
   }
+  const key = `${brain.id}:${task.id}`;
+  if (!wordSince.has(key)) {
+    wordSince.set(key, brain.now);
+  }
   if (task.passedOn) {
+    wordSince.delete(key);
     return {
       ready: true,
       step: `You have told ${quartermaster.name} ${about}, and they have said they have it. They will send word to whoever it concerns.`,
       act: passed,
+    };
+  }
+  const inSight = brain.peopleInView.some(
+    (person) => person.name === quartermaster.name,
+  );
+  // Left a while after it was not found: taken to it again later, or at once if it is seen.
+  if (task.retryAt !== undefined && brain.now < task.retryAt) {
+    if (!inSight) {
+      return {
+        ready: false,
+        step: `You could not find ${quartermaster.name} to tell them ${about}. You will try again shortly.`,
+      };
+    }
+    task.retryAt = undefined;
+  }
+  // The word has been sent by PDA, and the result is not back yet.
+  if (task.byPda) {
+    return {
+      ready: false,
+      wait: true,
+      step: `You have sent ${quartermaster.name} word by PDA ${about}.`,
     };
   }
   // Said, and not yet answered. Being in sight is not being in earshot, so word is only passed on
@@ -485,10 +522,9 @@ function tellQuartermaster(
     task.walkedUp = false;
     task.knockedAt = undefined;
   }
-  // Said more than once with no word back: it stops trying to say it, and sends it on by PDA.
+  // Said more than once with no word back: it stops trying to say it for now (see notFound).
   if ((task.unheard ?? 0) >= TELL_TRIES) {
-    task.byPda = true;
-    return null;
+    return notFound(brain, task, quartermaster, line, about, whose);
   }
   const seen = brain.peopleInView.find(
     (person) => person.name === quartermaster.name,
@@ -518,8 +554,7 @@ function tellQuartermaster(
   const cannotReach =
     (doorMisses.get(`${brain.id}:${task.id}`) ?? 0) >= DOOR_MISSES;
   if (!office || waitedAtDoor || cannotReach) {
-    task.byPda = true;
-    return null;
+    return notFound(brain, task, quartermaster, line, about, whose);
   }
   if (brain.atDoorOf !== office) {
     return {
@@ -542,6 +577,44 @@ function tellQuartermaster(
   };
 }
 
+/**
+ * Word for the Quartermaster that could not be got to it this time: it was not found, not at its
+ * office, or twice did not answer. The word is kept. Under ten minutes old it is left a while and
+ * taken to it again; from then on it goes by PDA, to the Quartermaster, in the words it would have
+ * said (CARGO-02 C). Not while another word of the server's for the Quartermaster is owed: a PDA
+ * to it would be taken as that word passed on, and that one dropped unsent.
+ */
+function notFound(
+  brain: NpcBrain,
+  task: Task,
+  quartermaster: { name: string },
+  line: string,
+  about: string,
+  whose?: string,
+): Plan {
+  const since = wordSince.get(`${brain.id}:${task.id}`) ?? brain.now;
+  const otherOwed =
+    whose !== quartermaster.name &&
+    brain.notices.some((notice) => notice.to === quartermaster.name);
+  if (
+    brain.hasPda &&
+    brain.now - since >= QM_PDA_AFTER_DS &&
+    !otherOwed
+  ) {
+    task.telling = line;
+    return {
+      ready: true,
+      step: `You have looked for ${quartermaster.name}, the Quartermaster, a long while with word ${about}, and not found them. You are sending it by PDA, in the words you would have said.`,
+      act: { tool: 'message', person: quartermaster.name, text: line },
+    };
+  }
+  tellAgainLater(brain, task);
+  return {
+    ready: false,
+    step: `You could not find ${quartermaster.name} to tell them ${about}. You will try again shortly.`,
+  };
+}
+
 /** Writes manifest numbers the way they are written down: "crate #12", "crates #12 and #13". */
 function cratesWritten(numbers: number[]): string {
   return `crate${numbers.length === 1 ? '' : 's'} ${listed(numbers.map((number) => `#${number}`))}`;
@@ -552,7 +625,8 @@ function cratesWritten(numbers: number[]): string {
  * one that is no crate's, it goes by who the crate is for, if they said: the crate is marked with
  * that name, and the name alone: not their job. With no number given, the one crate held
  * for whoever is asking comes first: "I'm here for my crate" from the one it is for (CARGO-08).
- * With several held for them and no number, it does not pick: they are asked which.
+ * With several held for them and no number, they are given them all, one after another, the one
+ * that has waited longest first (CARGO-08 A; the next ones come from `nextForCollector`).
  */
 function crateMeant(
   brain: NpcBrain,
@@ -569,8 +643,8 @@ function crateMeant(
   }
   // Only when no number was given: one who gave a wrong number is told so, not handed another.
   const theirs = number === null ? heldFor(brain, speaker) : [];
-  if (theirs.length === 1) {
-    return theirs[0];
+  if (theirs.length > 0) {
+    return longestWaiting(theirs);
   }
   const said = heard.toLowerCase();
   const says = (words: string) =>
@@ -588,6 +662,41 @@ function crateMeant(
   });
 }
 
+/** Of some held crates, the one that has been off the shuttle longest. */
+function longestWaiting(crates: HeldCrate[]): HeldCrate | undefined {
+  return [...crates].sort((one, other) => other.waited - one.waited)[0];
+}
+
+/**
+ * For each NPC, someone who came for their crates with several held and gave no number: they are
+ * brought out one after another, and this is who the next is for (CARGO-08 A).
+ */
+const collectingAll = new Map<string, string>();
+
+/**
+ * Once a crate is out for someone collecting all theirs, the next held for them, if any: they are
+ * seen to as if they had come for it by number. Returns TRUE if there is a next one.
+ */
+function nextForCollector(
+  brain: NpcBrain,
+  name: string,
+  justOut: number,
+): boolean {
+  if (collectingAll.get(brain.id) !== name) {
+    return false;
+  }
+  // The one just brought out may not be marked out yet: the server says so in its next update.
+  const next = longestWaiting(
+    heldFor(brain, name).filter((crate) => crate.number !== justOut),
+  );
+  if (!next) {
+    collectingAll.delete(brain.id);
+    return false;
+  }
+  brain.pickupAsked = { name, number: next.number, at: brain.now };
+  return true;
+}
+
 /** The held crates for this person that are still in the bay, not brought out or taken. */
 function heldFor(brain: NpcBrain, name: string): HeldCrate[] {
   return name
@@ -598,10 +707,69 @@ function heldFor(brain: NpcBrain, name: string): HeldCrate[] {
 }
 
 /**
+ * Held crates whose orderer has been told someone else took them, by `post:number`, for the whole
+ * department in this window: one technician tells them, once (SUP-17).
+ */
+const takenTold = new Set<string>();
+
+/**
+ * TRUE if this held crate has been taken out of cargo by someone who did not come for it at the
+ * counter. The server says so (`taken_away`). Only where it does not say (the simulator's
+ * stand-in), a crate with a taker that is no longer in any of the department's rooms or the lobby
+ * is taken (SUP-17).
+ */
+function takenAway(brain: NpcBrain, crate: HeldCrate): boolean {
+  if (crate.takenAway !== undefined) {
+    return crate.takenAway && !!crate.takenBy;
+  }
+  return (
+    !!crate.takenBy &&
+    !ownRooms(brain).includes(crate.place) &&
+    !/\blobby\b/i.test(crate.place)
+  );
+}
+
+/**
+ * A held crate taken out of cargo in someone else's hands is not lost: it was taken. Whoever
+ * ordered it is told who has it, once, by PDA if not in sight: "Hop, Jan Mopp has taken crate
+ * #12." Taken by whoever it was for, it is collected, and nobody is told anything (SUP-17 1A 2A).
+ */
+function tellTaken(brain: NpcBrain): void {
+  for (const crate of brain.heldCrates) {
+    const key = `${brain.post ?? brain.id}:${crate.number}`;
+    if (
+      !crate.for ||
+      !crate.takenBy ||
+      crate.takenBy === crate.for ||
+      takenTold.has(key) ||
+      !takenAway(brain, crate)
+    ) {
+      continue;
+    }
+    takenTold.add(key);
+    const who = crate.takenBy === 'someone' ? 'someone' : crate.takenBy;
+    const inSight = brain.peopleInView.some(
+      (person) => person.name === crate.for,
+    );
+    if (!inSight && !brain.hasPda) {
+      continue;
+    }
+    brain.toTell.push({
+      to: crate.for,
+      line: `${firstName(crate.for)}, ${who} has taken crate #${crate.number}.`,
+      why: `Crate #${crate.number}, which ${crate.for} ordered, has been taken out of cargo by ${who}, not by anyone who came to the counter for it. You are telling ${crate.for} who has it.`,
+      byPda: !inSight,
+      at: Date.now(),
+    });
+  }
+}
+
+/**
  * Keeps the work on held crates true to what the server says is waiting, who has come for one, and
  * who is owed a reminder.
  */
 function syncHeld(brain: NpcBrain): void {
+  tellTaken(brain);
   // Whoever came to the counter for a crate has a task until it is out in the lobby for them.
   const asked = brain.pickupAsked;
   const crate =
@@ -763,6 +931,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${written} for ${notice.to} ${notice.numbers.length === 1 ? 'is' : 'are'} lost: ${why}.`,
       `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'has' : 'have'} been lost`,
       { tool: 'word_passed', person: notice.to, kind: 'lost' },
+      notice.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
@@ -794,6 +963,7 @@ function planHeld(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${WAITING_TOLD} ${written} for ${notice.to}.`,
       `that ${written}, which ${notice.to} ordered, ${notice.numbers.length === 1 ? 'is' : 'are'} still waiting to be collected`,
       { tool: 'word_passed', person: notice.to, kind: 'waiting' },
+      notice.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
@@ -827,12 +997,12 @@ function syncWontCome(brain: NpcBrain): void {
   const owed =
     !!gaveUp &&
     !!how &&
-    brain.now - gaveUp.at < WONT_COME_DS &&
+    brain.now - gaveUp.at < WONT_COME_KEPT_DS &&
     brain.now - (brain.wontComeTold[gaveUp.what] ?? -Infinity) > WONT_COME_DS &&
     !!quartermasterAboard(brain);
   // Told and heard, or no longer worth telling: done with. Not found, or not answered, it is not
   // dropped: wontComeStep leaves it a while and takes it to the Quartermaster again, while it is
-  // still owed. Whether it may go by PDA instead is the owner's to say (KNB-15, CARGO-02).
+  // still owed, and after ten minutes it goes by PDA (KNB-15, CARGO-02 C).
   if (telling && (telling.passedOn || !owed)) {
     if (telling.passedOn && telling.item) {
       brain.wontComeTold[telling.item] = brain.now;
@@ -1007,12 +1177,36 @@ function describeHeld(task: Task): string | null {
     : null;
 }
 
+/** Calls made on an order already put on the department's list, by `id:room:janitor:at`, so each is put there once. */
+const onOrderListed = new Set<string>();
+
+/**
+ * Puts a janitor it sent for on an order (planCall in jobs/orders.ts, kept in
+ * brain.calledOnOrder) on the department's list, as a call it made to a mess is: the order is the
+ * permission, and any of the department lets that janitor in to that room (PLAY-10 3 A).
+ */
+function listCallsOnOrder(brain: NpcBrain): void {
+  const calls = brain.calledOnOrder ?? [];
+  if (!brain.post) {
+    return;
+  }
+  for (const call of calls) {
+    const key = `${brain.id}:${call.room}:${call.janitor}:${call.at}`;
+    if (onOrderListed.has(key) || !call.room || !call.janitor) {
+      continue;
+    }
+    onOrderListed.add(key);
+    expectSomeone(brain.post, call.janitor, call.room, brain.name, call.at, true);
+  }
+}
+
 /**
  * Keeps the tasks true to where the server says things stand. The server is what knows: it placed
  * the order, watches the shuttle, and remembers who is owed a message.
  */
 function syncTasks(brain: NpcBrain): void {
   noteAble(brain);
+  listCallsOnOrder(brain);
   const order = findTask(brain, ORDER);
   if (orderInHand(brain)) {
     const task =
@@ -1319,6 +1513,7 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
             name: wants.name,
             place: wants.room,
             ...(which ? { door: which } : {}),
+            ...(wants.onOrder ? { sent_on_order: true } : {}),
           },
         }
       : { ready: false, step: `${task.item} has gone.` };
@@ -1382,7 +1577,9 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
         : `${written}${(arrived.what ?? kinds[0]) ? ` (${arrived.what ?? kinds[0]})` : ''}`;
     // An order the Quartermaster gave it: word that it has come goes back to the Quartermaster,
     // face to face, and the Quartermaster tells whoever ordered. If the Quartermaster is not to
-    // be found, in the bay or behind its office door, word is sent on by PDA as it always was.
+    // be found, in the bay or behind its office door, the word is kept, and after a long while
+    // goes to the Quartermaster by PDA in the same words, its own order's too (CARGO-02 C). Only
+    // with no Quartermaster to go through is whoever ordered sent the numbers themselves.
     const quartermaster = toldThrough(brain, arrived.via);
     const order =
       typeof arrived.ref === 'number' ? `order ${arrived.ref}` : 'the order';
@@ -1393,27 +1590,10 @@ function plan(brain: NpcBrain, task: Task): Plan | null {
       `${firstName(quartermaster?.name ?? '')}, ${order} ${DOCKED} ${itemised}.`,
       `that ${order}, for ${arrived.to}, has come in`,
       { tool: 'word_passed', person: arrived.to, kind: 'arrived' },
+      arrived.to,
     );
     if (toQuartermaster) {
       return toQuartermaster;
-    }
-    // The Quartermaster's own order, and the Quartermaster not to be found. The PDA says what would
-    // have been said to its face, in the same words: those are the words its order book goes by.
-    // Sent the line meant for whoever ordered, it never took its own crate to have come in.
-    if (
-      quartermaster &&
-      arrived.to === quartermaster.name &&
-      typeof arrived.ref === 'number'
-    ) {
-      return {
-        ready: true,
-        step: `Order ${arrived.ref}, which ${quartermaster.name} ordered for themselves, has come in: ${itemised}. You could not find ${quartermaster.name} to tell them, so you are sending them a PDA message.`,
-        act: {
-          tool: 'message',
-          person: quartermaster.name,
-          text: `${firstName(quartermaster.name)}, ${order} ${DOCKED} ${itemised}.`,
-        },
-      };
     }
     return {
       ready: true,
@@ -1445,6 +1625,8 @@ type DoorWant = {
    * not asked. Nobody is at the door, so it does not stop an order being taken (CARGO-09).
    */
   unasked?: boolean;
+  /** TRUE for a janitor sent for on an order, mess seen or not (PLAY-10 3 A). The server is told so. */
+  onOrder?: boolean;
 };
 /**
  * What the body is told when a door is opened to let out someone who is not in that room: not in
@@ -1676,6 +1858,11 @@ function mayPass(
   }
   if (out || there) {
     return null;
+  }
+  // Sent for on an order from someone the caller answers to: the order is the permission, whether
+  // or not anyone here has seen a mess in there (PLAY-10 3 A).
+  if (expectedCall(post, name, brain.now, wanted)?.onOrder) {
+    return { name, room: wanted, out: false, onOrder: true };
   }
   // Sent for to a room further in, which has no way to it but through this one.
   const beyond = boundBeyond(brain, name, wanted);
@@ -2155,6 +2342,8 @@ function doorCue(want: DoorWant): string {
     ? `${want.name} is inside the ${want.room} and cannot get out by themselves: the door is locked to them.`
     : want.security
       ? `${want.name} is security, at the door of the ${want.room} about a warrant, and the door is locked to them.`
+      : want.onOrder
+      ? `${want.name} was sent for, on an order, to clean the ${want.room}, and the door is locked to them.`
       : want.beyond
       ? `${want.name} was sent for to clean up the mess in the ${want.beyond}, which is reached through the ${want.room}, and the door is locked to them.`
       : `${want.name} was sent for to clean up the mess in the ${want.room}, and the door is locked to them.`;
@@ -2541,7 +2730,7 @@ const COUNT_WORDS =
  * "2 janitorial crates", "three lots of", "a couple of", "x2" (CARGO-05). No more than the console
  * takes of one kind at once.
  */
-function countIn(said: string): number | null {
+function countIn(said: string, max = ORDER_MAX): number | null {
   const words = said.replace(NOT_A_COUNT, ' ');
   const times = words.match(/\bx\s?(\d{1,2})\b|\b(\d{1,2})\s?x\b/);
   const asked = times ? (times[1] ?? times[2]) : words.match(COUNT_WORDS)?.[1];
@@ -2549,7 +2738,7 @@ function countIn(said: string): number | null {
     return null;
   }
   const count = NUMBER_WORDS[asked] ?? Number(asked);
-  return count > 0 ? Math.min(ORDER_MAX, count) : null;
+  return count > 0 ? Math.min(max, count) : null;
 }
 
 /** TRUE if these words ask for this kind of crate, by the words it goes by or by its own name. */
@@ -2577,6 +2766,7 @@ export function itemsAskedFor(
   said: string,
   orderable: string[],
   names: string[] = [],
+  max = ORDER_MAX,
 ): { crate: string; count: number }[] {
   let words = said.replace(
     /\bfor (the |my |our |a |your )?(janitors?|cleaners?|custodians?|staff|crew|department)\b/g,
@@ -2597,7 +2787,7 @@ export function itemsAskedFor(
   for (const part of words.split(
     /[,;.?!]|\band\b|\bplus\b|\balso\b|\bas well as\b/,
   )) {
-    const said = countIn(part);
+    const said = countIn(part, max);
     if (said !== null) {
       each = /\beach\b/.test(part) ? said : null;
     }
@@ -2608,11 +2798,25 @@ export function itemsAskedFor(
       if (!item) {
         items.push({ crate, count: count ?? 1 });
       } else if (said !== null) {
-        item.count = Math.min(ORDER_MAX, item.count + said);
+        item.count = Math.min(max, item.count + said);
       }
     }
   }
   return items;
+}
+
+/** What it says when more than four of a kind were asked for: four is what it orders (CARGO-05 A). */
+export const MOST_AT_ONCE = 'Four is the most I can order at once.';
+
+/** TRUE if these words ask for more of some kind of crate than the console takes in one order. */
+export function asksOverTheMost(
+  said: string,
+  orderable: string[],
+  names: string[] = [],
+): boolean {
+  return itemsAskedFor(said, orderable, names, Number.POSITIVE_INFINITY).some(
+    (item) => item.count > ORDER_MAX,
+  );
 }
 
 /**
@@ -2795,7 +2999,7 @@ export const CARGO: Job = {
           Array.isArray(act.items) && act.items.length > 0
             ? (act.items as { crate: string; count: number }[])
             : [{ crate: String(act.crate ?? ''), count: Number(act.count ?? 1) }];
-        const line = placedLine(firstName(asker), orderSpoken(items));
+        const line = `${placedLine(firstName(asker), orderSpoken(items))}${act.over_most ? ` ${MOST_AT_ONCE}` : ''}`;
         brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: asker,
@@ -2821,6 +3025,21 @@ export const CARGO: Job = {
         doorMisses.set(key, (doorMisses.get(key) ?? 0) + 1);
       }
     }
+    // Word for the Quartermaster sent by PDA after a long look for it (CARGO-02 C): sent is passed
+    // on. Not sent, it is kept and taken to it again a little later.
+    if (
+      task &&
+      act.tool === 'message' &&
+      task.telling !== undefined &&
+      act.text === task.telling
+    ) {
+      task.telling = undefined;
+      if (ok) {
+        task.passedOn = true;
+      } else {
+        tellAgainLater(brain, task);
+      }
+    }
     if (task && act.tool === 'word_passed') {
       task.passedOn = false;
       task.knockedAt = undefined;
@@ -2833,6 +3052,36 @@ export const CARGO: Job = {
     // Having walked up to the Quartermaster to say again what was not heard, near enough or not, it speaks.
     if (task && act.tool === 'approach' && task.telling) {
       task.walkedUp = true;
+    }
+    // Someone has taken the crate out of cargo already (SUP-17): there is nothing to bring out.
+    // The errand is over, and whoever came for it is told who has it; it is not tried again.
+    if (
+      task?.kind === HANDOVER &&
+      act.tool === 'release' &&
+      !ok &&
+      typeof details?.taken_by === 'string'
+    ) {
+      const taker = details.taken_by;
+      const held = brain.heldCrates.find(
+        (crate) => String(crate.number) === task.item,
+      );
+      if (held) {
+        held.takenBy = taker;
+      }
+      if (task.askedBy && task.askedBy !== taker) {
+        brain.toTell.push({
+          to: task.askedBy,
+          line: `${firstName(task.askedBy)}, ${taker === 'someone' ? 'someone' : taker} has taken crate ${task.item} out of cargo already.`,
+          why: `You went to bring crate #${task.item} out for ${task.askedBy}, and it has been taken out of cargo already. You are telling them so.`,
+          needs: new RegExp(`\\b${task.item}\\b`),
+          at: Date.now(),
+        });
+      }
+      if (brain.pickupAsked?.name === task.askedBy) {
+        brain.pickupAsked = null;
+      }
+      task.reported = true;
+      finishTask(brain, task);
     }
     // The crate is out in the lobby for whoever came for it, and they are told so by name.
     if (task?.kind === HANDOVER && ok && task.askedBy) {
@@ -2848,7 +3097,10 @@ export const CARGO: Job = {
         // minutes, the line was said to a janitor walking back in with the crate empty.
         keepMs: LOBBY_LINE_KEPT_MS,
       });
-      if (brain.pickupAsked?.name === task.askedBy) {
+      if (
+        brain.pickupAsked?.name === task.askedBy &&
+        !nextForCollector(brain, task.askedBy, Number(task.item))
+      ) {
         brain.pickupAsked = null;
       }
     }
@@ -3082,6 +3334,16 @@ export const CARGO: Job = {
       action.items = items;
       action.crate = items[0].crate;
       action.count = items[0].count;
+      // More than four of a kind asked for: four are ordered, and they are told so (CARGO-05 A).
+      if (
+        asksOverTheMost(
+          said,
+          brain.orderable,
+          brain.pdaPeople.map((person) => person.name),
+        )
+      ) {
+        action.over_most = true;
+      }
     } else {
       action.count = countIn(said) ?? 1;
     }
@@ -3341,15 +3603,27 @@ export const CARGO: Job = {
       };
       const first = firstName(speaker);
       const theirs = heldFor(brain, speaker);
-      if (!crate && number === null) {
-        // No number given: "by that number" would be untrue. Ask which (CARGO-08).
+      // Several held for them and no number: all of them, one after another (CARGO-08 A).
+      if (number === null && theirs.length > 1 && crate?.for === speaker) {
+        collectingAll.set(brain.id, speaker);
+        const line = `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. I will bring them out one after another.`;
+        brain.toTell = brain.toTell.filter((tell) => tell.line !== line);
         brain.toTell.push({
           to: speaker,
-          line:
-            theirs.length > 1
-              ? `${first}, I am holding ${cratesWritten(theirs.map((held) => held.number))} for you. Which number is it?`
-              : `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
-          why: `${speaker} has come to collect a crate and gave no number. ${theirs.length > 1 ? `You are holding ${theirs.length} for them, and are asking which one.` : 'You are holding none for them, nor one for anyone they named, and are asking for the number.'}`,
+          line,
+          why: `${speaker} has come to collect their crates and gave no number. You are holding ${theirs.length} for them, and are bringing each out to the lobby in turn.`,
+          needs: /\b(one after another|each|all|in turn)\b/i,
+          at: Date.now(),
+        });
+      } else if (number !== null) {
+        collectingAll.delete(brain.id);
+      }
+      if (!crate && number === null) {
+        // No number given, and none held for them: "by that number" would be untrue (CARGO-08).
+        brain.toTell.push({
+          to: speaker,
+          line: `Sorry, ${first}, I am holding no crate for you. Which number is it?`,
+          why: `${speaker} has come to collect a crate and gave no number. You are holding none for them, nor one for anyone they named, and are asking for the number.`,
           needs: /\b(which|number)\b/i,
           at: Date.now(),
         });
@@ -3432,6 +3706,8 @@ export const CARGO: Job = {
   },
   // Someone a door hides sends word that they are at it. The room is the one they name.
   readsMessage: (brain, from, text, at, job) => {
+    // The Captain's or a head's answer about a stranger in its post is read for every job in
+    // brain.ts, before this (SECT-08 B).
     // A janitor it called sends word that what they have will not shift the mess, or has shifted
     // some of it and not the rest. That call is done with, and someone else can be sent for.
     const beyond = beyondRoom(text);

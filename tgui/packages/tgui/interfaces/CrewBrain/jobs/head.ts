@@ -56,6 +56,7 @@ import {
 } from './meetings';
 import { GAVE_UP_WORDS, sendForLine, UNPACKED_WORDS } from './pickups';
 import { addCounts, capital, listed, readReport, totalWords } from './reports';
+import { isHeadOfSecurity, isOfficer } from './security';
 import {
   CANNOT_ORDER_WORDS,
   isQuartermaster,
@@ -860,9 +861,15 @@ function meetingCallable(brain: NpcBrain): boolean {
 
 /** How the Head of Personnel holds its meeting: in a room all its staff can walk into, called by PDA. */
 const HOP_WAY: MeetingWay = {
-  // The server names a room all its staff can walk into. Failing that, the department's own, if
-  // it has one its staff can get into: the Service department has none (HEAD-10).
-  room: (brain) => brain.meetingRoom ?? departmentHeadedBy(brain.job)?.meetsIn,
+  // The server names a room all its staff can walk into, on the head's own deck. Failing that, the
+  // department's own, if it has one its staff can get into: the Service department has none.
+  // Failing that, its own office: crew keep to one deck, and with no meeting room on its deck the
+  // head meets its staff where it works (HEAD-10, the owner's answer of 2026-11-22).
+  room: (brain) =>
+    brain.meetingRoom ??
+    departmentHeadedBy(brain.job)?.meetsIn ??
+    brain.office ??
+    brain.post,
   aloud: false,
   firstAt: FIRST_MEETING_DS,
   closing: closingLine,
@@ -1639,6 +1646,175 @@ export function meetingActed(
   }
 }
 
+/**
+ * Whom a head has sent where: from any line it said to someone, or PDA message it sent them, that
+ * names a room (SECT-08). Kept so that a keeper who finds them in a locked room and asks "Did you
+ * send X to the Y?" gets a true answer.
+ */
+type SentNote = { who: string; room: string; at: number };
+const sentNotes = new WeakMap<NpcBrain, SentNote[]>();
+/** How long (deciseconds) a head remembers sending someone somewhere. */
+const SENT_KEPT_DS = 36000;
+/** The most it keeps. */
+const SENT_KEPT_MAX = 40;
+
+/** A keeper asking a head whether it sent someone to a room (SECT-08; asked by jobs/guarding.ts). */
+export const SENT_ASK_WORDS = /\bDid you send (.+?) to the ([^?]+)\?/i;
+
+/** The head's answer, yes or no, in the set words the keeper reads. */
+export function sentAnswerLine(sent: boolean, name: string): string {
+  return sent ? `Yes, I sent ${name}.` : `No, I did not send ${name}.`;
+}
+
+/** TRUE if a name as someone said it ("Jan", "Jan Itor", "Mr. Itor") is this person's. */
+function sameName(said: string, name: string): boolean {
+  const parts = (text: string) =>
+    text
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter((part) => part.length > 2);
+  const mine = parts(name);
+  return parts(said).some((part) => mine.includes(part));
+}
+
+/**
+ * Notes that it has sent this person to whatever room the line names, if it names one. A line to
+ * someone it answers to sends nobody anywhere.
+ */
+export function noteSending(
+  brain: NpcBrain,
+  to: string | null | undefined,
+  line: string,
+): void {
+  if (!to || to === brain.name || answersTo(brain.job, jobOf(brain, to))) {
+    return;
+  }
+  const room = placeNamedIn(brain, line.toLowerCase());
+  if (!room) {
+    return;
+  }
+  const notes = (sentNotes.get(brain) ?? []).filter(
+    (note) => !(note.who === to && note.room === room),
+  );
+  notes.push({ who: to, room, at: brain.now });
+  sentNotes.set(brain, notes.slice(-SENT_KEPT_MAX));
+}
+
+/** Notes whom a line it said aloud sends where: the person it opens by naming, if it is someone in view. */
+export function noteSaidSending(brain: NpcBrain, line: string): void {
+  const opening = line.match(/^([^,.!?]{2,40}),/)?.[1];
+  if (!opening) {
+    return;
+  }
+  const to = brain.peopleInView.find(
+    (person) => person.name !== brain.name && sameName(opening, person.name),
+  );
+  noteSending(brain, to?.name, line);
+}
+
+/**
+ * A keeper asking whether it sent someone to a room: answered from what it has noted, "Yes, I
+ * sent X." or "No, I did not send X.", by PDA if asked by PDA and to their face if asked aloud.
+ * With nothing noted, no. TRUE if that is what the words were.
+ */
+export function answerSentAsk(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+  byPda: boolean,
+): boolean {
+  const asked = text.match(SENT_ASK_WORDS);
+  if (!from || !asked) {
+    return false;
+  }
+  const name = asked[1].trim();
+  const room =
+    placeNamedIn(brain, asked[2].toLowerCase()) ?? asked[2].trim();
+  const sent = (sentNotes.get(brain) ?? []).some(
+    (note) =>
+      brain.now - note.at <= SENT_KEPT_DS &&
+      sameName(name, note.who) &&
+      note.room.toLowerCase() === room.toLowerCase(),
+  );
+  const line = sentAnswerLine(sent, name);
+  brain.toTell = brain.toTell.filter(
+    (tell) => !(tell.to === from && tell.line === line),
+  );
+  brain.toTell.push({
+    to: from,
+    line,
+    why: `${from} has asked you whether you sent ${name} to the ${room}. You ${sent ? 'did' : 'did not'}, and are saying so${byPda ? ' by PDA' : ''}.`,
+    byPda,
+    exact: true,
+    whileBusy: !byPda,
+    at: Date.now(),
+  });
+  return true;
+}
+
+/**
+ * One of its staff saying they are in handcuffs and cannot get them off: the words a crew member
+ * says to its head (STUCK_IN_CUFFS_LINE in tasks.ts), or near them (SEC-07).
+ */
+const STUCK_IN_CUFFS_WORDS =
+  /\b(?:hand)?cuffs\b[^.?!]*\b(?:cannot|can ?not|can'?t)\s+get\s+them\s+off\b|\bstuck\s+in\s+(?:hand)?cuffs\b/i;
+/** The line a head passes that word on to security in. Read by stuckInCuffsAsk in jobs/arrests.ts. */
+export function stuckPassedLine(name: string): string {
+  return `${name} is in handcuffs and cannot get them off. Can someone from security take them off?`;
+}
+/** How long (milliseconds) before it passes on the same person's word again. */
+const STUCK_PASSED_AGAIN_MS = 600000;
+/** When each head last passed on each person's word, by `head|person`. */
+const stuckPassed = new Map<string, number>();
+
+/**
+ * Someone telling a head they are in handcuffs and cannot get them off (SEC-07, the owner's answer
+ * B: only security takes the cuffs off). The head cannot: it passes the word on to the Head of
+ * Security, else an officer, face to face if in view, else by PDA, once in ten minutes for each.
+ * With nobody of security known, nobody is told. TRUE if that is what the words were.
+ */
+export function passOnStuckInCuffs(
+  brain: NpcBrain,
+  from: string,
+  text: string,
+): boolean {
+  if (!from || from === brain.name || !STUCK_IN_CUFFS_WORDS.test(text)) {
+    return false;
+  }
+  const key = `${brain.id}|${from}`;
+  if (
+    Date.now() - (stuckPassed.get(key) ?? -Infinity) <
+    STUCK_PASSED_AGAIN_MS
+  ) {
+    return true;
+  }
+  const known = [...brain.peopleInView, ...brain.pdaPeople].filter(
+    (person) => person.name !== brain.name && person.name !== from,
+  );
+  const security =
+    known.find((person) => isHeadOfSecurity(person.job)) ??
+    known.find((person) => isOfficer(person.job));
+  if (!security) {
+    return true;
+  }
+  const here = brain.peopleInView.some(
+    (person) => person.name === security.name,
+  );
+  if (!here && !brain.hasPda) {
+    return true;
+  }
+  stuckPassed.set(key, Date.now());
+  brain.toTell.push({
+    to: security.name,
+    line: stuckPassedLine(from),
+    why: `${from} has told you they are in handcuffs and cannot get them off. Only security takes them off, so you are passing it on to ${security.name}.`,
+    byPda: !here,
+    exact: true,
+    at: Date.now(),
+  });
+  return true;
+}
+
 export const HEAD_OF_PERSONNEL: Job = {
   is: isHeadOfPersonnel,
   // It has an office and errands of its own. It does not wander the station or show people round.
@@ -1670,6 +1846,20 @@ export const HEAD_OF_PERSONNEL: Job = {
   overhears: (brain, event) => {
     const heard = String(event.details.message ?? '');
     const speaker = String(event.details.speaker ?? '');
+    // A keeper asking whether it sent someone to a room (SECT-08).
+    if (
+      event.details.said_to !== 'other' &&
+      answerSentAsk(brain, speaker, heard, false)
+    ) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (
+      event.details.said_to !== 'other' &&
+      passOnStuckInCuffs(brain, speaker, heard)
+    ) {
+      return;
+    }
     // At the counter, what a cargo worker says to it once the order is put to them is its answer:
     // the technician's set line that the order is in (PLACED in supply.ts, said by cargo.ts once
     // the order goes through), and nothing else. Any other line a cargo worker said was taken for
@@ -1732,6 +1922,14 @@ export const HEAD_OF_PERSONNEL: Job = {
   // Word from its staff about a meeting or of what they need, an order to hold a meeting, word
   // from cargo about its crates, and word from whoever it sent for one that it is unpacked.
   readsMessage: (brain, from, text, at, job) => {
+    // A keeper asking whether it sent someone to a room (SECT-08).
+    if (answerSentAsk(brain, from, text, true)) {
+      return;
+    }
+    // One of its staff stuck in handcuffs: passed on to security (SEC-07).
+    if (passOnStuckInCuffs(brain, from, text)) {
+      return;
+    }
     // One of its staff is shut in somewhere and nobody has come to the door. A head has no key
     // to another department's rooms, but it does have the Captain's ear: it passes the word up,
     // once for each of them and each room in five minutes. Told this twice by a janitor that was
@@ -1908,6 +2106,7 @@ export const HEAD_OF_PERSONNEL: Job = {
       return;
     }
     meetingSaid(brain, called);
+    noteSaidSending(brain, called);
     const order = brain.requisition;
     if (order && called.includes(ORDERING)) {
       // How often it has said it on this visit to the counter: see requisitionStep.
@@ -1929,6 +2128,10 @@ export const HEAD_OF_PERSONNEL: Job = {
   },
   // Each of its staff is sent the call to the meeting once, and the Captain word of it once.
   afterActing: (brain, act, _task, ok, looped) => {
+    // Whom a PDA message of its sends where (SECT-08).
+    if (ok && act.tool === 'message') {
+      noteSending(brain, String(act.person ?? ''), String(act.text ?? ''));
+    }
     // Its order is sent to the Quartermaster. From here it waits for word that it is noted.
     const sent = brain.requisition;
     if (

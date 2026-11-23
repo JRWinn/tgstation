@@ -100,7 +100,7 @@
 		if(CREW_TOOL_HOLD)
 			tool_hold(arguments["person"])
 		if(CREW_TOOL_DOOR)
-			tool_open_door(arguments["person"], arguments["place"], arguments["name"], arguments["door"])
+			tool_open_door(arguments["person"], arguments["place"], arguments["name"], arguments["door"], arguments["sent_on_order"] ? TRUE : FALSE)
 		if(CREW_TOOL_TIDY)
 			tool_tidy()
 		if(CREW_TOOL_TO_DOOR)
@@ -213,8 +213,10 @@
  * in sight of each other. In a big room each used to stop where it knew the room by: a head by its
  * office door and its staff at their counter, eight tiles apart and out of each other's sight,
  * and the meeting was reported as nobody there.
+ *
+ * `no_shutters` is for the walk on after a try at a shutter button: it does not go to press it again.
  */
-/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle, far)
+/datum/ai_controller/crew_npc/proc/tool_go_to(place, middle, far, no_shutters = FALSE)
 	var/known_place = istext(place) ? find_known_place(place) : null
 	if(isnull(known_place))
 		action_result(CREW_TOOL_GO_TO, FALSE, "You do not know of anywhere aboard by that name.")
@@ -247,6 +249,11 @@
 			action_result(CREW_TOOL_GO_TO, TRUE, "You are already in [known_place].", list("place" = known_place))
 			return
 		start_walk(inside, CREW_TOOL_GO_TO, known_place, CREW_NPC_WALK_TIMEOUT)
+		return
+
+	// Shutters shut between here and a cargo room: cargo staff open them with their button first,
+	// and shut them again after (KNB-01).
+	if(!no_shutters && open_shutters_first(known_place))
 		return
 
 	// It walks to the spot it knows the room by, if it has stood in it, and otherwise to somewhere
@@ -483,6 +490,8 @@
 	// A second go at a room, from the tile inside one of its doors, is only ever the one (KNB-01).
 	go_to_retried = go_to_retry_next
 	go_to_retry_next = FALSE
+	// A walk to a shutter button that this one replaces is over (KNB-01). Set again just after, for one that is.
+	shutter_plan = null
 	// A walk under way to somewhere else is ended first, so the walk leaf is set up afresh for the new
 	// one. The base game's route finder only re-plans to the old spot when the target changes under it.
 	// The old walk reports nothing: walk_finished sees the key no longer holds its target.
@@ -555,6 +564,10 @@
 	clear_blackboard_key(BB_CREW_NPC_WALK_TARGET)
 	var/tool = walk_tool
 	var/goal = walk_goal
+	// At a shutter button, or as near as it got: pressed, and on from there (KNB-01). Nothing to tell the brain yet.
+	if(tool == CREW_NPC_SHUTTER_WALK)
+		INVOKE_ASYNC(src, PROC_REF(shutter_walk_done), target)
+		return
 	var/why = reason || "you were interrupted"
 	// Stopped by a shut door the route ran through that will not open for it: it says which, and if
 	// that is a door of the room it stands in, it is the door it wants out by (KNA-03).
@@ -617,6 +630,12 @@
 		else if(get_dist(pawn, target) <= CREW_NPC_NEAR_ENOUGH && (target in view(CREW_NPC_VISION_RANGE, pawn)))
 			action_result(tool, TRUE, "You cannot get any closer to [goal], but you are near enough to talk.", details)
 		else
+			// Lost sight of on the way (CORE-03): the room they were last seen near goes with it, as the
+			// errand's lost_sight_errand sends it.
+			var/static/regex/lost_sight = regex(@"^you lost sight of .+ near (.+)$")
+			if(istext(reason) && lost_sight.Find(reason))
+				details["lost_sight"] = TRUE
+				details["near"] = lost_sight.group[1]
 			action_result(tool, FALSE, "You stop walking to [goal]: [why].", details)
 		return
 

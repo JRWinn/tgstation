@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: fixed
-fixed_in: f4cd1ae82b2
+fixed_in: f4cd1ae82b2, 0ab17cab33d
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering
@@ -114,3 +114,7 @@ Checked by Opus 5.5. Confirmed.
 - Nothing in `LLM_CREW_CHANGELOG.md` or `LLM_CREW_PLAN_ENGINEERING.md` covers a shut-off that fails. The plan's "a step is tried twice" is for lighting only.
 - Severity left at high. Integrity falling has not been seen in a round, but this is the one safety order, and a locked emitter or a shut door stops it for good while the crystal comes apart. Effort small holds if the reason text is left for later; passing `event.text` through the driver makes it medium.
 - Fix steps 4 and 5 contradicted each other. Step 5 now says how to settle it.
+
+## Fix so far
+
+Round A1, group a-heads (2026-11-22), on the owner's answer B: once its engineer says "I cannot switch the emitters off: ...", the Chief Engineer opens an emergency task of its own (`chief_emitters_off`, `selfShuts` in `jobs/chiefengineer.ts`) and works each emitter off itself with `work_machine`, as the engineer does: a switch that does not take is tried once more (one refused as `unknown` is not), then the next emitter. When all are seen to it tells the Captain "I have switched the emitters off myself. The engine is not to be lit again unless you say so." (and takes them as off) or "I went to switch the emitters off myself and could not: REASON. The engine is still firing." It goes once per shut-off; the engineer is still re-ordered every five minutes. Its staff meeting is held back meanwhile. With no engineer aboard it does not go (the answer is for an engineer that has said it cannot). Table cases in `tools/llm_crew/engine.ts`.

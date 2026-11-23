@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: 9d32175335d, 484615cefa6
+fixed_in: 9d32175335d, 484615cefa6, 0dddc8240f4
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: engineering
@@ -101,3 +101,4 @@ The reason is also at the end of the `could not work the X` line in `game.log`, 
 
 Left (another group's, the window): steps 2 and 3 in `jobs/engineer.ts` `afterActing` (count towards `STEP_TRIES` only `machine` and `locked`; `unreached` and `hands` to the back-off with a cap of their own; `unknown` stops at once with `UNKNOWN_ENGINE`; a stuck line per reason) and the `afterActing` signature in `jobs/job.ts` if the details are not already passed (they are: `event.details`). Step 4 is the owner's question.
 Window part done (group m-heads, 484615cefa6): step 0 and steps 2 and 3. `machineFailKind` in `jobs/engineering.ts` sorts by `details.reason` if the server sends one, else by the server's words; `afterActing` in `jobs/engineer.ts` counts only a machine fault toward `STEP_TRIES`, gives 'unreached' and 'hands' five tries (`OTHER_TRIES`) and stops with the true reason, and stops at once on 'unknown'. Left: step 1 on the server (a `reason` in the `work_machine` result's details), and step 4 (owner's question).
+Step 4, round A1, group a-heads (2026-11-22), on the owner's answer B: a stop for `unreached` or `hands` is tried again by the engineer itself five minutes on (`TRY_AGAIN_DS`, `tryAgain` in `jobs/engineer.ts` `syncTasks`), carrying on from the step that stopped it with that step's count cleared, at most twice (`TRY_AGAIN_MAX`); then it waits for the word to light it, as before. Its stop word not yet passed on is dropped when it tries again. A stop for `machine` or `unknown` is never tried again by itself. Given the engine afresh, the count starts again. The Chief Engineer is not told it is trying again; it hears "the engine is lit" if it takes. Table cases in `tools/llm_crew/engine.ts`.

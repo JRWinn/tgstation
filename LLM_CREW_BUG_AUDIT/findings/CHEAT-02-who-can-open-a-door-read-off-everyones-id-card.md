@@ -6,7 +6,7 @@ severity: medium
 effort: medium
 confidence: sure
 status: fixed
-fixed_in: c6f74f1e256, 1e0ad3f0dfd
+fixed_in: c6f74f1e256, 1e0ad3f0dfd, 1b02ee873b1, 6756fbbc7c7, 352429e2c22
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: core
@@ -89,3 +89,7 @@ Checked by Opus 5.5. Read `door_keepers` (`crew_npc_doors.dm:134`), `room_keeper
 ## Fix so far
 
 Group m-secsrv, commit c6f74f1e256 (compile only; not played). New global `crew_npc_contacts_who_open(doors, own_messenger)` in `crew_npc_security.dm`: names on the messenger list (not `invisible`), by their title's starting access (`crew_npc_job_access`), staff, heads, Captain; no card read, no station-level test. `room_keepers` uses it. Left: `door_keepers` in `crew_npc_doors.dm` should call the same proc in place of its card and z-level loop; the owner's call on a manifest filter (step 3) and on `janitors_on_pda` / `people_on_pda`.
+
+Round A1 (a-secsrv, compile only), on the owner's answer A (the manifest filter): `crew_npc_contacts_who_open` (`crew_npc_security.dm`, used by both `room_keepers` and `door_keepers`) leaves out any messenger whose name is not on the crew manifest (`crew_npc_manifest_names()`, from `GLOB.manifest.general`). **Found on the way:** crew NPCs are spawned outside the job system (`create_crew_npc` gives them no mind and no record), so none is on the manifest, and the filter alone would stop every NPC asking another. Until the spawn puts them on it, each crew NPC owned by a brain link stands in for its record by its `real_name`. Left (held, `crew_npc_spawn.dm`): put each crew NPC on the manifest at spawn (a crew record with its name and job title, as `GLOB.manifest.inject` makes for a joining player, which needs a mind with `assigned_role`), then drop the stand-in loop. `janitors_on_pda` / `people_on_pda` (`crew_npc_cargo.dm`) keep their station-level test: not asked.
+
+Round A2 (a2-server, compile only): the stand-in loop is gone. `crew_npc_manifest_names()` reads `GLOB.manifest.general` alone, as crew NPCs are now put on it at spawn (`crew_npc_add_to_manifest`, `crew_npc_spawn.dm`). A crew NPC spawned in an outfit that is no job and with no ID card gets no record (`crew_npc_add_to_manifest` returns with no assignment), and so is never asked to open a door. Not played.

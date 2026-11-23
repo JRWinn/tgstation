@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: confirmed
+status: fixed
+fixed_in: dda72a3ff3a
 found_by: Opus 5.5
 checked_by: Opus 5.5
 area: security
@@ -112,3 +113,7 @@ Checked by Opus 5.5, read from the code; the finder's bun script was not run aga
 Commits: none.
 
 - DESK-05: waits on the owner (QUESTIONS_FOR_OWNER.md).  Left: Option B needs jobs/officer.ts (readsMessage and overhears to call takeWord for a fellow officer when no Head of Security is aboard). Option A is in jobs/desk.ts only.
+
+## Fix so far (owner's answer A)
+
+Built on branch `a-secwin`, `jobs/desk.ts` only: a new `listOfficer` is null when the one keeping the list is a Security Officer itself (no Head of Security aboard), else `officerAboard`. `serving` uses it, so such an officer keeps every warrant declared to it in its own beat and hands none to another officer; the let-go (`strike`), "try again" and served lines, and `tellOfficer`'s default, use it too, so no line goes to the other officer, who would drop it. The Head of Security's path is as before. Table `tools/llm_crew/secwin-answers.ts` (fails on the old code, passes now). Not played; no scenario has two officers and no Head of Security.

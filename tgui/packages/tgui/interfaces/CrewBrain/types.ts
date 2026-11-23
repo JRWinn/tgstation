@@ -15,7 +15,9 @@ export type SenseEvent = {
     | 'action_result'
     | 'storage_seen'
     | 'pda_message'
-    | 'knowledge';
+    | 'knowledge'
+    /** A security body walked out of a room by its keeper: details.by, details.put_out_of (ARR-02). */
+    | 'walked_out';
   text: string;
   details: {
     handle?: string;
@@ -254,6 +256,8 @@ export type Npc = {
         place: string;
         out: BooleanLike;
         taken_by: string | null;
+        /** TRUE if it was taken out of cargo's rooms by someone who is not a crew NPC collecting it (SUP-17). */
+        taken_away?: BooleanLike;
         waited: number;
       }[]
     | null;
@@ -474,6 +478,10 @@ export type DeskWork = {
   arrests: number;
   /** When it last said that it did not follow something (this window's clock). No more than once a minute. */
   notFollowedAt?: number;
+  /** The officer that broke off hurt, so that "try again" goes to that one. */
+  hurtOfficer?: string;
+  /** When each sender was last answered "noted" (this window's clock), so that it is said once a minute at most (SECT-10). */
+  notedAt?: Record<string, number>;
   /** Who is in cuffs and on the way to a cell, by name, and when the officer said so. */
   cuffed?: Record<string, number>;
   /**
@@ -553,6 +561,8 @@ export type BeatWarrant = {
   cuffedByMe?: boolean;
   /** When it last saw them with its own eyes. */
   ownSeenAt?: number;
+  /** When its person began to wait in the brig with no cell for them (ARR-04). */
+  brigSince?: number;
   /** How many times running it could not get them into a cell, and when it last could not. */
   cellTries?: number;
   cellFailedAt?: number;
@@ -638,8 +648,17 @@ export type BeatWork = {
   struckAt?: number;
   /** Who it has put in a cell: which, when their time is up, and whether they still wear its cuffs. */
   jailed: Record<string, { cell: string; until: number; cuffsLeft: boolean }>;
-  /** Who it has been told to let go. */
-  toFree: { name: string; pardoned: boolean; tries: number }[];
+  /**
+   * Who it has been told to let go: pardoned, or their time served waiting in the brig with no
+   * cell (ARR-04), or stuck in cuffs that nobody of security has them in (SEC-07).
+   */
+  toFree: {
+    name: string;
+    pardoned: boolean;
+    tries: number;
+    served?: boolean;
+    stuck?: boolean;
+  }[];
   /** How its warrants have gone, for whoever keeps the list, until they are taken up. */
   outcomes: SecurityOutcome[];
   /** For an officer with a Head of Security over it: what it has yet to tell them. */
@@ -654,6 +673,8 @@ export type BeatWork = {
   againAt?: number;
   /** Warrants pardoned or taken back lately, by name, and when: an arrest still under way for one lets them go. */
   dropped?: { name: string; pardoned: boolean; at: number }[];
+  /** Who has asked it to take their cuffs off, by name, and when (SEC-07). */
+  cuffAsks?: Record<string, number>;
 };
 
 /**
@@ -811,6 +832,11 @@ export type HeldCrate = {
   out: boolean;
   /** Who is hauling it away, if anyone is. */
   takenBy: string | null;
+  /**
+   * TRUE if it was taken out of cargo's rooms by someone who is not a crew NPC collecting it, as the
+   * server says (SUP-17). Unset when the server does not say (the simulator's stand-in).
+   */
+  takenAway?: boolean;
   /** How long (deciseconds) it has been off the shuttle. */
   waited: number;
 };
@@ -1285,9 +1311,10 @@ export type NpcBrain = {
   mustSayExact: boolean;
   /**
    * What it has done about being shut in the room it is in: who it has asked, and whether it has
-   * knocked and sent word. It asks each person once, and again only when someone new turns up.
-   * If nobody comes, it sends word further afield, once each: to someone else whose ID opens the
-   * door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
+   * knocked and sent word. It asks each person, and knocks, again only once ASK_AGAIN_MS has gone
+   * by with nobody come (DRV-07): `askedAt` is when each was asked, `knockedAt` when it last
+   * knocked. If nobody comes, it sends word further afield, once each: to someone else whose ID
+   * opens the door, and then to its own head. `wroteAt` is when it last sent word (this window's clock).
    */
   outAsks: {
     room: string;
@@ -1296,6 +1323,8 @@ export type NpcBrain = {
     messaged: boolean;
     wrote: string[];
     wroteAt: number;
+    askedAt?: Record<string, number>;
+    knockedAt?: number;
   } | null;
   /** Fire doors that stopped it: the room whose alarm shut them, whether that alarm was only pulled, and when (this window's clock). */
   fireDoors: { place: string; pulled: boolean; at: number } | null;
@@ -1694,6 +1723,14 @@ export type NpcBrain = {
   heldAt?: { place: string; until: number }[];
   /** A PDA message (or the like) sent while a longer step was still waited on, kept beside it so that the longer step's result is still heard (LOGB-02). */
   sideAct?: NpcBrain['lastAct'];
+  /**
+   * Janitors it has sent for on an order from someone it answers to (planCall in jobs/orders.ts):
+   * the room, the janitor, and when the PDA message went (server time, deciseconds). One per room,
+   * the latest. Its department reads it to let that janitor in (PLAY-10 3, the owner's answer A).
+   */
+  calledOnOrder: { room: string; janitor: string; at: number }[];
+  /** When it last told its head it is stuck in handcuffs (this window's clock): said once a stay in them (SEC-07). */
+  cuffsToldAt?: number;
 };
 
 /** What a line handed over to be said is for: see NpcBrain.mustSayFor. */
@@ -1805,6 +1842,31 @@ export type Ledger = {
     at: number;
     walkedUp?: boolean;
   } | null;
+  /**
+   * A technician it is going to let out of a room itself, with nobody else to send (QM-05 A): who,
+   * the room, when it was told (server time), and how many times the door has not opened.
+   */
+  letOut?: LedgerLetOut | null;
+  /** The Captain's yes or no it is holding until they say which order it is to (QM-08 B). */
+  which?: LedgerWhich | null;
+};
+
+/** A technician the Quartermaster is going to let out itself (QM-05 A). */
+export type LedgerLetOut = {
+  who: string;
+  room: string;
+  at: number;
+  tries: number;
+};
+
+/** The Captain's yes or no to one of several orders, held until they say which (QM-08 B). */
+export type LedgerWhich = {
+  answer: 'yes' | 'no';
+  /** The orders it named in the question, by number. */
+  orders: number[];
+  /** Server time it last asked, and how many times in a row. */
+  at: number;
+  asks: number;
 };
 
 /** One thing an NPC can do right now, as offered to the LLM. */
