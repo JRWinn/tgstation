@@ -224,6 +224,9 @@ const jailedBy = () => {
   at(h, 4000, 'Central Primary Hallway', [seeing(DANA, 3, 'Central Primary Hallway')]);
   h.security.cells = cellView(null, null);
   D.syncDesk(h);
+  // Seen out for a moment only, it is not yet taken as out: it has to last.
+  h.now += 30;
+  D.syncDesk(h);
   add('TRB-06: seen in a hallway before their time: off the cells, and the Captain told', [D.inTheCells(h), said(h)], ['', ['PDA to Zim Fire: Captain, Dana Reyes is out of Cell 1 before their time.']]);
 }
 {

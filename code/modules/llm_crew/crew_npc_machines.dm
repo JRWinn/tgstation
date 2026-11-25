@@ -37,8 +37,6 @@
 
 /// How long the body leaves between one click and the next. A hand is no quicker, and the game counts clicks that come faster as one.
 #define CREW_NPC_CLICK_GAP (1 SECONDS)
-/// What click_as_body() gives back, having not clicked, when its still_wanted check said the click was no longer needed.
-#define CREW_NPC_CLICK_NOT_NEEDED 2
 /// What a battery is set to put out when it is set to charge. Its input goes to as much as it will take.
 #define CREW_NPC_BATTERY_OUTPUT (190 KILO WATTS)
 
@@ -509,5 +507,4 @@ GLOBAL_VAR_INIT(crew_npc_engine_machines_built, FALSE)
 #undef CREW_WORK_CHARGE
 #undef CREW_WORK_DRAW_ALL
 #undef CREW_NPC_CLICK_GAP
-#undef CREW_NPC_CLICK_NOT_NEEDED
 #undef CREW_NPC_BATTERY_OUTPUT

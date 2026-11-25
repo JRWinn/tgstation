@@ -16,6 +16,28 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-25: the faults of round-01.10.24 (branch `crew-fixes-0110`, cut from `master` at b386bfe37bb, in its own worktree `../tgstation-0110`, merged into `master` on the owner's word, the old master tagged `pre-0110`)
+
+Round read: `data/logs/2026/11/25/round-01.10.24`, played on b386bfe37bb, read while it ran, to about 01:34:46. The numbers are those of the report given to the owner; no findings were written up in `LLM_CREW_BUG_AUDIT`.
+
+**Tested:** type check clean; server compile 0 errors, 0 warnings; every table passes, with a new one, `tools/llm_crew/play-0110.ts` (13 cases); simulator, 65 named scenarios once and the plain, chatty and dead runs, all passed. Lint was not compared with `master`. **Not played. No model tests. The normal build was not run.** Server changes are compile-checked only. Fixes 6, 7, 8, 9, 10, 12, 14, 16, 19 and 20 have no case of their own.
+
+What the crew now does:
+- **1:** it steps aside for nobody while making an arrest (`jobs/aside.ts`). Someone it came late to with the cuffs (over 15 s after the line) is told again, not batoned, once (`jobs/arrests.ts`). One being arrested does not walk off while the arrester stands beside it with an action under way (`custody_tick`).
+- **2:** a prisoner is out of their cell early only if seen so for 2 s, and not in the cell's own room with the cell out of sight. The cause (the list of people in view lagging the cells) is likely, not proven. Two old tables (`arrests-trb06.ts`, `secdesk-medium.ts`) were changed to look twice.
+- **3:** manifest entries with no mind no longer break `get_crewmember_minds`, mail counterfeiting and the employment cabinet.
+- **4:** "who is wanted" and "who is in the cells", by PDA to security from the Captain or a head, are answered from the list. **5:** "He is in Cargo" in an arrest order or a sighting is read as the Cargo Bay.
+- **6:** a technician lets in a janitor a workmate sent for, with no mess seen by itself. **10:** security is let through by whoever it asked by name. **16:** a technician tries to let security out of the Quartermaster's Office (if its ID opens it) and no longer takes an ask to be let out as one to be let in.
+- **7:** a janitor that loses its tools with both hands empty goes back for them. **8:** with a door held for it, it does not wait to finish speaking; a door that will not open is tried twice and its state is logged.
+- **9:** cuffs or baton knocked out of the hand in the gap before a click: no empty-handed click.
+- **11:** a wanted head's staff are sent the notice, once, when the warrant is declared. **12:** cargo in sight is told the empty crate is back. **14:** the Chief Engineer answers "how is the engine".
+- **15:** "there is no way out of the X with them" in place of "no cell would take them". **19:** with a prisoner in a room inside a locked room, it goes out to the outer room first.
+- **17:** a hold by the Captain or a head is no attack, and the Captain is not sent word that they themselves attacked someone. **18:** nobody in cuffs or wanted is asked for a door; those whose ID opens it come first. **20:** a shut-in body's ask is word for word.
+
+**Not fixed:** 13 (the server already leaves such dirt longer after two tries; what one janitor finds is not shared with the others); the engineering side of DOOR-14 (the owner's question is open), so "send an engineer to force open the door" gets no answer; a warrant sent to a head who is not security gets no answer. **8's main cause is not known:** a janitor stood by a door held for it for 15 s and did not go through; look for "would not open in two tries" in `game.log`. 11 tells a wanted head's staff once, and not again when the warrant is served.
+
+---
+
 ## 2026-11-24: the faults of round-11.49.16 fixed, with PLAY-15 to PLAY-17 (branch `crew-fixes-1149`, cut from `master` at 0133f3ecf0d, commit 06c92d97a5c, merged into `master` on the owner's word, the old master tagged `pre-1149`)
 
 Round read: `data/logs/2026/11/23/round-11.49.16`, played on 0133f3ecf0d, 14 minutes, ended by the owner leaving. It is the first round with the night fixes and the owner's answers. Write-ups: PLAY-15 to PLAY-27.

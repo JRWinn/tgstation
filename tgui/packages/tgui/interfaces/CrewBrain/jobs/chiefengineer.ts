@@ -963,6 +963,16 @@ export const CHIEF_ENGINEER: Job = {
     }
     if (isLightAgainOrder(text, brain.name)) {
       lightAgain(brain);
+    } else if (
+      /\b(?:how|what|is|status|report)\b.*\b(?:engine|supermatter|sm)\b/i.test(text)
+    ) {
+      // Asked how the engine is: it says what it knows.
+      sendWord(
+        brain,
+        from,
+        engineWords(brain).slice(0, SAID_MAX),
+        `${from} has asked how the engine is. You are telling them.`,
+      );
     }
   },
   overhears: (brain, event: SenseEvent) => {

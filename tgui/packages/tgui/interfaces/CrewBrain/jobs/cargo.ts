@@ -1733,7 +1733,10 @@ function boundBeyond(
     return undefined;
   }
   return Object.keys(brain.roomsThrough).find((inner) => {
-    if (!brain.areaMesses[inner] || !expectedCall(post, name, brain.now, inner)) {
+    if (
+      !expectedCall(post, name, brain.now, inner) ||
+      (!brain.areaMesses[inner] && !workmateSentFor(brain, name, inner))
+    ) {
       return false;
     }
     // Followed outwards from the inner room, until it comes to this one or runs out.
@@ -1743,6 +1746,17 @@ function boundBeyond(
     }
     return outer === room;
   });
+}
+
+/**
+ * TRUE if a workmate, not this one, sent for this person to the room and has not let them in yet:
+ * the workmate saw the mess, and may be away at a meeting when they come.
+ */
+function workmateSentFor(brain: NpcBrain, name: string, room: string): boolean {
+  const call = brain.post
+    ? expectedCall(brain.post, name, brain.now, room)
+    : undefined;
+  return !!call && call.by !== brain.name && !call.inside;
 }
 
 /**
@@ -1857,8 +1871,19 @@ function mayPass(
   // warrant is the permission. It was left standing in the lobby calling an arrest through the
   // counter until the Captain came and opened the door. Whatever words it asked in: one not seen
   // inside is let in (PARSE-08).
+  // Let in on a warrant, security in the Quartermaster's Office asks out: in there it is in none of
+  // the technician's own rooms, but the way out of it is through the post.
+  if (
+    out !== false &&
+    person?.place &&
+    person.place === brain.headOffice &&
+    isSecurity(person.job)
+  ) {
+    return { name, room: person.place, out: true };
+  }
   if (
     !there &&
+    out !== true &&
     isSecurity(
       person?.job ??
         brain.pdaPeople.find((known) => known.name === name)?.job ??
@@ -1883,7 +1908,7 @@ function mayPass(
     boundBeyond(brain, name, wanted) ??
     (about &&
     about !== wanted &&
-    brain.areaMesses[about] &&
+    (brain.areaMesses[about] || workmateSentFor(brain, name, about)) &&
     expectedCall(post, name, brain.now, about)
       ? about
       : undefined);
@@ -2171,7 +2196,17 @@ function doorSought(brain: NpcBrain): DoorWant | null {
       continue;
     }
     const want = mayPass(brain, asked.name, asked.room, asked.out);
-    if (want && doorIsMine(brain, asked.at, !!asked.byPda)) {
+    // Security asking on a warrant, or to get out, is let through by whoever it asked by name.
+    const job =
+      brain.peopleInView.find((seen) => seen.name === asked.name)?.job ?? '';
+    if (
+      want &&
+      doorIsMine(
+        brain,
+        asked.at,
+        !!asked.byPda || (!!asked.toMe && isSecurity(job)),
+      )
+    ) {
       return want;
     }
     // Word by PDA from someone who says they are shut in one of its locked rooms, and names it.
@@ -3724,6 +3759,7 @@ export const CARGO: Job = {
         room: askedRoom,
         messIn: messRoomIn(brain, heard),
         out,
+        toMe: saidToMe(brain, heard),
         // The door they named, or failing that the door they were standing at when they said it.
         door:
           doorNamed(heard) ??

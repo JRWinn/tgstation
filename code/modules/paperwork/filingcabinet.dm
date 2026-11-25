@@ -198,7 +198,7 @@ GLOBAL_LIST_EMPTY(employmentCabinets)
 /obj/structure/filingcabinet/employment/proc/fillCurrent()
 	//This proc fills the cabinet with the current crew.
 	for(var/datum/record/locked/target in GLOB.manifest.locked)
-		var/datum/mind/filed_mind = target.mind_ref.resolve()
+		var/datum/mind/filed_mind = target.mind_ref?.resolve()
 		if(filed_mind && ishuman(filed_mind.current))
 			addFile(filed_mind.current)
 

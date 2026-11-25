@@ -806,8 +806,15 @@
 	// Opened as a player opens it: a click with an empty hand, from beside it. The door makes its
 	// own checks, and shuts itself after its own few seconds. One standing open already is left
 	// open: a click would shut it.
+	// Once more if that came to nothing: a door part way through shutting, or a body just off the
+	// floor from a slip, is not a door that will not move.
 	if(door.density && !click_door(door, TRUE))
-		return list(FALSE, "The door will not open for you.", list("reason" = "stuck"))
+		sleep(2 SECONDS)
+		if(QDELETED(src) || QDELETED(pawn) || QDELETED(door) || QDELETED(person))
+			return list(FALSE, "You could not get to it.")
+		if(door.density && !click_door(door, TRUE))
+			log_game("Crew NPC [key_name(pawn)] (owner: [brain_link?.owner_ckey || "none"]) found [door] at [AREACOORD(door)] would not open in two tries: [door.operating ? "moving" : "still"], [door.locked ? "bolted" : "not bolted"], [door.welded ? "welded" : "not welded"], [door.hasPower() ? "powered" : "no power"].")
+			return list(FALSE, "The door will not open for you.", list("reason" = "stuck"))
 	// It stays by the door while it is wanted open, opens it again if it shuts too soon, and shuts
 	// it behind them once they are through. If it is being held for someone else as well, it is
 	// shut only when nobody it is held for is still to come through (DOOR-01).

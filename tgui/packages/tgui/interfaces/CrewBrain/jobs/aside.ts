@@ -83,6 +83,30 @@ export const ASIDE_STEP_KEY = 'stepping-aside';
 /** How long (milliseconds) it stays where it stepped to, so that it does not walk straight back into the way. */
 export const ASIDE_HOLD_MS = 15000;
 
+/**
+ * TRUE while it is making an arrest: the cuffs or the cell in hand, someone by the arm, or someone in
+ * view it has told is under arrest. It steps aside for nobody then: an officer that did left its
+ * prisoner standing until they were free to go.
+ */
+function arresting(brain: NpcBrain): boolean {
+  const tool = brain.lastAct?.act.tool;
+  return (
+    tool === 'arrest' ||
+    tool === 'jail' ||
+    !!brain.security?.holding ||
+    (brain.beat?.warrants ?? []).some(
+      (warrant) =>
+        warrant.toldAt !== null &&
+        brain.now - warrant.toldAt < TOLD_FRESH_DS &&
+        brain.peopleInView.some(
+          (person) => person.name.toLowerCase() === warrant.name.toLowerCase(),
+        ),
+    )
+  );
+}
+/** How long (deciseconds) after the arrest line an arrest counts as being made. */
+const TOLD_FRESH_DS = 300;
+
 /** Notes that someone has asked the NPC, by name or to its face, to get out of the way. */
 export function asideOverhears(brain: NpcBrain, event: SenseEvent): void {
   const speaker = String(event.details.speaker ?? '');
@@ -91,6 +115,9 @@ export function asideOverhears(brain: NpcBrain, event: SenseEvent): void {
     return;
   }
   if (event.details.said_to !== 'me' && !namesPerson(heard, brain.name)) {
+    return;
+  }
+  if (arresting(brain)) {
     return;
   }
   // Whoever asked has to be someone it can see: it steps away from them, and from what they haul.
@@ -112,7 +139,7 @@ export function asideStep(
   brain: NpcBrain,
 ): { key: string; text: string; act: Action } | null {
   const asked = brain.asideAsked;
-  if (!asked || asked.done) {
+  if (!asked || asked.done || arresting(brain)) {
     return null;
   }
   if (Date.now() - asked.at > ASIDE_STANDS_MS) {

@@ -148,6 +148,8 @@ const DOOR_TRIES = 2;
 const LET_IN_ASKS = 3;
 /** How long (deciseconds) after it puts someone in a cell before seeing them out of one counts: what it sees of the cells may be a moment behind (TRB-06). */
 const SEEN_OUT_AFTER_DS = 150;
+/** How long (deciseconds) after the arrest line the cuffs are the officer's own lateness. */
+const CAME_LATE_DS = 150;
 
 /** Someone it put in a cell, with when it put them there (TRB-06). */
 type JailedMore = BeatWork['jailed'][string] & { at?: number };
@@ -165,15 +167,34 @@ function seenOutEarly(
   if (held.at !== undefined && brain.now - held.at < SEEN_OUT_AFTER_DS) {
     return false;
   }
-  if (!brain.peopleInView.some((person) => sameName(name, person.name))) {
+  const person = brain.peopleInView.find((it) => sameName(name, it.name));
+  const cells = brain.security?.cells ?? [];
+  // In the room their cell is in, with that cell not in sight to look into: not seen out of it.
+  const own = cells.find((cell) => cell.name === held.cell);
+  const unsure =
+    !!own &&
+    (own.running === null || own.running === undefined) &&
+    !!person?.place &&
+    person.place === own.room;
+  if (
+    !person ||
+    unsure ||
+    cells.some(
+      (cell) =>
+        !!cell.running &&
+        (cell.occupants ?? []).some((inside) => sameName(name, inside)),
+    )
+  ) {
+    held.outSince = undefined;
     return false;
   }
-  return !(brain.security?.cells ?? []).some(
-    (cell) =>
-      !!cell.running &&
-      (cell.occupants ?? []).some((inside) => sameName(name, inside)),
-  );
+  // Who is in view is looked at less often than the cells are: walking past a cell, its person was
+  // in view still with the cell out of sight, and was reported out of it. They have to stay so.
+  held.outSince ??= brain.now;
+  return brain.now - held.outSince >= OUT_FOR_DS;
 }
+/** How long (deciseconds) someone has to be seen out of their cell before it counts. */
+const OUT_FOR_DS = 20;
 
 /** What it knows of its own legwork. Made the first time it is asked for. */
 export function beatOf(brain: NpcBrain): BeatWork {
@@ -860,7 +881,12 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     // In cuffs and by the arm, and every cell has refused them.
     if (holds(brain, warrant) && (warrant.cellTries ?? 0) >= cells) {
       // In words the Head of Security can pass on as they are (PLAY-02).
-      cannot(warrant.name, 'no cell would take them');
+      cannot(
+        warrant.name,
+        warrant.noWayFrom
+          ? `there is no way out of the ${warrant.noWayFrom} with them`
+          : 'no cell would take them',
+      );
     }
     // In cuffs and by the arm, and no cell will do: all in use, or dark (ARR-04).
     if (
@@ -1278,6 +1304,19 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         step: dark
           ? `You have ${name} by the arm, and no cell's timer in the brig has power: their displays are blank. You are waiting with them in the brig, and will try the cells again shortly.`
           : `You have ${name} by the arm, and every cell in the brig is in use. You are waiting for one to come empty.`,
+      };
+    }
+    // No way to the cells from a room that lies inside another: that one door first. Let through it,
+    // it asks at the next. Planned all the way to the brig, the walk failed at a door further on.
+    const outer =
+      warrant.noWayFrom === brain.location
+        ? doorFor(brain, brain.location)
+        : undefined;
+    if (outer && outer !== brain.location && !brain.shutIn) {
+      return {
+        ready: true,
+        step: `You have ${name} in cuffs and by the arm, and the way to the brig is shut further on. You are taking them out to the ${outer} first.`,
+        act: { tool: 'go_to', place: outer },
       };
     }
     // Every cell has refused them. It does not walk off with them: it stands in the brig, where
@@ -2056,9 +2095,18 @@ export function beatAfterActing(
     if (reason === 'down') {
       return;
     }
-    // Would not stand still for the cuffs. The baton comes first from now on.
+    // Would not stand still for the cuffs: the baton comes first from now on. Not if the officer
+    // came to them long after it told them, though: they had stood and waited, and been let go.
     if (reason === 'moved') {
-      warrant.force = true;
+      const late =
+        warrant.toldAt !== null && brain.now - warrant.toldAt > CAME_LATE_DS;
+      if (act.how !== 'quiet' || warrant.quietFailed || !late) {
+        warrant.force = true;
+      } else {
+        // Told afresh, so that whoever stood and was let go hears it and stands again.
+        warrant.quietFailed = true;
+        warrant.toldAt = null;
+      }
     }
     // Short of its kit: that is not a try at them, and its kit comes next.
     if (reason === 'no_baton' || reason === 'no_cuffs') {
@@ -2162,6 +2210,12 @@ export function beatAfterActing(
     if (reason === 'no_way' || reason === 'timer') {
       warrant.cellTries = (warrant.cellTries ?? 0) + 1;
       warrant.cellFailedAt = brain.now;
+      // Not at the cells: it is the way there that is shut, not the cells.
+      const brig = brigPlace(brain);
+      warrant.noWayFrom =
+        reason === 'no_way' && brig && brain.location !== brig
+          ? brain.location
+          : undefined;
       return;
     }
     // Got away on the walk, or was never in its hold. It looks for them again from here.

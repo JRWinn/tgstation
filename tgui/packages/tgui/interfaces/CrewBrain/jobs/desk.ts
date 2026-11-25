@@ -25,8 +25,8 @@
  * All of that is code, the names and the minutes included. There are no laws yet: the reason on
  * a warrant is whatever was said. The LLM answers people in its voice.
  */
-import { isHead } from '../hierarchy';
-import { addTask, findTask, finishTask, placeNamedIn } from '../tasks';
+import { answersTo, isHead } from '../hierarchy';
+import { addTask, findTask, finishTask, placeNamedIn, placeOfSighting } from '../tasks';
 import type {
   Action,
   DeskWork,
@@ -149,15 +149,34 @@ function seenOut(brain: NpcBrain, name: string, held: HeldMore): boolean {
   if (held.at !== undefined && brain.now - held.at < SEEN_OUT_AFTER_DS) {
     return false;
   }
-  if (!brain.peopleInView.some((person) => sameName(name, person.name))) {
+  const person = brain.peopleInView.find((it) => sameName(name, it.name));
+  const cells = brain.security?.cells ?? [];
+  // In the room their cell is in, with that cell not in sight to look into: not seen out of it.
+  const own = cells.find((cell) => cell.name === held.cell);
+  const unsure =
+    !!own &&
+    (own.running === null || own.running === undefined) &&
+    !!person?.place &&
+    person.place === own.room;
+  if (
+    !person ||
+    unsure ||
+    cells.some(
+      (cell) =>
+        !!cell.running &&
+        (cell.occupants ?? []).some((inside) => sameName(name, inside)),
+    )
+  ) {
+    held.outSince = undefined;
     return false;
   }
-  return !(brain.security?.cells ?? []).some(
-    (cell) =>
-      !!cell.running &&
-      (cell.occupants ?? []).some((inside) => sameName(name, inside)),
-  );
+  // Who is in view is looked at less often than the cells are: walking past a cell, its person was
+  // in view still with the cell out of sight, and was reported out of it. They have to stay so.
+  held.outSince ??= brain.now;
+  return brain.now - held.outSince >= OUT_FOR_DS;
 }
+/** How long (deciseconds) someone has to be seen out of their cell before it counts. */
+const OUT_FOR_DS = 20;
 
 /** TRUE if this officer is still aboard as far as it can tell: in view, or on its PDA. */
 function officerKnown(brain: NpcBrain, name: string): boolean {
@@ -512,7 +531,9 @@ export function deskTakes(
     // They are following it already, so it is not passed back to them.
     const standing = desk.warrants.map((warrant) => warrant.name);
     const seen = nameIn(text, standing) ?? closeIn(text, standing);
-    const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
+    const place = seen
+    ? placeOfSighting(brain, text.toLowerCase())
+    : undefined;
     const warrant = desk.warrants.find((it) => it.name === seen);
     if (warrant && place && SIGHTING_WORDS.test(text)) {
       if (!warrant.lastSeen || brain.now >= warrant.lastSeen.at) {
@@ -782,7 +803,22 @@ export function deskTakes(
         lastSeen: null,
         passed: null,
       });
+      // Where they are, if the same message says: "Arrest Hazel for 10 minutes. He is in Cargo".
+      const said = text.match(/\b(?:(?:he|she|they|it)(?:'s| is| are|'re)|is|last seen)\s+(?:in|at)\b.*/i);
+      const at = said ? placeOfSighting(brain, said[0].toLowerCase()) : undefined;
+      if (at) {
+        desk.warrants[desk.warrants.length - 1].lastSeen = {
+          place: at,
+          at: brain.now,
+          by: from,
+        };
+      }
       desk.serial += 1;
+      tellTheirStaff(
+        brain,
+        desk.warrants[desk.warrants.length - 1],
+        theirJob,
+      );
       // A new warrant: what comes of it is new, whatever came of an old one on them (ARR-05).
       forgetWords(brain, (_what, who) => sameName(declared.name, who));
       reply(
@@ -827,7 +863,9 @@ export function deskTakes(
   // Word of where someone wanted is.
   // A first name alone, a misspelling or a name run together is taken, as for a pardon.
   const seen = nameIn(text, standing) ?? closeIn(text, standing);
-  const place = seen ? placeNamedIn(brain, text.toLowerCase()) : undefined;
+  const place = seen
+    ? placeOfSighting(brain, text.toLowerCase())
+    : undefined;
   if (seen && place && SIGHTING_WORDS.test(text)) {
     const warrant = desk.warrants.find((it) => it.name === seen);
     if (warrant && (!warrant.lastSeen || brain.now >= warrant.lastSeen.at)) {
@@ -910,6 +948,26 @@ function deskNoted(brain: NpcBrain, from: string, fromJob: string): boolean {
 const UNREAD_MOST = 2;
 const READING_EVERY_MS = 5000;
 
+/** The answer to a question about who is wanted or who is in the cells, from the list. '' if it is not one. */
+export function listAsked(brain: NpcBrain, text: string): string {
+  const said = text.toLowerCase();
+  const asks = /^\s*(?:\w+,\s*)?(?:who\b|who's\b|whos\b|is there any|are there any|any(?:one|body)?\b|list\b|what warrants)/;
+  if (!asks.test(said)) {
+    return '';
+  }
+  if (/\b(?:wanted|warrants?)\b/.test(said)) {
+    const names = deskOf(brain).warrants.map((it) => it.name);
+    return names.length > 0
+      ? `wanted: ${names.join(', ')}.`
+      : 'nobody is wanted.';
+  }
+  if (/\b(?:cells?|brig|jail|locked up|in custody)\b/.test(said)) {
+    const cells = inTheCells(brain);
+    return cells ? `${cells[0].toLowerCase()}${cells.slice(1)}` : 'nobody is in the cells.';
+  }
+  return '';
+}
+
 /**
  * Takes a PDA message from the Captain or a head that code could make nothing of, and has the LLM
  * read it: the reader of last resort, for an order typed loosely. The answer comes back to
@@ -925,6 +983,18 @@ export function deskUnread(
     return false;
   }
   const desk = deskOf(brain);
+  // Who is wanted, or who is in the cells: answered from the list.
+  const answer = listAsked(brain, text);
+  if (answer) {
+    reply(
+      brain,
+      from,
+      `${addressOf(from, fromJob)}, ${answer}`.slice(0, SAID_MAX),
+      false,
+      `${from} has asked who is wanted or held. You are telling them from the list.`,
+    );
+    return true;
+  }
   desk.unread ??= [];
   if (
     desk.unread.length >= UNREAD_MOST ||
@@ -1136,6 +1206,10 @@ export function deskOutcome(
       if (!own) {
         defendStaff(brain, outcome.name, firstName(from));
       }
+      // Nobody is told by PDA that they themselves attacked someone.
+      if (captainName(brain) === outcome.name) {
+        return;
+      }
       tellCaptain(
         brain,
         `Captain, ${outcome.name} attacked ${own ? 'me' : firstName(from)}${outcome.other ? ` during the arrest of ${outcome.other}` : ''}. There is no warrant on them.`,
@@ -1217,6 +1291,36 @@ export function headsToTell(brain: NpcBrain): string[] {
         !Object.keys(desk.held).some((name) => sameName(name, person.name)),
     )
     .map((person) => person.name);
+}
+
+/**
+ * A head of department newly wanted: their staff are told by PDA, as they would be at the staff
+ * meeting that head will not read it out at. Only the notice of that one warrant.
+ */
+function tellTheirStaff(brain: NpcBrain, warrant: Warrant, job: string): void {
+  if (!brain.hasPda || !isHead(job)) {
+    return;
+  }
+  for (const person of brain.pdaPeople) {
+    if (
+      person.name !== warrant.name &&
+      !isHead(person.job) &&
+      !isSecurity(person.job) &&
+      answersTo(person.job, job)
+    ) {
+      for (const line of noticeLines(
+        deskOf(brain).warrants.map((it) => ({ name: it.name, reason: it.reason })),
+      )) {
+        brain.toTell.push({
+          to: person.name,
+          line,
+          why: `${warrant.name}, whom ${person.name} answers to, is wanted. You are sending ${person.name} the security notice.`,
+          byPda: true,
+          at: Date.now(),
+        });
+      }
+    }
+  }
 }
 
 /** The notice as one head is sent it: everyone wanted but that head itself. */

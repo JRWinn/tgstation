@@ -333,3 +333,6 @@
 #define CREW_ARREST_STOP "stop"
 /// TRUE if this tool is one of security's, whose errands report why they failed.
 #define CREW_NPC_SECURITY_TOOL(tool) (tool == CREW_TOOL_GET_KIT || tool == CREW_TOOL_ARREST || tool == CREW_TOOL_JAIL || tool == CREW_TOOL_FREE)
+
+/// What click_as_body() gives back, having not clicked, when its still_wanted check said the click was no longer needed.
+#define CREW_NPC_CLICK_NOT_NEEDED 2

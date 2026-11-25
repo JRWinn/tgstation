@@ -22,6 +22,7 @@ import {
 } from './choice';
 import { headOf } from './hierarchy';
 import { jobFor } from './jobs';
+import { isWarrantOn } from './jobs/arrests';
 import { ASIDE_HOLD_MS, ASIDE_STEP_KEY, asideStep } from './jobs/aside';
 import { barred, leavingStep } from './jobs/guarding';
 import { doorCalled } from './jobs/janitor';
@@ -237,7 +238,9 @@ function nextToWrite(
   const wrote = asks?.wrote ?? [];
   const written = (name: string) =>
     name === brain.letInBy || wrote.includes(name);
-  const keepers = brain.doorKeepers.filter((name) => name !== brain.name);
+  const keepers = brain.doorKeepers.filter(
+    (name) => name !== brain.name && !isWarrantOn(brain, name),
+  );
   const keeper = keepers.find((name) => !written(name));
   if (
     keeper &&
@@ -491,6 +494,8 @@ export function nextStep(brain: NpcBrain): Step | null {
         : `${helper.split(' ')[0]}, could you open the door for me, please? I cannot get out of here.`,
       // Whoever it is asked of has to hear their own name in it, or the wrong person is asked.
       needs: new RegExp(`\\b${helper.split(' ')[0]}\\b`, 'i'),
+      // Word for word: in the model's words the wrong person was named, or no door asked for.
+      exact: true,
       asks: helper,
     };
   }
@@ -1033,9 +1038,11 @@ export function drive(
     (busy && !dropFor && !dropToLeave && !dropToMove) ||
     // Someone has it by the arm. It goes where it is taken.
     brain.inHand ||
-    // It has something to say first, and is still finding the words.
-    brain.mustSay !== null ||
-    brain.sayingNow
+    // It has something to say first, and is still finding the words. Not with a door held open for
+    // it: that shuts while the words are found.
+    ((brain.mustSay !== null || brain.sayingNow) &&
+      !brain.doorHeld &&
+      !brain.doorHeldOut)
   ) {
     return null;
   }
@@ -1082,7 +1089,12 @@ export function drive(
   // has something to say and is still finding the words. Leaving first is how a greeting ends up
   // said to an empty hallway.
   // It never turns on its heel the moment it has said its piece, however long it has been held.
-  if (leaves && now - brain.lastSayAt < AFTER_SAYING_MS) {
+  if (
+    leaves &&
+    now - brain.lastSayAt < AFTER_SAYING_MS &&
+    !brain.doorHeld &&
+    !brain.doorHeldOut
+  ) {
     return null;
   }
   // A remark of its own it may or may not make is no talk to stand still for (ASYNC-07): queued

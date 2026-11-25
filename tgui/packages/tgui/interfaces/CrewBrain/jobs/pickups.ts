@@ -518,6 +518,21 @@ export function pickupsAfterActing(
     }
     return;
   }
+  // The empty crate back: whoever works in cargo and is in sight is told, before it goes.
+  if (act.tool === 'take_back' && ok) {
+    const keeper = brain.peopleInView.find(
+      (person) => isCargo(person.job) && !person.down && !person.cuffed,
+    );
+    if (keeper) {
+      brain.toTell.push({
+        to: keeper.name,
+        line: `${keeper.name.split(' ')[0]}, the empty is back: I have left it here in the lobby.`,
+        why: `You have brought the empty crate back, and ${keeper.name} of cargo is here: you are telling them.`,
+        at: Date.now(),
+      });
+    }
+    return;
+  }
   if (act.tool === 'collect_crate' && ok) {
     task.unpacked = true;
     // The word to its head and the walk back with the empty have a half hour of their own (JOBS-02).

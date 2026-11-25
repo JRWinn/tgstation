@@ -48,6 +48,8 @@ const look = (o: any, now: number, place: string, people: any[], cells: any[]) =
   look(o, 5100, 'Brig', [DANA], cellView(1, ['Dana Reyes']));
   add('seen inside a running cell: still jailed, nothing told', [!!A.beatOf(o).jailed['Dana Reyes'], A.takeOutcomes(o)], [true, []]);
   look(o, 6000, 'Central Primary Hallway', [{ ...DANA, place: 'Central Primary Hallway' }], cellView(null, null));
+  add('seen out for a moment only, it is not yet taken as out', !!A.beatOf(o).jailed['Dana Reyes'], true);
+  look(o, 6030, 'Central Primary Hallway', [{ ...DANA, place: 'Central Primary Hallway' }], cellView(null, null));
   add('seen in a hallway before their time: no longer jailed', A.beatOf(o).jailed['Dana Reyes'], undefined);
   const outcomes = A.takeOutcomes(o);
   add('and the head is told she is out of Cell 1 early', outcomes.map((it: any) => S.outcomeLine('Joan', it)), ['Joan, Dana Reyes is out of Cell 1 before their time.']);
@@ -75,6 +77,7 @@ const look = (o: any, now: number, place: string, people: any[], cells: any[]) =
   // In view inside a cell whose timer was stopped: out before her time all the same.
   const o = officer();
   look(o, 7000, 'Brig', [DANA], cellView(0, ['Dana Reyes']));
+  look(o, 7030, 'Brig', [DANA], cellView(0, ['Dana Reyes']));
   add('in a cell whose timer is stopped: no longer jailed', [A.beatOf(o).jailed['Dana Reyes'], A.takeOutcomes(o).map((it: any) => it.why)], [undefined, [S.EARLY]]);
 }
 {
