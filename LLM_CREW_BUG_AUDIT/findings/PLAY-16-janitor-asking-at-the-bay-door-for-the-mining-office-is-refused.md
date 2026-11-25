@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: likely
 status: fixed
-fixed_in: uncommitted, branch crew-fixes-1149
+fixed_in: 06c92d97a5c
 found_by: Opus 5.5
 area: cargo
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1591, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1680, tgui/packages/tgui/interfaces/CrewBrain/jobs/cargo.ts:1218, tgui/packages/tgui/interfaces/CrewBrain/jobs/janitor.ts:1034, code/modules/llm_crew/crew_npc_cargo.dm:153

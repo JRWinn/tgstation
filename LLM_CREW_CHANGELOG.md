@@ -16,7 +16,7 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
-## 2026-11-24: the faults of round-11.49.16 fixed, with PLAY-15 to PLAY-17 (branch `crew-fixes-1149`, cut from `master` at 0133f3ecf0d, not committed)
+## 2026-11-24: the faults of round-11.49.16 fixed, with PLAY-15 to PLAY-17 (branch `crew-fixes-1149`, cut from `master` at 0133f3ecf0d, commit 06c92d97a5c, merged into `master` on the owner's word, the old master tagged `pre-1149`)
 
 Round read: `data/logs/2026/11/23/round-11.49.16`, played on 0133f3ecf0d, 14 minutes, ended by the owner leaving. It is the first round with the night fixes and the owner's answers. Write-ups: PLAY-15 to PLAY-27.
 

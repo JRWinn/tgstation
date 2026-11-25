@@ -6,7 +6,7 @@ severity: medium
 effort: small
 confidence: sure
 status: fixed
-fixed_in: uncommitted, branch crew-fixes-1149
+fixed_in: 06c92d97a5c
 found_by: Opus 5.5
 area: senses
 files: code/modules/llm_crew/crew_npc_cargo.dm:1055, code/modules/modular_computers/file_system/programs/messenger/messenger_program.dm:605, tgui/packages/tgui/interfaces/CrewBrain/jobs/security.ts:470

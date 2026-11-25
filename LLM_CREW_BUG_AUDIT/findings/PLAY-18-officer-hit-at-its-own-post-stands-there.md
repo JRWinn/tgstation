@@ -6,7 +6,7 @@ severity: high
 effort: small
 confidence: sure
 status: fixed
-fixed_in: uncommitted, branch crew-fixes-1149
+fixed_in: 06c92d97a5c
 found_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts
