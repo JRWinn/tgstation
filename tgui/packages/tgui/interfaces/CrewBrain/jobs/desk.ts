@@ -41,6 +41,7 @@ import {
   arrestAgain,
   beatOf,
   brigPlace,
+  defendStaff,
   dropWarrant,
   forgetWarrant,
   giveWarrant,
@@ -1131,6 +1132,10 @@ export function deskOutcome(
       );
       return;
     case 'attacked':
+      // Its own staff are being hit in front of it: it does not stand by (PLAY-19).
+      if (!own) {
+        defendStaff(brain, outcome.name, firstName(from));
+      }
       tellCaptain(
         brain,
         `Captain, ${outcome.name} attacked ${own ? 'me' : firstName(from)}${outcome.other ? ` during the arrest of ${outcome.other}` : ''}. There is no warrant on them.`,

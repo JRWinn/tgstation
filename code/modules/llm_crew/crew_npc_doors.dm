@@ -1348,7 +1348,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
  * checks. Opening, it then walks on into the room; with the shutters still shut, it goes the way it
  * would have gone. Sleeps.
  */
-/datum/ai_controller/crew_npc/proc/shutter_walk_done(obj/machinery/button/door/button)
+/datum/ai_controller/crew_npc/proc/shutter_walk_done(obj/machinery/button/door/button, walk_failed)
 	var/list/plan = shutter_plan
 	shutter_plan = null
 	if(isnull(plan) || QDELETED(src) || QDELETED(pawn))
@@ -1358,8 +1358,20 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	var/opening = plan["open"]
 	var/goal = plan["goal"]
 	var/pressed = FALSE
-	if(!QDELETED(button) && body.Adjacent(button) && crew_npc_shutters_open(id, body.z) != opening && empty_clicking_hand())
+	// For the log: which check stopped it (PLAY-27).
+	var/not_pressed
+	if(QDELETED(button))
+		not_pressed = "the button is gone"
+	else if(!body.Adjacent(button))
+		not_pressed = "not beside it, the walk [walk_failed ? "failed: [walk_failed]" : "ended short"], last route [isnull(last_route_steps) ? "not planned" : "[last_route_steps] steps"]"
+	else if(crew_npc_shutters_open(id, body.z) == opening)
+		not_pressed = "they were that way already"
+	else if(!empty_clicking_hand())
+		not_pressed = "no free hand"
+	if(!not_pressed)
 		pressed = click_as_body(button) == TRUE
+		if(!pressed)
+			not_pressed = "the click was not let through"
 		// The shutters take a moment to move.
 		for(var/i in 1 to 10)
 			if(QDELETED(src) || QDELETED(body) || crew_npc_shutters_open(id, body.z) == opening)
@@ -1368,7 +1380,7 @@ GLOBAL_LIST_EMPTY(crew_npc_door_holds)
 	if(QDELETED(src) || QDELETED(body))
 		return
 	var/now_open = crew_npc_shutters_open(id, body.z)
-	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) [pressed ? "pressed" : "could not press"] [QDELETED(button) ? "the shutter button" : "[button] at ([button.x],[button.y])"] to [opening ? "open" : "shut"] the shutters of [goal]: they are [now_open ? "open" : "shut"].")
+	log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) [pressed ? "pressed" : "could not press"] [QDELETED(button) ? "the shutter button" : "[button] at ([button.x],[button.y])"] to [opening ? "open" : "shut"] the shutters of [goal]: they are [now_open ? "open" : "shut"].[not_pressed ? " Why not: [not_pressed]. Standing at [AREACOORD(body)]." : ""]")
 	if(!opening)
 		if(shutters_opened)
 			shutters_opened["tries"]++

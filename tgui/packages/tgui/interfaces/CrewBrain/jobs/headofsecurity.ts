@@ -203,7 +203,7 @@ export const HEAD_OF_SECURITY: Job = {
   whenAsked: (brain, heard) => [
     'A warrant, a pardon, or word of where someone wanted is: your body takes it and answers it in so many words, at once. Add nothing of your own about who is wanted, what for, or how long: that is told to you here, and you never say more about it than that.',
     'There are no written laws yet. You act on warrants the Captain or a head of department declares, and on nothing else: asked to arrest someone by anyone else, say that it is for their head to declare.',
-    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot.',
+    'You cannot follow anyone about. Told to follow someone, say plainly that you cannot, and ask them to tell you where the person you are after is.',
     ...(isMeetingOrder(brain, heard)
       ? [
           brain.meeting && !brain.meeting.orderedBy

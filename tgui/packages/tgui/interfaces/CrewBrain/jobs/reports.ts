@@ -232,6 +232,15 @@ export function withRemark(line: string, said: unknown): string {
   if (remark.toLowerCase().startsWith(line.toLowerCase())) {
     remark = remark.slice(line.length).trim();
   }
+  // Or a sentence of it: what the line has said is not said a second time after it (PLAY-25).
+  const spoken = line.toLowerCase();
+  remark = (remark.match(/[^.!?]+[.!?]*/g) ?? [])
+    .map((part) => part.trim())
+    .filter(
+      (part) =>
+        part && !spoken.includes(part.replace(/[.!?]+$/, '').toLowerCase()),
+    )
+    .join(' ');
   if (
     NOTHING_SAID.test(remark) ||
     /\d/.test(remark) ||

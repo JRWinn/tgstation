@@ -734,6 +734,10 @@
 /datum/ai_controller/crew_npc/proc/mess_given_up(obj/effect/decal/cleanable/mess, key)
 	if(QDELETED(mess))
 		return FALSE
+	// Under a shut door no tool reaches it. It is there to clean when the door stands open (PLAY-26).
+	for(var/obj/machinery/door/over_it in get_turf(mess))
+		if(over_it.density && !(over_it.flags_1 & ON_BORDER_1))
+			return TRUE
 	key ||= REF(mess)
 	var/stubborn = stubborn_messes[key]
 	if(stubborn && stubborn != CREW_NPC_MESS_UNREACHED)

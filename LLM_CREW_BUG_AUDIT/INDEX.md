@@ -2,9 +2,9 @@
 
 **This file is built by `build-index.mjs` from the files in `findings/`. Do not edit it by hand: change the finding and build it again.** Read `README.md` in this folder first.
 
-540 findings in all: 155 bugs and 93 gaps still open, 265 fixed, 1 refuted, 26 duplicates.
-Of the open ones, 57 were confirmed by a second reviewer, 0 could not be settled, and 191 have not been checked by anyone but their finder.
-Found by: Fable 5.2 141, Opus 5.5 399. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.
+550 findings in all: 153 bugs and 93 gaps still open, 277 fixed, 1 refuted, 26 duplicates.
+Of the open ones, 57 were confirmed by a second reviewer, 0 could not be settled, and 189 have not been checked by anyone but their finder.
+Found by: Fable 5.2 141, Opus 5.5 409. The audit began on Claude Fable 5.2 and went on, after Fable's usage ran out, on Claude Opus 5.5.
 
 Within each group the easiest fix comes first. "found (sure)" means the finder was sure and nobody has checked it since.
 
@@ -12,7 +12,7 @@ Within each group the easiest fix comes first. "found (sure)" means the finder w
 | --- | --- | --- | --- |
 | critical | 0 | 0 | 0 |
 | high | 8 | 8 | 0 |
-| medium | 38 | 35 | 3 |
+| medium | 36 | 35 | 1 |
 | low | 109 | 7 | 102 |
 
 ## Bugs: critical (0)
@@ -32,16 +32,14 @@ None.
 | [TRUST-02](findings/TRUST-02-forged-pda-sender-taken-for-the-captain.md) | A PDA message with a made-up sender, from the message monitor or a virus disk, is taken as from the Captain or any head it names | Have on_pda_message say whether the message can be replied to, as the PDA itself shows, and have the window pass one that cannot to none of its readers | large | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_cargo.dm:803` |
 | [TRUST-05](findings/TRUST-05-any-security-pda-gets-any-door-forced-open.md) | Any PDA that shows a security job can have an engineer pry open any unplated door aboard, the Captain's Quarters and the Armory among them, and leave it standing open | Take a forcing request only from whoever keeps security's list, only for a warrant engineering can check and a room that is not a secure store, and have the Captain say yes to anything in command or security | large | confirmed | Opus 5.5, checked Opus 5.5 | `forcing.ts:209` |
 
-## Bugs: medium (38)
+## Bugs: medium (36)
 
 | Id | What is wrong | Proposed change | Effort | Status | Found by | Where |
 | --- | --- | --- | --- | --- | --- | --- |
 | [ARR-10](findings/ARR-10-short-of-cuffs-with-them-in-sight-it-neither-fetches-nor-tells.md) | Short of cuffs, or of a working baton once force is called for, with the person in sight it neither goes for its kit nor tells anyone | Let wantsKit send it for its kit while on lead when the kit is what stops the arrest, and tell whoever keeps the list at once that it is short | small | confirmed | Opus 5.5, checked Opus 5.5 | `arrests.ts:337` |
 | [DOOR-06](findings/DOOR-06-door-out-chosen-without-testing-the-way-to-it.md) | The door out of a room is chosen without testing that the body can walk to it, so it makes for the same unreachable door every time | Test a route to the inside tile for a door out as is done for a door in, so a door out that cannot be walked to is passed over and the next one tried | small | confirmed | Fable 5.2, checked Opus 5.5 | `crew_npc_doors.dm:363` |
 | [SENSE-11](findings/SENSE-11-emergency-access-makes-everyone-belong-in-every-post.md) | Once emergency maintenance access is on, or the AI opens a door's emergency access, everyone belongs in every post that has such a door, and no stranger is ever questioned there | In belongs_in_post test the person's access against the door's own requirements (check_access_list on their access) instead of door.allowed, so an emergency-open door is not taken for a right to be there | small | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_guarding.dm:24` |
-| [PLAY-15](findings/PLAY-15-sent-from-my-pda-ending-is-read-as-part-of-the-message.md) | The Sent from my PDA ending the game adds to some PDA messages is read as part of them, so a warrant is declared on Pun Pun Sent from | In on_pda_message strip a trailing Sent from my PDA, UNIX Laptop, Desktop or crystal PDA from the message before it is passed on as a sense | small | found (sure) | Opus 5.5 | `crew_npc_cargo.dm:1055` |
-| [PLAY-16](findings/PLAY-16-janitor-asking-at-the-bay-door-for-the-mining-office-is-refused.md) | A janitor sent to the Mining Office or Bitrunning Den who asks at a Cargo Bay door about that mess is told nobody sent for it, once it has no call of its own to the bay | When an ask names a door of the post and also about the mess in another room of the department, let a standing call to that room be the permission in mayPass, as LOGA-01 step 3 proposed | small | found (likely) | Opus 5.5 | `cargo.ts:1591` |
-| [PLAY-17](findings/PLAY-17-arrest-called-through-a-shut-door-to-someone-two-squares-off.md) | An officer calls you are under arrest through a shut door or window to the person wanted, when they stand two squares off in a room locked to it | Before the arrest line, when the person is seen in another room than the officer's own, note it shut out of that room and go to letInStep, whatever the distance | small | found (sure) | Opus 5.5 | `arrests.ts:1224` |
+| [PLAY-27](findings/PLAY-27-warehouse-shutter-button-not-pressed.md) | A technician cannot press the Warehouse shutter button and goes round by maintenance | Not known yet, the log now says which check failed and where the body stood | small | found (likely) | Opus 5.5 | `crew_npc_doors.dm` |
 | [API-02](findings/API-02-voice-name-and-seen-name-differ.md) | The server names one person three ways, and the window matches a voice to a face by name, so a Captain whose ID shows an honorific is never obeyed | Find the speaker among people_in_view by details.handle, which the server already ties to the voice, and fall back to the name only when there is no handle | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_senses.dm:404` |
 | [CARGO-03](findings/CARGO-03-did-not-go-through-is-said-once-and-not-confirmed.md) | Word that an order did not go through is said once, only if the Quartermaster is in sight within two minutes, and nothing checks it was heard | Pass the did-not-go-through word through tellQuartermaster as a task of its own, with the same I-have-that answer and PDA fall-back as the other three words | medium | confirmed | Fable 5.2, checked Opus 5.5 | `cargo.ts:1919` |
 | [CHEAT-12](findings/CHEAT-12-crate-order-numbers-read-off-manifests-nobody-tore-off.md) | When the shuttle docks, the technician knows which crate is which order by reading the number off every attached manifest, aboard and in the bay, without touching one | Learn a crate's number by tearing its manifest off with a click and reading it, one crate at a time as each is unloaded, and only then hold and label it | medium | confirmed | Opus 5.5, checked Opus 5.5 | `crew_npc_cargo.dm:465` |
@@ -287,7 +285,7 @@ None.
 | [MAP-10](findings/MAP-10-simulator-has-one-station-with-metastation-names.md) | The simulator has one station, with MetaStation's room names written in, so nothing that depends on the map is ever tested and every map fault passes | Make the station in sim.ts a table chosen by name, add a second one with other names (no Cargo Lobby, no room called Brig, hallways not called Primary Hallway), and run the cargo and security scenarios on both | low | medium | found (sure) | Opus 5.5 | `sim.ts:141` |
 | [GAP-25](findings/GAP-25-owner-design-direction-items-with-no-plan-and-no-code.md) | Six parts of the owner's design direction have no plan and no code, needs, how-to cards, a stocked work area, cover before a break, rooms handed out to janitors, and a raise | Put the six to the owner as one list, and write a short plan for whichever the owner wants next, starting with the head handing out rooms to its janitors, which is the cheapest and helps today | low | large | found (sure) | Opus 5.5 | `person.ts:1` |
 
-## Closed: fixed, refuted or duplicate (292)
+## Closed: fixed, refuted or duplicate (304)
 
 | Id | Title | Status | Found by |
 | --- | --- | --- | --- |
@@ -507,6 +505,18 @@ None.
 | [PLAY-12](findings/PLAY-12-janitor-gives-up-crate-and-tells-nobody.md) | A collector who gives up hauling a crate tells nobody, not its head and not the Quartermaster, where the crate lies | fixed | Opus 5.5, checked Opus 5.5 |
 | [PLAY-13](findings/PLAY-13-puff-that-hits-nothing-counts-as-landed.md) | A space-cleaner puff that hits nothing is counted as landed, so the body waits 8 seconds and then writes the mess off as one that will not come off | fixed | Opus 5.5, checked Opus 5.5 |
 | [PLAY-14](findings/PLAY-14-officer-not-let-in-by-the-keeper-owns-up-and-is-walked-out.md) | An officer on a warrant who got into a locked post by a door the keeper did not open for it answers Nobody sent for me and is walked out by the arm | fixed | Opus 5.5 |
+| [PLAY-15](findings/PLAY-15-sent-from-my-pda-ending-is-read-as-part-of-the-message.md) | The Sent from my PDA ending the game adds to some PDA messages is read as part of them, so a warrant is declared on Pun Pun Sent from | fixed | Opus 5.5 |
+| [PLAY-16](findings/PLAY-16-janitor-asking-at-the-bay-door-for-the-mining-office-is-refused.md) | A janitor sent to the Mining Office or Bitrunning Den who asks at a Cargo Bay door about that mess is told nobody sent for it, once it has no call of its own to the bay | fixed | Opus 5.5 |
+| [PLAY-17](findings/PLAY-17-arrest-called-through-a-shut-door-to-someone-two-squares-off.md) | An officer calls you are under arrest through a shut door or window to the person wanted, when they stand two squares off in a room locked to it | fixed | Opus 5.5 |
+| [PLAY-18](findings/PLAY-18-officer-hit-at-its-own-post-stands-there.md) | A hurt officer hit at its own post stands there and takes it, stays hurt for the round however well healed, and hunts at 1 health | fixed | Opus 5.5 |
+| [PLAY-19](findings/PLAY-19-head-of-security-watches-its-officer-beaten.md) | The Head of Security, told to its face that its officer is being attacked by someone in sight, reports it and does nothing | fixed | Opus 5.5 |
+| [PLAY-20](findings/PLAY-20-cannot-bring-in-no-cuffs-after-jailing.md) | The Captain is told "I cannot bring in X: no cuffs" seconds after X is put in a cell, when the cuffs have just come off in there | fixed | Opus 5.5 |
+| [PLAY-21](findings/PLAY-21-captains-arrest-order-to-nobody-by-name-unanswered.md) | The Captain saying "Arrest X" to nobody by name, with only an officer there, gets no answer | fixed | Opus 5.5 |
+| [PLAY-22](findings/PLAY-22-report-said-while-a-door-is-held-open.md) | A janitor reports a job done while a door is held open for it, and the door shuts | fixed | Opus 5.5 |
+| [PLAY-23](findings/PLAY-23-collector-called-off-as-its-crate-comes-out.md) | A janitor waiting at the counter for a crate it asked for walks off to another call as the crate is brought out | fixed | Opus 5.5 |
+| [PLAY-24](findings/PLAY-24-late-i-have-that-is-not-taken.md) | A technician does not take the Quartermaster's "I have that" if it comes after 25 seconds, and says its word again | fixed | Opus 5.5 |
+| [PLAY-25](findings/PLAY-25-remark-repeats-the-line.md) | A remark added to a fixed line repeats a sentence of it | fixed | Opus 5.5 |
+| [PLAY-26](findings/PLAY-26-janitors-try-to-clean-under-shut-doors.md) | Janitors try to clean dirt under shut doors, which no tool reaches, and count it as work | fixed | Opus 5.5 |
 | [QM-01](findings/QM-01-captain-answer-read-by-any-no-word.md) | Any word like no in anything the Captain sends refuses the order waiting on them, and a new order sent with an ok or a no in it is thrown away | fixed | Opus 5.5, checked Opus 5.5 |
 | [QM-02](findings/QM-02-order-given-again-for-good-to-a-technician-who-never-answers.md) | An order is given to a technician who is down, dead or a human player, and given to the same one again every minute for the rest of the round | fixed | Opus 5.5, checked Opus 5.5 |
 | [QM-03](findings/QM-03-two-technicians-with-one-first-name.md) | Two technicians with one first name both place every order given to either, and the meeting deals out their work for ever and never closes | fixed | Opus 5.5, checked Opus 5.5 |

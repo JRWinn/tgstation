@@ -127,7 +127,7 @@ const BIG_PURCHASE_CR = 1000;
 const CAPTAIN_WAIT_DS = 1800;
 const CAPTAIN_ASKS = 2;
 /** How long (deciseconds) it waits to hear a technician say they have the order before it gives it again. */
-const TAKEN_WAIT_DS = 600;
+const TAKEN_WAIT_DS = 300;
 /** How long (deciseconds) an order that could not be placed is left before it is given again. */
 const PLACE_AGAIN_DS = 1200;
 /** How long (deciseconds) it leaves it before it looks for paper again, having found none. */
