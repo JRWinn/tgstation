@@ -27,6 +27,115 @@
 /// How long it waits at a door that is open only for the moment for it to shut: an airlock's own timer is 8 seconds (DOOR-07).
 #define CREW_NPC_SHUT_WAIT (10 SECONDS)
 
+/// The doors heads of staff have stood at as they wrote to engineering: "room|label" in lower case -> a weak reference to the door.
+GLOBAL_LIST_EMPTY(crew_npc_asked_doors)
+
+/// Returns the two squares either side of an airlock, or null if it does not stand in a way through.
+/proc/crew_npc_door_sides(obj/machinery/door/airlock/door)
+	for(var/direction in list(NORTH, EAST))
+		var/turf/one = get_step(door, direction)
+		var/turf/other = get_step(door, REVERSE_DIR(direction))
+		if(isopenturf(one) && isopenturf(other))
+			return list(one, other)
+	return null
+
+/**
+ * Finds the airlock whoever sent this PDA message is standing at, and keeps it, for an engineer who
+ * is sent to force it. The message itself does not say where it was sent from: this is a cheat, the
+ * one the owner asked for, so that "this door" can be ordered open.
+ *
+ * Of several doors within a step, the one they face, then the nearest. Doors to space are left out.
+ * Returns list("room", "door"): the room on the far side of it from them, and what the door is
+ * called. Null if they are at no door, or it is not known who sent it.
+ */
+/proc/crew_npc_note_sender_door(datum/signal/subspace/messaging/tablet_message/signal)
+	var/datum/computer_file/program/messenger/messenger = locate(signal.data["ref"])
+	if(!istype(messenger) || QDELETED(messenger.computer) || signal.data["fakename"])
+		return null
+	var/mob/living/sender = get_atom_on_turf(messenger.computer, /mob/living)
+	if(!istype(sender) || !isturf(sender.loc))
+		return null
+	var/obj/machinery/door/airlock/best
+	var/best_score
+	for(var/obj/machinery/door/airlock/door in range(1, sender))
+		if(istype(door, /obj/machinery/door/airlock/external) || isnull(crew_npc_door_sides(door)))
+			continue
+		// Beside it or in it. Cornerwise on is the last choice.
+		var/score = get_dist(sender, door) + (get_dir(sender, door) == sender.dir ? -1 : 0) + (ISDIAGONALDIR(get_dir(sender, door)) ? 2 : 0)
+		if(isnull(best) || score < best_score)
+			best = door
+			best_score = score
+	if(isnull(best))
+		return null
+	var/list/sides = crew_npc_door_sides(best)
+	var/turf/far_side = get_dist(sender, sides[1]) >= get_dist(sender, sides[2]) ? sides[1] : sides[2]
+	var/turf/near_side = far_side == sides[1] ? sides[2] : sides[1]
+	var/area/room = get_area(far_side)
+	var/room_name = get_area_name(far_side, TRUE)
+	var/label = crew_npc_door_label(best, room, near_side)
+	GLOB.crew_npc_asked_doors[LOWER_TEXT("[room_name]|[label]")] = WEAKREF(best)
+	log_game("Crew NPC engineering got a PDA message from [key_name(sender)] standing at [best.name] at [AREACOORD(best)].")
+	return list("room" = room_name, "door" = label)
+
+/**
+ * Sets the body walking to force the very door a head of staff stood at, from whichever side of it
+ * it can walk up to. No other door of the room will do in its place.
+ */
+/datum/ai_controller/crew_npc/proc/force_asked_door(place, door_label)
+	var/mob/living/carbon/human/body = pawn
+	var/datum/weakref/door_ref = GLOB.crew_npc_asked_doors[LOWER_TEXT("[place]|[door_label]")]
+	var/obj/machinery/door/airlock/door = door_ref?.resolve()
+	if(QDELETED(door) || door.z != body.z)
+		forcing_failure("no_door", "You cannot find the door you were sent to.", null, place, door_label, tell_now = TRUE)
+		return
+	if(crew_npc_door_stays_open(door) && !crew_npc_fire_door_on(door))
+		action_result(CREW_TOOL_FORCE_DOOR, TRUE, "The [door_label] door of [place] is standing open already.", list("place" = place, "door" = door_label, "already_open" = TRUE))
+		return
+	var/list/missing = list()
+	for(var/tool_kind in door.hasPower() ? list(TOOL_SCREWDRIVER, TOOL_MULTITOOL, TOOL_CROWBAR) : list(TOOL_CROWBAR))
+		if(isnull(tool_carried(tool_kind)))
+			missing += tool_kind
+	if(length(missing))
+		forcing_failure("no_tools", "You have no [english_list(missing, and_text = " or ")] on you.", door, place, door_label, more_details = list("missing" = missing), tell_now = TRUE)
+		return
+	if(door.hasPower() && !HAS_TRAIT(body, TRAIT_KNOW_ENGI_WIRES))
+		forcing_failure("no_knowledge", "You do not know one wire in an airlock from another, and you are not going to guess at them.", door, place, door_label, tell_now = TRUE)
+		return
+	if(finding_door_to_force)
+		action_result(CREW_TOOL_FORCE_DOOR, FALSE, "You are still working out the way.")
+		return
+	// Routes take a while to test. Anything it was given to do meanwhile wins (LIFE-03, CORE-07).
+	var/serial = errand_serial
+	var/calls = tool_serial
+	var/found = can_reach_target_now(door)
+	var/through
+	finding_door_to_force = TRUE
+	for(var/turf/spot as anything in crew_npc_door_sides(door))
+		if(found)
+			break
+		if(!far_spot_safe(spot))
+			continue
+		found = !!length(get_path_to(body, spot, max_distance = CREW_NPC_MAX_PATH_LENGTH, access = get_access()))
+		if(QDELETED(src))
+			return
+		if(QDELETED(body) || QDELETED(door))
+			finding_door_to_force = FALSE
+			return
+		var/area/outer = get_area(spot)
+		if(!found && isnull(through) && outer != get_area(body) && (locked_out_of(outer) || hallway_locked_to(outer)))
+			through = format_text(outer.name)
+	finding_door_to_force = FALSE
+	if(errand_serial != serial || tool_serial != calls || !can_sense())
+		log_game("Crew NPC [key_name(body)] (owner: [brain_link?.owner_ckey || "none"]) worked out the way to [door] to force it, and had been given something else to do meanwhile.")
+		return
+	if(!found)
+		forcing_failure("no_way", "You cannot find a way to the [door_label] door of [place].", door, place, door_label, more_details = through ? list("through" = through) : null, tell_now = TRUE)
+		return
+	forcing_place = place
+	forcing_label = door_label
+	forcing_door = WEAKREF(door)
+	start_errand(door, CREW_TOOL_FORCE_DOOR, door_label)
+
 /// TRUE while the body is testing routes to the doors of a room it has been told to force its way into.
 /datum/ai_controller/crew_npc/var/finding_door_to_force = FALSE
 /// The name of the room whose door the body is on its way to force, or is forcing.
@@ -136,11 +245,15 @@
  * door that stands open and will stay so is not forced: the brain is told so at once. One that
  * opens to the body's own ID is forced like any other: it is forced for someone else (DOOR-07).
  */
-/datum/ai_controller/crew_npc/proc/tool_force_door(place, door_label)
+/datum/ai_controller/crew_npc/proc/tool_force_door(place, door_label, ordered = FALSE)
 	var/mob/living/carbon/human/body = pawn
 	var/asked_for = istext(place) ? trim(place) : null
 	if(!works_in_engineering())
 		forcing_failure("not_engineer", "Taking a door's power away and prying it open is engineering's work. You do not know how.", null, asked_for, null, tell_now = TRUE)
+		return
+	// The very door a head of staff stood at as they ordered it.
+	if(ordered)
+		force_asked_door(asked_for, istext(door_label) ? trim(door_label) : null)
 		return
 	// find_known_place() looks among the rooms the body has stood in first, and then among every room of the station.
 	var/room_name = length(asked_for) ? find_known_place(asked_for) : null
