@@ -108,6 +108,12 @@ const HALLWAY_DS = 100;
 const BETWEEN_WALKS_DS = 900;
 /** The health (percent) under which it breaks off and uses no more force. */
 const HURT_BELOW = 50;
+/** Healed to this (percent) by whatever came to it, a medibot say, it is hurt no longer (PLAY-18). */
+const FIT_AGAIN = 70;
+/** Hit this lately (deciseconds) at its own post, it does not wait there to be hit again (PLAY-18). */
+const STILL_HIT_DS = 100;
+/** Where someone hurt goes when its own post is where it is being hit: where the medibots are, failing that a hallway. */
+const REFUGES = [/^medbay central$/i, /^medbay/i, /primary hallway/i];
 /**
  * Told to try again while hurt, how much more (percent) it may lose before it breaks off again,
  * and the health under which it breaks off whatever it was told. A guess: the owner's to set.
@@ -667,6 +673,54 @@ export function onLead(brain: NpcBrain): boolean {
   );
 }
 
+/** The room to get away to when its own post is where it is being hit, or undefined if it knows of none. */
+function refugeFrom(brain: NpcBrain): string | undefined {
+  const open = allPlaces(brain).filter(
+    (place) =>
+      place !== brain.location && !brain.blockedPlaces.includes(place),
+  );
+  for (const kind of REFUGES) {
+    const found = open.filter((place) => kind.test(place)).sort()[0];
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Told by one of its own staff that someone with no warrant on them is attacking them. With the
+ * attacker in sight it stops them, with the baton and no more, as it would stop anyone attacking
+ * it (PLAY-19). Never a head of staff, and not someone it has a warrant on: that is an arrest.
+ */
+export function defendStaff(
+  brain: NpcBrain,
+  attacker: string,
+  victim: string,
+): void {
+  const beat = beatOf(brain);
+  const seen = brain.peopleInView.find((person) =>
+    sameName(attacker, person.name),
+  );
+  if (
+    !seen ||
+    seen.command ||
+    seen.down ||
+    isWarrantOn(brain, seen.name) ||
+    beat.hurt
+  ) {
+    return;
+  }
+  beat.attacker = {
+    name: seen.name,
+    handle: seen.handle,
+    at: brain.now,
+    // Whoever keeps the list has been told: that is who is acting on it.
+    told: true,
+    hitting: victim,
+  };
+}
+
 /** TRUE if it is short of a baton or cuffs and it is worth going for them now. */
 function wantsKit(brain: NpcBrain): boolean {
   const beat = beatOf(brain);
@@ -694,6 +748,11 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   // would have it break off again the same second.
   if (security && security.health >= HURT_BELOW) {
     beat.againAt = undefined;
+  }
+  // Healed, it can look after itself again. It was left "hurt" for the rest of the round, and stood
+  // at 87 in 100 with its baton on its belt while a monkey beat it down (PLAY-18).
+  if (security && beat.hurt && security.health >= FIT_AGAIN) {
+    beat.hurt = false;
   }
   const breaksOff =
     !!security &&
@@ -770,7 +829,14 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
     ) {
       cannot(warrant.name, 'no baton');
     }
-    if (security && !security.has_cuffs && inSight && !holds(brain, warrant)) {
+    // Its own cuffs, put on and taken off again in the cell a moment ago, are not cuffs it lacks (PLAY-20).
+    if (
+      security &&
+      !security.has_cuffs &&
+      inSight &&
+      !holds(brain, warrant) &&
+      !warrant.cuffedByMe
+    ) {
       cannot(warrant.name, 'no cuffs');
     }
     // A room they are in that it cannot get into. With someone to ask, that is said only once
@@ -854,7 +920,10 @@ export function syncBeat(brain: NpcBrain, kitToo = true): boolean {
   }
 
   const kit =
-    (kitToo || beat.warrants.length > 0 || beat.toFree.length > 0) &&
+    (kitToo ||
+      beat.warrants.length > 0 ||
+      beat.toFree.length > 0 ||
+      !!beat.attacker?.hitting) &&
     wantsKit(brain);
   keep(brain, KIT, kit, 'asked');
   // A warrant no longer in its hands is no longer work.
@@ -1354,6 +1423,18 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
     // A walk at them has already failed with them in that room: near or far, fought back or not,
     // the baton cannot reach them until someone lets it in.
     const far = (seen.distance ?? 0) > NEAR;
+    // Seen through a shut door or a window, in a room it knows is locked to it: near or not, the
+    // arrest is not called out from here as a warning to run (PLAY-17). Not through a door held for it.
+    if (
+      !warrant.shutOut &&
+      seen.place &&
+      seen.place !== brain.location &&
+      brain.blockedPlaces.includes(seen.place) &&
+      brain.doorHeldFor !== seen.place &&
+      noteShutOut(brain, warrant, seen.place)
+    ) {
+      warrant.toldAt = null;
+    }
     if (warrant.shutOut) {
       return letInStep(brain, warrant);
     }
@@ -1394,6 +1475,13 @@ function serveStep(brain: NpcBrain, warrant: BeatWarrant): Plan {
         attempt: (warrant.arrestAttempts ?? 0) + 1,
       },
       dropsWalk: true,
+    };
+  }
+  // Barely on its feet, it does not go looking for whoever put it in that state (PLAY-18).
+  if (beat.hurt && security && security.health < AGAIN_FLOOR) {
+    return {
+      ready: false,
+      step: `You are badly hurt, and do not go looking for ${name} until you are healed. The warrant stands.`,
     };
   }
   // Not in sight. Where they were last seen, if that is fresh and it has not looked there since.
@@ -1608,6 +1696,20 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
         breaksIn: true,
       };
     }
+    // Its post is where it is being hit: it does not wait there for more (PLAY-18).
+    const refuge = refugeFrom(brain);
+    if (
+      refuge &&
+      beat.struckAt !== undefined &&
+      brain.now - beat.struckAt < STILL_HIT_DS
+    ) {
+      return {
+        ready: true,
+        step: `${by} is attacking you at your post, and you cannot stop them. You are getting out of their reach, to the ${refuge}.`,
+        act: { tool: 'go_to', place: refuge },
+        breaksIn: true,
+      };
+    }
     return {
       ready: false,
       wait: true,
@@ -1628,13 +1730,13 @@ export function planBeat(brain: NpcBrain, task: Task): Plan | null {
     return seen
       ? {
           ready: true,
-          step: `${seen.name} has attacked you. There is no warrant on them, so you are stopping them with your baton and no more.`,
+          step: `${seen.name} has attacked ${attacker?.hitting ?? 'you'}. There is no warrant on them, so you are stopping them with your baton and no more.`,
           act: { tool: 'arrest', person: seen.handle, how: 'stop' },
           // Stopping an attacker breaks in on an arrest under way, as getting away does (ARR-08,
           // the owner's answer A): it is being hit while it serves the warrant.
           breaksIn: true,
         }
-      : { ready: false, step: 'Whoever attacked you has gone.' };
+      : { ready: false, step: 'The attacker has gone.' };
   }
   return null;
 }

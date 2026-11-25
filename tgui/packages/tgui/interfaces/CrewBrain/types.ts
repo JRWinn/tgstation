@@ -642,6 +642,8 @@ export type BeatWork = {
     stopped?: boolean;
     /** TRUE once whoever keeps the list has been told of the attack. */
     told?: boolean;
+    /** Whom they are attacking, if not this NPC: one of its staff (PLAY-19). */
+    hitting?: string;
   } | null;
   /** Who last laid a hand on it, and when. */
   struckBy?: string;
@@ -1762,6 +1764,8 @@ export type DoorAsk = {
   answered?: boolean;
   /** Which of the room's doors they are at, by what it is called, if they said. */
   door?: string;
+  /** The room of the department the mess they came about is in, if they said so (PLAY-16). */
+  messIn?: string;
   /** Not to be acted on before this (server time): the next door for someone who is still coming through the last. */
   after?: number;
 };

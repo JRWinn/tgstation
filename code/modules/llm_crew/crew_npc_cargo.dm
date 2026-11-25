@@ -1101,6 +1101,9 @@ GLOBAL_DATUM(crew_npc_cargo_post_room, /area/station/cargo)
 	if(!body.is_literate())
 		return
 	var/message = html_decode("[signal.data["message"]]")
+	// The game adds this to some messages by itself. Nobody typed it, and it is no part of a name (PLAY-15).
+	var/static/regex/pda_ending = regex(@" Sent from my (?:PDA|UNIX Laptop|Desktop|crystal PDA)$")
+	message = pda_ending.Replace(message, "")
 	var/sender = "[sender_name || "Someone"]"
 	// A stunned body still sees its PDA buzz. One out cold misses it, and the message sits on the PDA
 	// until it comes to and reads it (CORE-02). A dead body, or one a player has, keeps nothing.

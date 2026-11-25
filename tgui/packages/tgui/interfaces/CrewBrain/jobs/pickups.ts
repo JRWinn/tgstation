@@ -285,6 +285,8 @@ export function planPickups(brain: NpcBrain, task: Task): Plan | null {
     return {
       ready: false,
       wait: true,
+      // Whoever brings it out has to find it there: another call does not walk it off (PLAY-23).
+      asked: true,
       step: `You have asked cargo for crate #${number}, and are waiting at the counter for it to be brought out.`,
     };
   }

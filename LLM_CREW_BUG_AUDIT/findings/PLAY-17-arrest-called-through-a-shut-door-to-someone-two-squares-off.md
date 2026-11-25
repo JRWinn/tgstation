@@ -5,7 +5,8 @@ kind: bug
 severity: medium
 effort: small
 confidence: sure
-status: found
+status: fixed
+fixed_in: 06c92d97a5c
 found_by: Opus 5.5
 area: security
 files: tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1224, tgui/packages/tgui/interfaces/CrewBrain/jobs/arrests.ts:1635

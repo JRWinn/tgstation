@@ -16,6 +16,25 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-24: the faults of round-11.49.16 fixed, with PLAY-15 to PLAY-17 (branch `crew-fixes-1149`, cut from `master` at 0133f3ecf0d, commit 06c92d97a5c, merged into `master` on the owner's word, the old master tagged `pre-1149`)
+
+Round read: `data/logs/2026/11/23/round-11.49.16`, played on 0133f3ecf0d, 14 minutes, ended by the owner leaving. It is the first round with the night fixes and the owner's answers. Write-ups: PLAY-15 to PLAY-27.
+
+**Tested:** type check clean; server compile 0 errors, 0 warnings; every table passes, with a new one, `tools/llm_crew/play-1149.ts` (26 cases); lint was run and was already failing before this work, and the counts were not compared; simulator, 70 named scenarios once (69 passed) and the plain, chatty and dead runs (all passed). `outfail` failed on "ends at the post", the clock stopping on the walk back: 2 of 13 here, 1 of 12 on `master`. **Not played. No model tests. The normal build was not run.** Server changes are compile-checked only.
+
+What the crew now does:
+- **PLAY-18:** an officer that cannot stop its attacker and is hit at its own post goes to Medbay (failing that a hallway). It is hurt no longer at 70 health. Under 20 and hurt, it looks for nobody (`jobs/arrests.ts`). 70 is a guess.
+- **PLAY-19 (a rule the owner was told needed a ruling, then said to fix it all):** the Head of Security, told by its officer that someone in sight attacked it, stops them with the baton and no more; not a head of staff, not someone down (`defendStaff`).
+- **PLAY-20:** no "no cuffs" for someone it cuffed itself. **PLAY-21:** an officer answers the Captain's "Arrest X" said to nobody by name, when the Head of Security is not in sight. **PLAY-17:** no arrest called into a room known to be locked to the officer.
+- **PLAY-16:** a janitor's "about the mess in the X" lets it through another door of the department if it was called to X. **PLAY-22:** no report of a job done while a door is held. **PLAY-23:** a collector waits at the counter once it has asked. **PLAY-24:** a late "I have that" counts.
+- A technician that does not answer an order is asked again after 30 s, not 60 (`TAKEN_WAIT_DS`).
+- **PLAY-15:** "Sent from my PDA" and the like are cut off PDA messages. **PLAY-25:** no remark repeats its line. **PLAY-26:** messes under shut doors are passed over.
+- The Head of Security, told to follow someone, is told to ask where the wanted person is.
+
+**Not fixed:** PLAY-27, the Warehouse shutter button: the cause is not known; the log now says "Why not:". The baton is still drawn only after a quiet arrest fails, so a first arrest of a fighter starts empty-handed. A healed officer gets its warrants back only on "try again". Dirt under fixed machines is still tried. A janitor finds out it is locked in by failing two walks (some 10 s). Model talk at odds with the body (PLAY-11's kind: "the door stays shut" after opening it, an argument over whose order it was) is as it was.
+
+---
+
 ## 2026-11-22: the night work merged into master, round-10.31.34 read, and the owner's answers built (branch `crew-answers`, cut from `master` at adbcd127b93, in its own worktree `../tgstation-answers`; one commit per finding)
 
 **The night work merged into master.** The old master (24926833fa8) is tagged `pre-night`; `crew-bug-fixes-night` was merged as adbcd127b93. On master: server compile 0 errors, 0 warnings; type check clean; all 97 tables pass; lint no worse than at `pre-night`; the simulator suite once, 66 of 67 (only `callme`, the known PLAY-10 question 3, which the answers below unblock). Nothing failed on master that had not failed on the night branch. The night worktree was removed and every branch merged into master deleted; only `master` and the tags `pre-bug-fixes` and `pre-night` were left.

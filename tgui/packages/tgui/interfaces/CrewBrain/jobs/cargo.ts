@@ -1787,6 +1787,17 @@ function roomAskedIn(brain: NpcBrain, text: string): string | undefined {
     )[0];
 }
 
+/** The room of the department a janitor says the mess is in, in its own fixed words at a door (PLAY-16). */
+function messRoomIn(brain: NpcBrain, text: string): string | undefined {
+  const said = text
+    .match(/\babout the mess in the ([^.,!?]+)/i)?.[1]
+    ?.trim()
+    .toLowerCase();
+  return said
+    ? ownRooms(brain).find((own) => own.toLowerCase() === said)
+    : undefined;
+}
+
 /**
  * Whether someone who has asked for a door may be let through it, and which way. Out, for anyone
  * who is inside one of its rooms and cannot get out. In, only for someone the department sent for
@@ -1864,8 +1875,18 @@ function mayPass(
   if (expectedCall(post, name, brain.now, wanted)?.onOrder) {
     return { name, room: wanted, out: false, onOrder: true };
   }
-  // Sent for to a room further in, which has no way to it but through this one.
-  const beyond = boundBeyond(brain, name, wanted);
+  // Sent for to a room further in, which has no way to it but through this one. Or to another room
+  // of the department which they say in their ask is the one they came about, and are still
+  // expected in (PLAY-16).
+  const about = askFrom(brain, name)?.messIn;
+  const beyond =
+    boundBeyond(brain, name, wanted) ??
+    (about &&
+    about !== wanted &&
+    brain.areaMesses[about] &&
+    expectedCall(post, name, brain.now, about)
+      ? about
+      : undefined);
   if (!brain.areaMesses[wanted] && !beyond) {
     return null;
   }
@@ -2057,6 +2078,7 @@ function putAsk(brain: NpcBrain, ask: DoorAsk): void {
   ) {
     ask.room = before.room;
     ask.door ??= before.door;
+    ask.messIn ??= before.messIn;
     ask.byPda ||= before.byPda;
     ask.after ??= before.after;
   }
@@ -3365,7 +3387,13 @@ export const CARGO: Job = {
       saidToMe(brain, heard)
     ) {
       for (const task of brain.tasks) {
-        if (task.telling && task.toldAt !== undefined && task.state !== 'done') {
+        // Come late, after it stopped waiting on it, the answer still counts (PLAY-24).
+        if (
+          task.telling &&
+          (task.toldAt !== undefined || !!task.unheard) &&
+          !task.byPda &&
+          task.state !== 'done'
+        ) {
           task.passedOn = true;
           task.toldAt = undefined;
         }
@@ -3694,6 +3722,7 @@ export const CARGO: Job = {
         // The room they named, if they named one of the department's. Said aloud, an ask used to
         // carry no room, and was taken for the post whatever room it named.
         room: askedRoom,
+        messIn: messRoomIn(brain, heard),
         out,
         // The door they named, or failing that the door they were standing at when they said it.
         door:
@@ -3737,6 +3766,7 @@ export const CARGO: Job = {
       name: from,
       at,
       room: roomAskedIn(brain, text),
+      messIn: messRoomIn(brain, text),
       byPda: true,
       // By PDA, only the words say which way (PARSE-08).
       out: wantsOutByWords(text),

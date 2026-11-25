@@ -672,9 +672,18 @@ export const OFFICER: Job = {
       deskHears(brain, event);
       return;
     }
+    if (event.details.said_to === 'me') {
+      if (!takeSighting(brain, speaker, job, heard, true)) {
+        sendOn(brain, speaker, job, heard, true);
+      }
+      return;
+    }
+    // A warrant called out to nobody by name, with the Head of Security not there to hear it: the
+    // speaker is told who it is for, not left waiting on it (PLAY-21).
     if (
-      event.details.said_to === 'me' &&
-      !takeSighting(brain, speaker, job, heard, true)
+      /captain/i.test(job) &&
+      event.details.said_to !== 'other' &&
+      !brain.peopleInView.some((person) => isHeadOfSecurity(person.job))
     ) {
       sendOn(brain, speaker, job, heard, true);
     }

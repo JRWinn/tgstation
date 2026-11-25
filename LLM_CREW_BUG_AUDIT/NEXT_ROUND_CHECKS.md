@@ -411,3 +411,7 @@ Janitor and others:
 - CHEAT-14: an engineer's reading empty until its PDA is used; no false integrity alarm.
 - SEC-07 (round A3): say "I am in handcuffs and cannot get them off" aloud from the cuffed body; pda.log has no message from a cuffed body.
 - mixed (simulator, 1 failure in 5 on crew-answers, none in 13 on master): in a round, a technician's "Still waiting ... I will send word." should be followed by the PDA to the orderer.
+
+## From the fixes to round-11.49.16 (branch `crew-fixes-1149`)
+
+What to look for is in the last section of each of PLAY-15 to PLAY-27. First: the Head of Security using its baton for its officer (PLAY-19), a "Why not:" on a shutter line (PLAY-27), and orders still bought once only now that a silent technician is asked again after 30 seconds, not 60.

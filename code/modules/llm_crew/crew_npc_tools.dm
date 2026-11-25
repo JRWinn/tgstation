@@ -566,7 +566,7 @@
 	var/goal = walk_goal
 	// At a shutter button, or as near as it got: pressed, and on from there (KNB-01). Nothing to tell the brain yet.
 	if(tool == CREW_NPC_SHUTTER_WALK)
-		INVOKE_ASYNC(src, PROC_REF(shutter_walk_done), target)
+		INVOKE_ASYNC(src, PROC_REF(shutter_walk_done), target, succeeded ? null : (reason || "it was interrupted"))
 		return
 	var/why = reason || "you were interrupted"
 	// Stopped by a shut door the route ran through that will not open for it: it says which, and if

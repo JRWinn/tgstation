@@ -630,7 +630,8 @@ export function nextStep(brain: NpcBrain): Step | null {
   }
 
   // Whoever asked for something is told when it is done, the next time they are in view.
-  const owed = wordOwed(brain)[0];
+  // Not while a door is held open for it: that will not wait, and the word will (PLAY-22).
+  const owed = brain.doorHeld ? undefined : wordOwed(brain)[0];
   if (owed?.askedBy) {
     const what = job.describeTask?.(owed) ?? owed.kind;
     const say = `${owed.askedBy.split(' ')[0]}, ${job.sayDone?.(owed) ?? 'that is done'}.`;
