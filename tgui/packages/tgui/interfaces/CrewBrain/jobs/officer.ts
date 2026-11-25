@@ -21,7 +21,7 @@
  * All of that is code. The LLM answers people in its voice.
  */
 import { isHead } from '../hierarchy';
-import { addTask, findTask, finishTask, placeNamedIn } from '../tasks';
+import { addTask, findTask, finishTask, placeNamedIn, placeOfSighting } from '../tasks';
 import type {
   BeatWord,
   NpcBrain,
@@ -542,7 +542,7 @@ function takeSighting(
   if (!head || !SIGHTING_WORDS.test(text) || NOT_A_SIGHTING.test(text)) {
     return false;
   }
-  const place = placeNamedIn(brain, text.toLowerCase());
+  const place = placeOfSighting(brain, text.toLowerCase());
   const warrants = beatOf(brain).warrants;
   if (!place || warrants.length === 0) {
     return false;

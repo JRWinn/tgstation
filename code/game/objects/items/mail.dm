@@ -524,7 +524,7 @@
 	var/list/mail_recipients_for_input = list("Anyone")
 	var/list/used_names = list()
 	for(var/datum/record/locked/person in sort_record(GLOB.manifest.locked))
-		var/datum/mind/locked_mind = person.mind_ref.resolve()
+		var/datum/mind/locked_mind = person.mind_ref?.resolve()
 		if(isnull(locked_mind))
 			continue
 		mail_recipients += locked_mind

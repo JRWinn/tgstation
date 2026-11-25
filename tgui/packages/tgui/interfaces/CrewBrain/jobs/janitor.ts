@@ -477,6 +477,39 @@ function putDownTool(brain: NpcBrain): { item: string; place: string } | undefin
     ?.find((note) => PROPER_SUPPLY.test(note.item));
 }
 
+/** What each janitor held when last looked at, and where it was. */
+const heldNotes = new WeakMap<NpcBrain, { items: string[]; place: string }>();
+
+/** The steps that put things out of its hands on purpose, or use them up. */
+const LETS_GO =
+  /^(?:put_down|put_away|stow|give|tidy|pick_up|collect_crate|take_back|clean|search|throw)/;
+
+/**
+ * Notes a tool it held a moment ago and no longer does, with both hands empty and nothing of its own
+ * doing to account for it: it slipped, and lost what it held. It goes back for it, as for what it
+ * put down. A janitor slipped twice, left its space cleaner lying, and had a second crate bought.
+ */
+function noteLost(brain: NpcBrain): void {
+  const before = heldNotes.get(brain);
+  const tool = brain.lastAct?.act.tool ?? '';
+  if (
+    before &&
+    before.items.length > 0 &&
+    brain.holding.length === 0 &&
+    !LETS_GO.test(tool)
+  ) {
+    for (const item of before.items) {
+      if (
+        PROPER_SUPPLY.test(item) &&
+        !putDown(brain).some((note) => note.item === item)
+      ) {
+        putDown(brain).push({ item, place: brain.location });
+      }
+    }
+  }
+  heldNotes.set(brain, { items: [...brain.holding], place: brain.location });
+}
+
 /**
  * Forgets what it put down once it holds it again, or has stood a few seconds in that room
  * without seeing it: someone has taken it.
@@ -902,6 +935,7 @@ function syncTasks(brain: NpcBrain): void {
     task.blockedWith = beyondIt ? brain.cleaningTool : undefined;
   }
 
+  noteLost(brain);
   mindPutDown(brain);
   // Getting something to clean with is on its list for as long as it is short of it. With only a
   // rag it still cleans what a rag will shift, and gets something better when it can.

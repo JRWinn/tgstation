@@ -613,6 +613,32 @@ export function stillIn(brain: NpcBrain, place: string): boolean {
 const SET_ASIDE = /\b(not|forget|leave|instead of|from)\b/;
 
 /**
+ * The room meant by where someone is said to be, by the start of its name if not all of it: "Hazel
+ * is in Cargo" is the Cargo Bay. Of several, the bay before any other, and then the shortest name.
+ * The words must be in lower case.
+ */
+export function placeOfSighting(
+  brain: NpcBrain,
+  heard: string,
+): string | undefined {
+  const whole = placeNamedIn(brain, heard);
+  if (whole) {
+    return whole;
+  }
+  const start = heard.match(/\b(?:in|at|near|by)\s+(?:the\s+)?([a-z]{3,})\b/)?.[1];
+  return start
+    ? allPlaces(brain)
+        .filter((place) => place.toLowerCase().split(/[^a-z]+/)[0] === start)
+        .sort(
+          (a, b) =>
+            Number(/ bay$/i.test(b)) - Number(/ bay$/i.test(a)) ||
+            a.length - b.length ||
+            a.localeCompare(b),
+        )[0]
+    : undefined;
+}
+
+/**
  * The room the NPC knows that these words name, if they name one. The words must be in lower case.
  *
  * Of two rooms named, the one meant is the first that is not set aside (MEM-04): "Check the Bar,

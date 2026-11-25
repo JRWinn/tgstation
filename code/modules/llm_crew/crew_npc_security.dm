@@ -1200,7 +1200,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		swings++
 		var/charge_before = baton.cell?.charge
 		// The strike gap is a sleep: called off in it, the swing is not counted as missed.
-		var/swung = click_as_body(person, null, CREW_NPC_STRIKE_GAP)
+		// Knocked out of its hand in the gap, the click would be an empty hand's: helping them up.
+		var/swung = click_as_body(person, null, CREW_NPC_STRIKE_GAP, CALLBACK(src, PROC_REF(still_in_hand), baton))
+		if(swung == CREW_NPC_CLICK_NOT_NEEDED)
+			baton_stopped = knocked_down_itself() ? CREW_NPC_KNOCKED_DOWN : "its baton was not in its hand"
+			break
 		if(errand_over(serial))
 			if(swung && !QDELETED(baton) && baton.cell?.charge < charge_before)
 				landed++
@@ -1223,6 +1227,11 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 		baton_stopped = "its baton did nothing when it touched them"
 		sleep(0.5 SECONDS)
 	return landed
+
+/// TRUE while this is what the body's active hand holds. Asked just before a click that is meant to be made with it.
+/datum/ai_controller/crew_npc/proc/still_in_hand(obj/item/thing)
+	var/mob/living/carbon/human/body = pawn
+	return !QDELETED(body) && !QDELETED(thing) && body.get_active_held_item() == thing
 
 /// Switches the baton off in the hand and puts it back in the bag, both by a click.
 /datum/ai_controller/crew_npc/proc/put_baton_away(obj/item/melee/baton/security/baton)
@@ -1256,8 +1265,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 			return FALSE
 		if(!close_with(person, CREW_NPC_CHASE_STEPS, serial) || !hand_to(cuffs))
 			return FALSE
-		var/clicked = click_as_body(person, null, CREW_NPC_STRIKE_GAP)
-		if(errand_over(serial))
+		// Knocked out of its hand in the gap, the click would be an empty hand's: helping them up.
+		var/clicked = click_as_body(person, null, CREW_NPC_STRIKE_GAP, CALLBACK(src, PROC_REF(still_in_hand), cuffs))
+		if(errand_over(serial) || clicked == CREW_NPC_CLICK_NOT_NEEDED)
 			return FALSE
 		if(clicked)
 			var/waited = 0
@@ -2047,6 +2057,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 				// from the last hand on its arm, not the start of the arrest: in the cell the officer lets
 				// go and takes the cuffs off before it steps out and starts the timer, most often well
 				// over the grace after the arrest began, and the prisoner was told it was free to go.
+				// Whoever is arresting it stands at its side, putting the cuffs on: it has not been left.
+				if(!QDELETED(by) && by.Adjacent(body) && length(by.do_afters))
+					held_at = world.time
 				held = world.time - held_at < CREW_NPC_ARREST_GRACE
 		if(CREW_CUSTODY_CELL)
 			var/obj/machinery/status_display/door_timer/timer = custody_timer?.resolve()
@@ -2152,6 +2165,9 @@ GLOBAL_VAR_INIT(crew_npc_brig_cells_found, FALSE)
 	if(world.time < in_hand_until && in_hand_of == puller.name)
 		return
 	if(in_custody() && arrested_by?.resolve() == puller)
+		return
+	// The Captain or a head of staff taking it by the arm is moving it along, not attacking it.
+	if(ishuman(puller) && crew_npc_is_command(puller))
 		return
 	tell_struck(puller, "grab")
 

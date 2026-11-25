@@ -102,7 +102,9 @@ export function askedLately(brain: NpcBrain, name: string): boolean {
 export function whoToAskForTheDoor(brain: NpcBrain): string | null {
   const people = brain.peopleInView.filter(
     (person) =>
-      !askedLately(brain, person.name) && !isWarrantOn(brain, person.name),
+      !askedLately(brain, person.name) &&
+      !person.cuffed &&
+      !isWarrantOn(brain, person.name),
   );
   if (people.length === 0) {
     return null;
@@ -111,7 +113,11 @@ export function whoToAskForTheDoor(brain: NpcBrain): string | null {
   if (brain.letInBy && people.some((person) => person.name === brain.letInBy)) {
     return brain.letInBy;
   }
-  return people[0].name;
+  // Then those whose own ID it knows opens the door, before anyone else who happens to be there.
+  return (
+    people.find((person) => brain.doorKeepers.includes(person.name)) ??
+    people[0]
+  ).name;
 }
 
 /**

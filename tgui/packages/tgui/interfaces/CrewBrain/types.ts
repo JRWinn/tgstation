@@ -470,7 +470,7 @@ export type DeskWork = {
   /** Who is in a cell, which, and when their time is up; the officer who put them there (MULTI-01) and when (TRB-06). */
   held: Record<
     string,
-    { cell: string; until: number; by?: string; at?: number }
+    { cell: string; until: number; by?: string; at?: number; outSince?: number }
   >;
   /** Why its officer is making no arrests, if it is not: "hurt". Null while it is. */
   officerOut: string | null;
@@ -551,6 +551,10 @@ export type BeatWarrant = {
   tries: number;
   /** TRUE once they would not stand still for the cuffs, or hit back: the baton comes first. */
   force: boolean;
+  /** TRUE once the cuffs alone have failed on them, they having not stood still for them. */
+  quietFailed?: boolean;
+  /** The room, not the brig, that it last found no way out of with them by the arm. */
+  noWayFrom?: string;
   /** TRUE if they fought back. It adds to their time. */
   resisted: boolean;
   /** Left alone until then, after three tries that came to nothing. */
@@ -649,7 +653,10 @@ export type BeatWork = {
   struckBy?: string;
   struckAt?: number;
   /** Who it has put in a cell: which, when their time is up, and whether they still wear its cuffs. */
-  jailed: Record<string, { cell: string; until: number; cuffsLeft: boolean }>;
+  jailed: Record<
+    string,
+    { cell: string; until: number; cuffsLeft: boolean; outSince?: number }
+  >;
   /**
    * Who it has been told to let go: pardoned, or their time served waiting in the brig with no
    * cell (ARR-04), or stuck in cuffs that nobody of security has them in (SEC-07).
@@ -1758,6 +1765,8 @@ export type DoorAsk = {
   out?: boolean;
   /** TRUE if they asked by PDA, so that the answer goes back the same way. */
   byPda?: boolean;
+  /** TRUE if it was asked by name, to its face. */
+  toMe?: boolean;
   /** TRUE once they have been told no. */
   refused?: boolean;
   /** TRUE once they have been told, by PDA, that it is coming to the door for them. */
