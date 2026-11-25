@@ -525,7 +525,16 @@ export type ForcingWork = {
   /** For security: when it last asked engineering to open each room. */
   asked: Record<string, number>;
   /** For whoever forces doors: each door it has been sent to, by whom, and how many goes it has had. */
-  jobs: { room: string; by: string; tries: number }[];
+  jobs: {
+    /** The room, or for a door a head ordered, the room and the door: "Cargo Bay (Cargo Lobby)". */
+    room: string;
+    by: string;
+    tries: number;
+    /** For a door a head ordered: that very door, in the words the server knows it by. */
+    exact?: { place: string; door: string };
+  }[];
+  /** For the Chief Engineer: when it last told each head that it cannot tell which door they mean. */
+  whichAt?: Record<string, number>;
   /** For the Chief Engineer: each door it has sent an engineer to, and who asked for it. */
   sent: { room: string; to: string; askedBy: string; at: number }[];
   /** For the Chief Engineer: when it told whoever asked that nobody from engineering had said a room in `sent` was open, by room. */
@@ -1543,6 +1552,8 @@ export type NpcBrain = {
   }[];
   /** Doors forced for security: what it has asked for, been sent to, or sent someone to. See jobs/forcing.ts. */
   forcing?: ForcingWork;
+  /** For engineering: the door the sender of the PDA message now being read stood at, or null. */
+  senderDoor?: { room: string; door: string } | null;
   /** For a head: the staff meeting it is holding, and how far it has got: see jobs/head.ts. */
   meeting: {
     calledAt: number;

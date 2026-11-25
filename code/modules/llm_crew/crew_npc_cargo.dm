@@ -1117,6 +1117,8 @@ GLOBAL_DATUM(crew_npc_cargo_post_room, /area/station/cargo)
 		"speaker" = sender,
 		"job" = "[sender_job]",
 		"message" = message,
+		// For engineering, the door the sender stands at. A cheat the owner asked for (2026-11-25).
+		"near_door" = works_in_engineering() ? crew_npc_note_sender_door(signal) : null,
 	))
 
 #undef CREW_NPC_SUPPLY_LANDED_WAIT

@@ -688,6 +688,15 @@ export function ingest(npcs: Npc[], now: number): void {
         const from = String(event.details.speaker ?? '');
         const text = String(event.details.message ?? '');
         const theirJob = String(event.details.job ?? '');
+        // For engineering: the door the sender stood at, if any (jobs/forcing.ts).
+        const near = event.details.near_door as
+          | { room?: unknown; door?: unknown }
+          | null
+          | undefined;
+        brain.senderDoor =
+          near && typeof near.room === 'string' && typeof near.door === 'string'
+            ? { room: near.room, door: near.door }
+            : null;
         // A call to a staff meeting from its head is read the same by everyone. Anything else
         // means what it means to whoever's PDA it is.
         // So is being sent by its head to collect a crate from cargo.

@@ -68,7 +68,7 @@
 			tool_work_machine(arguments["machine"], arguments["how"])
 		if(CREW_TOOL_FORCE_DOOR)
 			// Choosing which door to make for means testing routes, which takes time.
-			INVOKE_ASYNC(src, PROC_REF(tool_force_door), arguments["place"], arguments["door"])
+			INVOKE_ASYNC(src, PROC_REF(tool_force_door), arguments["place"], arguments["door"], !!arguments["ordered"])
 		if(CREW_TOOL_GET_KIT)
 			tool_get_kit()
 		if(CREW_TOOL_ARREST)

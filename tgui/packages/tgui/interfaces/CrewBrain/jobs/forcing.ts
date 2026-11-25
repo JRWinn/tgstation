@@ -10,6 +10,10 @@
  *
  * - With no Chief Engineer aboard, security asks an engineer itself. With no engineer aboard,
  *   the Chief Engineer does it. With neither, nobody is asked.
+ * - The Captain and any head of department can have a door forced as well, by a PDA message to the
+ *   Chief Engineer in their own words ("bust open this door"). It is the door they stand at as they
+ *   send it, whatever room they name: the server says which, a cheat the owner asked for. It goes
+ *   down to an engineer, and word of it comes back up, in the same way.
  * - A door that is bolted or welded is not opened this way. The engineer says so, and the
  *   Captain is told.
  * - The door is left standing open, so that the officer can get back out with its prisoner.
@@ -34,6 +38,7 @@ import {
   isChiefEngineer,
   isEngineer,
 } from './engineering';
+import { isHead } from '../hierarchy';
 import { captainName } from './head';
 import { addressOf, firstName, isSecurity } from './security';
 
@@ -75,7 +80,39 @@ export function forceOrderLine(to: string, room: string): string {
   return `${to}, security needs the door of the ${room} opened. Go and open it, please.`;
 }
 const ORDER_WORDS =
-  /\bsecurity needs the door of the (.+?) opened\. Go and open it\b/i;
+  /\bneeds the door of the (.+?) opened\. Go and open it\b/i;
+
+/** The Chief Engineer to the engineer it sends to the door a head stood at. `who` is the head. */
+export function headOrderLine(to: string, who: string, room: string): string {
+  return `${to}, ${who} needs the door of the ${room} opened. Go and open it, please.`;
+}
+/** A door a head ordered, as it is named in these lines: "Cargo Bay (Cargo Lobby)". */
+const EXACT_DOOR = /^(.+) \(([^()]+)\)$/;
+
+/** What a head says for "open it by force", with or without the word door. */
+const FORCE_VERBS =
+  /\b(?:forc(?:e|ed|ing)|bust(?:ed|ing)?|break(?:ing)?|pry(?:ing)?|prise|crow ?bar|jimmy|smash|hack(?:ed)?|bash)\b/i;
+/** Milder words, that mean it only of a door. */
+const OPEN_VERBS =
+  /\b(?:open(?:ed)?|unlock(?:ed)?|unjam|get (?:me|us) (?:in|through|out|into|inside)|let (?:me|us) (?:in|through|out))\b/i;
+const DOOR_NOUNS = /\b(?:doors?|dor|doro|airlocks?|hatch)\b/i;
+const FORCE_ON =
+  /\b(?:open|opne|into|in|down|through|out|inside)\b/i;
+/** A door spoken of, not ordered: called off, done, or said of someone else. */
+const NOT_FORCE =
+  /\b(?:don't|dont|do not|never mind|nevermind|cancel|no need|stop|who|why|did|thanks|thank you|have you|has been|is open|is already open|is being)\b/i;
+
+/** TRUE if this is a head's order, in their own words, to have a door forced. */
+export function asksForced(text: string): boolean {
+  if (NOT_FORCE.test(text)) {
+    return false;
+  }
+  const door = DOOR_NOUNS.test(text);
+  return (
+    (FORCE_VERBS.test(text) && (door || FORCE_ON.test(text))) ||
+    (OPEN_VERBS.test(text) && door)
+  );
+}
 
 /** The Chief Engineer to security, so that security knows someone is coming. */
 export function forceSentLine(to: string, engineer: string, room: string): string {
@@ -209,6 +246,69 @@ export function askEngineering(
 
 // ---- everyone: reading the lines
 
+/** How long (deciseconds) before a head is asked again to stand at the door they mean. */
+const WHICH_AGAIN_DS = 100;
+
+/**
+ * Sends an engineer to a door someone has asked for and tells whoever asked who is coming, or with
+ * no engineer to send goes itself. Already with an engineer and not yet given up on, it is not sent
+ * again, nor whoever asked told twice. A door with its name after its room is one a head stood at.
+ */
+function sendToDoor(
+  brain: NpcBrain,
+  from: string,
+  fromJob: string,
+  room: string,
+  engineer: string | undefined,
+): void {
+  const forcing = forcingOf(brain);
+  const byHead = EXACT_DOOR.test(room);
+  const to = addressOf(from, fromJob);
+  if (
+    forcing.sent.some((it) => it.room === room) &&
+    forcing.sentGivenUp?.[room] === undefined
+  ) {
+    return;
+  }
+  if (engineer) {
+    // It is given to an engineer, and whoever asked is told who is coming.
+    forcing.sent = forcing.sent.filter((it) => it.room !== room);
+    if (forcing.sentGivenUp) {
+      delete forcing.sentGivenUp[room];
+    }
+    forcing.sent.push({ room, to: engineer, askedBy: from, at: brain.now });
+    send(
+      brain,
+      engineer,
+      byHead
+        ? headOrderLine(
+            firstName(engineer),
+            to === 'Captain' ? 'the Captain' : from,
+            room,
+          )
+        : forceOrderLine(firstName(engineer), room),
+      `${from} has asked for the door of the ${room} to be forced. You are giving it to ${engineer}.`,
+    );
+    send(
+      brain,
+      from,
+      forceSentLine(to, engineer, room),
+      `You are telling ${from} that ${engineer} is on the way to the ${room}.`,
+    );
+    return;
+  }
+  // No engineer to send, or it is the engineer: it goes itself.
+  if (byHead && !forcing.jobs.some((job) => job.room === room)) {
+    send(
+      brain,
+      from,
+      `${to}, I am coming to open the door of the ${room}.`,
+      `${from} has ordered the door of the ${room} forced. You are going yourself, and telling them so.`,
+    );
+  }
+  takeJob(brain, room, from);
+}
+
 /**
  * Takes a PDA message that is part of getting a door forced, whoever this NPC is: security
  * hearing how it went, the Chief Engineer being asked or hearing from its engineer, an engineer
@@ -239,35 +339,36 @@ export function forcingReads(
       ? (engineerToOrder(brain) ?? undefined)
       : undefined;
     // Already with an engineer and not yet given up on: it is not sent again, nor security told twice.
-    if (
-      forcing.sent.some((it) => it.room === room) &&
-      forcing.sentGivenUp?.[room] === undefined
-    ) {
+    sendToDoor(brain, from, fromJob, room, engineer);
+    return true;
+  }
+  // The Captain or a head of department ordering a door forced, in their own words.
+  if (
+    engineering &&
+    isHead(fromJob) &&
+    !isChiefEngineer(fromJob) &&
+    (isChiefEngineer(brain.job) || !chiefAboard(brain)) &&
+    asksForced(text)
+  ) {
+    const door = brain.senderDoor;
+    if (!door) {
+      forcing.whichAt ??= {};
+      const last = forcing.whichAt[from];
+      if (last === undefined || brain.now - last >= WHICH_AGAIN_DS) {
+        forcing.whichAt[from] = brain.now;
+        send(
+          brain,
+          from,
+          `${addressOf(from, fromJob)}, I cannot tell which door you mean. Stand next to it and send me that again, please.`,
+          `${from} has ordered a door forced, and is standing at none. You are asking them to stand at it.`,
+        );
+      }
       return true;
     }
-    if (engineer) {
-      // It is given to an engineer, and security is told who is coming.
-      forcing.sent = forcing.sent.filter((it) => it.room !== room);
-      if (forcing.sentGivenUp) {
-        delete forcing.sentGivenUp[room];
-      }
-      forcing.sent.push({ room, to: engineer, askedBy: from, at: brain.now });
-      send(
-        brain,
-        engineer,
-        forceOrderLine(firstName(engineer), room),
-        `${from} of security has asked for the door of the ${room} to be forced. You are giving it to ${engineer}.`,
-      );
-      send(
-        brain,
-        from,
-        forceSentLine(firstName(from), engineer, room),
-        `You are telling ${from} that ${engineer} is on the way to the ${room}.`,
-      );
-    } else {
-      // No engineer to send, or it is the engineer: it goes itself.
-      takeJob(brain, room, from);
-    }
+    const engineer = isChiefEngineer(brain.job)
+      ? (engineerToOrder(brain) ?? undefined)
+      : undefined;
+    sendToDoor(brain, from, fromJob, `${door.room} (${door.door})`, engineer);
     return true;
   }
   // Engineering telling security who is coming. There is nothing to do about it but know it,
@@ -303,13 +404,14 @@ export function forcingReads(
       delete forcing.sentGivenUp[room];
     }
     if (sent && !toldNot) {
+      const asker = addressOf(sent.askedBy, jobOf(brain, sent.askedBy));
       send(
         brain,
         sent.askedBy,
         done
-          ? forceDoneLine(firstName(sent.askedBy), room)
-          : forceFailedLine(firstName(sent.askedBy), room, failed?.[2] ?? ''),
-        `${from} has ${done ? 'opened' : 'not been able to open'} the door of the ${room}. You are telling ${sent.askedBy} of security, who asked.`,
+          ? forceDoneLine(asker, room)
+          : forceFailedLine(asker, room, failed?.[2] ?? ''),
+        `${from} has ${done ? 'opened' : 'not been able to open'} the door of the ${room}. You are telling ${sent.askedBy}, who asked.`,
       );
     }
     return true;
@@ -353,7 +455,13 @@ export function forcingReads(
 function takeJob(brain: NpcBrain, room: string, by: string): void {
   const forcing = forcingOf(brain);
   if (!forcing.jobs.some((job) => job.room === room)) {
-    forcing.jobs.push({ room, by, tries: 0 });
+    const exact = room.match(EXACT_DOOR);
+    forcing.jobs.push({
+      room,
+      by,
+      tries: 0,
+      ...(exact ? { exact: { place: exact[1], door: exact[2] } } : {}),
+    });
   }
 }
 
@@ -373,8 +481,12 @@ function checkSent(brain: NpcBrain, forcing: ForcingWork): void {
       send(
         brain,
         it.askedBy,
-        forceFailedLine(firstName(it.askedBy), it.room, NO_WORD_BACK),
-        `You sent ${it.to} to open the door of the ${it.room} and have heard nothing back. You are telling ${it.askedBy} of security, who asked.`,
+        forceFailedLine(
+          addressOf(it.askedBy, jobOf(brain, it.askedBy)),
+          it.room,
+          NO_WORD_BACK,
+        ),
+        `You sent ${it.to} to open the door of the ${it.room} and have heard nothing back. You are telling ${it.askedBy}, who asked.`,
       );
     }
   }
@@ -426,9 +538,16 @@ export function planForcing(brain: NpcBrain, task: Task): Plan | null {
   }
   return {
     ready: true,
-    step: `Security needs the door of the ${job.room} opened, and nobody whose ID opens it has. You are going to it to open its panel, take its power away and pry it open with your crowbar.`,
+    step: `${job.exact ? `${job.by} has sent you to open the door of the ${job.room}.` : `Security needs the door of the ${job.room} opened, and nobody whose ID opens it has.`} You are going to it to open its panel, take its power away and pry it open with your crowbar.`,
     // Numbered, so that a second go is made at once and not held back as a step that keeps failing.
-    act: { tool: 'force_door', place: job.room, attempt: job.tries + 1 },
+    act: job.exact
+      ? {
+          tool: 'force_door',
+          ...job.exact,
+          ordered: true,
+          attempt: job.tries + 1,
+        }
+      : { tool: 'force_door', place: job.room, attempt: job.tries + 1 },
   };
 }
 
@@ -447,7 +566,13 @@ export function forcingAfterActing(
     return;
   }
   const forcing = forcingOf(brain);
-  const job = forcing.jobs.find((it) => it.room === act.place);
+  const job = forcing.jobs.find((it) =>
+    it.exact
+      ? !!act.ordered &&
+        it.exact.place === act.place &&
+        it.exact.door === act.door
+      : !act.ordered && it.room === act.place,
+  );
   if (!job) {
     return;
   }
@@ -499,6 +624,6 @@ export function forcingAfterActing(
 export function forcingCues(brain: NpcBrain): string[] {
   return (brain.forcing?.jobs ?? []).map(
     (job) =>
-      `${job.by} has sent you to force the door of the ${job.room} for security. Your body sees to it.`,
+      `${job.by} has sent you to force the door of the ${job.room}${job.exact ? '' : ' for security'}. Your body sees to it.`,
   );
 }

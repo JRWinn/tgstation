@@ -16,6 +16,22 @@ This is the running record of what has changed in the LLM crew NPC work, newest 
 
 ---
 
+## 2026-11-25: any head can have a door forced (branch `crew-force-door`, cut from `master` at 475bd3e077f, in the worktree `../tgstation-0110`, merged into `master` on the owner's word, the old master tagged `pre-force-door`)
+
+The owner asked for it: any head of department, any room, the door they stand next to when they send the message, with a cheat allowed for knowing which.
+
+**Tested:** type check clean; server compile 0 errors, 0 warnings; every table passes, with a new one, `tools/llm_crew/forcing-heads.ts` (37 cases); simulator, 65 named scenarios once and the plain, chatty and dead runs. Two failures: `pardoncell` failed once and then passed 8 of 8 (master 8 of 8; cause not found, and this code does not touch it); the chatty run failed "nobody sets off within two seconds of speaking" 2 in 9 here and 2 in 8 on `master`, from fix 8 of the entry below, which walks through a held door without waiting after a line (the check in `sim.ts` was not changed). Lint was not run. **Not played. No model tests. The normal build was not run.** The server side (finding the door, going to that very door) is compile-checked only; the simulator has no scenario for it.
+
+What the crew now does:
+- The Captain or any head sends the Chief Engineer a PDA message in their own words ("bust open this door", "force", "break", "pry"; `asksForced` in `jobs/forcing.ts`). It is the door they stand at as they send it, whatever room they name. The Chief Engineer sends an engineer, tells them who is coming, and passes back how it went. With no engineer it goes itself; with no Chief Engineer an engineer takes the order. At no door, they are asked to stand at it and send it again.
+- The door is named "Cargo Bay (Cargo Lobby)" in these lines: the room on its far side from the sender, then the door.
+- **The cheat** (the owner's word): `crew_npc_note_sender_door` in `crew_npc_forcing.dm` looks at where the sender stands when engineering gets any PDA message. The facing door first, then the nearest within a step; not doors to space.
+- `force_asked_door` goes to that very door, from either side, and takes no other in its place. The forcing itself is as it was: panel, power, crowbar, no ID.
+
+**Known:** the engineer still does not force a room in between, and bolted or welded doors still are not opened. A head may have any door forced, the Armory's and the Captain's own included: nothing asks whether they should. Security's own asks on a warrant are as they were. DOOR-14's question (other crew, a door with no power) is still open. A message read late, after being out cold, has no door with it.
+
+---
+
 ## 2026-11-25: the faults of round-01.10.24 (branch `crew-fixes-0110`, cut from `master` at b386bfe37bb, in its own worktree `../tgstation-0110`, merged into `master` on the owner's word, the old master tagged `pre-0110`)
 
 Round read: `data/logs/2026/11/25/round-01.10.24`, played on b386bfe37bb, read while it ran, to about 01:34:46. The numbers are those of the report given to the owner; no findings were written up in `LLM_CREW_BUG_AUDIT`.
